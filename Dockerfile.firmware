@@ -1,0 +1,121 @@
+# Firmware stages: rp (RP2040 + RP2350 cross-compile) and esp32 (ESP32-S3
+# build + flash). Each project's docker-compose.yaml picks one via `target:`.
+# Host-Python apps live in Dockerfile.host; pytest lives in Dockerfile.tests.
+
+ARG MICROPYTHON_REF=v1.28.0
+
+
+# -----------------------------------------------------------------------------
+# Stage: rp — RP2040 + RP2350 cross-compile. Concatenates both firmware.uf2 into
+# one universal /outputs/app.rp2040.rp2350.uf2 (each bootloader skips foreign
+# UF2 family blocks).
+# -----------------------------------------------------------------------------
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS rp
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3 \
+    python3-pip \
+    cmake \
+    gcc-arm-none-eabi \
+    binutils-arm-none-eabi \
+    libnewlib-arm-none-eabi \
+    libnewlib-dev \
+    libstdc++-arm-none-eabi-newlib \
+    libstdc++-arm-none-eabi-dev \
+    libffi-dev \
+    pkg-config \
+    wget \
+    unzip \
+    git \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /outputs
+WORKDIR /app
+
+ARG MICROPYTHON_REF
+RUN git clone --depth 1 --branch ${MICROPYTHON_REF} \
+      https://github.com/micropython/micropython.git
+
+WORKDIR /app/micropython
+RUN make -C mpy-cross -j$(nproc)
+
+# RP-port submodules only — no ESP-IDF or Xtensa toolchain in this image.
+RUN make -C ports/rp2 BOARD=RPI_PICO submodules \
+ && make -C ports/rp2 BOARD=RPI_PICO2_W submodules
+
+ENV PICO_SDK_PATH=/app/micropython/lib/pico-sdk
+WORKDIR /app/micropython/ports/rp2
+
+# Freeze manifest — read by makemanifest.py at cmake time; walks the
+# bind-mounted /firmware-packages and /firmware.
+COPY manifest.py /manifest.py
+
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
+  bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
+  for B in RPI_PICO RPI_PICO2_W; do \
+    cmake -S . -B /build-cache/$B \
+      -DPICO_SDK_PATH=${PICO_SDK_PATH} \
+      -DUPDATE_SUBMODULES=OFF \
+      -DPICO_BUILD_DOCS=0 \
+      -DMICROPY_BOARD=$B \
+      -DMICROPY_BOARD_DIR=$(pwd)/boards/$B \
+      -DMICROPY_FROZEN_MANIFEST=/manifest.py; \
+    cmake --build /build-cache/$B -- -j$(nproc); \
+  done; \
+  cat /build-cache/RPI_PICO/firmware.uf2 /build-cache/RPI_PICO2_W/firmware.uf2 \
+    > /outputs/app.rp2040.rp2350.uf2; \
+  echo '/outputs/app.rp2040.rp2350.uf2 ready'"]
+
+
+# -----------------------------------------------------------------------------
+# Stage: esp32 — ESP32-S3-Zero (FH4R2) build + flash to /dev/ttyACM0.
+# Uses stock ESP32_GENERIC_S3 — *not* SPIRAM_OCT, which assumes external Octal
+# PSRAM and is wrong for the FH4R2's embedded Quad PSRAM.
+# -----------------------------------------------------------------------------
+FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# espressif/idf already ships python/git/build-essential/cmake; no ARM cross-compiler.
+
+RUN mkdir -p /outputs
+WORKDIR /app
+
+ARG MICROPYTHON_REF
+RUN git clone --depth 1 --branch ${MICROPYTHON_REF} \
+      https://github.com/micropython/micropython.git
+
+WORKDIR /app/micropython
+RUN make -C mpy-cross -j$(nproc)
+
+# IDF_PATH_FORCE=1 — the espressif/idf base image marks IDF_PATH read-only.
+RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
+ && make -C ports/esp32 submodules
+
+COPY manifest.py /manifest.py
+
+# Build + flash. Don't pass BUILD=... — it propagates into the recursive
+# mpy-cross sub-make and corrupts qstrdefs.generated.h (multi-byte hashes
+# truncated → -Werror=overflow). The default in-tree build dir is fine.
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
+  bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
+  if [ ! -e /dev/ttyACM0 ]; then \
+    echo 'ERROR: /dev/ttyACM0 not found.' >&2; \
+    echo 'Plug in the ESP32-S3 in bootloader mode (hold BOOT, tap RESET).' >&2; \
+    exit 1; \
+  fi; \
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  make -C ports/esp32 \
+    BOARD=ESP32_GENERIC_S3 \
+    FROZEN_MANIFEST=/manifest.py \
+    -j$(nproc); \
+  cp ports/esp32/build-ESP32_GENERIC_S3/firmware.bin /outputs/app.esp32-s3.bin; \
+  echo '/outputs/app.esp32-s3.bin ready'; \
+  esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash -z 0x0 \
+    /outputs/app.esp32-s3.bin"]

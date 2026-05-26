@@ -1,0 +1,16 @@
+---
+# Hadolint configuration
+# Error-level findings will block commits. Failure threshold is set in .githooks/pre-commit
+override:
+  error:
+    # Use COPY instead of ADD
+    - DL3020
+    # Use --no-cache with apk add (cache cleanup for Alpine)
+    - DL3019
+    # Pin versions in apk add (for Alpine-based images)
+    - DL3018
+  warning:
+    # Pin versions in apt-get install
+    - DL3008
+    # Delete apt lists after install (clean up cache)
+    - DL3009

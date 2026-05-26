@@ -1,0 +1,85 @@
+---
+# CI for PRs targeting main and pushes to main.
+#
+# Three parallel jobs, all Docker-driven (matches the repo's "Docker is the
+# only required host tool" policy — no host pip/apt/brew installs):
+#   - lint:           ruff format/check, vulture, hadolint, yamllint via the
+#                     same Dockerfile.linters stages the pre-commit hook uses,
+#                     but over the whole repo instead of staged files.
+#   - test:           full pytest suite with the 90% coverage gate, via the
+#                     root docker-compose pytest service.
+#   - build-firmware: per-project RP2040+RP2350 universal-UF2 compile via the
+#                     project compose's `compile` service. ESP32-S3 is skipped
+#                     — its ENTRYPOINT requires /dev/ttyACM0 and a board in
+#                     bootloader mode.
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run linters (shared with pre-commit)
+        # The hook and CI converge on .githooks/run-linters.sh — single
+        # source of truth for ruff/vulture/hadolint/yamllint commands and
+        # for the linter-image build guards. Pre-commit's file selection
+        # is `git diff --cached`; CI's is all tracked files.
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            git ls-files '*.py' '*.yml' '*.yaml'
+            git ls-files \
+              | grep -E '(^|/)(Dockerfile(\.[^/]+)?|.*\.[dD]ockerfile)$' || true
+          )
+          ./.githooks/run-linters.sh "${files[@]}"
+
+  test:
+    name: Pytest (full suite + 90% coverage gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run pytest
+        # --exit-code-from is required so a failing pytest container makes
+        # `compose up` exit non-zero (plain `up` swallows the failure).
+        run: docker compose up pytest --build --exit-code-from pytest
+
+  build-firmware:
+    name: Build RP firmware (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - distance-stream
+          - gyro-stream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile RP2040 + RP2350 universal UF2
+        working-directory: projects/${{ matrix.project }}
+        run: docker compose up --build --exit-code-from compile compile
+
+      - name: Verify UF2 was produced
+        working-directory: projects/${{ matrix.project }}
+        run: test -s outputs/app.rp2040.rp2350.uf2

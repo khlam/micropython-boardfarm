@@ -1,0 +1,19 @@
+---
+# Yamllint configuration
+extends: default
+rules:
+  # Allow longer lines, warn instead of error
+  line-length:
+    max: 120
+    allow-non-breakable-words: true
+    level: warning
+
+  # Many project YAMLs don't require '---' at top
+  document-start: disable
+
+  # Disable truthy rule to allow common values like 'yes/no' in CI
+  truthy: disable
+
+  # Keep indentation strict but default
+  indentation:
+    indent-sequences: consistent
