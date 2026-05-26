@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VL53L0X — Live</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --dim: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .err-msg { font-size: 12px; color: #fca5a5; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+      margin-bottom: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .readout {
+      display: flex; align-items: baseline; gap: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .readout-value {
+      font-size: 64px; font-weight: 300; line-height: 1.1;
+      color: var(--text);
+    }
+    .readout-value.oor { color: var(--muted); font-size: 32px; }
+    .readout-unit { font-size: 20px; color: var(--muted); }
+    .readout-value.oor + .readout-unit { display: none; }
+    .log {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px; line-height: 1.45;
+      max-height: 260px; overflow-y: auto;
+      background: #0b0e14; border: 1px solid var(--border); border-radius: 4px;
+      padding: 8px 10px;
+    }
+    .log-row { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
+    .log-time { color: var(--dim); flex-shrink: 0; }
+    .log-tag {
+      flex-shrink: 0; font-weight: 500;
+      padding: 0 6px; border-radius: 3px; align-self: flex-start;
+    }
+    .log-tag.info     { background: #1e3a5f; color: #93c5fd; }
+    .log-tag.ok       { background: #14532d; color: #86efac; }
+    .log-tag.warn     { background: #78350f; color: #fcd34d; }
+    .log-tag.err      { background: #7f1d1d; color: #fca5a5; }
+    .log-tag.evt      { background: #2a2a3a; color: #c4b5fd; }
+    .log-msg { color: var(--text); }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>VL53L0X — Live Distance</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Rate: <b id="rate">—</b></span>
+    <span class="stat">Samples: <b id="count">0</b></span>
+    <span id="err" class="err-msg"></span>
+  </div>
+
+  <div class="panel">
+    <h2>Current Distance</h2>
+    <div class="readout">
+      <span class="readout-value" id="distance">—</span>
+      <span class="readout-unit">mm</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Distance (mm)</h2>
+    <div id="plot-distance" style="height: 360px;"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Log</h2>
+    <div id="log" class="log"></div>
+  </div>
+
+  <script>
+  (function () {
+    const MAX_POINTS = 1500;       // ~30 s at 50 Hz
+    const RECONNECT_MS = 250;
+    const LOG_MAX = 200;
+
+    const $ = (id) => document.getElementById(id);
+
+    const logEl = () => $("log");
+    const DIAG_TAGS = {
+      scan: "info",
+      tof_ok: "ok",
+      no_device: "warn",
+      init_err: "err",
+      read_err: "err",
+    };
+
+    function timestamp() {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+    }
+
+    function logLine(tag, klass, msg) {
+      const el = logEl();
+      const atBottom = el.scrollHeight - el.clientHeight - el.scrollTop < 24;
+      const row = document.createElement("div");
+      row.className = "log-row";
+      row.innerHTML =
+        `<span class="log-time">${timestamp()}</span>` +
+        `<span class="log-tag ${klass}">${tag}</span>` +
+        `<span class="log-msg"></span>`;
+      row.lastChild.textContent = msg;
+      el.appendChild(row);
+      while (el.childElementCount > LOG_MAX) el.removeChild(el.firstChild);
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    }
+
+    function logDiag(obj) {
+      const kind = obj.diag;
+      const klass = DIAG_TAGS[kind] || "info";
+      const { diag, ...rest } = obj;
+      const body = Object.keys(rest).length ? JSON.stringify(rest) : "";
+      logLine(kind, klass, body);
+    }
+
+    const PANEL_BG = "#131722";
+    const AXIS_COLOR = "#a1a1aa";
+    const GRID_COLOR = "#1f2937";
+    const config = { displayModeBar: false, responsive: true };
+
+    const layout = {
+      paper_bgcolor: PANEL_BG,
+      plot_bgcolor: PANEL_BG,
+      font: { color: AXIS_COLOR, size: 11 },
+      margin: { l: 60, r: 10, t: 6, b: 32 },
+      xaxis: {
+        title: "t (s)", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+      },
+      yaxis: {
+        title: "mm", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        rangemode: "tozero",
+      },
+      showlegend: false,
+    };
+    const traces = [{
+      x: [], y: [], mode: "lines", name: "distance",
+      line: { color: "#3b82f6", width: 1.5 },
+      hovertemplate: "%{y} mm<extra></extra>",
+    }];
+    Plotly.newPlot("plot-distance", traces, layout, config);
+
+    let t0 = null;
+    let totalCount = 0;
+    let rateCount = 0;
+    let rateAt = performance.now();
+    let pending = { t: [], d: [] };
+    let frameScheduled = false;
+    let lastDistance = null;
+
+    function flushPending() {
+      if (pending.t.length === 0) return;
+      Plotly.extendTraces("plot-distance", {
+        x: [pending.t],
+        y: [pending.d],
+      }, [0], MAX_POINTS);
+      pending = { t: [], d: [] };
+      const el = $("distance");
+      if (lastDistance === null) {
+        el.textContent = "Out of range";
+        el.classList.add("oor");
+      } else if (lastDistance !== undefined) {
+        el.textContent = lastDistance;
+        el.classList.remove("oor");
+      }
+    }
+
+    function scheduleFrame() {
+      if (frameScheduled) return;
+      frameScheduled = true;
+      requestAnimationFrame(() => {
+        frameScheduled = false;
+        flushPending();
+      });
+    }
+
+    function setStatus(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        setStatus(true, obj.port, null);
+        logLine("connected", "evt", obj.port || "");
+        // Firmware may have rebooted — restart our relative-time origin.
+        t0 = null;
+        return;
+      }
+      if (obj.event === "disconnected") {
+        setStatus(false, obj.port, obj.error);
+        logLine("disconnected", "evt", obj.error || "");
+        return;
+      }
+      if (obj.diag !== undefined) {
+        logDiag(obj);
+        return;
+      }
+      if (!("distance_mm" in obj)) return;
+
+      if (t0 === null || obj.t < t0) t0 = obj.t;
+      const tRel = (obj.t - t0) / 1000;
+
+      // null distance = out-of-range; pushing null leaves a gap in the chart.
+      pending.t.push(tRel);
+      pending.d.push(obj.distance_mm);
+      lastDistance = obj.distance_mm;
+
+      totalCount++;
+      rateCount++;
+      $("count").textContent = totalCount;
+
+      const now = performance.now();
+      const dt = now - rateAt;
+      if (dt >= 1000) {
+        $("rate").textContent = (rateCount * 1000 / dt).toFixed(1) + " Hz";
+        rateCount = 0;
+        rateAt = now;
+      }
+
+      scheduleFrame();
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose will fire and reconnect */ };
+    }
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
