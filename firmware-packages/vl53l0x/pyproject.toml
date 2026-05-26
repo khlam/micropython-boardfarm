@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vl53l0x"
+version = "0.1.0"
+description = "MicroPython wrapper around the vendored VL53L0X time-of-flight driver."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vl53l0x"]

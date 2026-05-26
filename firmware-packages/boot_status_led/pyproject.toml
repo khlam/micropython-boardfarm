@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "boot_status_led"
+version = "0.1.0"
+description = "Chip-dispatched boot/error status LED state machine."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["boot_status_led"]

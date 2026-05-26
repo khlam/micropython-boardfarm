@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "i2c_bus"
+version = "0.1.0"
+description = "Chip-dispatched lazy I2C bus accessors for RP2040/RP2350/ESP32-S3."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["i2c_bus"]
