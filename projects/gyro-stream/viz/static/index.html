@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MPU6050 — Live</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --dim: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .err-msg { font-size: 12px; color: #fca5a5; }
+    .row {
+      display: grid; grid-template-columns: 2fr 1fr; gap: 16px;
+      margin-bottom: 16px; align-items: stretch;
+    }
+    @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .metric {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px;
+    }
+    .metric-label { font-size: 12px; color: var(--muted); }
+    .metric-value {
+      font-size: 24px; font-weight: 500; margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .caption { font-size: 12px; color: var(--dim); margin-top: 12px; line-height: 1.5; }
+    .stack > .panel + .panel { margin-top: 12px; }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>MPU6050 — Live Telemetry</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Rate: <b id="rate">—</b></span>
+    <span class="stat">Samples: <b id="count">0</b></span>
+    <span id="err" class="err-msg"></span>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Orientation (3D)</h2>
+      <div id="plot3d" style="height: 420px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Tilt</h2>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Roll</div>
+          <div class="metric-value" id="roll">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Pitch</div>
+          <div class="metric-value" id="pitch">—</div>
+        </div>
+      </div>
+      <div class="caption">
+        Yaw is unobservable from the accelerometer alone. The dashed line is
+        the gravity vector in the device frame; the colored axes are the
+        device's X/Y/Z rendered in the world frame.
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <h2>Accelerometer (g)</h2>
+      <div id="plot-accel" style="height: 240px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Gyroscope (°/s)</h2>
+      <div id="plot-gyro" style="height: 240px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Temperature (°C)</h2>
+      <div id="plot-temp" style="height: 200px;"></div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const MAX_POINTS = 1500;       // ~15 s at 100 Hz
+    const EMA_ALPHA = 0.18;        // accel smoothing for the 3D plot
+    const RECONNECT_MS = 250;
+
+    const $ = (id) => document.getElementById(id);
+
+    const PANEL_BG = "#131722";
+    const AXIS_COLOR = "#a1a1aa";
+    const GRID_COLOR = "#1f2937";
+    const config = { displayModeBar: false, responsive: true };
+
+    function lineLayout(yTitle) {
+      return {
+        paper_bgcolor: PANEL_BG,
+        plot_bgcolor: PANEL_BG,
+        font: { color: AXIS_COLOR, size: 11 },
+        margin: { l: 50, r: 10, t: 6, b: 32 },
+        xaxis: {
+          title: "t (s)", gridcolor: GRID_COLOR,
+          zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        },
+        yaxis: {
+          title: yTitle, gridcolor: GRID_COLOR,
+          zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        },
+        legend: { orientation: "h", y: 1.12, x: 0 },
+      };
+    }
+
+    function makeLineChart(elId, names, colors, yTitle) {
+      const traces = names.map((name, i) => ({
+        x: [], y: [], mode: "lines", name,
+        line: { color: colors[i], width: 1.5 },
+        hovertemplate: "%{y:.3f}<extra>" + name + "</extra>",
+      }));
+      Plotly.newPlot(elId, traces, lineLayout(yTitle), config);
+    }
+
+    makeLineChart("plot-accel", ["ax", "ay", "az"], ["#ef4444", "#22c55e", "#3b82f6"], "g");
+    makeLineChart("plot-gyro",  ["gx", "gy", "gz"], ["#ef4444", "#22c55e", "#3b82f6"], "°/s");
+    makeLineChart("plot-temp",  ["T"],              ["#f59e0b"],                       "°C");
+
+    const labelFont = { size: 14, family: "system-ui, sans-serif" };
+    const orientTraces = [
+      { type: "scatter3d", mode: "lines+markers+text", name: "X",
+        x: [0, 1], y: [0, 0], z: [0, 0],
+        text: ["", "X"], textposition: "top center",
+        textfont: { ...labelFont, color: "#ef4444" },
+        line: { color: "#ef4444", width: 8 },
+        marker: { size: [0, 5], color: "#ef4444" },
+        showlegend: false, hoverinfo: "skip" },
+      { type: "scatter3d", mode: "lines+markers+text", name: "Y",
+        x: [0, 0], y: [0, 1], z: [0, 0],
+        text: ["", "Y"], textposition: "top center",
+        textfont: { ...labelFont, color: "#22c55e" },
+        line: { color: "#22c55e", width: 8 },
+        marker: { size: [0, 5], color: "#22c55e" },
+        showlegend: false, hoverinfo: "skip" },
+      { type: "scatter3d", mode: "lines+markers+text", name: "Z",
+        x: [0, 0], y: [0, 0], z: [0, 1],
+        text: ["", "Z"], textposition: "top center",
+        textfont: { ...labelFont, color: "#3b82f6" },
+        line: { color: "#3b82f6", width: 8 },
+        marker: { size: [0, 5], color: "#3b82f6" },
+        showlegend: false, hoverinfo: "skip" },
+      { type: "scatter3d", mode: "lines", name: "g",
+        x: [0, 0], y: [0, 0], z: [0, 1],
+        line: { color: "rgba(200,200,200,0.5)", width: 3, dash: "dash" } },
+    ];
+    const orientLayout = {
+      paper_bgcolor: PANEL_BG, plot_bgcolor: PANEL_BG,
+      font: { color: AXIS_COLOR, size: 11 },
+      margin: { l: 0, r: 0, t: 0, b: 0 },
+      legend: { orientation: "h", y: 0, x: 0.5, xanchor: "center" },
+      scene: {
+        xaxis: { range: [-1.2, 1.2], title: "X", gridcolor: GRID_COLOR,
+                 zerolinecolor: "#374151", backgroundcolor: PANEL_BG, color: AXIS_COLOR },
+        yaxis: { range: [-1.2, 1.2], title: "Y", gridcolor: GRID_COLOR,
+                 zerolinecolor: "#374151", backgroundcolor: PANEL_BG, color: AXIS_COLOR },
+        zaxis: { range: [-1.2, 1.2], title: "Z", gridcolor: GRID_COLOR,
+                 zerolinecolor: "#374151", backgroundcolor: PANEL_BG, color: AXIS_COLOR },
+        aspectmode: "cube",
+        camera: { eye: { x: 1.6, y: 1.6, z: 1.2 } },
+      },
+      // Preserve user's manual rotation across redraws.
+      uirevision: "orient",
+    };
+    Plotly.newPlot("plot3d", orientTraces, orientLayout, config);
+
+    let t0 = null;
+    let totalCount = 0;
+    let rateCount = 0;
+    let rateAt = performance.now();
+    let pending = newPending();
+    let emaAx = 0, emaAy = 0, emaAz = 1;
+    let emaInit = false;
+    let frameScheduled = false;
+
+    function newPending() {
+      return { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [], T: [] };
+    }
+
+    function flushPending() {
+      if (pending.t.length === 0) return;
+      const ts = pending.t;
+      Plotly.extendTraces("plot-accel", {
+        x: [ts.slice(), ts.slice(), ts.slice()],
+        y: [pending.ax, pending.ay, pending.az],
+      }, [0, 1, 2], MAX_POINTS);
+      Plotly.extendTraces("plot-gyro", {
+        x: [ts.slice(), ts.slice(), ts.slice()],
+        y: [pending.gx, pending.gy, pending.gz],
+      }, [0, 1, 2], MAX_POINTS);
+      Plotly.extendTraces("plot-temp", {
+        x: [ts],
+        y: [pending.T],
+      }, [0], MAX_POINTS);
+      pending = newPending();
+    }
+
+    function update3d() {
+      const norm = Math.sqrt(emaAx * emaAx + emaAy * emaAy + emaAz * emaAz) || 1;
+      const nx = emaAx / norm, ny = emaAy / norm, nz = emaAz / norm;
+      const roll  = Math.atan2(ny, nz);
+      const pitch = Math.atan2(-nx, Math.sqrt(ny * ny + nz * nz));
+      const cr = Math.cos(roll),  sr = Math.sin(roll);
+      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      // R = Rx(roll) @ Ry(pitch); columns are device-frame axes in world coords.
+      const dx = [cp,        sr * sp,  -cr * sp];
+      const dy = [0,         cr,        sr     ];
+      const dz = [sp,       -sr * cp,   cr * cp];
+      Plotly.restyle("plot3d", {
+        x: [[0, dx[0]], [0, dy[0]], [0, dz[0]], [0, nx]],
+        y: [[0, dx[1]], [0, dy[1]], [0, dz[1]], [0, ny]],
+        z: [[0, dx[2]], [0, dy[2]], [0, dz[2]], [0, nz]],
+      }, [0, 1, 2, 3]);
+      $("roll").textContent  = (roll  * 180 / Math.PI).toFixed(1) + "°";
+      $("pitch").textContent = (pitch * 180 / Math.PI).toFixed(1) + "°";
+    }
+
+    function scheduleFrame() {
+      if (frameScheduled) return;
+      frameScheduled = true;
+      requestAnimationFrame(() => {
+        frameScheduled = false;
+        flushPending();
+        update3d();
+      });
+    }
+
+    function setStatus(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        setStatus(true, obj.port, null);
+        // Firmware may have rebooted — restart our relative-time origin.
+        t0 = null;
+        return;
+      }
+      if (obj.event === "disconnected") {
+        setStatus(false, obj.port, obj.error);
+        // Board may re-enumerate with a fresh ticks_ms() — reset the origin
+        // so the next sample starts the relative time scale over.
+        t0 = null;
+        return;
+      }
+      if (obj.diag !== undefined) return;
+      if (obj.ax === undefined) return;
+
+      if (t0 === null || obj.t < t0) t0 = obj.t;
+      const tRel = (obj.t - t0) / 1000;
+
+      pending.t.push(tRel);
+      pending.ax.push(obj.ax); pending.ay.push(obj.ay); pending.az.push(obj.az);
+      pending.gx.push(obj.gx); pending.gy.push(obj.gy); pending.gz.push(obj.gz);
+      pending.T.push(obj.T);
+
+      if (!emaInit) {
+        emaAx = obj.ax; emaAy = obj.ay; emaAz = obj.az;
+        emaInit = true;
+      } else {
+        emaAx = emaAx * (1 - EMA_ALPHA) + obj.ax * EMA_ALPHA;
+        emaAy = emaAy * (1 - EMA_ALPHA) + obj.ay * EMA_ALPHA;
+        emaAz = emaAz * (1 - EMA_ALPHA) + obj.az * EMA_ALPHA;
+      }
+
+      totalCount++;
+      rateCount++;
+      $("count").textContent = totalCount;
+
+      const now = performance.now();
+      const dt = now - rateAt;
+      if (dt >= 1000) {
+        $("rate").textContent = (rateCount * 1000 / dt).toFixed(1) + " Hz";
+        rateCount = 0;
+        rateAt = now;
+      }
+
+      scheduleFrame();
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose will fire and reconnect */ };
+    }
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
