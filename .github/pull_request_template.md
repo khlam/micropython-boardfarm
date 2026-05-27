@@ -1,22 +1,17 @@
 ## Overview
-*1 - 3 sentences describing the PR*
+*1–3 sentences describing the PR*
 
-## What's new
-
+## What’s New
 *Describe what has been newly added to the codebase in this PR. If nothing, leave blank.*
 
-## What's changed
+## What Has Changed
+*Describe what functionality or formatting has changed (this is distinct from fixes). If nothing, leave blank.*
 
-*Describe what functionality/formatting has changed (this is distinct from fixed). If nothing, leave blank.*
-
-## What's fixed
-
+## What’s Fixed
 *Describe bugs that have been fixed in this PR. If nothing, leave blank.*
 
 ## Testing
+*Link to tests that have been added or updated to cover the changes.*
 
-*Link to tests that have been added or updated to cover changes.*
-
-## Additional information
-
+## Additional Information
 *Anything else? Add it or link it here.*
