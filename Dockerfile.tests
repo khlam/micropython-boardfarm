@@ -1,7 +1,4 @@
-# Host CPython pytest runner. Each workspace member is installed editable.
-# --rootdir=/ unifies bind-mounted test dirs under one rootdir;
-# --import-mode=importlib avoids basename collisions between the two
-# test_emit_schema.py files (distance-stream + gyro-stream).
+# Host CPython pytest and typecheck stages.
 
 FROM ghcr.io/astral-sh/uv:0.11.2 AS uv-bin
 
@@ -12,8 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
 COPY --from=uv-bin /uv /usr/local/bin/uv
 WORKDIR /work
 
-# Each workspace member's pyproject + source must be present for `uv sync` to
-# install editable. --frozen makes any drift from uv.lock fail the build.
+# Copy workspace dependency files so uv can install them as editable packages.
 COPY pyproject.toml uv.lock ./
 COPY cpython-packages/serial_over_web/pyproject.toml ./cpython-packages/serial_over_web/pyproject.toml
 COPY cpython-packages/serial_over_web/serial_over_web ./cpython-packages/serial_over_web/serial_over_web
@@ -31,10 +27,8 @@ COPY .githooks/check_project_compat.sh /check_project_compat.sh
 RUN uv sync --frozen --no-dev --no-install-project --group test
 ENV PATH=/work/.venv/bin:${PATH}
 
-# Preflight: each project's micropython-boardfarm>=… floor must be satisfied
-# by root. The 90% coverage gate only fires for the default CMD (full suite);
-# targeted runs get --cov-fail-under=0. Keep the if-comparison string in sync
-# with CMD below.
+# Full-suite runs enforce coverage; targeted runs do not.
+# TODO: Simplify/make readable
 ENTRYPOINT ["sh", "-c", \
   "bash /check_project_compat.sh /work/pyproject.toml /projects/*/pyproject.toml && \
    if [ \"$*\" = '/firmware-packages /projects /cpython-packages/serial_over_web/tests' ]; \
@@ -46,5 +40,10 @@ ENTRYPOINT ["sh", "-c", \
                 --cov-config=/work/pyproject.toml $COV_GATE \"$@\"", \
   "--"]
 CMD ["/firmware-packages", "/projects", "/cpython-packages/serial_over_web/tests"]
-# Trailing `"--"` in ENTRYPOINT is sh's $0 placeholder; CMD/run-args become
-# $1.. so `"$@"` forwards cleanly to pytest.
+
+
+# ty over the workspace.
+FROM pytest AS typecheck
+ENV VIRTUAL_ENV=/work/.venv
+ENTRYPOINT ["sh", "-c", "exec ty check --output-format concise \"$@\"", "--"]
+CMD []

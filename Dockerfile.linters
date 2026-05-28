@@ -1,38 +1,42 @@
-# Dedicated Dockerfile for linters used in local git precommit and CI/CD.
-# No TypeScript/ESLint stages: this repo is Python (MicroPython firmware +
-# host viz/tests) plus Dockerfiles and YAML.
-
 FROM ghcr.io/astral-sh/uv:0.8.15@sha256:a5727064a0de127bdb7c9d3c1383f3a9ac307d9f2d8a391edc7896c54289ced0 AS uv
 
-# Ruff linter/formatter for Python
-FROM ghcr.io/astral-sh/ruff:0.12.12@sha256:b23038588fb44f1adecd647dd19480e1861085eef790e1b0f3e30a6a89568033 AS ruff-lint
+# Tool versions come from pyproject.toml + uv.lock.
+FROM python:3.13-slim@sha256:b04b5d7233d2ad9c379e22ea8927cd1378cd15c60d4ef876c065b25ea8fb3bf3 AS python-lint-base
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/boardfarm-lint
+COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /work
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --only-group lint
+ENV PATH=/opt/boardfarm-lint/bin:${PATH}
 
-# Hadolint for Dockerfile
+FROM python-lint-base AS ruff-lint
+ENTRYPOINT ["ruff"]
+
 FROM hadolint/hadolint:v2.13.1@sha256:1fd499f411a9ff121fda3207af1c8d32e2a92648c19fb1847553c5b79ca4c281 AS hadolint-lint
 WORKDIR /work
 ENTRYPOINT ["hadolint"]
 
-# Yamllint for YAML linting
-FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS yamllint-lint
-ENV UV_LINK_MODE=copy
-COPY --from=uv /uv /usr/local/bin/uv
-RUN uv pip install --system "yamllint==1.37.1"
-WORKDIR /work
+FROM python-lint-base AS yamllint-lint
 ENTRYPOINT ["yamllint"]
 
-# Yamlfix (formatter) for YAML files
-FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS yamlfix-fmt
-ENV UV_LINK_MODE=copy
-COPY --from=uv /uv /usr/local/bin/uv
-RUN uv pip install --system "yamlfix==1.18.0"
-WORKDIR /work
+FROM python-lint-base AS yamlfix-fmt
 ENTRYPOINT ["yamlfix"]
 
-# Vulture for dead code detection
-FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS vulture-lint
-ENV UV_LINK_MODE=copy
-COPY --from=uv /uv /usr/local/bin/uv
-RUN uv pip install --system "vulture==2.14"
-WORKDIR /work
+FROM python-lint-base AS vulture-lint
 ENTRYPOINT ["vulture"]
+
+FROM python-lint-base AS pydoclint-lint
+ENTRYPOINT ["pydoclint"]
+
+FROM python-lint-base AS uv-secure
+ENTRYPOINT ["sh", "-c", "\
+  lock=\"${1:-uv.lock}\"; \
+  out=\"$(uv-secure --no-check-uv-tool --no-check-uv-secure \"$lock\" 2>&1 || true)\"; \
+  echo \"$out\"; \
+  if echo \"$out\" | awk -F '│' 'NF > 1 {fix=$5; gsub(/[[:space:]]/, \"\", fix); if (fix != \"\") found=1} END{exit found ? 0 : 1}'; then \
+    echo '[uv-secure] At least one vulnerable dependency has a fixed release.'; \
+    exit 1; \
+  else \
+    echo '[uv-secure] Scan completed without fixable vulnerability rows.'; \
+  fi", "--"]

@@ -62,6 +62,13 @@ docker compose run --rm pytest /firmware-packages/mpu6050/tests -k who_am_i  # f
 ```
 Tests live in one consolidated service at the repo root (`docker-compose.yaml`), not per-project. Any positional args override the default target set (`/firmware-packages /projects /cpython-packages/serial_over_web/tests`) — no implicit merging. The `up … --exit-code-from pytest` form is required so a failing test makes the command exit non-zero; plain `up` silently swallows the failure.
 
+### Type-check + lint (from the repo root)
+```
+docker compose run --rm --build typecheck                  # ty over the workspace ([tool.ty.src])
+./.githooks/run-linters.sh $(git ls-files '*.py')          # ruff/vulture/pydoclint/ty (same as pre-commit + CI)
+```
+`ty` runs in the `typecheck` stage (reuses the pytest venv so `micropython_stubs` + members resolve). Per-path rule tuning lives in `[[tool.ty.overrides]]` — MCU firmware/drivers and tests relax the rules that can't be soundly checked against host stubs; host code stays strict. pydoclint config (`[tool.pydoclint]`) is typeless-Google to match the repo's docstrings.
+
 ### Python deps / locks (from the repo root)
 - `docker compose run --rm uv lock` (when editing `pyproject.toml` / `uv.lock`)
 
@@ -146,8 +153,12 @@ Standard Python ordering, no exceptions (firmware, drivers, tools, tests): modul
 | Viz backend | `projects/<project>/viz/app.py` | Serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/index.html` | Plotly line chart + numeric readout |
 | Firmware build | `Dockerfile.firmware` | Stages: `rp`, `esp32` |
-| Host tests | `Dockerfile.tests` | Stage: `pytest` |
+| Host tests | `Dockerfile.tests` | Stages: `pytest`, `typecheck` (ty) |
+| Linters | `Dockerfile.linters` | Stages: `ruff-lint`, `vulture-lint`, `pydoclint-lint`, `hadolint-lint`, `yamllint-lint`, `yamlfix-fmt`, `uv-secure` |
+| Lint runner | `.githooks/run-linters.sh` | ruff/vulture/pydoclint/ty/hadolint/yamllint; shared by pre-commit + CI |
+| Version-bump gate | `.githooks/check_version_bumps.sh` | Staged mode (pre-commit) + `--base <ref>` mode (CI, diff vs main) |
 | Host runtime | `Dockerfile.host` | Stages: `viz`, `uv-runner` |
+| CI | `.github/workflows/ci.yml` | `version-check` gates all jobs; lint, pytest, build-firmware, vuln-check |
 | Project compose | `projects/<project>/docker-compose.yaml` | `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/app.rp2040.rp2350.uf2` | Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/app.esp32-s3.bin` | ESP-IDF `.bin`, flashed by `esp32` service |

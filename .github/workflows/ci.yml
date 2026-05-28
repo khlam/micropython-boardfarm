@@ -1,17 +1,5 @@
 ---
-# CI for PRs targeting main and pushes to main.
-#
-# Three parallel jobs, all Docker-driven (matches the repo's "Docker is the
-# only required host tool" policy — no host pip/apt/brew installs):
-#   - lint:           ruff format/check, vulture, hadolint, yamllint via the
-#                     same Dockerfile.linters stages the pre-commit hook uses,
-#                     but over the whole repo instead of staged files.
-#   - test:           full pytest suite with the 90% coverage gate, via the
-#                     root docker-compose pytest service.
-#   - build-firmware: per-project RP2040+RP2350 universal-UF2 compile via the
-#                     project compose's `compile` service. ESP32-S3 is skipped
-#                     — its ENTRYPOINT requires /dev/ttyACM0 and a board in
-#                     bootloader mode.
+# Docker-only CI for lint, tests, firmware compiles, and dependency scan.
 name: CI
 
 on:
@@ -30,18 +18,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version-check:
+    name: Version bump gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce version bumps vs main
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          ./.githooks/check_version_bumps.sh --base origin/main
+
   lint:
     name: Lint
+    needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run linters (shared with pre-commit)
-        # The hook and CI converge on .githooks/run-linters.sh — single
-        # source of truth for ruff/vulture/hadolint/yamllint commands and
-        # for the linter-image build guards. Pre-commit's file selection
-        # is `git diff --cached`; CI's is all tracked files.
         run: |
           set -euo pipefail
           mapfile -t files < <(
@@ -53,18 +53,18 @@ jobs:
 
   test:
     name: Pytest (full suite + 90% coverage gate)
+    needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run pytest
-        # --exit-code-from is required so a failing pytest container makes
-        # `compose up` exit non-zero (plain `up` swallows the failure).
         run: docker compose up pytest --build --exit-code-from pytest
 
   build-firmware:
     name: Build RP firmware (${{ matrix.project }})
+    needs: version-check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,3 +83,17 @@ jobs:
       - name: Verify UF2 was produced
         working-directory: projects/${{ matrix.project }}
         run: test -s outputs/app.rp2040.rp2350.uf2
+
+  vuln-check:
+    name: Dependency vulnerability scan
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build uv-secure image
+        run: docker build --target uv-secure -t local/uv-secure -f Dockerfile.linters .
+
+      - name: Scan uv.lock (fail only on actionable fixes)
+        run: docker run --rm -v "$PWD":/work -w /work local/uv-secure

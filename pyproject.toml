@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,7 +22,6 @@ pythonpath = [
     "/firmware-packages/vl53l0x/tests",
 ]
 
-# Host packages live as uv workspace members.
 [tool.uv.workspace]
 members = [
     "cpython-packages/serial_over_web",
@@ -33,7 +32,6 @@ members = [
     "firmware-packages/vl53l0x",
 ]
 
-# Resolves dependency-group names to local workspace members instead of PyPI.
 [tool.uv.sources]
 serial_over_web = { workspace = true }
 micropython_stubs = { workspace = true }
@@ -42,13 +40,25 @@ i2c_bus = { workspace = true }
 mpu6050 = { workspace = true }
 vl53l0x = { workspace = true }
 
-# Installed by `uv sync --group` in viz (Dockerfile.host) and pytest (Dockerfile.tests); test extends viz so pins stay identical.
 [dependency-groups]
 viz = [
     "serial_over_web",
 ]
+typecheck = [
+    "ty>=0.0.21",
+]
+lint = [
+    {include-group = "typecheck"},
+    "ruff>=0.12.12",
+    "yamllint>=1.37.1",
+    "yamlfix>=1.18.0",
+    "vulture>=2.14",
+    "pydoclint>=0.8.3",
+    "uv-secure>=0.5.0",
+]
 test = [
     {include-group = "viz"},
+    {include-group = "typecheck"},
     "micropython_stubs",
     "boot_status_led",
     "i2c_bus",
@@ -59,7 +69,7 @@ test = [
     "httpx>=0.27.2",
 ]
 
-# Paths reflect the pytest container's mount layout (workspace members editable at /work, project firmware bind-mounted read-only at /projects).
+# Container mount paths.
 [tool.coverage.run]
 branch = true
 source = [
@@ -81,6 +91,59 @@ omit = [
 show_missing = true
 skip_covered = false
 fail_under = 90
+
+[tool.pydoclint]
+style = "google"
+allow-init-docstring = true
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
+exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|manifest\.py'
+
+[tool.ty.src]
+include = [
+  "firmware-packages",
+  "cpython-packages",
+  "projects",
+]
+exclude = [
+  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
+  "manifest.py",
+  "**/outputs/**",
+]
+
+# MicroPython APIs are partially stubbed and many firmware APIs are
+# dynamically generated at runtime by board ports / firmware builds.
+[[tool.ty.overrides]]
+include = ["projects/*/firmware/**", "firmware-packages/*/*"]
+rules = {
+  "unresolved-import" = "ignore",
+  "unresolved-attribute" = "ignore",
+  "invalid-argument-type" = "ignore",
+  "invalid-argument-count" = "ignore",
+  "invalid-assignment" = "ignore",
+  "invalid-return-type" = "ignore",
+  "attribute-assignment" = "ignore",
+  "invalid-base-class" = "ignore",
+  "unsupported-operation" = "ignore",
+}
+
+[[tool.ty.overrides]]
+include = ["**/tests/**"]
+rules = {
+  "invalid-argument-type" = "ignore",
+  "invalid-assignment" = "ignore",
+  "unresolved-attribute" = "ignore",
+  "unresolved-import" = "ignore",
+}
+
+[[tool.ty.overrides]]
+include = ["cpython-packages/micropython_stubs/**"]
+rules = {
+  "unresolved-attribute" = "ignore",
+  "unresolved-import" = "ignore",
+  "invalid-return-type" = "ignore",
+}
 
 [tool.yamlfix]
 sequence_style = "block_style"
@@ -140,48 +203,30 @@ select = [
   "RUF",      # ruff-specific
 ]
 ignore = [
-  # `*args` / `**kwargs` / `Any` are acceptable.
   "ANN002", "ANN003", "ANN401",
-  # Allow empty non-abstract methods on ABCs.
   "B027",
-  # Conflicts with ruff format.
   "ISC001",
-  # Allow boolean positional values in calls like dict.get(..., True).
   "FBT003",
-  # Force exception messages into named vars / templated strings — too noisy
-  # for firmware where raising with a literal string is the common case.
   "TRY003", "EM101", "EM102",
-  # Local name before `return` often documents intent (e.g. `result = ...; return result`).
   "RET504",
-  # AGENTS.md mandates try/except inside the sensor.read() loop — PERF203
-  # would flag exactly that pattern.
   "PERF203",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Allows T201 (emit() is the sole print() site) and INP001 (firmware/ dirs are flat-frozen by manifest.py — no __init__.py).
+# Firmware is flat-frozen; emit() owns print output.
 "projects/*/firmware/*" = ["T201", "INP001"]
 "**/{tests}/*" = [
   "PLR2004", "S101", "TID252",
   "PLC2701", "D100", "D103", "ANN201", "ANN202",
-  # boot_status_led / i2c_bus tests re-import their packages mid-test after
-  # the `chip` fixture swaps os.uname(), so import-time dispatch reruns.
   "PLC0415",
-  # pytest fixtures routinely accept un-annotated request/monkeypatch and
-  # ignore them (or use them implicitly via auto-application).
   "ANN001", "ARG001", "ARG002",
-  # `exec()` in test_emit_schema imports the module-level helper without
-  # running main()'s ranging loop.
   "S102",
-  # Tests legitimately poke at `_private` internals to assert state.
   "SLF001",
-  # Pytest convention: test dirs have no __init__.py so each is independent.
   "INP001",
 ]
 extend-unsafe-fixes = ["E", "F401"]
 fixable = ["ALL"]
-# Auto-deletion of `print()` calls or commented-out code is too aggressive
-# for `ruff check --fix` — surface the violation, let a human decide.
+# Keep print/comment deletion manual.
 unfixable = ["T201", "T203", "ERA001"]
 
 [tool.ruff.lint.flake8-builtins]
