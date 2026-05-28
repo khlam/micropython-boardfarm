@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Require a version bump when code/config changes inside a versioned scope.
 # Modes: staged index vs HEAD, or --base <ref> for CI.
-
+# todo: refactor and make this readable and much smaller
 set -euo pipefail
 
 mode="staged"
