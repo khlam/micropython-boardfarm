@@ -13,9 +13,9 @@ Run project commands from inside a project directory.
   viz/static/index.html       per-project dashboard (HTML/JS, served by
                               the shared serial_over_web FastAPI server)
   tests/                      host pytest for the project's emit() schema
-  outputs/                    build artifacts (app.rp2040.rp2350.uf2, app.esp32-s3.bin)
-  docker-compose.yaml         compile / esp32 / viz services
-  README.md                   build, flash, dashboard, wiring
+  outputs/                    compiled firmware artifacts (app.rp2040.rp2350.uf2, app.esp32-s3.bin)
+  docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
+  README.md                   compile, flash, dashboard, wiring
 ```
 
 ## Projects
@@ -30,10 +30,10 @@ From `projects/<project>/`:
 
 | Task | Command |
 |---|---|
-| Build firmware (RP2040 + RP2350 → single universal UF2) | `docker compose up --build compile` |
-| Build + flash ESP32-S3 (board must be in bootloader mode) | `docker compose run --rm --build esp32` |
+| Compile firmware (RP2040 + RP2350 → single universal UF2) | `docker compose up --build pi-compile` |
+| Compile + flash ESP32-S3 (board must be in bootloader mode) | `docker compose up --build --exit-code-from esp32-flash esp32-flash` |
 | Run dashboard at http://localhost:18501 | `docker compose up --build viz` |
-| Drop build caches for this project | `docker compose down -v` |
+| Drop compile caches for this project | `docker compose down -v` |
 
 Tests run from the **repo root** (one consolidated service for every project, package, and the dashboard):
 ```

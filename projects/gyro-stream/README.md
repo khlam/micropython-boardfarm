@@ -11,28 +11,28 @@ gyro-stream/
   firmware/main.py            chip-agnostic streaming loop, calls emit()
   viz/static/index.html       Plotly multi-trace + 3D orientation view
   tests/                      host pytest for the emit() schema
-  outputs/                    build artifacts (UF2 + ESP32 bin)
-  docker-compose.yaml         compile / esp32 / viz services
+  outputs/                    compiled firmware artifacts (UF2 + ESP32 bin)
+  docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
 ```
 
 ## Usage
 
 ### RP2040 / RP2350
-1. Build the firmware:
+1. Compile the firmware:
    ```bash
-   docker compose up --build compile
+   docker compose up --build pi-compile
    ```
-   A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
+   A single compile produces one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
 2. Put the board in [bootloader mode](../../README.md#bootloader-mode).
 3. Drag-and-drop [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
 
 ### ESP32-S3
 1. Put the board in [bootloader mode](../../README.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
-2. Build and flash:
+2. Compile and flash:
    ```bash
-   docker compose run --rm --build esp32
+   docker compose up --build --exit-code-from esp32-flash esp32-flash
    ```
-   Builds [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin) and immediately flashes it via `esptool.py` running inside the container.
+   Runs `esp32-compile`, then flashes [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin) via `esptool.py` inside the container.
 
 ### Web dashboard
 With the board plugged in (`/dev/ttyACM0`):

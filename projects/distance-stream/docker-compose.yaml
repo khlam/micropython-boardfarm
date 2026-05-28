@@ -1,7 +1,6 @@
 ---
 services:
-  # Compiles one universal UF2 for RP2040 + RP2350 (each bootloader skips foreign-family blocks).
-  compile:
+  pi-compile:
     build:
       context: ../..
       dockerfile: Dockerfile.firmware
@@ -11,31 +10,42 @@ services:
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
       - build-cache:/build-cache
-      # Mounted for the version-compat preflight in the rp ENTRYPOINT.
       - ../../pyproject.toml:/root_pyproject.toml:ro
       - ./pyproject.toml:/project_pyproject.toml:ro
       - ../../.githooks/check_project_compat.sh:/check_project_compat.sh:ro
 
-  # Builds + flashes the ESP32-S3 to /dev/ttyACM0; fails fast if the board isn't visible.
-  esp32:
+  esp32-compile:
     build:
       context: ../..
       dockerfile: Dockerfile.firmware
-      target: esp32
-    # No build-cache volume — can't override BUILD=… (see Dockerfile.firmware).
+      target: esp32-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+      - ../../pyproject.toml:/root_pyproject.toml:ro
+      - ./pyproject.toml:/project_pyproject.toml:ro
+      - ../../.githooks/check_project_compat.sh:/check_project_compat.sh:ro
+
+  esp32-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-flash
+    depends_on:
+      esp32-compile:
+        condition: service_completed_successfully
     volumes:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
       - /dev:/dev
-      # Mounted for the version-compat preflight in the esp32 ENTRYPOINT.
       - ../../pyproject.toml:/root_pyproject.toml:ro
       - ./pyproject.toml:/project_pyproject.toml:ro
       - ../../.githooks/check_project_compat.sh:/check_project_compat.sh:ro
     device_cgroup_rules:
       - c 166:* rmw  # USB-ACM (TTY) major
 
-  # FastAPI dashboard on :18501. VIZ_DIR points the stage at this project's viz/.
   viz:
     build:
       context: ../..
@@ -43,7 +53,6 @@ services:
       target: viz
       args:
         VIZ_DIR: projects/distance-stream/viz
-    # /dev bind-mount (not `devices:`) so unplug/replug survives without restart.
     volumes:
       - /dev:/dev
     device_cgroup_rules:

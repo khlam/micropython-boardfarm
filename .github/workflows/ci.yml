@@ -63,8 +63,8 @@ jobs:
         # `compose up` exit non-zero (plain `up` swallows the failure).
         run: docker compose up pytest --build --exit-code-from pytest
 
-  build-firmware:
-    name: Build RP firmware (${{ matrix.project }})
+  compile-firmware:
+    name: Compile firmware (${{ matrix.project }} / ${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,14 +72,24 @@ jobs:
         project:
           - distance-stream
           - gyro-stream
+        target:
+          - rp
+          - esp32
+        include:
+          - target: rp
+            service: pi-compile
+            artifact: app.rp2040.rp2350.uf2
+          - target: esp32
+            service: esp32-compile
+            artifact: app.esp32-s3.bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compile RP2040 + RP2350 universal UF2
+      - name: Compile firmware
         working-directory: projects/${{ matrix.project }}
-        run: docker compose up --build --exit-code-from compile compile
+        run: docker compose up --build --exit-code-from ${{ matrix.service }} ${{ matrix.service }}
 
-      - name: Verify UF2 was produced
+      - name: Verify artifact was produced
         working-directory: projects/${{ matrix.project }}
-        run: test -s outputs/app.rp2040.rp2350.uf2
+        run: test -s outputs/${{ matrix.artifact }}

@@ -1,7 +1,7 @@
 # MicroPython Boardfarm 
 Write MicroPython firmware that behaves the same across all supported microcontroller boards
 
-* **Docker-only** — no local toolchain to install; every build, flash, and test runs in a container.
+* **Docker-only** — no local toolchain to install; every compile, flash, and test runs in a container.
 * **Reusable packages across projects** — drivers and shared logic in [firmware-packages/](firmware-packages/) keep board-specific quirks tucked away, so calls from your project code stay the same for each MCU board.
 * **Write firmware once, run on three chips** — the same project code runs on RP2040, RP2350, and ESP32-S3.
 * **Test firmware** — pytest exercises MCU code against MicroPython stubs, so CI doesn't need a physical board.
@@ -14,7 +14,7 @@ Two kinds of code live side by side in this repo:
 
 
 ## Supported Microcontrollers (MCU)
-|   | Board | Notes | Build & flash |
+|   | Board | Notes | Compile & flash |
 |:---:|---|---|---|
 | <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="80"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](#rp2040--rp2350) |
 | <img src="images/rp2350.jpg" alt="RP2350" width="80"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](#rp2040--rp2350) |
@@ -41,8 +41,8 @@ Two kinds of code live side by side in this repo:
 
 
 ## Projects
-- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for build, flash, dashboard, and wiring details.
-- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for build, flash, dashboard, and wiring details.
+- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
+- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
 
 
 ## Boot LED states
@@ -68,9 +68,9 @@ All commands run from a project directory (e.g. `cd projects/gyro-stream`).
 
 
 ### RP2040 / RP2350
-1. Build the firmware:
+1. Compile the firmware:
    ```
-   docker compose up --build compile
+   docker compose up --build pi-compile
    ```
    Produces `outputs/app.rp2040.rp2350.uf2` — one universal UF2 that flashes on both RP2040 and RP2350 (each bootloader skips foreign-family blocks).
 2. Put the board in bootloader mode: hold **BOOT** and connect USB (or tap **RESET** while holding BOOT). The board enumerates as a USB mass-storage drive (`RPI-RP2` for RP2040, `RP2350` for RP2350).
@@ -78,11 +78,10 @@ All commands run from a project directory (e.g. `cd projects/gyro-stream`).
 
 
 ### ESP32-S3-Zero
-1. Put the board in bootloader mode: hold **BOOT** and tap **RESET** OR hold **BOOT** and connect USB. Confirm it appears as `/dev/ttyACM0` on the host — the `esp32` service fails fast if the device node is missing.
-2. Build and flash in one step:
+1. Put the board in bootloader mode: hold **BOOT** and tap **RESET** OR hold **BOOT** and connect USB. Confirm it appears as `/dev/ttyACM0` on the host — the `esp32-flash` service fails fast if the device node is missing.
+2. Compile and flash in one step:
    ```
-   docker compose run --rm --build esp32
+   docker compose up --build --exit-code-from esp32-flash esp32-flash
    ```
-   This builds `outputs/app.esp32-s3.bin` and runs `esptool.py` against `/dev/ttyACM0`.
+   This runs `esp32-compile`, then flashes `outputs/app.esp32-s3.bin` with `esptool.py`.
 3. Power-cycle to boot into the new firmware.
-

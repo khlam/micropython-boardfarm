@@ -5,10 +5,10 @@
 
 ## Terminology
 - **MCU** — MicroPython on the chip. Code lives in `projects/<project>/firmware/` and `firmware-packages/<pkg>/<pkg>/`.
-- **host** — CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host.
+- **host** — CPython in Docker. Runs the dashboard, compile toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host.
 
 ## Design
-This is a shared-projects monorepo. Projects (`projects/<project>/`) contain general, chip-agnostic firmware that builds for all chips the project supports. Chip-specific behavior belongs exclusively in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`. Project `main.py` files must not contain chip-detection branches.
+This is a shared-projects monorepo. Projects (`projects/<project>/`) contain general, chip-agnostic firmware that compiles for all chips the project supports. Chip-specific behavior belongs exclusively in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`.
 
 `<project>` denotes any subdirectory under `projects/` — list it with `ls projects/` to see what's currently present, and substitute the real name when running commands.
 
@@ -17,7 +17,7 @@ Before changing anything, identify the area you're touching:
 - **Projects directory** — `projects/<project>/firmware/main.py`
 - **Shared packages (chip backends, driver)** — `firmware-packages/boot_status_led/` and `firmware-packages/vl53l0x/`
 - **Viz/dashboard** — `projects/<project>/viz/`
-- **Build system** — `Dockerfile.firmware`, `Dockerfile.tests`, `Dockerfile.host` (viz + uv-runner) + `projects/<project>/docker-compose.yaml`
+- **Compile system** — `Dockerfile.firmware`, `Dockerfile.tests`, `Dockerfile.host` (viz + uv-runner) + `projects/<project>/docker-compose.yaml`
 
 When unsure, use **Key references** at the bottom.
 
@@ -27,26 +27,26 @@ When unsure, use **Key references** at the bottom.
 1. Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three).
 2. If the change requires chip-specific behavior, add or update a package backend — do not branch inside project firmware.
 3. Make the smallest change that achieves the goal — don't add shared abstractions for a single chip.
-4. Build firmware and confirm it compiles before reporting done.
+4. Compile firmware before reporting done.
 5. If the JSON schema changes, update the viz `app.py` parser and `index.html` display logic in the same change.
 
 ---
 
 ## Commands (copy/paste, run from `projects/<project>/`)
 
-### Build firmware
+### Compile firmware
 ```
-docker compose up --build compile      # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
-docker compose run --rm --build esp32  # ESP32-S3 → builds + flashes /dev/ttyACM0
+docker compose up --build pi-compile         # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
+docker compose up --build esp32-compile      # ESP32-S3 → ./outputs/app.esp32-s3.bin
+docker compose up --build --exit-code-from esp32-flash esp32-flash  # ESP32-S3 → compile, then flash
 ```
-ESP32-S3: board must be in bootloader mode (hold BOOT, tap RESET) before the `esp32` service runs — it fails fast if `/dev/ttyACM0` is missing.
 
 ### Run dashboard
 ```
 docker compose up --build viz          # → http://localhost:18501
 ```
 
-### Clean build caches (this project only)
+### Clean compile caches (this project only)
 ```
 docker compose down -v                 # drops build-cache
 ```
@@ -120,7 +120,7 @@ Standard Python ordering, no exceptions (firmware, drivers, tools, tests): modul
 
 ## Safety & repo boundaries
 - Never read or write `projects/*/outputs/` files directly — they are build artifacts.
-- No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
+- No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Don't add host dependencies outside Docker — Docker is the only required host tool.
 - Avoid destructive git operations and unrelated reversions.
 - Never edit `firmware-packages/vl53l0x/vl53l0x/vl53l0x.py` — it is vendored (with local modifications for the ESP32-S3 breakout wrapper) from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). See [firmware-packages/vl53l0x/VENDOR.md](firmware-packages/vl53l0x/VENDOR.md) for the source commit and divergence notes.
@@ -131,7 +131,7 @@ Standard Python ordering, no exceptions (firmware, drivers, tools, tests): modul
 - **Putting chip-specific branches in project firmware** — `if _IS_ESP32` / `os.uname()` checks in `main.py` violate the shared-projects design. Move chip detection into a package backend instead (see `firmware-packages/boot_status_led/boot_status_led/status.py` for the dispatch pattern).
 - **Printing outside `emit()`** — output appears in the serial stream and confuses the viz JSON parser.
 - **Editing any Dockerfile to add a new project** — wrong. Copy an existing `projects/<project>/`, edit `main.py` and the `VIZ_DIR` build-arg in the new `docker-compose.yaml`. The Dockerfiles are unchanged.
-- **Running `esp32` service without the board in bootloader mode** — the ENTRYPOINT fails fast on missing `/dev/ttyACM0`; put the board in bootloader mode first.
+- **Running `esp32-flash` without the board in bootloader mode** — the ENTRYPOINT fails fast on missing `/dev/ttyACM0`; put the board in bootloader mode first.
 - **Forgetting `--build` after editing files** — Docker images copy files at build time; without `--build` the container runs stale firmware.
 
 ---
@@ -145,9 +145,9 @@ Standard Python ordering, no exceptions (firmware, drivers, tools, tests): modul
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/vl53l0x.py` | `VL53L0X(i2c, skip_spad_info=False, interrupt_status_mask=0x07)` |
 | Viz backend | `projects/<project>/viz/app.py` | Serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/index.html` | Plotly line chart + numeric readout |
-| Firmware build | `Dockerfile.firmware` | Stages: `rp`, `esp32` |
+| Firmware compile | `Dockerfile.firmware` | Stages: `rp`, `esp32-compile`, `esp32-flash` |
 | Host tests | `Dockerfile.tests` | Stage: `pytest` |
 | Host runtime | `Dockerfile.host` | Stages: `viz`, `uv-runner` |
 | Project compose | `projects/<project>/docker-compose.yaml` | `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/app.rp2040.rp2350.uf2` | Universal UF2 for RP2040 + RP2350 |
-| ESP32 firmware output | `projects/<project>/outputs/app.esp32-s3.bin` | ESP-IDF `.bin`, flashed by `esp32` service |
+| ESP32 firmware output | `projects/<project>/outputs/app.esp32-s3.bin` | ESP-IDF `.bin`; `esp32-compile` compiles, `esp32-flash` flashes |
