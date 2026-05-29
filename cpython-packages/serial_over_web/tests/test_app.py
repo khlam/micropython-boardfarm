@@ -64,12 +64,11 @@ def test_pump_serial_decodes_non_utf8_replacement(monkeypatch):
 def test_websocket_sends_hello_frame_on_connect(monkeypatch):
     """Connecting to /ws yields a single hello frame with port + state."""
 
-    class _AlwaysFails:
-        def __init__(self, *args, **kwargs) -> None:
-            raise serial.SerialException("test: no port")
+    def _always_fails(*_args, **_kwargs):
+        raise serial.SerialException("test: no port")
 
-    # Keep the lifespan's serial thread from touching /dev/ttyACM0.
-    monkeypatch.setattr(app.serial, "Serial", _AlwaysFails)
+    # Keep the lifespan's serial thread from touching the real port.
+    monkeypatch.setattr(app.serial, "serial_for_url", _always_fails)
 
     with TestClient(app.app) as client, client.websocket_connect("/ws") as ws:
         hello = json.loads(ws.receive_text())
@@ -144,7 +143,7 @@ def test_serial_thread_emits_connected_event_when_port_opens(monkeypatch):
         def __exit__(self, *_) -> bool:
             return False
 
-    monkeypatch.setattr(app.serial, "Serial", lambda *_a, **_kw: _FakeSer())
+    monkeypatch.setattr(app.serial, "serial_for_url", lambda *_a, **_kw: _FakeSer())
     # Raise a non-(OSError, SerialException) sentinel so the outer except misses it.
     monkeypatch.setattr(
         app, "_pump_serial", lambda *_a, **_kw: (_ for _ in ()).throw(_StopThreadError())
@@ -156,6 +155,34 @@ def test_serial_thread_emits_connected_event_when_port_opens(monkeypatch):
     assert app.state["connected"] is True
     assert app.state["error"] is None
     assert any('"event": "connected"' in m for m in captured)
+
+
+def test_serial_thread_passes_socket_url_through(monkeypatch):
+    """A socket:// SERIAL_PORT reaches serial_for_url verbatim (macOS TCP bridge)."""
+    seen: list[str] = []
+
+    class _FakeSer:
+        def __enter__(self) -> "_FakeSer":
+            return self
+
+        def __exit__(self, *_) -> bool:
+            return False
+
+    def _capture(url, *_a, **_kw) -> _FakeSer:
+        seen.append(url)
+        return _FakeSer()
+
+    monkeypatch.setattr(app, "SERIAL_PORT", "socket://host.docker.internal:5555")
+    monkeypatch.setattr(app, "_schedule", lambda *_a, **_kw: None)
+    monkeypatch.setattr(app.serial, "serial_for_url", _capture)
+    monkeypatch.setattr(
+        app, "_pump_serial", lambda *_a, **_kw: (_ for _ in ()).throw(_StopThreadError())
+    )
+
+    with pytest.raises(_StopThreadError):
+        app._serial_thread(loop=None, queue=None)
+
+    assert seen == ["socket://host.docker.internal:5555"]
 
 
 def test_static_mount_attached_when_static_dir_exists(monkeypatch, tmp_path):

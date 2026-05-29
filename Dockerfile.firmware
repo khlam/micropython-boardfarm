@@ -73,7 +73,8 @@ ENTRYPOINT ["sh","-c", "\
 
 
 # -----------------------------------------------------------------------------
-# Stage: esp32 — ESP32-S3-Zero (FH4R2) build + flash to /dev/ttyACM0.
+# Stage: esp32 — ESP32-S3-Zero (FH4R2) build + flash to $SERIAL_PORT
+# (default /dev/ttyACM0; a socket:// URL on macOS via tools/serial-bridge.sh).
 # Uses stock ESP32_GENERIC_S3 — *not* SPIRAM_OCT, which assumes external Octal
 # PSRAM and is wrong for the FH4R2's embedded Quad PSRAM.
 # -----------------------------------------------------------------------------
@@ -105,11 +106,19 @@ COPY manifest.py /manifest.py
 ENTRYPOINT ["sh","-c", "\
   set -e; \
   bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
-  if [ ! -e /dev/ttyACM0 ]; then \
-    echo 'ERROR: /dev/ttyACM0 not found.' >&2; \
-    echo 'Plug in the ESP32-S3 in bootloader mode (hold BOOT, tap RESET).' >&2; \
-    exit 1; \
-  fi; \
+  PORT=${SERIAL_PORT:-/dev/ttyACM0}; \
+  case $PORT in \
+    socket://*|rfc2217://*) \
+      RESET='--before no_reset --after no_reset' ;; \
+    *) \
+      if [ ! -e $PORT ]; then \
+        echo ERROR: serial port $PORT not found. >&2; \
+        echo 'Plug in the ESP32-S3 in bootloader mode (hold BOOT, tap RESET).' >&2; \
+        echo 'On macOS: run tools/serial-bridge.sh and export SERIAL_PORT=socket://host.docker.internal:5555' >&2; \
+        exit 1; \
+      fi; \
+      RESET= ;; \
+  esac; \
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   make -C ports/esp32 \
     BOARD=ESP32_GENERIC_S3 \
@@ -117,5 +126,5 @@ ENTRYPOINT ["sh","-c", "\
     -j$(nproc); \
   cp ports/esp32/build-ESP32_GENERIC_S3/firmware.bin /outputs/app.esp32-s3.bin; \
   echo '/outputs/app.esp32-s3.bin ready'; \
-  esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash -z 0x0 \
+  esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \
     /outputs/app.esp32-s3.bin"]

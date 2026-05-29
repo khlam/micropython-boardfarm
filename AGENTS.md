@@ -3,6 +3,17 @@
 ## Host policy (read first)
 **Never install anything on the host machine.** Docker is the only required host tool. All toolchains, flashers, serial readers, tests, and helper scripts run inside Docker — invoke them via the project's `docker compose` services. If a workflow seems to require a host install (pip, brew, apt, pipx, esptool, MicroPython, etc.), wrap it in a Docker stage instead.
 
+**macOS serial (one exception).** Docker Desktop runs containers in a Linux VM and neither it nor Apple's Virtualization.framework can pass a USB-serial device through to it, so the `- /dev:/dev` mount the `viz` and `esp32` services rely on sees nothing on macOS. The one project-agnostic, no-install workaround is [tools/serial-bridge.sh](tools/serial-bridge.sh) (built-in `stty`/`cat`/`nc` only) — a full-duplex serial↔TCP relay. Set it up **once**:
+
+```sh
+# 1. leave this running in its own terminal:
+tools/serial-bridge.sh
+# 2. add to your shell profile (one place, every project):
+export SERIAL_PORT=socket://host.docker.internal:5555
+```
+
+After that the commands are identical to Linux — `docker compose up --build viz` and `docker compose run --rm --build esp32` — because both read `SERIAL_PORT` (default `/dev/ttyACM0`), and the readers (`serial_for_url` in viz, `esptool.py --port` in the esp32 stage) accept a device path or a `socket://` URL. Flashing over the bridge needs the board already in bootloader mode (TCP carries no DTR/RTS reset line); the esp32 stage passes `--before/--after no_reset` for socket:// ports.
+
 ## Terminology
 - **MCU** — MicroPython on the chip. Code lives in `projects/<project>/firmware/` and `firmware-packages/<pkg>/<pkg>/`.
 - **host** — CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host.
@@ -37,9 +48,9 @@ When unsure, use **Key references** at the bottom.
 ### Build firmware
 ```
 docker compose up --build compile      # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
-docker compose run --rm --build esp32  # ESP32-S3 → builds + flashes /dev/ttyACM0
+docker compose run --rm --build esp32  # ESP32-S3 → builds + flashes $SERIAL_PORT (default /dev/ttyACM0)
 ```
-ESP32-S3: board must be in bootloader mode (hold BOOT, tap RESET) before the `esp32` service runs — it fails fast if `/dev/ttyACM0` is missing.
+ESP32-S3: board must be in bootloader mode (hold BOOT, tap RESET) before the `esp32` service runs — it fails fast if `$SERIAL_PORT` (default `/dev/ttyACM0`) is missing. macOS: see the serial bridge under **Host policy**; the command is unchanged.
 
 ### Run dashboard
 ```
