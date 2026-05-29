@@ -68,7 +68,12 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
     """
     while True:
         try:
-            with serial.Serial(
+            # serial_for_url (not serial.Serial) so SERIAL_PORT may be a native
+            # device path (/dev/ttyACM0 on Linux) or a socket:// URL. macOS can't
+            # pass USB into Docker's Linux VM, so there tools/serial-bridge.sh
+            # serves the board over TCP and SERIAL_PORT is
+            # socket://host.docker.internal:5555 — same code path either way.
+            with serial.serial_for_url(
                 SERIAL_PORT,
                 SERIAL_BAUD,
                 timeout=0.1,
