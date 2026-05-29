@@ -11,7 +11,15 @@ from vl53l5cx import VL53L5CX
 _TOF_ADDRESS = 0x29
 _RANGING_FREQ_HZ = 10
 
-_BOOT_PAUSE_MS = 50
+# Long enough for the USB host to finish enumerating before init_sensor()
+# begins the ~8 s VL53L5CX firmware upload. That upload is a run of ~370 ms
+# blocking SoftI²C writes during which MicroPython can't service USB; if the
+# host hasn't enumerated by the first blackout it gives up, and the device
+# never re-attaches — the port is then dead until replug. Enumerating first
+# makes those later blackouts harmless. (Observed on the RP2040-Zero; the
+# RP2350/ESP32-S3 happen to win the race even at 50 ms, but the wait is
+# harmless on every board so it stays chip-agnostic.)
+_BOOT_PAUSE_MS = 1500
 _RETRY_PAUSE_MS = 500
 _READ_ERR_PAUSE_MS = 200
 _POLL_INTERVAL_MS = 10
