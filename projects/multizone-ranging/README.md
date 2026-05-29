@@ -21,9 +21,9 @@ multizone-ranging/
    ```bash
    docker compose up --build compile
    ```
-   A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
+   A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.uf2](outputs/app.rp2040.uf2) that flashes correctly on either device.
 2. Put the board in [bootloader mode](../../README.md#bootloader-mode).
-3. Drag-and-drop [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
+3. Drag-and-drop [outputs/app.rp2040.uf2](outputs/app.rp2040.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
 
 ### ESP32-S3
 1. Put the board in [bootloader mode](../../README.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
