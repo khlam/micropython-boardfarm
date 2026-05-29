@@ -68,6 +68,9 @@
     .log-tag.err      { background: #7f1d1d; color: #fca5a5; }
     .log-tag.evt      { background: #2a2a3a; color: #c4b5fd; }
     .log-msg { color: var(--text); }
+    .modebar { background: var(--panel) !important; }
+    .modebar-btn path { fill: #a1a1aa !important; }
+    .modebar-btn:hover path { fill: var(--text) !important; }
   </style>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
@@ -157,7 +160,7 @@
     }
 
     const PANEL_BG = "#131722";
-    const config = { displayModeBar: false, responsive: true };
+    const config = { displayModeBar: true, displaylogo: false, responsive: true };
 
     const layout = {
       paper_bgcolor: PANEL_BG,
@@ -165,6 +168,7 @@
       uirevision: "constant",
       scene: {
         bgcolor: PANEL_BG,
+        dragmode: "orbit",
         xaxis: { title: "Column", range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
         yaxis: { title: "Row",    range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
         zaxis: { title: "Distance (mm)", range: [0, MAX_RANGE_MM], color: "#a1a1aa", gridcolor: "#1f2937" },
@@ -203,7 +207,16 @@
     function flushPending() {
       if (!pendingData) return;
       const { xs, ys, zs, colors } = pendingData;
-      Plotly.restyle("scatter3d", { x: [xs], y: [ys], z: [zs], "marker.color": [colors] }, [0]);
+      // Restyle only the trace data — leaving the layout (and therefore the
+      // user's current camera/zoom) completely untouched. Plotly.react would
+      // re-evaluate the whole layout and snap the 3D camera back to the
+      // initial view angle on every frame.
+      Plotly.restyle("scatter3d", {
+        x: [xs],
+        y: [ys],
+        z: [zs],
+        "marker.color": [colors],
+      }, [0]);
       pendingData = null;
     }
 

@@ -2,11 +2,17 @@
 #
 # SPDX-License-Identifier: MIT
 
+"""Frozen VL53L5CX firmware and calibration blobs for MicroPython.
+
+The sensor has no on-board firmware: the host must upload the ~84 KB ranging
+firmware plus the default device configuration and cross-talk calibration on
+every boot. Upstream reads these from a ``vl_fw_config.bin`` file, but
+MicroPython targets have no filesystem here, so the payloads are inlined as
+``bytes`` constants and frozen into device flash via ``manifest.py``.
+"""
+
 # TODO: enable changing this in the _DEFAULT_CONFIG data below
 # FW_NBTAR_RANGING = 2
-
-from io import BytesIO
-
 
 _DEFAULT_CONFIG = (
     b'\x54\x50\x00\x80\x00\x04\x04\x04\x00\x00\x08\x08\xad\x30\x00\x80'
@@ -5556,19 +5562,42 @@ _DEFAULT_FW = (
 )
 
 class ConfigDataBytes:
+    """Accessor for the frozen firmware and calibration blobs.
+
+    Mirrors the upstream file-backed loader's interface so the driver is
+    agnostic to where the payloads come from, but serves the in-flash
+    ``bytes`` constants directly with no filesystem access.
+    """
+
     @property
     def default_config_data(self):
+        """Return the default device configuration blob."""
         return _DEFAULT_CONFIG
 
     @property
     def xtalk_data(self):
+        """Return the 8x8-resolution cross-talk calibration blob."""
         return _DEFAULT_XTALK
 
     @property
     def xtalk4x4_data(self):
+        """Return the 4x4-resolution cross-talk calibration blob."""
         return _DEFAULT_XTALK_4X4
 
     def fw_data(self, chunk_size=0x1000):
-        with BytesIO(_DEFAULT_FW) as fw_file:
-            for _ in range(0, 0x15000, chunk_size):
-                yield fw_file.read(chunk_size)
+        """Yield the 0x15000-byte ranging firmware in sequential chunks.
+
+        Slices the frozen ``bytes`` constant directly rather than wrapping it
+        in ``io.BytesIO``: MicroPython slicing avoids the stream object and its
+        context-manager protocol, which is not present on every port.
+
+        Args:
+            chunk_size: Bytes per yielded chunk. Must divide 0x15000 so the
+                firmware is delivered as whole sub-pages; the caller uploads
+                one chunk per I2C burst.
+
+        Yields:
+            Successive ``bytes`` slices covering offsets 0..0x15000.
+        """
+        for offset in range(0, 0x15000, chunk_size):
+            yield _DEFAULT_FW[offset:offset + chunk_size]

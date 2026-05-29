@@ -27,7 +27,11 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
 - Google-style docstrings added to all methods per `AGENTS.md`.
 - Three convenience methods added for project firmware use: `start(freq)`,
   `read()`, and `stop()`.
-- `_config_bytes.py` is copied verbatim; see it for the MIT copyright notice.
+- `_config_bytes.py` retains the upstream MIT copyright notice and byte
+  payloads verbatim, but its `fw_data()` generator was rewritten to slice the
+  frozen `bytes` directly instead of wrapping them in `io.BytesIO` (the stream
+  object and its context-manager protocol are not present on every MicroPython
+  port). Module/class/method docstrings were added per `AGENTS.md`.
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and
   file-based firmware loader are not needed in this repo).
 
