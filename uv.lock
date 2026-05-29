@@ -11,6 +11,7 @@ members = [
     "mpu6050",
     "serial-over-web",
     "vl53l0x",
+    "vl53l5cx",
 ]
 
 [[package]]
@@ -286,6 +287,7 @@ dependencies = [
     { name = "mpu6050" },
     { name = "serial-over-web" },
     { name = "vl53l0x" },
+    { name = "vl53l5cx" },
 ]
 
 [package.dev-dependencies]
@@ -299,6 +301,7 @@ test = [
     { name = "pytest-cov" },
     { name = "serial-over-web" },
     { name = "vl53l0x" },
+    { name = "vl53l5cx" },
 ]
 viz = [
     { name = "serial-over-web" },
@@ -312,6 +315,7 @@ requires-dist = [
     { name = "mpu6050", editable = "firmware-packages/mpu6050" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
+    { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
 ]
 
 [package.metadata.requires-dev]
@@ -325,6 +329,7 @@ test = [
     { name = "pytest-cov", specifier = ">=5.0.0" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
+    { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
 ]
 viz = [{ name = "serial-over-web", editable = "cpython-packages/serial_over_web" }]
 
@@ -660,6 +665,11 @@ wheels = [
 name = "vl53l0x"
 version = "0.1.0"
 source = { editable = "firmware-packages/vl53l0x" }
+
+[[package]]
+name = "vl53l5cx"
+version = "0.1.0"
+source = { editable = "firmware-packages/vl53l5cx" }
 
 [[package]]
 name = "watchfiles"

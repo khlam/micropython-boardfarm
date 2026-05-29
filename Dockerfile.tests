@@ -27,6 +27,8 @@ COPY firmware-packages/mpu6050/pyproject.toml ./firmware-packages/mpu6050/pyproj
 COPY firmware-packages/mpu6050/mpu6050 ./firmware-packages/mpu6050/mpu6050
 COPY firmware-packages/vl53l0x/pyproject.toml ./firmware-packages/vl53l0x/pyproject.toml
 COPY firmware-packages/vl53l0x/vl53l0x ./firmware-packages/vl53l0x/vl53l0x
+COPY firmware-packages/vl53l5cx/pyproject.toml ./firmware-packages/vl53l5cx/pyproject.toml
+COPY firmware-packages/vl53l5cx/vl53l5cx ./firmware-packages/vl53l5cx/vl53l5cx
 COPY .githooks/check_project_compat.sh /check_project_compat.sh
 RUN uv sync --frozen --no-dev --no-install-project --group test
 ENV PATH=/work/.venv/bin:${PATH}

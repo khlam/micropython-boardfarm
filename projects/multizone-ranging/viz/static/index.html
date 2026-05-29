@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VL53L5CX — Multizone Live</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --dim: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .err-msg { font-size: 12px; color: #fca5a5; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+      margin-bottom: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .stats-row {
+      display: flex; gap: 24px; flex-wrap: wrap;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 8px;
+    }
+    .stats-row .stat-item { display: flex; flex-direction: column; gap: 2px; }
+    .stats-row .stat-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stats-row .stat-value { font-size: 22px; font-weight: 300; color: var(--text); }
+    .log {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px; line-height: 1.45;
+      max-height: 200px; overflow-y: auto;
+      background: #0b0e14; border: 1px solid var(--border); border-radius: 4px;
+      padding: 8px 10px;
+    }
+    .log-row { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
+    .log-time { color: var(--dim); flex-shrink: 0; }
+    .log-tag {
+      flex-shrink: 0; font-weight: 500;
+      padding: 0 6px; border-radius: 3px; align-self: flex-start;
+    }
+    .log-tag.info     { background: #1e3a5f; color: #93c5fd; }
+    .log-tag.ok       { background: #14532d; color: #86efac; }
+    .log-tag.warn     { background: #78350f; color: #fcd34d; }
+    .log-tag.err      { background: #7f1d1d; color: #fca5a5; }
+    .log-tag.evt      { background: #2a2a3a; color: #c4b5fd; }
+    .log-msg { color: var(--text); }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>VL53L5CX — 8×8 Multizone</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Rate: <b id="rate">—</b></span>
+    <span class="stat">Frames: <b id="count">0</b></span>
+    <span id="err" class="err-msg"></span>
+  </div>
+
+  <div class="panel">
+    <h2>Distance Grid (mm)</h2>
+    <div class="stats-row">
+      <div class="stat-item">
+        <span class="stat-label">Valid Zones</span>
+        <span class="stat-value" id="stat-valid">—</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Min</span>
+        <span class="stat-value" id="stat-min">— mm</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Avg</span>
+        <span class="stat-value" id="stat-avg">— mm</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Max</span>
+        <span class="stat-value" id="stat-max">— mm</span>
+      </div>
+    </div>
+    <div id="heatmap" style="height: 500px;"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Log</h2>
+    <div id="log" class="log"></div>
+  </div>
+
+  <script>
+  (function () {
+    const RECONNECT_MS = 250;
+    const LOG_MAX = 200;
+    const GRID_SIZE = 8;
+    const MAX_RANGE_MM = 4000;
+
+    const $ = (id) => document.getElementById(id);
+
+    const DIAG_TAGS = {
+      scan: "info",
+      firmware_loading: "info",
+      vl53l5cx_ok: "ok",
+      no_device: "warn",
+      init_err: "err",
+      read_err: "err",
+    };
+
+    function timestamp() {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+    }
+
+    function logLine(tag, klass, msg) {
+      const el = $("log");
+      const atBottom = el.scrollHeight - el.clientHeight - el.scrollTop < 24;
+      const row = document.createElement("div");
+      row.className = "log-row";
+      row.innerHTML =
+        `<span class="log-time">${timestamp()}</span>` +
+        `<span class="log-tag ${klass}">${tag}</span>` +
+        `<span class="log-msg"></span>`;
+      row.lastChild.textContent = msg;
+      el.appendChild(row);
+      while (el.childElementCount > LOG_MAX) el.removeChild(el.firstChild);
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    }
+
+    function logDiag(obj) {
+      const kind = obj.diag;
+      const klass = DIAG_TAGS[kind] || "info";
+      const { diag, ...rest } = obj;
+      const body = Object.keys(rest).length ? JSON.stringify(rest) : "";
+      logLine(kind, klass, body);
+    }
+
+    // Build initial empty 8×8 z array (NaN renders as gap in Plotly heatmap)
+    function emptyGrid() {
+      return Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(NaN));
+    }
+
+    const PANEL_BG = "#131722";
+    const config = { displayModeBar: false, responsive: true };
+
+    const layout = {
+      paper_bgcolor: PANEL_BG,
+      plot_bgcolor: PANEL_BG,
+      margin: { l: 40, r: 80, t: 10, b: 40 },
+      xaxis: {
+        title: "Column",
+        tickvals: [0, 1, 2, 3, 4, 5, 6, 7],
+        gridcolor: "#1f2937",
+        color: "#a1a1aa",
+        dtick: 1,
+      },
+      yaxis: {
+        title: "Row",
+        tickvals: [0, 1, 2, 3, 4, 5, 6, 7],
+        autorange: "reversed",
+        gridcolor: "#1f2937",
+        color: "#a1a1aa",
+        dtick: 1,
+        scaleanchor: "x",
+        scaleratio: 1,
+      },
+      coloraxis: {
+        colorscale: "RdYlBu_r",
+        cmin: 0,
+        cmax: MAX_RANGE_MM,
+        colorbar: {
+          title: { text: "mm", font: { color: "#a1a1aa" } },
+          tickfont: { color: "#a1a1aa" },
+          bgcolor: PANEL_BG,
+          bordercolor: "#1f2937",
+          len: 0.9,
+        },
+      },
+    };
+
+    const trace = {
+      z: emptyGrid(),
+      type: "heatmap",
+      coloraxis: "coloraxis",
+      hovertemplate: "row %{y}, col %{x}<br>%{z:.0f} mm<extra></extra>",
+      zsmooth: false,
+    };
+
+    Plotly.newPlot("heatmap", [trace], layout, config);
+
+    let totalCount = 0;
+    let rateCount = 0;
+    let rateAt = performance.now();
+    let pendingGrid = null;
+    let frameScheduled = false;
+
+    function flushPending() {
+      if (!pendingGrid) return;
+      Plotly.restyle("heatmap", { z: [pendingGrid] }, [0]);
+      pendingGrid = null;
+    }
+
+    function scheduleFrame() {
+      if (frameScheduled) return;
+      frameScheduled = true;
+      requestAnimationFrame(() => {
+        frameScheduled = false;
+        flushPending();
+      });
+    }
+
+    function setStatus(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function updateStats(grid) {
+      const valid = grid.filter((v) => v !== null);
+      $("stat-valid").textContent = valid.length + " / 64";
+      if (valid.length === 0) {
+        $("stat-min").textContent = "— mm";
+        $("stat-avg").textContent = "— mm";
+        $("stat-max").textContent = "— mm";
+        return;
+      }
+      const mn = Math.min(...valid);
+      const mx = Math.max(...valid);
+      const avg = Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+      $("stat-min").textContent = mn + " mm";
+      $("stat-avg").textContent = avg + " mm";
+      $("stat-max").textContent = mx + " mm";
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        setStatus(true, obj.port, null);
+        logLine("connected", "evt", obj.port || "");
+        return;
+      }
+      if (obj.event === "disconnected") {
+        setStatus(false, obj.port, obj.error);
+        logLine("disconnected", "evt", obj.error || "");
+        return;
+      }
+      if (obj.diag !== undefined) {
+        logDiag(obj);
+        return;
+      }
+      if (!("grid" in obj)) return;
+
+      const flat = obj.grid;
+      if (!Array.isArray(flat) || flat.length !== 64) return;
+
+      // Convert flat 64-element row-major list → 8×8 nested array.
+      // null → NaN so Plotly shows the gap colour instead of 0.
+      const grid2d = Array.from({ length: GRID_SIZE }, (_, r) =>
+        flat.slice(r * GRID_SIZE, r * GRID_SIZE + GRID_SIZE).map((v) => (v === null ? NaN : v))
+      );
+
+      pendingGrid = grid2d;
+      updateStats(flat);
+
+      totalCount++;
+      rateCount++;
+      $("count").textContent = totalCount;
+
+      const now = performance.now();
+      const dt = now - rateAt;
+      if (dt >= 1000) {
+        $("rate").textContent = (rateCount * 1000 / dt).toFixed(1) + " Hz";
+        rateCount = 0;
+        rateAt = now;
+      }
+
+      scheduleFrame();
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose will fire and reconnect */ };
+    }
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
