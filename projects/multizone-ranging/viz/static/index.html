@@ -116,10 +116,6 @@
         <span class="stat-label">Max</span>
         <span class="stat-value" id="stat-max">— mm</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">Focus</span>
-        <span class="stat-value" id="stat-focus">— mm</span>
-      </div>
     </div>
     <div id="scatter3d" style="height: 550px;"></div>
   </div>
@@ -134,26 +130,12 @@
     const RECONNECT_MS = 250;
     const LOG_MAX = 200;
     const GRID_SIZE = 8;
-    const MAX_RANGE_MM = 4000;   // sensor full range; ceiling for the autoscaled color range
     const Z_MAX_MM = 400;        // default top of the distance (z) axis; farther zones clip out of view
+    const DOT_COLOR = "#22c55e"; // every zone is drawn the same green; distance reads off the z axis
 
     // Live-adjustable top of the distance (z) axis, driven by the "Max height"
     // input. Held in JS so a relayout can re-assert it without rebuilding layout.
     let zMax = Z_MAX_MM;
-
-    // Near-focus tuning. With nothing in front of it the sensor still reports
-    // valid ~1700 mm background reflections; left alone they dominate the color
-    // scale and bury a closer target. Each frame the valid zones are split into a
-    // near (foreground) and far (background) cluster: the color range tracks the
-    // foreground and the background is drawn as faint gray dots that keep spatial
-    // context without driving color. The distance (z) axis stays at a fixed range.
-    const MIN_GAP_MM = 250;       // smallest distance jump that separates the two clusters
-    const SNAP_STEP = 100;        // round the color range to this step so the colorbar doesn't jitter
-    const EMA_ALPHA = 0.3;        // smoothing factor applied to the foreground bounds
-    const MIN_SPAN_MM = 150;      // floor on the color range so a tight cluster keeps contrast
-    const BG_COLOR = "#52525b";   // dimmed background dots
-    const BG_SIZE = 3;
-    const BG_OPACITY = 0.25;
 
     const $ = (id) => document.getElementById(id);
 
@@ -204,45 +186,27 @@
       scene: {
         bgcolor: PANEL_BG,
         dragmode: "orbit",
-        xaxis: { title: "Column", range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
-        yaxis: { title: "Row",    range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
-        zaxis: { title: "Distance (mm)", range: [0, zMax], color: "#a1a1aa", gridcolor: "#1f2937" },
+        // Lock the box to a fixed cube so it never rescales from the data extent
+        // (the default aspectmode "auto" resizes every frame, which looks jittery).
+        aspectmode: "cube",
+        xaxis: { title: "Column", range: [-0.5, 7.5], autorange: false, dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
+        yaxis: { title: "Row",    range: [-0.5, 7.5], autorange: false, dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
+        zaxis: { title: "Distance (mm)", range: [0, zMax], autorange: false, color: "#a1a1aa", gridcolor: "#1f2937" },
       },
     };
 
-    // Trace 0: near targets, colored and scaled to the foreground cluster.
-    const foreground = {
+    // Single trace: every valid zone drawn the same green. Distance is read off
+    // the z axis, so the markers carry no color encoding.
+    const dots = {
       type: "scatter3d",
       mode: "markers",
       x: [], y: [], z: [],
-      marker: {
-        size: 6,
-        color: [],
-        colorscale: "RdYlBu",
-        cmin: 0,
-        cmax: MAX_RANGE_MM,
-        showscale: true,
-        colorbar: {
-          title: { text: "mm", font: { color: "#a1a1aa" } },
-          tickfont: { color: "#a1a1aa" },
-          bgcolor: PANEL_BG,
-          bordercolor: "#1f2937",
-        },
-      },
+      marker: { size: 6, color: DOT_COLOR },
       hovertemplate: "row: %{y}<br>col: %{x}<br>dist: %{z:.0f} mm<extra></extra>",
     };
 
-    // Trace 1: far background, dimmed so it stays as context without competing.
-    const background = {
-      type: "scatter3d",
-      mode: "markers",
-      x: [], y: [], z: [],
-      marker: { size: BG_SIZE, color: BG_COLOR, opacity: BG_OPACITY, showscale: false },
-      hovertemplate: "row: %{y}<br>col: %{x}<br>dist: %{z:.0f} mm (bg)<extra></extra>",
-    };
-
     const gd = $("scatter3d");
-    Plotly.newPlot(gd, [foreground, background], layout, config);
+    Plotly.newPlot(gd, [dots], layout, config);
 
     // Track the user's 3D camera so live data updates don't reset it. A gl3d
     // scene re-syncs its camera from the layout on every data write, so without
@@ -274,51 +238,33 @@
     let rateAt = performance.now();
     let pendingData = null;
     let frameScheduled = false;
-    // EMA-smoothed foreground bounds, held across frames so the color scale eases
-    // toward new readings instead of snapping. null until the first frame.
-    let smMin = null;
-    let smMax = null;
 
     function flushPending() {
       if (!pendingData) return;
       const flat = pendingData;
       pendingData = null;
 
-      // Derive the per-frame geometry, near/far split, and color range here — in
-      // the rAF callback — so this work runs once per *rendered* frame, not once
-      // per received message. A frame that arrives and is overwritten before the
-      // next animation frame costs only a JSON.parse + counter bump in onMessage.
-      const zones = [];
+      // Derive the per-frame geometry here — in the rAF callback — so this work
+      // runs once per *rendered* frame, not once per received message. A frame
+      // that arrives and is overwritten before the next animation frame costs
+      // only a JSON.parse + counter bump in onMessage.
+      const xs = [], ys = [], zs = [];
       for (let i = 0; i < 64; i++) {
         const v = flat[i];
-        if (v !== null) zones.push({ x: i % GRID_SIZE, y: Math.floor(i / GRID_SIZE), v });
+        if (v !== null) { xs.push(i % GRID_SIZE); ys.push(Math.floor(i / GRID_SIZE)); zs.push(v); }
       }
-      const { fg, bg } = splitZones(zones);
-      const { cmin, cmax } = focusBounds(fg);
-      const fgX = fg.map((z) => z.x), fgY = fg.map((z) => z.y), fgZ = fg.map((z) => z.v);
-      const bgX = bg.map((z) => z.x), bgY = bg.map((z) => z.y), bgZ = bg.map((z) => z.v);
 
-      // Push both traces, the data-driven color range, and a re-assertion of the
-      // user's camera in one call, so the live refresh updates and recolors
-      // without disturbing the current view. The distance (z) axis keeps its
-      // static range. cmin/cmax on the gray background trace are inert (it has no
-      // colorscale), so we set both here.
+      // Push the trace and a re-assertion of the user's camera in one call, so the
+      // live refresh updates without disturbing the current view. The axes keep
+      // their static ranges and a fixed cube aspect, so the box never rescales.
       Plotly.update(
         gd,
-        {
-          x: [fgX, bgX],
-          y: [fgY, bgY],
-          z: [fgZ, bgZ],
-          "marker.color": [fgZ, BG_COLOR],
-          "marker.cmin": [cmin, cmin],
-          "marker.cmax": [cmax, cmax],
-        },
+        { x: [xs], y: [ys], z: [zs] },
         userCamera ? { "scene.camera": userCamera } : {},
-        [0, 1],
+        [0],
       );
 
       updateStats(flat);
-      $("stat-focus").textContent = fg.length ? "≤ " + cmax + " mm" : "— mm";
     }
 
     function scheduleFrame() {
@@ -353,45 +299,6 @@
       $("stat-min").textContent = mn + " mm";
       $("stat-avg").textContent = avg + " mm";
       $("stat-max").textContent = mx + " mm";
-    }
-
-    function splitZones(zones) {
-      // Separate near targets from a far background plane at the largest gap in
-      // sorted distance: a wall sits well behind a hand or object, so the biggest
-      // jump divides the two. When no jump reaches MIN_GAP_MM the scene is a single
-      // cluster (a lone near object, or pure background with nothing in front) and
-      // everything is treated as foreground.
-      if (zones.length < 2) return { fg: zones, bg: [] };
-      const sorted = zones.slice().sort((a, b) => a.v - b.v);
-      let gap = 0, at = -1;
-      for (let i = 1; i < sorted.length; i++) {
-        const d = sorted[i].v - sorted[i - 1].v;
-        if (d > gap) { gap = d; at = i; }
-      }
-      if (gap < MIN_GAP_MM) return { fg: zones, bg: [] };
-      const cutoff = (sorted[at].v + sorted[at - 1].v) / 2;
-      const fg = [], bg = [];
-      for (const z of zones) (z.v <= cutoff ? fg : bg).push(z);
-      return { fg, bg };
-    }
-
-    function focusBounds(fg) {
-      // Smooth the foreground min/max (EMA) and snap to SNAP_STEP so the colorbar
-      // stays legible at 15 Hz instead of jittering each frame. An empty
-      // foreground (no valid zones) holds the last bounds so a momentary dropout
-      // doesn't reset the color scale.
-      if (fg.length === 0) return { cmin: smMin ?? 0, cmax: smMax ?? MAX_RANGE_MM };
-      let lo = Infinity, hi = -Infinity;
-      for (const z of fg) {
-        if (z.v < lo) lo = z.v;
-        if (z.v > hi) hi = z.v;
-      }
-      smMin = smMin === null ? lo : smMin + EMA_ALPHA * (lo - smMin);
-      smMax = smMax === null ? hi : smMax + EMA_ALPHA * (hi - smMax);
-      let cmin = Math.max(0, Math.floor(smMin / SNAP_STEP) * SNAP_STEP);
-      let cmax = Math.min(MAX_RANGE_MM, Math.ceil(smMax / SNAP_STEP) * SNAP_STEP);
-      if (cmax - cmin < MIN_SPAN_MM) cmax = Math.min(MAX_RANGE_MM, cmin + MIN_SPAN_MM);
-      return { cmin, cmax };
     }
 
     function onMessage(obj) {
