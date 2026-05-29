@@ -252,7 +252,23 @@
 
     function flushPending() {
       if (!pendingData) return;
-      const { fgX, fgY, fgZ, bgX, bgY, bgZ, cmin, cmax } = pendingData;
+      const flat = pendingData;
+      pendingData = null;
+
+      // Derive the per-frame geometry, near/far split, and color range here — in
+      // the rAF callback — so this work runs once per *rendered* frame, not once
+      // per received message. A frame that arrives and is overwritten before the
+      // next animation frame costs only a JSON.parse + counter bump in onMessage.
+      const zones = [];
+      for (let i = 0; i < 64; i++) {
+        const v = flat[i];
+        if (v !== null) zones.push({ x: i % GRID_SIZE, y: Math.floor(i / GRID_SIZE), v });
+      }
+      const { fg, bg } = splitZones(zones);
+      const { cmin, cmax } = focusBounds(fg);
+      const fgX = fg.map((z) => z.x), fgY = fg.map((z) => z.y), fgZ = fg.map((z) => z.v);
+      const bgX = bg.map((z) => z.x), bgY = bg.map((z) => z.y), bgZ = bg.map((z) => z.v);
+
       // Push both traces, the data-driven color range, and a re-assertion of the
       // user's camera in one call, so the live refresh updates and recolors
       // without disturbing the current view. The distance (z) axis keeps its
@@ -271,7 +287,9 @@
         userCamera ? { "scene.camera": userCamera } : {},
         [0, 1],
       );
-      pendingData = null;
+
+      updateStats(flat);
+      $("stat-focus").textContent = fg.length ? "≤ " + cmax + " mm" : "— mm";
     }
 
     function scheduleFrame() {
@@ -330,7 +348,7 @@
 
     function focusBounds(fg) {
       // Smooth the foreground min/max (EMA) and snap to SNAP_STEP so the colorbar
-      // stays legible at 10 Hz instead of jittering each frame. An empty
+      // stays legible at 15 Hz instead of jittering each frame. An empty
       // foreground (no valid zones) holds the last bounds so a momentary dropout
       // doesn't reset the color scale.
       if (fg.length === 0) return { cmin: smMin ?? 0, cmax: smMax ?? MAX_RANGE_MM };
@@ -367,21 +385,11 @@
       const flat = obj.grid;
       if (!Array.isArray(flat) || flat.length !== 64) return;
 
-      const zones = [];
-      for (let i = 0; i < 64; i++) {
-        const v = flat[i];
-        if (v !== null) zones.push({ x: i % GRID_SIZE, y: Math.floor(i / GRID_SIZE), v });
-      }
-
-      const { fg, bg } = splitZones(zones);
-      const { cmin, cmax } = focusBounds(fg);
-      pendingData = {
-        fgX: fg.map((z) => z.x), fgY: fg.map((z) => z.y), fgZ: fg.map((z) => z.v),
-        bgX: bg.map((z) => z.x), bgY: bg.map((z) => z.y), bgZ: bg.map((z) => z.v),
-        cmin, cmax,
-      };
-      updateStats(flat);
-      $("stat-focus").textContent = fg.length ? "≤ " + cmax + " mm" : "— mm";
+      // Keep only the latest grid: if another frame arrives before the next
+      // animation frame, this is overwritten, so a renderer that falls behind
+      // drops frames instead of buffering them. All decoding/rendering happens
+      // in flushPending(); here we only count the frame and ask for a redraw.
+      pendingData = flat;
 
       totalCount++;
       rateCount++;

@@ -1,8 +1,9 @@
 # multizone-ranging
 
 MicroPython firmware that reads a VL53L5CX 8×8 multizone time-of-flight
-sensor and streams distance grids as JSON lines over USB-CDC at ~10 Hz.
-A host FastAPI service serves a live Plotly heatmap dashboard.
+sensor and streams distance grids as JSON lines over USB-CDC at ~15 Hz
+(the 8×8 hardware maximum). A host FastAPI service serves a live Plotly
+heatmap dashboard.
 
 ## Layout
 ```
@@ -47,7 +48,7 @@ real time.
   over I²C — this takes ~7-9 s at 100 kHz (soft I²C, chosen because the
   sensor clock-stretches during init) and is shown as a `firmware_loading`
   diagnostic event in the dashboard log.
-- After initialisation the sensor enters continuous 8×8 ranging at 10 Hz.
+- After initialisation the sensor enters continuous 8×8 ranging at 15 Hz.
   Each JSON line carries `{"t": <ms>, "grid": [<64 int|null>]}` where the
   grid is row-major (row 0 first) and each value is a distance in mm or
   `null` when the zone's target status is invalid.

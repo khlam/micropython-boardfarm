@@ -9,7 +9,12 @@ from i2c_bus import soft_i2c as i2c
 from vl53l5cx import VL53L5CX
 
 _TOF_ADDRESS = 0x29
-_RANGING_FREQ_HZ = 10
+# 8×8 hardware maximum. The VL53L5CX caps 8×8 ranging at 15 Hz; the read loop
+# emits each grid as soon as the sensor flags it ready, so this sets the
+# end-to-end frame rate. Soft I²C is required: the sensor clock-stretches
+# heavily while loading its firmware in init(), which the hardware I²C
+# peripheral aborts on (ETIMEDOUT / poll_for_answer failures during bootload).
+_RANGING_FREQ_HZ = 15
 
 # Long enough for the USB host to finish enumerating before init_sensor()
 # begins the ~8 s VL53L5CX firmware upload. That upload is a run of ~370 ms
