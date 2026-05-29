@@ -49,6 +49,14 @@
     .stats-row .stat-item { display: flex; flex-direction: column; gap: 2px; }
     .stats-row .stat-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
     .stats-row .stat-value { font-size: 22px; font-weight: 300; color: var(--text); }
+    .controls { display: flex; gap: 16px; align-items: center; margin-bottom: 10px; }
+    .controls label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .controls input[type="number"] {
+      width: 90px; padding: 4px 6px;
+      background: #0b0e14; color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px;
+      font-size: 13px; font-variant-numeric: tabular-nums;
+    }
     .log {
       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       font-size: 12px; line-height: 1.45;
@@ -86,6 +94,11 @@
 
   <div class="panel">
     <h2>3D Point Cloud (mm)</h2>
+    <div class="controls">
+      <label for="z-max">Max height (mm)
+        <input type="number" id="z-max" min="1" step="100" value="400">
+      </label>
+    </div>
     <div class="stats-row">
       <div class="stat-item">
         <span class="stat-label">Valid Zones</span>
@@ -122,7 +135,11 @@
     const LOG_MAX = 200;
     const GRID_SIZE = 8;
     const MAX_RANGE_MM = 4000;   // sensor full range; ceiling for the autoscaled color range
-    const Z_MAX_MM = 1000;       // fixed top of the distance (z) axis; farther zones clip out of view
+    const Z_MAX_MM = 400;        // default top of the distance (z) axis; farther zones clip out of view
+
+    // Live-adjustable top of the distance (z) axis, driven by the "Max height"
+    // input. Held in JS so a relayout can re-assert it without rebuilding layout.
+    let zMax = Z_MAX_MM;
 
     // Near-focus tuning. With nothing in front of it the sensor still reports
     // valid ~1700 mm background reflections; left alone they dominate the color
@@ -189,7 +206,7 @@
         dragmode: "orbit",
         xaxis: { title: "Column", range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
         yaxis: { title: "Row",    range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
-        zaxis: { title: "Distance (mm)", range: [0, Z_MAX_MM], color: "#a1a1aa", gridcolor: "#1f2937" },
+        zaxis: { title: "Distance (mm)", range: [0, zMax], color: "#a1a1aa", gridcolor: "#1f2937" },
       },
     };
 
@@ -239,6 +256,18 @@
     };
     gd.on("plotly_relayout", captureCamera);
     gd.on("plotly_relayouting", captureCamera);
+
+    // Drive the distance (z) axis top from the "Max height" input. Ignore empty
+    // or non-positive values (mid-edit states) so a half-typed number doesn't
+    // collapse the axis; relayout only the z range to leave the camera untouched.
+    const zMaxInput = $("z-max");
+    zMaxInput.value = zMax;
+    zMaxInput.addEventListener("input", () => {
+      const v = parseInt(zMaxInput.value, 10);
+      if (!Number.isFinite(v) || v <= 0) return;
+      zMax = v;
+      Plotly.relayout(gd, { "scene.zaxis.range": [0, zMax] });
+    });
 
     let totalCount = 0;
     let rateCount = 0;
