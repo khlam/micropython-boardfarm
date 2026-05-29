@@ -44,8 +44,9 @@ real time.
 
 ## Notes
 - On boot the firmware loads ~86.5 KB of ST firmware into the VL53L5CX
-  over I²C at 400 kHz — this takes ~2-3 s and is shown as a
-  `firmware_loading` diagnostic event in the dashboard log.
+  over I²C — this takes ~7-9 s at 100 kHz (soft I²C, chosen because the
+  sensor clock-stretches during init) and is shown as a `firmware_loading`
+  diagnostic event in the dashboard log.
 - After initialisation the sensor enters continuous 8×8 ranging at 10 Hz.
   Each JSON line carries `{"t": <ms>, "grid": [<64 int|null>]}` where the
   grid is row-major (row 0 first) and each value is a distance in mm or
@@ -105,7 +106,7 @@ If your board requires LPN to be driven high externally, connect it to 3V3.
                                 13   12   11   10   9
 ```
 
-The on-board WS2812 sits between the BOOT and RESET buttons on the RP2040-Zero board and is driven by GP16 — no external wiring required. I²C runs at 400 kHz (hardware I²C0).
+The on-board WS2812 sits between the BOOT and RESET buttons on the RP2040-Zero board and is driven by GP16 — no external wiring required.
 
 ### ESP32-S3-Zero
 
@@ -129,7 +130,7 @@ The on-board WS2812 sits between the BOOT and RESET buttons on the RP2040-Zero b
                                 16   17   18   21   45
 ```
 
-The on-board WS2812 is driven by GPIO21 — no external wiring required. I²C runs at 400 kHz (hardware I²C0).
+The on-board WS2812 is driven by GPIO21 — no external wiring required.
 
 ### RP2350
 

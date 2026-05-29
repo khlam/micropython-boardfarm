@@ -5,7 +5,7 @@ import time
 import ujson
 
 from boot_status_led import status
-from i2c_bus import hard_i2c as i2c
+from i2c_bus import soft_i2c as i2c
 from vl53l5cx import VL53L5CX
 
 _TOF_ADDRESS = 0x29
