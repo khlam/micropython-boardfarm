@@ -165,7 +165,6 @@
     const layout = {
       paper_bgcolor: PANEL_BG,
       margin: { l: 0, r: 0, t: 10, b: 0 },
-      uirevision: "constant",
       scene: {
         bgcolor: PANEL_BG,
         dragmode: "orbit",
@@ -182,7 +181,7 @@
       marker: {
         size: 6,
         color: [],
-        colorscale: "RdYlBu_r",
+        colorscale: "RdYlBu",
         cmin: 0,
         cmax: MAX_RANGE_MM,
         showscale: true,
@@ -196,7 +195,21 @@
       hovertemplate: "row: %{y}<br>col: %{x}<br>dist: %{z:.0f} mm<extra></extra>",
     };
 
-    Plotly.newPlot("scatter3d", [trace], layout, config);
+    const gd = $("scatter3d");
+    Plotly.newPlot(gd, [trace], layout, config);
+
+    // Track the user's 3D camera so live data updates don't reset it. A gl3d
+    // scene re-syncs its camera from the layout on every data write, so without
+    // re-asserting the user's angle each frame an orbit gets thrown away and
+    // snaps back. plotly_relayout fires when a drag/zoom settles; relayouting
+    // fires continuously during the gesture, so capturing both keeps the camera
+    // current even mid-drag.
+    let userCamera = null;
+    const captureCamera = (e) => {
+      if (e && e["scene.camera"]) userCamera = e["scene.camera"];
+    };
+    gd.on("plotly_relayout", captureCamera);
+    gd.on("plotly_relayouting", captureCamera);
 
     let totalCount = 0;
     let rateCount = 0;
@@ -207,16 +220,14 @@
     function flushPending() {
       if (!pendingData) return;
       const { xs, ys, zs, colors } = pendingData;
-      // Restyle only the trace data — leaving the layout (and therefore the
-      // user's current camera/zoom) completely untouched. Plotly.react would
-      // re-evaluate the whole layout and snap the 3D camera back to the
-      // initial view angle on every frame.
-      Plotly.restyle("scatter3d", {
-        x: [xs],
-        y: [ys],
-        z: [zs],
-        "marker.color": [colors],
-      }, [0]);
+      // Push new trace data and re-assert the user's camera in one call, so the
+      // live refresh updates the dots without disturbing the current view.
+      Plotly.update(
+        gd,
+        { x: [xs], y: [ys], z: [zs], "marker.color": [colors] },
+        userCamera ? { "scene.camera": userCamera } : {},
+        [0],
+      );
       pendingData = null;
     }
 
