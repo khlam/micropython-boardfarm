@@ -82,7 +82,7 @@
   </div>
 
   <div class="panel">
-    <h2>Distance Grid (mm)</h2>
+    <h2>3D Point Cloud (mm)</h2>
     <div class="stats-row">
       <div class="stat-item">
         <span class="stat-label">Valid Zones</span>
@@ -101,7 +101,7 @@
         <span class="stat-value" id="stat-max">— mm</span>
       </div>
     </div>
-    <div id="heatmap" style="height: 500px;"></div>
+    <div id="scatter3d" style="height: 550px;"></div>
   </div>
 
   <div class="panel">
@@ -156,69 +156,55 @@
       logLine(kind, klass, body);
     }
 
-    // Build initial empty 8×8 z array (NaN renders as gap in Plotly heatmap)
-    function emptyGrid() {
-      return Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(NaN));
-    }
-
     const PANEL_BG = "#131722";
     const config = { displayModeBar: false, responsive: true };
 
     const layout = {
       paper_bgcolor: PANEL_BG,
-      plot_bgcolor: PANEL_BG,
-      margin: { l: 40, r: 80, t: 10, b: 40 },
-      xaxis: {
-        title: "Column",
-        tickvals: [0, 1, 2, 3, 4, 5, 6, 7],
-        gridcolor: "#1f2937",
-        color: "#a1a1aa",
-        dtick: 1,
+      margin: { l: 0, r: 0, t: 10, b: 0 },
+      uirevision: "constant",
+      scene: {
+        bgcolor: PANEL_BG,
+        xaxis: { title: "Column", range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
+        yaxis: { title: "Row",    range: [-0.5, 7.5], dtick: 1, color: "#a1a1aa", gridcolor: "#1f2937" },
+        zaxis: { title: "Distance (mm)", range: [0, MAX_RANGE_MM], color: "#a1a1aa", gridcolor: "#1f2937" },
       },
-      yaxis: {
-        title: "Row",
-        tickvals: [0, 1, 2, 3, 4, 5, 6, 7],
-        autorange: "reversed",
-        gridcolor: "#1f2937",
-        color: "#a1a1aa",
-        dtick: 1,
-        scaleanchor: "x",
-        scaleratio: 1,
-      },
-      coloraxis: {
+    };
+
+    const trace = {
+      type: "scatter3d",
+      mode: "markers",
+      x: [], y: [], z: [],
+      marker: {
+        size: 6,
+        color: [],
         colorscale: "RdYlBu_r",
         cmin: 0,
         cmax: MAX_RANGE_MM,
+        showscale: true,
         colorbar: {
           title: { text: "mm", font: { color: "#a1a1aa" } },
           tickfont: { color: "#a1a1aa" },
           bgcolor: PANEL_BG,
           bordercolor: "#1f2937",
-          len: 0.9,
         },
       },
+      hovertemplate: "row: %{y}<br>col: %{x}<br>dist: %{z:.0f} mm<extra></extra>",
     };
 
-    const trace = {
-      z: emptyGrid(),
-      type: "heatmap",
-      coloraxis: "coloraxis",
-      hovertemplate: "row %{y}, col %{x}<br>%{z:.0f} mm<extra></extra>",
-      zsmooth: false,
-    };
-
-    Plotly.newPlot("heatmap", [trace], layout, config);
+    Plotly.newPlot("scatter3d", [trace], layout, config);
 
     let totalCount = 0;
     let rateCount = 0;
     let rateAt = performance.now();
-    let pendingGrid = null;
+    let pendingData = null;
     let frameScheduled = false;
 
     function flushPending() {
-      if (!pendingGrid) return;
-      Plotly.restyle("heatmap", { z: [pendingGrid] }, [0]);
-      pendingGrid = null;
+      if (!pendingData) return;
+      const { xs, ys, zs, colors } = pendingData;
+      Plotly.restyle("scatter3d", { x: [xs], y: [ys], z: [zs], "marker.color": [colors] }, [0]);
+      pendingData = null;
     }
 
     function scheduleFrame() {
@@ -275,13 +261,17 @@
       const flat = obj.grid;
       if (!Array.isArray(flat) || flat.length !== 64) return;
 
-      // Convert flat 64-element row-major list → 8×8 nested array.
-      // null → NaN so Plotly shows the gap colour instead of 0.
-      const grid2d = Array.from({ length: GRID_SIZE }, (_, r) =>
-        flat.slice(r * GRID_SIZE, r * GRID_SIZE + GRID_SIZE).map((v) => (v === null ? NaN : v))
-      );
-
-      pendingGrid = grid2d;
+      const xs = [], ys = [], zs = [], colors = [];
+      for (let i = 0; i < 64; i++) {
+        const v = flat[i];
+        if (v !== null) {
+          xs.push(i % GRID_SIZE);
+          ys.push(Math.floor(i / GRID_SIZE));
+          zs.push(v);
+          colors.push(v);
+        }
+      }
+      pendingData = { xs, ys, zs, colors };
       updateStats(flat);
 
       totalCount++;
