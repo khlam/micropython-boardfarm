@@ -90,21 +90,18 @@ Write a Google-style docstring for every module, class, and function — no exce
 Use standard Python ordering: docstring → imports → constants → public API → private helpers. In test files, test functions come before fixtures.
 
 ## Code style & runtime conventions
-- MicroPython on RP2040: 264 KB SRAM, no threads, no pip. Use `const()` for register addresses; pre-allocate buffers in tight loops.
+- MicroPython has no pip and tight RAM constraints. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
 - Wrap `sensor.read()` in `try/except` — sensors occasionally NACK. On exception, call `status.read_err()` and `continue` the loop; never let a stray exception crash the loop.
-- `main.py` calls only named `status.*()` transitions — no raw RGB tuples in streaming logic.
 - Chip-specific logic belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`) and declares a `pyproject.toml` at `firmware-packages/<pkg>/` so uv can install it editable for host tests. Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes.
 - Don't install tools on the host. All toolchains (esptool, ARM cross-compiler, ESP-IDF, uv, MicroPython source) live inside Docker images.
 - Don't add dependencies without tests + `uv lock`.
 
----
 
 ## Safety & repo boundaries
 - Never read or write `projects/*/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
-- Never edit `firmware-packages/vl53l0x/vl53l0x/vl53l0x.py` — it is vendored (with local modifications for the ESP32-S3 breakout wrapper) from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). See [firmware-packages/vl53l0x/VENDOR.md](firmware-packages/vl53l0x/VENDOR.md) for the source commit and divergence notes.
 
 
 ## Key references (keyword → file)
