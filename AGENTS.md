@@ -82,12 +82,12 @@ docker compose run --rm uv lock
 ---
 
 ## Docstrings & function documentation
-All Python code follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html), enforced by ruff (see [pyproject.toml](pyproject.toml)) — no exceptions for firmware, drivers, tools, or tests. Every module, class, and function gets a docstring — no exceptions, including small helpers, chip backends, and one-line utilities. Use Google-style: a one-line summary, blank line, then `Args:` / `Returns:` / `Raises:` sections when they add information. State the *why* and any non-obvious invariants — restating the signature in prose is noise. Tests are the only exception; `D100`/`D103` are ignored under `**/tests/*` in [pyproject.toml](pyproject.toml).
+Write a Google-style docstring for every module, class, and function — no exceptions. One-line summary, then `Args:` / `Returns:` / `Raises:` only when they add something. Focus on *why* and non-obvious invariants; don't restate what the signature already says. Tests are exempt (`D100`/`D103` in [pyproject.toml](pyproject.toml)).
 
 **Don't preserve the past — in prose or in code.** No "replaces …" / "previously …" phrasing in comments; no dead branches, compat shims, or aliases for renamed symbols. Git covers history. Exception: when prior state explains a current workaround or silicon/library quirk that would otherwise look arbitrary.
 
 ## File layout
-Standard Python ordering, no exceptions (firmware, drivers, tools, tests): module docstring → `import` statements → module-level constants → public API (exported functions/classes; tests in test files) → private helpers (`_`-prefixed functions/classes; pytest fixtures).
+Use standard Python ordering: docstring → imports → constants → public API → private helpers. In test files, test functions come before fixtures.
 
 ## Code style & runtime conventions
 - MicroPython on RP2040: 264 KB SRAM, no threads, no pip. Use `const()` for register addresses; pre-allocate buffers in tight loops.
@@ -103,20 +103,9 @@ Standard Python ordering, no exceptions (firmware, drivers, tools, tests): modul
 ## Safety & repo boundaries
 - Never read or write `projects/*/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
-- Don't add host dependencies outside Docker — Docker is the only required host tool.
 - Avoid destructive git operations and unrelated reversions.
 - Never edit `firmware-packages/vl53l0x/vl53l0x/vl53l0x.py` — it is vendored (with local modifications for the ESP32-S3 breakout wrapper) from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). See [firmware-packages/vl53l0x/VENDOR.md](firmware-packages/vl53l0x/VENDOR.md) for the source commit and divergence notes.
 
----
-
-## Common pitfalls
-- **Putting chip-specific branches in project firmware** — `if _IS_ESP32` / `os.uname()` checks in `main.py` violate the shared-projects design. Move chip detection into a package backend instead (see `firmware-packages/boot_status_led/boot_status_led/status.py` for the dispatch pattern).
-- **Printing outside `emit()`** — output appears in the serial stream and confuses the viz JSON parser.
-- **Editing any Dockerfile to add a new project** — wrong. Copy an existing `projects/<project>/`, edit `main.py` and the `VIZ_DIR` build-arg in the new `docker-compose.yaml`. The Dockerfiles are unchanged.
-- **Running `esp32` service without the board in bootloader mode** — the ENTRYPOINT fails fast on missing `/dev/ttyACM0`; put the board in bootloader mode first.
-- **Forgetting `--build` after editing files** — Docker images copy files at build time; without `--build` the container runs stale firmware.
-
----
 
 ## Key references (keyword → file)
 
