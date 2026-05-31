@@ -14,12 +14,20 @@ This is a shared-projects monorepo. Projects (`projects/<project>/`) contain gen
 
 ## Routing
 Before changing anything, identify the area you're touching:
-- **Projects directory** — `projects/<project>/firmware/main.py`
-- **Shared packages (chip backends, driver)** — `firmware-packages/boot_status_led/` and `firmware-packages/vl53l0x/`
-- **Viz/dashboard** — `projects/<project>/viz/`
-- **Build system** — `Dockerfile.firmware`, `Dockerfile.tests`, `Dockerfile.host` (viz + uv-runner) + `projects/<project>/docker-compose.yaml`
 
-When unsure, use **Key references** at the bottom.
+| Area | Path | Key files |
+| --- | --- | --- |
+| Entry point | `projects/<project>/firmware/` | `main.py` — I²C scan, sensor init, JSON streaming loop |
+| LED state machine | `firmware-packages/boot_status_led/boot_status_led/` | `status.py` — named transitions + colour constants, chip dispatch |
+| ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(i2c, skip_spad_info=False, interrupt_status_mask=0x07)` |
+| Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
+| Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
+| Firmware build | repo root | `Dockerfile.firmware` — stages: `rp`, `esp32` |
+| Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
+| Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
+| Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
+| RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
+| ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32` service |
 
 ## Workflow (follow in order)
 1. Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three).
@@ -102,20 +110,3 @@ Use standard Python ordering: docstring → imports → constants → public API
 - Never read or write `projects/*/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
-
-
-## Key references (keyword → file)
-
-| Keyword | File | Notes |
-| --- | --- | --- |
-| Entry point | `projects/<project>/firmware/main.py` | I²C scan, sensor init, JSON streaming loop |
-| LED state machine | `firmware-packages/boot_status_led/boot_status_led/status.py` | Named transitions + colour constants, chip dispatch |
-| ToF driver | `firmware-packages/vl53l0x/vl53l0x/vl53l0x.py` | `VL53L0X(i2c, skip_spad_info=False, interrupt_status_mask=0x07)` |
-| Viz backend | `projects/<project>/viz/app.py` | Serial reader + WebSocket broadcaster on `/ws` |
-| Viz dashboard | `projects/<project>/viz/static/index.html` | Plotly line chart + numeric readout |
-| Firmware build | `Dockerfile.firmware` | Stages: `rp`, `esp32` |
-| Host tests | `Dockerfile.tests` | Stage: `pytest` |
-| Host runtime | `Dockerfile.host` | Stages: `viz`, `uv-runner` |
-| Project compose | `projects/<project>/docker-compose.yaml` | `build.context: ../..` → repo root |
-| RP firmware output | `projects/<project>/outputs/app.rp2040.rp2350.uf2` | Universal UF2 for RP2040 + RP2350 |
-| ESP32 firmware output | `projects/<project>/outputs/app.esp32-s3.bin` | ESP-IDF `.bin`, flashed by `esp32` service |
