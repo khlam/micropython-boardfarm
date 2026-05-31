@@ -1,18 +1,7 @@
-# AGENTS.md — Generic MicroPython
+# AGENTS.md
 
-## Host policy (read first)
+## Host policy
 **Never install anything on the host machine.** Docker is the only required host tool. All toolchains, flashers, serial readers, tests, and helper scripts run inside Docker — invoke them via the project's `docker compose` services. If a workflow seems to require a host install (pip, brew, apt, pipx, esptool, MicroPython, etc.), wrap it in a Docker stage instead.
-
-**macOS serial (one exception).** Docker Desktop runs containers in a Linux VM and neither it nor Apple's Virtualization.framework can pass a USB-serial device through to it, so the `- /dev:/dev` mount the `viz` and `esp32` services rely on sees nothing on macOS. The one project-agnostic, no-install workaround is [tools/serial-bridge.sh](tools/serial-bridge.sh) (built-in `stty`/`cat`/`nc` only) — a full-duplex serial↔TCP relay. Set it up **once**:
-
-```sh
-# 1. leave this running in its own terminal:
-tools/serial-bridge.sh
-# 2. add to your shell profile (one place, every project):
-export SERIAL_PORT=socket://host.docker.internal:5555
-```
-
-After that the commands are identical to Linux — `docker compose up --build viz` and `docker compose run --rm --build esp32` — because both read `SERIAL_PORT` (default `/dev/ttyACM0`), and the readers (`serial_for_url` in viz, `esptool.py --port` in the esp32 stage) accept a device path or a `socket://` URL. Flashing over the bridge needs the board already in bootloader mode (TCP carries no DTR/RTS reset line); the esp32 stage passes `--before/--after no_reset` for socket:// ports.
 
 ## Terminology
 - **MCU** — MicroPython on the chip. Code lives in `projects/<project>/firmware/` and `firmware-packages/<pkg>/<pkg>/`.
@@ -23,7 +12,7 @@ This is a shared-projects monorepo. Projects (`projects/<project>/`) contain gen
 
 `<project>` denotes any subdirectory under `projects/` — list it with `ls projects/` to see what's currently present, and substitute the real name when running commands.
 
-## Start here (routing)
+## Routing
 Before changing anything, identify the area you're touching:
 - **Projects directory** — `projects/<project>/firmware/main.py`
 - **Shared packages (chip backends, driver)** — `firmware-packages/boot_status_led/` and `firmware-packages/vl53l0x/`
@@ -32,16 +21,12 @@ Before changing anything, identify the area you're touching:
 
 When unsure, use **Key references** at the bottom.
 
----
-
-## Change workflow (follow in order)
+## Workflow (follow in order)
 1. Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three).
 2. If the change requires chip-specific behavior, add or update a package backend — do not branch inside project firmware.
 3. Make the smallest change that achieves the goal — don't add shared abstractions for a single chip.
 4. Build firmware and confirm it compiles before reporting done.
-5. If the JSON schema changes, update the viz `app.py` parser and `index.html` display logic in the same change.
 
----
 
 ## Commands (copy/paste, run from `projects/<project>/`)
 
@@ -50,59 +35,45 @@ When unsure, use **Key references** at the bottom.
 docker compose up --build compile      # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
 docker compose run --rm --build esp32  # ESP32-S3 → builds + flashes $SERIAL_PORT (default /dev/ttyACM0)
 ```
-ESP32-S3: board must be in bootloader mode (hold BOOT, tap RESET) before the `esp32` service runs — it fails fast if `$SERIAL_PORT` (default `/dev/ttyACM0`) is missing. macOS: see the serial bridge under **Host policy**; the command is unchanged.
-
-### Run dashboard
-```
-docker compose up --build viz          # → http://localhost:18501
-```
 
 ### Clean build caches (this project only)
 ```
 docker compose down -v                 # drops build-cache
 ```
 
-Pass `--build` whenever firmware or package files change — images copy files at build time, not via volume mount.
-
-### Run tests (from the repo root, not a project dir)
+### Run tests
 ```
-docker compose up pytest --build --exit-code-from pytest            # everything
-docker compose run --rm pytest /projects/distance-stream/tests      # one project
-docker compose run --rm pytest /firmware-packages/vl53l0x/tests              # one package
-docker compose run --rm pytest /firmware-packages/mpu6050/tests -k who_am_i  # filter
+docker compose up pytest --build --exit-code-from pytest                                     # everything
+docker compose up pytest --build --exit-code-from pytest -- /projects/distance-stream/tests  # one project
+docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/vl53l0x/tests # one package
 ```
-Tests live in one consolidated service at the repo root (`docker-compose.yaml`), not per-project. Any positional args override the default target set (`/firmware-packages /projects /cpython-packages/serial_over_web/tests`) — no implicit merging. The `up … --exit-code-from pytest` form is required so a failing test makes the command exit non-zero; plain `up` silently swallows the failure.
 
 ### Python deps / locks (from the repo root)
-- `docker compose run --rm uv lock` (when editing `pyproject.toml` / `uv.lock`)
+```
+docker compose run --rm uv lock
+```
 
 ---
 
 ## Architecture & invariants
 
-### Project firmware is chip-agnostic (critical)
-- Project `main.py` must work identically on all chips the project supports — no `if _IS_ESP32`, no `os.uname()` checks, no chip-specific I²C or GPIO choices in project code.
-- Chip-specific behavior is encapsulated in package backends and selected at import time (see LED state machine dispatch and ToF driver `skip_spad_info` as examples of the pattern).
-- Adding a new supported chip means adding a package backend, not branching in `main.py`.
-
-### JSON output schema (invariant)
-- All output goes through `emit()` — one `ujson.dumps` per line. Raw `print()` outside `emit()` pollutes the serial stream and is silently dropped by the viz parser.
-- `distance_mm` is `null` when `tof.read() >= 8190` (out-of-range), an integer mm otherwise.
+### JSON output schema
+- Use `emit()` for all output. Raw `print()` breaks the viz parser silently.
 
 ### Packages are frozen for firmware, installed editable for tests
-- For firmware: each package's `<pkg>/` directory under `firmware-packages/<pkg>/` is frozen into `ports/rp2/modules/<pkg>/` (RP) or `ports/esp32/modules/<pkg>/` (ESP32) at build time via `manifest.py`'s `package()` call. MicroPython's module resolution picks them up automatically. `tests/`, `pyproject.toml`, and `README.md` under each package are not copied to the device.
-- For host tests: each package is a uv workspace member (declared in the root [pyproject.toml](pyproject.toml)). The `pytest` stage in [Dockerfile.tests](Dockerfile.tests) `uv sync`s every member into `/work/.venv` editable, so `import mpu6050` etc. resolve normally — no per-package `sys.path` mutation.
+- Firmware: `manifest.py` copies only `firmware-packages/<pkg>/<pkg>/` onto the chip. `tests/`, `pyproject.toml`, and `README.md` are excluded.
+- Tests: `uv sync` installs every package editable into `/work/.venv`, so imports resolve inside the `pytest` Docker service. Do not add `sys.path` mutations.
 
 ### Package layout
-- `firmware-packages/<pkg>/pyproject.toml` — minimal hatchling metadata that makes the package a uv workspace member. Not seen by `manifest.py` (firmware freeze finds `<pkg>/<pkg>/` directly).
-- `firmware-packages/<pkg>/<pkg>/` — firmware modules (`__init__.py` + submodules). Pylance resolves `import <pkg>` via `python.analysis.extraPaths` in [.vscode/settings.json](.vscode/settings.json) pointing at each package's root. Only the inner `<pkg>/` directory ships to the chip; sibling `tests/`, `pyproject.toml`, `README.md` are filtered out by `manifest.py`'s `package()` call.
-- `firmware-packages/<pkg>/tests/` — host pytest. `tests/conftest.py` contains only fixtures; no `sys.path`/`sys.modules` mutation. Sibling helper files (e.g. `fake_mpu6050.py`) are reachable because the root [pyproject.toml](pyproject.toml)'s `[tool.pytest.ini_options] pythonpath` adds each package's `tests/` to the import path.
+- `firmware-packages/<pkg>/pyproject.toml` — makes this a uv workspace member so tests can import it. Ignored by firmware builds.
+- `firmware-packages/<pkg>/<pkg>/` — the actual package. Only this inner directory ships to the chip; `tests/`, `pyproject.toml`, and `README.md` are excluded.
+- `firmware-packages/<pkg>/tests/` — host tests. Put fixtures in `conftest.py`; sibling helpers (e.g. `fake_mpu6050.py`) are importable without `sys.path` hacks.
 - `firmware-packages/<pkg>/README.md` — usage, public API, chip-dispatch rationale.
 
 ### Shared host-test stubs
-- `cpython-packages/micropython_stubs/micropython_stubs/` holds **one** copy each of `machine.py`, `neopixel.py`, `micropython.py`, `ustruct.py`, `utime.py`, `ujson.py`. The wheel re-promotes them to top-level via hatch `force-include`, so every host test resolves `import machine` etc. against the same module — no per-package stub directories, no cross-package contamination.
-- The `machine` stub keeps a single module-level `_devices: dict` and `pin_constructions: list`. Tests reset state via `machine.reset()` (and `neopixel.reset()` where relevant) in an autouse fixture.
-- If a new test needs behavior not in the shared stub, add it to `cpython-packages/micropython_stubs/micropython_stubs/<module>.py` and list the new file in the `force-include` table of `pyproject.toml`. Never bring back per-package `stubs/`.
+- All MicroPython stubs live in `cpython-packages/micropython_stubs/micropython_stubs/`
+- Reset `machine` and `neopixel` state with `machine.reset()` / `neopixel.reset()` in an autouse fixture.
+- To extend a stub, edit the file there and add it to `force-include` in `pyproject.toml`.
 
 ### Universal UF2 vs ESP32 bin (invariant)
 - `outputs/app.rp2040.rp2350.uf2` covers RP2040 and RP2350 only — each bootloader skips foreign-family blocks.
