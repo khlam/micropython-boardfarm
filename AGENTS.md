@@ -87,16 +87,6 @@ docker compose run --rm uv lock
 - `outputs/app.rp2040.rp2350.uf2` covers RP2040 and RP2350 only — each bootloader skips foreign-family blocks.
 - `outputs/app.esp32-s3.bin` is a separate ESP-IDF image flashed via `esptool.py`. **Never concatenate them.**
 
----
-
-## Docstrings & function documentation
-Write a Google-style docstring for every module, class, and function — no exceptions. One-line summary, then `Args:` / `Returns:` / `Raises:` only when they add something. Focus on *why* and non-obvious invariants; don't restate what the signature already says. Tests are exempt (`D100`/`D103` in [pyproject.toml](pyproject.toml)).
-
-**Don't preserve the past — in prose or in code.** No "replaces …" / "previously …" phrasing in comments; no dead branches, compat shims, or aliases for renamed symbols. Git covers history. Exception: when prior state explains a current workaround or silicon/library quirk that would otherwise look arbitrary.
-
-## File layout
-Use standard Python ordering: docstring → imports → constants → public API → private helpers. In test files, test functions come before fixtures.
-
 ## Code style & runtime conventions
 - MicroPython has no pip and tight RAM constraints. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
@@ -110,3 +100,13 @@ Use standard Python ordering: docstring → imports → constants → public API
 - Never read or write `projects/*/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
+
+---
+
+## Docstrings & function documentation
+Write a Google-style docstring for every module, class, and function — no exceptions. One-line summary, then `Args:` / `Returns:` / `Raises:` only when they add something. Focus on *why* and non-obvious invariants; don't restate what the signature already says. Tests are exempt (`D100`/`D103` in [pyproject.toml](pyproject.toml)).
+
+**Don't preserve the past — in prose or in code.** No "replaces …" / "previously …" phrasing in comments; no dead branches, compat shims, or aliases for renamed symbols. Git covers history. Exception: when prior state explains a current workaround or silicon/library quirk that would otherwise look arbitrary.
+
+## File layout
+Use standard Python ordering: docstring → imports → constants → public API → private helpers. In test files, test functions come before fixtures.
