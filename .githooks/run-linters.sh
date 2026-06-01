@@ -1,25 +1,9 @@
 #!/usr/bin/env bash
-# Single source of truth for Docker-based lint VERIFICATION.
-#
-# Called by both:
-#   - .githooks/pre-commit         → after auto-fixers, on staged files
-#   - .github/workflows/ci.yml     → on all tracked files
-#
-# Changes to ruff/vulture/hadolint/yamllint invocation here propagate to
-# both. Auto-fixers (ruff format, ruff check --fix, yamlfix -i) live in
-# pre-commit only — CI can't push fixes back and shouldn't silently rewrite
-# code on behalf of a contributor.
-#
+# Docker lint verifier shared by pre-commit and CI.
+# Routes each file to the appropriate linter(s) based on its type.
 # Usage: run-linters.sh <file>...
-#
-# Files are categorised by extension/name; each linter only runs over the
-# files that match its category. Image builds are guarded so the first call
-# pays the build cost and subsequent calls are instant.
-#
-# Exit 0 if all checks pass; non-zero on any lint failure (all linters run
-# even if an earlier one fails, so a single invocation surfaces every
-# issue).
 
+# -e omitted intentionally: fail=1 accumulates tool failures without early exit.
 set -uo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
@@ -27,50 +11,35 @@ cd "$repo_root"
 
 IMAGE_TAG_RUFF="local/ruff:latest"
 IMAGE_TAG_VULTURE="local/vulture:latest"
+IMAGE_TAG_PYDOCLINT="local/pydoclint:latest"
 IMAGE_TAG_HADOLINT="local/hadolint:latest"
 IMAGE_TAG_YAMLLINT="local/yamllint:latest"
+IMAGE_TAG_TYPECHECK="local/typecheck:latest"
 DOCKERFILE="Dockerfile.linters"
+DOCKERFILE_TESTS="Dockerfile.tests"
 
-_ensure_image() {
-  local tag="$1" stage="$2"
-  if ! docker image inspect "$tag" >/dev/null 2>&1; then
-    echo "[lint] Building $tag (one-time)..."
-    docker build -q --target "$stage" -t "$tag" -f "$DOCKERFILE" . >/dev/null
-  fi
-}
+docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target vulture-lint   -t "$IMAGE_TAG_VULTURE"   -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target hadolint-lint  -t "$IMAGE_TAG_HADOLINT"  -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target yamllint-lint  -t "$IMAGE_TAG_YAMLLINT"  -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
 
-_ensure_image "$IMAGE_TAG_RUFF"     ruff-lint
-_ensure_image "$IMAGE_TAG_VULTURE"  vulture-lint
-_ensure_image "$IMAGE_TAG_HADOLINT" hadolint-lint
-_ensure_image "$IMAGE_TAG_YAMLLINT" yamllint-lint
-
-# Categorise inputs by extension / filename. The Dockerfile pattern mirrors
-# the pre-commit hook's original regex: `Dockerfile`, `Dockerfile.<suffix>`,
-# or `*.dockerfile` (case-insensitive).
+# Bucket each input file by type so each linter only receives the files it understands.
 py_files=()
 dockerfiles=()
 yaml_files=()
 for f in "$@"; do
   case "$f" in
-    *.py)
-      py_files+=("$f")
-      ;;
-  esac
-  case "$f" in
-    Dockerfile|Dockerfile.*|*/Dockerfile|*/Dockerfile.*|*.dockerfile|*.Dockerfile)
-      dockerfiles+=("$f")
-      ;;
-  esac
-  case "$f" in
-    *.yml|*.yaml|*.YML|*.YAML)
-      yaml_files+=("$f")
-      ;;
+    *.py)                                                                   py_files+=("$f") ;;
+    Dockerfile|Dockerfile.*|*/Dockerfile|*/Dockerfile.*|*.dockerfile|*.Dockerfile) dockerfiles+=("$f") ;;
+    *.yml|*.yaml)                                                           yaml_files+=("$f") ;;
   esac
 done
 
+# Accumulate failures so every linter runs even when an earlier one fails.
 fail=0
 
-# --- Ruff: format check + lint check (no fixes) ---
 if (( ${#py_files[@]} > 0 )); then
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -80,24 +49,25 @@ if (( ${#py_files[@]} > 0 )); then
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
     check --force-exclude -- "${py_files[@]}" || fail=1
 
-  # Vulture: skip the vendored VL53L0X driver and manifest.py (both also
-  # excluded from ruff in pyproject.toml). Allowlist is always appended.
-  vulture_files=()
-  for f in "${py_files[@]}"; do
-    case "$f" in
-      firmware-packages/vl53l0x/vl53l0x/vl53l0x.py) continue ;;
-      manifest.py) continue ;;
-    esac
-    vulture_files+=("$f")
-  done
-  if (( ${#vulture_files[@]} > 0 )); then
-    echo "[lint] vulture (${#vulture_files[@]} file(s))"
-    docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
-      --min-confidence 70 -- "${vulture_files[@]}" .vulture_allowlist.py || fail=1
-  fi
+  echo "[lint] vulture (${#py_files[@]} file(s))"
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
+    -- "${py_files[@]}" .vulture_allowlist.py || fail=1
+
+  echo "[lint] pydoclint (${#py_files[@]} file(s))"
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
+    --style=google --allow-init-docstring=True -- "${py_files[@]}" || fail=1
+
+  # ty type-checks the whole source tree, not just the changed files,
+  # so it always runs once rather than per-file.
+  echo "[lint] ty check"
+  docker run --rm \
+    -v "$PWD/firmware-packages":/work/firmware-packages:ro \
+    -v "$PWD/cpython-packages":/work/cpython-packages:ro \
+    -v "$PWD/projects":/work/projects:ro \
+    "$IMAGE_TAG_TYPECHECK" || fail=1
 fi
 
-# --- Hadolint: one container per Dockerfile (matches pre-commit) ---
+# Lint each Dockerfile for best-practice errors; warnings are informational only.
 if (( ${#dockerfiles[@]} > 0 )); then
   for df in "${dockerfiles[@]}"; do
     echo "[lint] hadolint $df"
@@ -106,7 +76,7 @@ if (( ${#dockerfiles[@]} > 0 )); then
   done
 fi
 
-# --- Yamllint: one container per YAML file (matches pre-commit) ---
+# Lint each YAML file for syntax and style conformance.
 if (( ${#yaml_files[@]} > 0 )); then
   for yf in "${yaml_files[@]}"; do
     echo "[lint] yamllint $yf"

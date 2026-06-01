@@ -2,6 +2,7 @@
 # build + flash). Each project's docker-compose.yaml picks one via `target:`.
 # Host-Python apps live in Dockerfile.host; pytest lives in Dockerfile.tests.
 
+# renovate: datasource=github-tags depName=micropython/micropython
 ARG MICROPYTHON_REF=v1.28.0
 
 
