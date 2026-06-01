@@ -14,12 +14,13 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import serial
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict
 
 SERIAL_PORT = os.environ.get("SERIAL_PORT", "/dev/ttyACM0")
 SERIAL_BAUD = 115200
@@ -32,11 +33,22 @@ _RECONNECT_DELAY_S = 0.2
 __all__ = ["app"]
 
 
-@dataclass
-class _SerialState:
+class _SerialState(BaseModel):
+    """Mutable snapshot of the serial port's connection state."""
+
+    model_config = ConfigDict(validate_assignment=True)
     connected: bool = False
     error: str | None = None
     port: str = ""
+
+
+class _SerialEvent(BaseModel):
+    """A serialisable connection-state event broadcast to WebSocket clients."""
+
+    model_config = ConfigDict(frozen=True)
+    event: Literal["connected", "disconnected"]
+    port: str
+    error: str | None = None
 
 
 _state = _SerialState(port=SERIAL_PORT)
@@ -89,7 +101,11 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
             ) as ser:
                 _state.connected = True
                 _state.error = None
-                _schedule(loop, queue, json.dumps({"event": "connected", "port": SERIAL_PORT}))
+                _schedule(
+                    loop,
+                    queue,
+                    _SerialEvent(event="connected", port=SERIAL_PORT).model_dump_json(),
+                )
                 _pump_serial(ser, loop, queue)
         except (serial.SerialException, OSError) as e:
             _state.connected = False
@@ -97,7 +113,9 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
             _schedule(
                 loop,
                 queue,
-                json.dumps({"event": "disconnected", "port": SERIAL_PORT, "error": str(e)}),
+                _SerialEvent(
+                    event="disconnected", port=SERIAL_PORT, error=str(e)
+                ).model_dump_json(),
             )
             time.sleep(_RECONNECT_DELAY_S)
 
@@ -136,12 +154,12 @@ app = FastAPI(lifespan=lifespan)
 async def websocket_endpoint(ws: WebSocket) -> None:
     """Send the current serial-state hello frame, then forward broadcasts."""
     await ws.accept()
-    hello = {
-        "event": "connected" if _state.connected else "disconnected",
-        "port": _state.port,
-        "error": _state.error,
-    }
-    await ws.send_text(json.dumps(hello))
+    hello = _SerialEvent(
+        event="connected" if _state.connected else "disconnected",
+        port=_state.port,
+        error=_state.error,
+    )
+    await ws.send_text(hello.model_dump_json())
     _clients.add(ws)
     try:
         while True:

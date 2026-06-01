@@ -147,7 +147,7 @@ def test_serial_thread_emits_connected_event_when_port_opens(monkeypatch):
 
     assert app._state.connected is True
     assert app._state.error is None
-    assert any('"event": "connected"' in m for m in captured)
+    assert any(json.loads(m).get("event") == "connected" for m in captured)
 
 
 def test_serial_thread_passes_socket_url_through(monkeypatch):
