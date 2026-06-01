@@ -17,6 +17,26 @@ hook_dir="$(dirname "$0")"
 # Project ↔ root version-compat guard.
 "$hook_dir/check_project_compat.sh" pyproject.toml projects/*/pyproject.toml
 
+# Vendored-file guard: these files must not be edited directly. Patches must
+# go through the upstream vendoring process documented in each VENDOR.md.
+VENDORED_FILES=(
+  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py"
+)
+vendored_staged=()
+for f in "${VENDORED_FILES[@]}"; do
+  if git diff --cached --name-only | grep -qF "$f"; then
+    vendored_staged+=("$f")
+  fi
+done
+if (( ${#vendored_staged[@]} > 0 )); then
+  echo "[pre-commit] ERROR: the following vendored file(s) must not be edited directly:"
+  for f in "${vendored_staged[@]}"; do
+    echo "  $f"
+  done
+  echo "  See the corresponding VENDOR.md for the upstream source and patch process."
+  exit 1
+fi
+
 # Yamlfix image is fix-only (not used by CI), so its build guard lives here
 # rather than in run-linters.sh. Ruff/vulture/hadolint/yamllint images are
 # built on demand by run-linters.sh — no need to duplicate those guards.

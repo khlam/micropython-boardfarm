@@ -4,13 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "serial_over_web"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared FastAPI dashboard server for boardfarm project serial streams"
 requires-python = ">=3.12"
 
 dependencies = [
-    "fastapi>=0.136.1",
-    "uvicorn[standard]>=0.47.0",
+    "fastapi>=0.136.3",
+    "pydantic>=2.13.4",
+    "uvicorn[standard]>=0.48.0",
     "pyserial>=3.5",
 ]
 

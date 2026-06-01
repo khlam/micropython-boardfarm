@@ -1,101 +1,83 @@
 #!/usr/bin/env bash
-# Enforces semantic versioning on the workspace: if a package's or
-# project's code changes, that scope's pyproject.toml version must bump
-# in the same commit. Pure git/bash — no Docker needed.
+# Require a version bump when code/config changes inside a versioned scope.
 #
-# Scopes (each staged file lands in its most-specific scope; no double-
-# counting):
-#   firmware-packages/<pkg>/    → firmware-packages/<pkg>/pyproject.toml
-#   cpython-packages/<pkg>/     → cpython-packages/<pkg>/pyproject.toml
-#   projects/<name>/            → projects/<name>/pyproject.toml
-#   <repo root>                 → pyproject.toml  (everything else)
+# A "scope" is a directory holding a pyproject.toml: the repo root, plus every
+# firmware-packages/*/, cpython-packages/*/, and projects/*/ that has one.
+# A changed source file dirties its nearest enclosing scope, and any dirty
+# scope must also change its `version = "..."` line, or this check fails.
 #
-# Trigger files: *.py, *.toml, *.yaml, *.yml, Dockerfile*. Docs (*.md),
-# the uv.lock, anything under outputs/, and the scope's own
-# pyproject.toml don't trigger a version bump.
-#
-# Newly-added pyproject.toml files are exempt (no HEAD version to
-# compare against).
-
+# Usage:
+#   check_version_bumps.sh             pre-commit: staged index vs HEAD
+#   check_version_bumps.sh --base REF  CI: working tree vs REF (e.g. origin/main)
 set -euo pipefail
 
-# Collect staged additions/copies/modifications/renames.
-mapfile -d '' -t staged_files < <(git diff --cached --name-only --diff-filter=ACMR -z)
-(( ${#staged_files[@]} == 0 )) && exit 0
+_parse_version() { awk -F'"' '/^version = /{print $2; exit}'; }  # stdin -> version
 
-# Build list of versionable scopes: "<pyproject>::<dir>". Order doesn't
-# matter; longest-prefix wins below.
-scopes=("pyproject.toml::")
+# Mode picks the label, the changed-path listing, and where "new"/"old"
+# pyproject contents are read from.
+if [[ "${1:-}" == "--base" ]]; then
+  base_ref="${2:-}"
+  [[ -n "$base_ref" ]] || { echo "usage: $0 [--base <ref>]" >&2; exit 2; }
+  label="ci"
+  old_ref="$base_ref"
+  list_changed() { git diff --name-only --diff-filter=ACMR -z "$base_ref...HEAD"; }
+  new_version()  { [[ -f "$1" ]] && _parse_version <"$1"; return 0; }
+else
+  label="pre-commit"
+  old_ref="HEAD"
+  list_changed() { git diff --cached --name-only --diff-filter=ACMR -z; }
+  new_version()  { git show ":$1" 2>/dev/null | _parse_version; }
+fi
+old_version() { git show "$old_ref:$1" 2>/dev/null | _parse_version; }
+
+mapfile -d '' -t files < <(list_changed)
+(( ${#files[@]} )) || exit 0
+
+# Scope directories that actually carry a pyproject.toml (root is the default).
+scope_dirs=()
 for d in firmware-packages/*/ cpython-packages/*/ projects/*/; do
-  [[ -f "${d}pyproject.toml" ]] && scopes+=("${d}pyproject.toml::${d}")
+  [[ -f "${d}pyproject.toml" ]] && scope_dirs+=("$d")
 done
 
-# Map: scope-pyproject path → 1 if it has staged trigger files in scope.
-declare -A scope_dirty=()
-
-for f in "${staged_files[@]}"; do
-  # Skip non-trigger files.
+# Map each relevant changed file to the pyproject.toml of its nearest scope.
+declare -A dirty=()
+for f in "${files[@]}"; do
   case "$f" in
-    *.md|uv.lock|*/outputs/*|*.uf2|*.bin) continue ;;
-  esac
-  case "$f" in
-    *.py|*.toml|*.yaml|*.yml) ;;
-    Dockerfile*|*/Dockerfile*) ;;
+    *.md|uv.lock|*/outputs/*|*.uf2|*.bin) continue ;;       # never a bump trigger
+    *.py|*.toml|*.yaml|*.yml|Dockerfile*|*/Dockerfile*) ;;  # source/config: counts
     *) continue ;;
   esac
 
-  # Find most-specific scope (longest dir prefix). Root scope's empty
-  # dir matches everything as a fallback.
-  best_pp="pyproject.toml"
-  best_len=0
-  for s in "${scopes[@]}"; do
-    pp="${s%%::*}"
-    dir="${s##*::}"
-    [[ -z "$dir" ]] && continue
-    if [[ "$f" == "$dir"* ]]; then
-      len=${#dir}
-      if (( len > best_len )); then
-        best_pp="$pp"
-        best_len=$len
-      fi
-    fi
+  pp="pyproject.toml"
+  for d in "${scope_dirs[@]}"; do
+    [[ "$f" == "$d"* ]] && { pp="${d}pyproject.toml"; break; }
   done
 
-  # A pyproject change shouldn't trigger its own scope (the version bump
-  # itself is what we're verifying lives there).
-  [[ "$f" == "$best_pp" ]] && continue
-
-  scope_dirty["$best_pp"]=1
+  # Editing a pyproject.toml does not, by itself, dirty its own scope.
+  [[ "$f" == "$pp" ]] || dirty["$pp"]=1
 done
 
-# Verify: each dirty scope's version must differ between HEAD and staged.
+# A dirty scope must show a changed version against the comparison ref.
 failed=0
-for pp in "${!scope_dirty[@]}"; do
-  staged_ver=$(git show ":${pp}" 2>/dev/null \
-    | awk -F'"' '/^version = /{print $2; exit}')
-  head_ver=$(git show "HEAD:${pp}" 2>/dev/null \
-    | awk -F'"' '/^version = /{print $2; exit}' || true)
+for pp in "${!dirty[@]}"; do
+  old_ver=$(old_version "$pp")
+  [[ -n "$old_ver" ]] || continue   # brand-new scope: nothing to compare
 
-  # New pyproject (no HEAD): exempt.
-  [[ -z "$head_ver" ]] && continue
-
-  if [[ -z "$staged_ver" ]]; then
-    echo "[pre-commit] ${pp}: could not parse 'version = \"...\"' from staged file"
+  new_ver=$(new_version "$pp")
+  if [[ -z "$new_ver" ]]; then
+    echo "[$label] $pp: could not parse 'version = \"...\"'"
     failed=1
-    continue
-  fi
-
-  if [[ "$staged_ver" == "$head_ver" ]]; then
-    echo "[pre-commit] ${pp}: version is still ${staged_ver}, but staged code changes exist in its scope"
+  elif [[ "$new_ver" == "$old_ver" ]]; then
+    echo "[$label] $pp: version is still $new_ver, but code changes exist in its scope"
     failed=1
   fi
 done
 
-if (( failed != 0 )); then
-  echo
-  echo "[pre-commit] Bump the version in the listed pyproject.toml file(s) before committing."
-  echo "[pre-commit] (Or run \`git commit --no-verify\` to skip — discouraged.)"
-  exit 1
-fi
+(( failed )) || exit 0
 
-exit 0
+echo
+echo "[$label] Bump the version in the listed pyproject.toml file(s)."
+if [[ "$label" == "pre-commit" ]]; then
+  echo "[$label] (Or run \`git commit --no-verify\` to skip — discouraged.)"
+fi
+exit 1

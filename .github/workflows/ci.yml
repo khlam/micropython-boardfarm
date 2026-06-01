@@ -1,19 +1,6 @@
 ---
-# CI for PRs targeting main and pushes to main.
-#
-# Three parallel jobs, all Docker-driven (matches the repo's "Docker is the
-# only required host tool" policy — no host pip/apt/brew installs):
-#   - lint:           ruff format/check, vulture, hadolint, yamllint via the
-#                     same Dockerfile.linters stages the pre-commit hook uses,
-#                     but over the whole repo instead of staged files.
-#   - test:           full pytest suite with the 90% coverage gate, via the
-#                     root docker-compose pytest service.
-#   - build-firmware: per-project RP2040+RP2350 universal-UF2 compile via the
-#                     project compose's `compile` service. ESP32-S3 is skipped
-#                     — its ENTRYPOINT requires /dev/ttyACM0 and a board in
-#                     bootloader mode.
+# Docker-only CI for lint, tests, firmware compiles, and dependency scan.
 name: CI
-
 on:
   pull_request:
     branches:
@@ -21,27 +8,33 @@ on:
   push:
     branches:
       - main
-
 permissions:
   contents: read
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  lint:
-    name: Lint
+  version-check:
+    name: Version bump gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0
+      - name: Enforce version bumps vs main
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          ./.githooks/check_version_bumps.sh --base origin/main
+  lint:
+    name: Lint
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run linters (shared with pre-commit)
-        # The hook and CI converge on .githooks/run-linters.sh — single
-        # source of truth for ruff/vulture/hadolint/yamllint commands and
-        # for the linter-image build guards. Pre-commit's file selection
-        # is `git diff --cached`; CI's is all tracked files.
         run: |
           set -euo pipefail
           mapfile -t files < <(
@@ -50,21 +43,18 @@ jobs:
               | grep -E '(^|/)(Dockerfile(\.[^/]+)?|.*\.[dD]ockerfile)$' || true
           )
           ./.githooks/run-linters.sh "${files[@]}"
-
   test:
     name: Pytest (full suite + 90% coverage gate)
+    needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run pytest
-        # --exit-code-from is required so a failing pytest container makes
-        # `compose up` exit non-zero (plain `up` swallows the failure).
         run: docker compose up pytest --build --exit-code-from pytest
-
-  build-firmware:
-    name: Build RP firmware (${{ matrix.project }})
+  compile-firmware:
+    name: Compile ${{ matrix.label }} (${{ matrix.project }})
+    needs: version-check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,14 +62,96 @@ jobs:
         project:
           - distance-stream
           - gyro-stream
+        target:
+          - rp
+          - esp32
+        include:
+          - target: rp
+            service: pi-compile
+            label: RP2040 + RP2350
+            artifact: outputs/app.rp2040.rp2350.uf2
+          - target: esp32
+            service: esp32-compile
+            label: ESP32-S3
+            artifact: outputs/app.esp32-s3.bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Compile RP2040 + RP2350 universal UF2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Compile ${{ matrix.label }}
         working-directory: projects/${{ matrix.project }}
-        run: docker compose up --build --exit-code-from compile compile
-
-      - name: Verify UF2 was produced
+        run: docker compose up --build --exit-code-from ${{ matrix.service }} ${{ matrix.service }}
+      - name: Verify artifact was produced
         working-directory: projects/${{ matrix.project }}
-        run: test -s outputs/app.rp2040.rp2350.uf2
+        run: test -s ${{ matrix.artifact }}
+  vuln-check:
+    name: Dependency vulnerability scan
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Build uv-secure image
+        run: docker build --target uv-secure -t local/uv-secure -f Dockerfile.linters
+          .
+      - name: Scan uv.lock (fail only on actionable fixes)
+        run: docker run --rm -v "$PWD":/work -w /work local/uv-secure
+  cve-scan:
+    name: Image CVE scan (Trivy ${{ matrix.target }})
+    needs: version-check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.host
+            target: viz
+          - dockerfile: Dockerfile.tests
+            target: pytest
+          - dockerfile: Dockerfile.linters
+            target: uv-secure
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Build ${{ matrix.target }} image
+        run: |
+          docker build --target ${{ matrix.target }} -t "local/scan:${{ matrix.target }}" \
+            -f ${{ matrix.dockerfile }} .
+      - name: Trivy image scan (report-only)
+        # renovate: datasource=docker depName=aquasec/trivy
+        run: |-
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.71.0 image \
+            --severity HIGH,CRITICAL --exit-code 0 --format table \
+            "local/scan:${{ matrix.target }}"
+  all-checks-pass:
+    name: All checks pass
+    runs-on: ubuntu-latest
+    needs:
+      - version-check
+      - lint
+      - test
+      - compile-firmware
+      - vuln-check
+      - cve-scan
+    if: always()
+    steps:
+      - name: Verify all jobs succeeded
+        run: |-
+          set -euo pipefail
+          declare -A results=(
+            [version-check]="${{ needs.version-check.result }}"
+            [lint]="${{ needs.lint.result }}"
+            [test]="${{ needs.test.result }}"
+            [compile-firmware]="${{ needs.compile-firmware.result }}"
+            [vuln-check]="${{ needs.vuln-check.result }}"
+            [cve-scan]="${{ needs.cve-scan.result }}"
+          )
+          failed=0
+          for job in "${!results[@]}"; do
+            if [[ "${results[$job]}" != "success" ]]; then
+              echo "::error::$job → ${results[$job]}"
+              failed=1
+            fi
+          done
+          [[ $failed -eq 0 ]] && echo "All checks passed." || exit 1

@@ -1,6 +1,4 @@
 ---
-# Root-level services: pytest (full test suite) and uv (lockfile management).
-# Per-project compose files own their own compile/esp32/viz etc.
 services:
   pytest:
     build:
@@ -11,21 +9,25 @@ services:
       - ./firmware-packages:/firmware-packages:ro
       - ./projects:/projects:ro
       - ./cpython-packages/serial_over_web:/cpython-packages/serial_over_web:ro
-      # Linux-only: expose the container's venv so VSCode + Pylance resolve
-      # workspace packages. The venv contains Linux ELF binaries (won't run on
-      # macOS/Windows).
+      # Linux-only optional Pylance venv.
       # - ./.venv:/work/.venv
-
+  typecheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+      target: typecheck
+    volumes:
+      - ./firmware-packages:/work/firmware-packages:ro
+      - ./cpython-packages:/work/cpython-packages:ro
+      - ./projects:/work/projects:ro
   uv:
     build:
       context: .
       dockerfile: Dockerfile.host
       target: uv-runner
     working_dir: /workspace
-    # Run as the host user so the generated uv.lock is host-owned, not root-owned.
     user: ${UID:-1000}:${GID:-1000}
     environment:
-      # Redirect uv's cache off /root (read-only as non-root) to /tmp.
       - HOME=/tmp
       - XDG_CACHE_HOME=/tmp/.cache
     volumes:

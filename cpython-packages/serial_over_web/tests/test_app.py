@@ -1,7 +1,7 @@
 """Host CPython pytest tests for the FastAPI viz dashboard.
 
-Logic-only — `serial.Serial` is monkey-patched away so the lifespan
-thread never touches /dev/ttyACM0. Payloads are project-agnostic; the
+Logic-only — `serial.serial_for_url` is monkey-patched away so the lifespan
+thread never touches the real serial port. Payloads are project-agnostic; the
 per-project JSON schemas live under projects/<p>/tests/.
 """
 
@@ -85,11 +85,11 @@ def test_broadcaster_fans_out_to_live_clients():
             sent.append(text)
 
     ws = _WS()
-    app.clients.add(ws)
+    app._clients.add(ws)
     try:
         asyncio.run(_drain_broadcaster_once("ping")(lambda: bool(sent), lambda: None))
     finally:
-        app.clients.discard(ws)
+        app._clients.discard(ws)
     assert sent == ["ping"]
 
 
@@ -99,16 +99,16 @@ def test_broadcaster_discards_disconnected_clients():
             raise WebSocketDisconnect
 
     dead = _DeadWS()
-    app.clients.add(dead)
+    app._clients.add(dead)
     try:
         still_present = asyncio.run(
             _drain_broadcaster_once("ping")(
-                lambda: dead not in app.clients,
-                lambda: dead in app.clients,
+                lambda: dead not in app._clients,
+                lambda: dead in app._clients,
             )
         )
     finally:
-        app.clients.discard(dead)
+        app._clients.discard(dead)
     assert still_present is False
 
 
@@ -119,29 +119,22 @@ def test_broadcaster_drops_clients_with_runtime_error():
             raise RuntimeError("loop closed")
 
     bad = _ClosedWS()
-    app.clients.add(bad)
+    app._clients.add(bad)
     try:
         still_present = asyncio.run(
             _drain_broadcaster_once("ping")(
-                lambda: bad not in app.clients,
-                lambda: bad in app.clients,
+                lambda: bad not in app._clients,
+                lambda: bad in app._clients,
             )
         )
     finally:
-        app.clients.discard(bad)
+        app._clients.discard(bad)
     assert still_present is False
 
 
 def test_serial_thread_emits_connected_event_when_port_opens(monkeypatch):
     captured: list[str] = []
     monkeypatch.setattr(app, "_schedule", lambda _loop, _q, text: captured.append(text))
-
-    class _FakeSer:
-        def __enter__(self) -> "_FakeSer":
-            return self
-
-        def __exit__(self, *_) -> bool:
-            return False
 
     monkeypatch.setattr(app.serial, "serial_for_url", lambda *_a, **_kw: _FakeSer())
     # Raise a non-(OSError, SerialException) sentinel so the outer except misses it.
@@ -152,21 +145,14 @@ def test_serial_thread_emits_connected_event_when_port_opens(monkeypatch):
     with pytest.raises(_StopThreadError):
         app._serial_thread(loop=None, queue=None)
 
-    assert app.state["connected"] is True
-    assert app.state["error"] is None
-    assert any('"event": "connected"' in m for m in captured)
+    assert app._state.connected is True
+    assert app._state.error is None
+    assert any(json.loads(m).get("event") == "connected" for m in captured)
 
 
 def test_serial_thread_passes_socket_url_through(monkeypatch):
     """A socket:// SERIAL_PORT reaches serial_for_url verbatim (macOS TCP bridge)."""
     seen: list[str] = []
-
-    class _FakeSer:
-        def __enter__(self) -> "_FakeSer":
-            return self
-
-        def __exit__(self, *_) -> bool:
-            return False
 
     def _capture(url, *_a, **_kw) -> _FakeSer:
         seen.append(url)
@@ -206,6 +192,16 @@ class _FakeSerial:
 
     def readline(self):
         return next(self._iter)
+
+
+class _FakeSer:
+    """Context-manager stub returned by serial_for_url in thread tests."""
+
+    def __enter__(self) -> "_FakeSer":
+        return self
+
+    def __exit__(self, *_) -> bool:
+        return False
 
 
 class _StopThreadError(Exception):

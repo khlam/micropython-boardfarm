@@ -1,0 +1,44 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "labels": ["dependencies"],
+  "pinDigests": true,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Internal uv workspace members are local path deps, not registry packages.",
+      "matchDepNames": [
+        "micropython-boardfarm",
+        "boot_status_led",
+        "i2c_bus",
+        "mpu6050",
+        "vl53l0x",
+        "serial_over_web",
+        "micropython_stubs"
+      ],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Bump tools annotated with `# renovate:` that no native manager sees (the MICROPYTHON_REF git ref, and tool images run inside workflow shell steps).",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile\\.firmware$/",
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?[\\s\\S]*?[=:]\\s*\"?(?<currentValue>v?[0-9][^\\s\"']*)"
+      ],
+      "datasourceTemplate": "{{{datasource}}}",
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+    }
+  ]
+}
