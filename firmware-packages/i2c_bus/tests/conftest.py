@@ -18,7 +18,7 @@ def chip(request, monkeypatch):
     class _Uname:
         machine = request.param
 
-    monkeypatch.setattr(os, "uname", lambda: _Uname())
+    monkeypatch.setattr(os, "uname", _Uname)
     return request.param
 
 

@@ -25,7 +25,7 @@ def test_status_dispatch_picks_correct_backend(chip, backend_mod, status_module)
 
 
 def test_rp2040_backend_scales_brightness():
-    os.uname = lambda: type("U", (), {"machine": "RP2040 with RP2040"})()
+    os.uname = type("U", (), {"machine": "RP2040 with RP2040"})
     status_module = importlib.import_module("boot_status_led.status")
 
     status_module.streaming()
@@ -34,7 +34,7 @@ def test_rp2040_backend_scales_brightness():
 
 
 def test_rp2350_backend_collapses_to_on_off():
-    os.uname = lambda: type("U", (), {"machine": "RP2350 with RP2350"})()
+    os.uname = type("U", (), {"machine": "RP2350 with RP2350"})
     status_module = importlib.import_module("boot_status_led.status")
     rp2350 = importlib.import_module("boot_status_led.rp2350")
 
@@ -46,7 +46,7 @@ def test_rp2350_backend_collapses_to_on_off():
 
 
 def test_esp32s3_backend_scales_brightness():
-    os.uname = lambda: type("U", (), {"machine": "Generic ESP32S3 module with ESP32S3"})()
+    os.uname = type("U", (), {"machine": "Generic ESP32S3 module with ESP32S3"})
     status_module = importlib.import_module("boot_status_led.status")
 
     status_module.streaming()
@@ -64,7 +64,7 @@ def test_esp32s3_backend_scales_brightness():
     ],
 )
 def test_named_transitions_write_expected_colour(transition, expected):
-    os.uname = lambda: type("U", (), {"machine": "RP2040 with RP2040"})()
+    os.uname = type("U", (), {"machine": "RP2040 with RP2040"})
     status_module = importlib.import_module("boot_status_led.status")
 
     getattr(status_module, transition)()

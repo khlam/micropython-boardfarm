@@ -123,12 +123,12 @@ include = ["projects/*/firmware/**", "firmware-packages/*/*"]
 rules.unresolved-import = "ignore"
 rules.unresolved-attribute = "ignore"
 rules.invalid-argument-type = "ignore"
-rules.invalid-argument-count = "ignore"
+rules.too-many-positional-arguments = "ignore"
+rules.missing-argument = "ignore"
 rules.invalid-assignment = "ignore"
 rules.invalid-return-type = "ignore"
-rules.attribute-assignment = "ignore"
-rules.invalid-base-class = "ignore"
-rules.unsupported-operation = "ignore"
+rules.invalid-base = "ignore"
+rules.unsupported-operator = "ignore"
 
 [[tool.ty.overrides]]
 include = ["**/tests/**"]
@@ -209,6 +209,10 @@ ignore = [
   "RET504",
   "PERF203",
 ]
+extend-unsafe-fixes = ["E", "F401"]
+fixable = ["ALL"]
+# Keep print/comment deletion manual.
+unfixable = ["T201", "T203", "ERA001"]
 
 [tool.ruff.lint.per-file-ignores]
 # Firmware is flat-frozen; emit() owns print output.
@@ -222,10 +226,6 @@ ignore = [
   "SLF001",
   "INP001",
 ]
-extend-unsafe-fixes = ["E", "F401"]
-fixable = ["ALL"]
-# Keep print/comment deletion manual.
-unfixable = ["T201", "T203", "ERA001"]
 
 [tool.ruff.lint.flake8-builtins]
 builtins-ignorelist = ["IOError"]
