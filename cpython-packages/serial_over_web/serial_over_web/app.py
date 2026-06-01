@@ -15,10 +15,12 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Literal
 
 import serial
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict
 
 SERIAL_PORT = os.environ.get("SERIAL_PORT", "/dev/ttyACM0")
 SERIAL_BAUD = 115200
@@ -28,8 +30,29 @@ STATIC_DIR = Path(os.environ.get("STATIC_DIR", Path(__file__).parent / "static")
 # within ~200 ms of it re-enumerating.
 _RECONNECT_DELAY_S = 0.2
 
-clients: set[WebSocket] = set()
-state: dict[str, object] = {"connected": False, "error": None, "port": SERIAL_PORT}
+__all__ = ["app"]
+
+
+class _SerialState(BaseModel):
+    """Mutable snapshot of the serial port's connection state."""
+
+    model_config = ConfigDict(validate_assignment=True)
+    connected: bool = False
+    error: str | None = None
+    port: str = ""
+
+
+class _SerialEvent(BaseModel):
+    """A serialisable connection-state event broadcast to WebSocket clients."""
+
+    model_config = ConfigDict(frozen=True)
+    event: Literal["connected", "disconnected"]
+    port: str
+    error: str | None = None
+
+
+_state = _SerialState(port=SERIAL_PORT)
+_clients: set[WebSocket] = set()
 
 
 def _safe_put(queue: asyncio.Queue, text: str) -> None:
@@ -68,24 +91,31 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
     """
     while True:
         try:
-            with serial.Serial(
+            # serial_for_url accepts both device paths and socket:// URLs (macOS TCP bridge).
+            with serial.serial_for_url(
                 SERIAL_PORT,
                 SERIAL_BAUD,
                 timeout=0.1,
                 dsrdtr=False,
                 rtscts=False,
             ) as ser:
-                state["connected"] = True
-                state["error"] = None
-                _schedule(loop, queue, json.dumps({"event": "connected", "port": SERIAL_PORT}))
+                _state.connected = True
+                _state.error = None
+                _schedule(
+                    loop,
+                    queue,
+                    _SerialEvent(event="connected", port=SERIAL_PORT).model_dump_json(),
+                )
                 _pump_serial(ser, loop, queue)
         except (serial.SerialException, OSError) as e:
-            state["connected"] = False
-            state["error"] = str(e)
+            _state.connected = False
+            _state.error = str(e)
             _schedule(
                 loop,
                 queue,
-                json.dumps({"event": "disconnected", "port": SERIAL_PORT, "error": str(e)}),
+                _SerialEvent(
+                    event="disconnected", port=SERIAL_PORT, error=str(e)
+                ).model_dump_json(),
             )
             time.sleep(_RECONNECT_DELAY_S)
 
@@ -95,13 +125,13 @@ async def _broadcaster(queue: asyncio.Queue) -> None:
     while True:
         text = await queue.get()
         dead = []
-        for ws in list(clients):
+        for ws in list(_clients):
             try:
                 await ws.send_text(text)
             except (WebSocketDisconnect, RuntimeError):
                 dead.append(ws)
         for ws in dead:
-            clients.discard(ws)
+            _clients.discard(ws)
 
 
 @asynccontextmanager
@@ -124,20 +154,20 @@ app = FastAPI(lifespan=lifespan)
 async def websocket_endpoint(ws: WebSocket) -> None:
     """Send the current serial-state hello frame, then forward broadcasts."""
     await ws.accept()
-    hello = {
-        "event": "connected" if state["connected"] else "disconnected",
-        "port": state["port"],
-        "error": state["error"],
-    }
-    await ws.send_text(json.dumps(hello))
-    clients.add(ws)
+    hello = _SerialEvent(
+        event="connected" if _state.connected else "disconnected",
+        port=_state.port,
+        error=_state.error,
+    )
+    await ws.send_text(hello.model_dump_json())
+    _clients.add(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        clients.discard(ws)
+        _clients.discard(ws)
 
 
 # Only mount when static/ exists beside this file. The viz Docker stage
