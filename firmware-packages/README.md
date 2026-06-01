@@ -1,5 +1,5 @@
 # firmware-packages
-Shared MCU packages. At firmware build time, each `<pkg>/` is frozen into `ports/rp2/modules/<pkg>/` or `ports/esp32/modules/<pkg>/`.
+Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `ports/rp2/modules/<pkg>/` or `ports/esp32/modules/<pkg>/`.
 
 
 ## Package Layout

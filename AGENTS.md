@@ -9,7 +9,7 @@ Never install anything on the host machine. Docker is the only required host too
 
 ### Safety & repo boundaries
 - Never read or write `projects/<project>/outputs/` files directly — they are build artifacts.
-- No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-build stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
+- No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
 
 ### JSON output schema †
@@ -40,12 +40,12 @@ Before changing anything, identify the area you're touching:
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(i2c, addr=0x68)` |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
-| Firmware build | repo root | `Dockerfile.firmware` — stages: `rp`, `esp32` |
+| Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
 | Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
 | Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
 | Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
-| ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32` service |
+| ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
 
 ## Workflow & commands
 
@@ -55,19 +55,15 @@ Before changing anything, identify the area you're touching:
 | 1 | Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three). |
 | 2 | If the change requires chip-specific behavior, add or update a package backend — do not branch inside project firmware. |
 | 3 | Make the smallest change that achieves the goal — don't add shared abstractions for a single chip. |
-| 4 | Build firmware and confirm it compiles before reporting done. |
+| 4 | Compile firmware and confirm it succeeds before reporting done. |
 
 ### Commands (copy/paste, run from `projects/<project>/`)
 
-#### Build firmware
+#### Compile firmware
 ```
-docker compose up --build compile      # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
-docker compose run --rm --build esp32  # ESP32-S3 → builds + flashes $SERIAL_PORT (default /dev/ttyACM0)
-```
-
-#### Clean build caches (this project only)
-```
-docker compose down -v                 # drops build-cache
+docker compose up --build pi-compile         # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
+docker compose up --build esp32-compile      # ESP32-S3 → ./outputs/app.esp32-s3.bin (no board needed)
+docker compose run --rm --build esp32-flash  # ESP32-S3 → compiles then flashes $SERIAL_PORT (default /dev/ttyACM0)
 ```
 
 #### Run tests
@@ -93,7 +89,7 @@ docker compose run --rm uv lock
 ### Package layout
 | Path | Role |
 | --- | --- |
-| `firmware-packages/<pkg>/pyproject.toml` | makes this a uv workspace member so tests can import it. Ignored by firmware builds. |
+| `firmware-packages/<pkg>/pyproject.toml` | makes this a uv workspace member so tests can import it. Ignored by firmware compiles. |
 | `firmware-packages/<pkg>/<pkg>/` | the actual package. Only this inner directory ships to the chip; `tests/`, `pyproject.toml`, and `README.md` are excluded. |
 | `firmware-packages/<pkg>/tests/` | host tests. Put fixtures in `conftest.py`; sibling helpers (e.g. `fake_mpu6050.py`) are importable without `sys.path` hacks. |
 | `firmware-packages/<pkg>/README.md` | usage, public API, chip-dispatch rationale. |

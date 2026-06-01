@@ -1,5 +1,6 @@
-# Firmware stages: rp (RP2040 + RP2350 cross-compile) and esp32 (ESP32-S3
-# build + flash). Each project's docker-compose.yaml picks one via `target:`.
+# Firmware stages: pi-compile (RP2040 + RP2350 cross-compile), esp32-compile
+# (ESP32-S3 build) and esp32-flash (ESP32-S3 flash). Each project's
+# docker-compose.yaml picks one via `target:`.
 # Host-Python apps live in Dockerfile.host; pytest lives in Dockerfile.tests.
 
 # renovate: datasource=github-tags depName=micropython/micropython
@@ -7,11 +8,11 @@ ARG MICROPYTHON_REF=v1.28.0
 
 
 # -----------------------------------------------------------------------------
-# Stage: rp — RP2040 + RP2350 cross-compile. Concatenates both firmware.uf2 into
-# one universal /outputs/app.rp2040.rp2350.uf2 (each bootloader skips foreign
-# UF2 family blocks).
+# Stage: pi-compile — RP2040 + RP2350 cross-compile. Concatenates both
+# firmware.uf2 into one universal /outputs/app.rp2040.rp2350.uf2 (each bootloader
+# skips foreign UF2 family blocks).
 # -----------------------------------------------------------------------------
-FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS rp
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS pi-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -59,27 +60,27 @@ ENTRYPOINT ["sh","-c", "\
   set -e; \
   bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
   for B in RPI_PICO RPI_PICO2_W; do \
-    cmake -S . -B /build-cache/$B \
+    cmake -S . -B /build/$B \
       -DPICO_SDK_PATH=${PICO_SDK_PATH} \
       -DUPDATE_SUBMODULES=OFF \
       -DPICO_BUILD_DOCS=0 \
       -DMICROPY_BOARD=$B \
       -DMICROPY_BOARD_DIR=$(pwd)/boards/$B \
       -DMICROPY_FROZEN_MANIFEST=/manifest.py; \
-    cmake --build /build-cache/$B -- -j$(nproc); \
+    cmake --build /build/$B -- -j$(nproc); \
   done; \
-  cat /build-cache/RPI_PICO/firmware.uf2 /build-cache/RPI_PICO2_W/firmware.uf2 \
+  cat /build/RPI_PICO/firmware.uf2 /build/RPI_PICO2_W/firmware.uf2 \
     > /outputs/app.rp2040.rp2350.uf2; \
   echo '/outputs/app.rp2040.rp2350.uf2 ready'"]
 
 
 # -----------------------------------------------------------------------------
-# Stage: esp32 — ESP32-S3-Zero (FH4R2) build + flash to $SERIAL_PORT
-# (default /dev/ttyACM0; a socket:// URL on macOS via tools/serial-bridge.sh).
-# Uses stock ESP32_GENERIC_S3 — *not* SPIRAM_OCT, which assumes external Octal
-# PSRAM and is wrong for the FH4R2's embedded Quad PSRAM.
+# Stage: esp32-compile — ESP32-S3-Zero (FH4R2) build to /outputs/app.esp32-s3.bin.
+# No hardware needed, so CI can compile it. Uses stock ESP32_GENERIC_S3 — *not*
+# SPIRAM_OCT, which assumes external Octal PSRAM and is wrong for the FH4R2's
+# embedded Quad PSRAM. The esp32-flash stage below writes the result to a board.
 # -----------------------------------------------------------------------------
-FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32
+FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -101,12 +102,31 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
 
 COPY manifest.py /manifest.py
 
-# Build + flash. Don't pass BUILD=... — it propagates into the recursive
-# mpy-cross sub-make and corrupts qstrdefs.generated.h (multi-byte hashes
-# truncated → -Werror=overflow). The default in-tree build dir is fine.
+# Build only. Don't pass BUILD=... — it propagates into the recursive mpy-cross
+# sub-make and corrupts qstrdefs.generated.h (multi-byte hashes truncated →
+# -Werror=overflow). The default in-tree build dir is fine.
 ENTRYPOINT ["sh","-c", "\
   set -e; \
   bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  make -C ports/esp32 \
+    BOARD=ESP32_GENERIC_S3 \
+    FROZEN_MANIFEST=/manifest.py \
+    -j$(nproc); \
+  cp ports/esp32/build-ESP32_GENERIC_S3/firmware.bin /outputs/app.esp32-s3.bin; \
+  echo '/outputs/app.esp32-s3.bin ready'"]
+
+
+# -----------------------------------------------------------------------------
+# Stage: esp32-flash — flashes the esp32-compile .bin to $SERIAL_PORT
+# (default /dev/ttyACM0; a socket:// URL on macOS via tools/serial-bridge.sh).
+# Inherits esp32-compile so esptool.py and the IDF environment are already
+# present; the compose esp32-flash service runs esp32-compile first.
+# -----------------------------------------------------------------------------
+FROM esp32-compile AS esp32-flash
+
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
   PORT=${SERIAL_PORT:-/dev/ttyACM0}; \
   case $PORT in \
     socket://*|rfc2217://*) \
@@ -121,11 +141,5 @@ ENTRYPOINT ["sh","-c", "\
       RESET= ;; \
   esac; \
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
-  make -C ports/esp32 \
-    BOARD=ESP32_GENERIC_S3 \
-    FROZEN_MANIFEST=/manifest.py \
-    -j$(nproc); \
-  cp ports/esp32/build-ESP32_GENERIC_S3/firmware.bin /outputs/app.esp32-s3.bin; \
-  echo '/outputs/app.esp32-s3.bin ready'; \
   esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \
     /outputs/app.esp32-s3.bin"]
