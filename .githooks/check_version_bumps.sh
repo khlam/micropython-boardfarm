@@ -1,110 +1,83 @@
 #!/usr/bin/env bash
 # Require a version bump when code/config changes inside a versioned scope.
-# Modes: staged index vs HEAD, or --base <ref> for CI.
-# todo: refactor and make this readable and much smaller
+#
+# A "scope" is a directory holding a pyproject.toml: the repo root, plus every
+# firmware-packages/*/, cpython-packages/*/, and projects/*/ that has one.
+# A changed source file dirties its nearest enclosing scope, and any dirty
+# scope must also change its `version = "..."` line, or this check fails.
+#
+# Usage:
+#   check_version_bumps.sh             pre-commit: staged index vs HEAD
+#   check_version_bumps.sh --base REF  CI: working tree vs REF (e.g. origin/main)
 set -euo pipefail
 
-mode="staged"
-base_ref=""
-label="pre-commit"
+_parse_version() { awk -F'"' '/^version = /{print $2; exit}'; }  # stdin -> version
+
+# Mode picks the label, the changed-path listing, and where "new"/"old"
+# pyproject contents are read from.
 if [[ "${1:-}" == "--base" ]]; then
-  if [[ -z "${2:-}" ]]; then
-    echo "usage: $0 [--base <ref>]" >&2
-    exit 2
-  fi
-  mode="base"
-  base_ref="$2"
+  base_ref="${2:-}"
+  [[ -n "$base_ref" ]] || { echo "usage: $0 [--base <ref>]" >&2; exit 2; }
   label="ci"
-fi
-
-_new_version() {
-  local pp="$1"
-  if [[ "$mode" == "base" ]]; then
-    [[ -f "$pp" ]] || return 0
-    awk -F'"' '/^version = /{print $2; exit}' "$pp"
-  else
-    git show ":${pp}" 2>/dev/null | awk -F'"' '/^version = /{print $2; exit}'
-  fi
-}
-
-_old_version() {
-  local pp="$1" ref
-  ref=$([[ "$mode" == "base" ]] && echo "$base_ref" || echo "HEAD")
-  git show "${ref}:${pp}" 2>/dev/null | awk -F'"' '/^version = /{print $2; exit}' || true
-}
-
-if [[ "$mode" == "base" ]]; then
-  mapfile -d '' -t changed_files < <(
-    git diff --name-only --diff-filter=ACMR -z "${base_ref}...HEAD")
+  old_ref="$base_ref"
+  list_changed() { git diff --name-only --diff-filter=ACMR -z "$base_ref...HEAD"; }
+  new_version()  { [[ -f "$1" ]] && _parse_version <"$1"; return 0; }
 else
-  mapfile -d '' -t changed_files < <(
-    git diff --cached --name-only --diff-filter=ACMR -z)
+  label="pre-commit"
+  old_ref="HEAD"
+  list_changed() { git diff --cached --name-only --diff-filter=ACMR -z; }
+  new_version()  { git show ":$1" 2>/dev/null | _parse_version; }
 fi
-(( ${#changed_files[@]} == 0 )) && exit 0
+old_version() { git show "$old_ref:$1" 2>/dev/null | _parse_version; }
 
-scopes=("pyproject.toml::")
+mapfile -d '' -t files < <(list_changed)
+(( ${#files[@]} )) || exit 0
+
+# Scope directories that actually carry a pyproject.toml (root is the default).
+scope_dirs=()
 for d in firmware-packages/*/ cpython-packages/*/ projects/*/; do
-  [[ -f "${d}pyproject.toml" ]] && scopes+=("${d}pyproject.toml::${d}")
+  [[ -f "${d}pyproject.toml" ]] && scope_dirs+=("$d")
 done
 
-declare -A scope_dirty=()
-
-for f in "${changed_files[@]}"; do
+# Map each relevant changed file to the pyproject.toml of its nearest scope.
+declare -A dirty=()
+for f in "${files[@]}"; do
   case "$f" in
-    *.md|uv.lock|*/outputs/*|*.uf2|*.bin) continue ;;
-  esac
-  case "$f" in
-    *.py|*.toml|*.yaml|*.yml) ;;
-    Dockerfile*|*/Dockerfile*) ;;
+    *.md|uv.lock|*/outputs/*|*.uf2|*.bin) continue ;;       # never a bump trigger
+    *.py|*.toml|*.yaml|*.yml|Dockerfile*|*/Dockerfile*) ;;  # source/config: counts
     *) continue ;;
   esac
 
-  best_pp="pyproject.toml"
-  best_len=0
-  for s in "${scopes[@]}"; do
-    pp="${s%%::*}"
-    dir="${s##*::}"
-    [[ -z "$dir" ]] && continue
-    if [[ "$f" == "$dir"* ]]; then
-      len=${#dir}
-      if (( len > best_len )); then
-        best_pp="$pp"
-        best_len=$len
-      fi
-    fi
+  pp="pyproject.toml"
+  for d in "${scope_dirs[@]}"; do
+    [[ "$f" == "$d"* ]] && { pp="${d}pyproject.toml"; break; }
   done
 
-  [[ "$f" == "$best_pp" ]] && continue
-
-  scope_dirty["$best_pp"]=1
+  # Editing a pyproject.toml does not, by itself, dirty its own scope.
+  [[ "$f" == "$pp" ]] || dirty["$pp"]=1
 done
 
+# A dirty scope must show a changed version against the comparison ref.
 failed=0
-for pp in "${!scope_dirty[@]}"; do
-  new_ver=$(_new_version "$pp")
-  old_ver=$(_old_version "$pp")
+for pp in "${!dirty[@]}"; do
+  old_ver=$(old_version "$pp")
+  [[ -n "$old_ver" ]] || continue   # brand-new scope: nothing to compare
 
-  [[ -z "$old_ver" ]] && continue
-
+  new_ver=$(new_version "$pp")
   if [[ -z "$new_ver" ]]; then
-    echo "[${label}] ${pp}: could not parse 'version = \"...\"'"
+    echo "[$label] $pp: could not parse 'version = \"...\"'"
     failed=1
-    continue
-  fi
-
-  if [[ "$new_ver" == "$old_ver" ]]; then
-    echo "[${label}] ${pp}: version is still ${new_ver}, but code changes exist in its scope"
+  elif [[ "$new_ver" == "$old_ver" ]]; then
+    echo "[$label] $pp: version is still $new_ver, but code changes exist in its scope"
     failed=1
   fi
 done
 
-if (( failed != 0 )); then
-  echo
-  echo "[${label}] Bump the version in the listed pyproject.toml file(s)."
-  if [[ "$mode" == "staged" ]]; then
-    echo "[${label}] (Or run \`git commit --no-verify\` to skip — discouraged.)"
-  fi
-  exit 1
-fi
+(( failed )) || exit 0
 
-exit 0
+echo
+echo "[$label] Bump the version in the listed pyproject.toml file(s)."
+if [[ "$label" == "pre-commit" ]]; then
+  echo "[$label] (Or run \`git commit --no-verify\` to skip — discouraged.)"
+fi
+exit 1
