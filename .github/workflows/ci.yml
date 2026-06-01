@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           fetch-depth: 0
       - name: Enforce version bumps vs main
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run linters (shared with pre-commit)
         run: |
           set -euo pipefail
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run pytest
         run: docker compose up pytest --build --exit-code-from pytest
   compile-firmware:
@@ -76,7 +76,7 @@ jobs:
             artifact: outputs/app.esp32-s3.bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Compile ${{ matrix.label }}
         working-directory: projects/${{ matrix.project }}
         run: docker compose up --build --exit-code-from ${{ matrix.service }} ${{ matrix.service }}
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Build uv-secure image
         run: docker build --target uv-secure -t local/uv-secure -f Dockerfile.linters
           .
@@ -111,7 +111,7 @@ jobs:
             target: uv-secure
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Build ${{ matrix.target }} image
         run: |
           docker build --target ${{ matrix.target }} -t "local/scan:${{ matrix.target }}" \
@@ -124,3 +124,28 @@ jobs:
             aquasec/trivy:0.71.0 image \
             --severity HIGH,CRITICAL --exit-code 0 --format table \
             "local/scan:${{ matrix.target }}"
+  all-checks-pass:
+    name: All checks pass
+    runs-on: ubuntu-latest
+    needs: [version-check, lint, test, compile-firmware, vuln-check, cve-scan]
+    if: always()
+    steps:
+      - name: Verify all jobs succeeded
+        run: |
+          set -euo pipefail
+          declare -A results=(
+            [version-check]="${{ needs.version-check.result }}"
+            [lint]="${{ needs.lint.result }}"
+            [test]="${{ needs.test.result }}"
+            [compile-firmware]="${{ needs.compile-firmware.result }}"
+            [vuln-check]="${{ needs.vuln-check.result }}"
+            [cve-scan]="${{ needs.cve-scan.result }}"
+          )
+          failed=0
+          for job in "${!results[@]}"; do
+            if [[ "${results[$job]}" != "success" ]]; then
+              echo "::error::$job → ${results[$job]}"
+              failed=1
+            fi
+          done
+          [[ $failed -eq 0 ]] && echo "All checks passed." || exit 1
