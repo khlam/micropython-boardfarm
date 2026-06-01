@@ -122,7 +122,7 @@ Don't preserve the past — in prose or in code. No "replaces …" / "previously
 Use standard Python ordering: docstring → imports → constants → public API → private helpers. In test files, test functions come before fixtures.
 
 ## MicroPython runtime conventions †
-- MicroPython has no pip and tight RAM constraints. Use `const()` for register addresses; pre-allocate buffers in tight loops.
+- MicroPython has no package manager and no 3rd-party packages to install; all dependencies must be vendored or frozen into firmware via `manifest.py`. Do not use `mip`. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
 - Wrap `sensor.read()` in `try/except` — sensors occasionally NACK. On exception, call `status.read_err()` and `continue` the loop; never let a stray exception crash the loop.
 - Chip-specific logic belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`) and declares a `pyproject.toml` at `firmware-packages/<pkg>/` so uv can install it editable for host tests. Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes.
