@@ -12,7 +12,7 @@ ARG MICROPYTHON_REF=v1.28.0
 # firmware.uf2 into one universal /outputs/app.rp2040.rp2350.uf2 (each bootloader
 # skips foreign UF2 family blocks).
 # -----------------------------------------------------------------------------
-FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS pi-compile
+FROM ubuntu:26.04@sha256:f3d28607ddd78734bb7f71f117f3c6706c666b8b76cbff7c9ff6e5718d46ff64 AS pi-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -80,7 +80,7 @@ ENTRYPOINT ["sh","-c", "\
 # SPIRAM_OCT, which assumes external Octal PSRAM and is wrong for the FH4R2's
 # embedded Quad PSRAM. The esp32-flash stage below writes the result to a board.
 # -----------------------------------------------------------------------------
-FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32-compile
+FROM espressif/idf:v6.0@sha256:59df146f64aa0b13886a13a74682ad157482b446f5cc16582500803c95c71401 AS esp32-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
 

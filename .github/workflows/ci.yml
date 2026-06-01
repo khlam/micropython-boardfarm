@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           fetch-depth: 0
       - name: Enforce version bumps vs main
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run linters (shared with pre-commit)
         run: |
           set -euo pipefail
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Run pytest
         run: docker compose up pytest --build --exit-code-from pytest
   compile-firmware:
@@ -76,7 +76,7 @@ jobs:
             artifact: outputs/app.esp32-s3.bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Compile ${{ matrix.label }}
         working-directory: projects/${{ matrix.project }}
         run: docker compose up --build --exit-code-from ${{ matrix.service }} ${{ matrix.service }}
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Build uv-secure image
         run: docker build --target uv-secure -t local/uv-secure -f Dockerfile.linters
           .
@@ -111,7 +111,7 @@ jobs:
             target: uv-secure
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Build ${{ matrix.target }} image
         run: |
           docker build --target ${{ matrix.target }} -t "local/scan:${{ matrix.target }}" \
