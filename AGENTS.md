@@ -113,6 +113,8 @@ docker compose run --rm uv lock
 
 ## Universal Python conventions
 
+See [STYLE.md](STYLE.md) for the full Python style guide. Key rules are summarised below.
+
 ### Docstrings & function documentation
 Write a Google-style docstring for every module, class, and function — no exceptions. One-line summary, then `Args:` / `Returns:` / `Raises:` only when they add something. Focus on *why* and non-obvious invariants; don't restate what the signature already says. Tests are exempt (`D100`/`D103` in [pyproject.toml](pyproject.toml)).
 
