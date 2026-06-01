@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 import serial
@@ -28,8 +29,18 @@ STATIC_DIR = Path(os.environ.get("STATIC_DIR", Path(__file__).parent / "static")
 # within ~200 ms of it re-enumerating.
 _RECONNECT_DELAY_S = 0.2
 
-clients: set[WebSocket] = set()
-state: dict[str, object] = {"connected": False, "error": None, "port": SERIAL_PORT}
+__all__ = ["app"]
+
+
+@dataclass
+class _SerialState:
+    connected: bool = False
+    error: str | None = None
+    port: str = ""
+
+
+_state = _SerialState(port=SERIAL_PORT)
+_clients: set[WebSocket] = set()
 
 
 def _safe_put(queue: asyncio.Queue, text: str) -> None:
@@ -68,11 +79,7 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
     """
     while True:
         try:
-            # serial_for_url (not serial.Serial) so SERIAL_PORT may be a native
-            # device path (/dev/ttyACM0 on Linux) or a socket:// URL. macOS can't
-            # pass USB into Docker's Linux VM, so there tools/serial-bridge.sh
-            # serves the board over TCP and SERIAL_PORT is
-            # socket://host.docker.internal:5555 — same code path either way.
+            # serial_for_url accepts both device paths and socket:// URLs (macOS TCP bridge).
             with serial.serial_for_url(
                 SERIAL_PORT,
                 SERIAL_BAUD,
@@ -80,13 +87,13 @@ def _serial_thread(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> Non
                 dsrdtr=False,
                 rtscts=False,
             ) as ser:
-                state["connected"] = True
-                state["error"] = None
+                _state.connected = True
+                _state.error = None
                 _schedule(loop, queue, json.dumps({"event": "connected", "port": SERIAL_PORT}))
                 _pump_serial(ser, loop, queue)
         except (serial.SerialException, OSError) as e:
-            state["connected"] = False
-            state["error"] = str(e)
+            _state.connected = False
+            _state.error = str(e)
             _schedule(
                 loop,
                 queue,
@@ -100,13 +107,13 @@ async def _broadcaster(queue: asyncio.Queue) -> None:
     while True:
         text = await queue.get()
         dead = []
-        for ws in list(clients):
+        for ws in list(_clients):
             try:
                 await ws.send_text(text)
             except (WebSocketDisconnect, RuntimeError):
                 dead.append(ws)
         for ws in dead:
-            clients.discard(ws)
+            _clients.discard(ws)
 
 
 @asynccontextmanager
@@ -130,19 +137,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     """Send the current serial-state hello frame, then forward broadcasts."""
     await ws.accept()
     hello = {
-        "event": "connected" if state["connected"] else "disconnected",
-        "port": state["port"],
-        "error": state["error"],
+        "event": "connected" if _state.connected else "disconnected",
+        "port": _state.port,
+        "error": _state.error,
     }
     await ws.send_text(json.dumps(hello))
-    clients.add(ws)
+    _clients.add(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        clients.discard(ws)
+        _clients.discard(ws)
 
 
 # Only mount when static/ exists beside this file. The viz Docker stage
