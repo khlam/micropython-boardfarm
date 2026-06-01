@@ -45,7 +45,8 @@ real time.
 ## Notes
 - The firmware initialises I²C, finds the VL53L0X at `0x29`, then enters
   a streaming loop that prints one JSON line per sample
-  (`{"t": <ms>, "distance_mm": <int>}`) at ~50 Hz.
+  (`{"t": <ms>, "distance_mm": <int|null>}`) at ~50 Hz.
+  `distance_mm` is `null` when the sensor returns `>= 8190` (out of range).
 - A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
   a WebSocket, and serves the dashboard at `http://localhost:18501`.
 
