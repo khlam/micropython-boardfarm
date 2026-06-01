@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Docker lint verifier shared by pre-commit and CI.
+# Routes each file to the appropriate linter(s) based on its type.
 # Usage: run-linters.sh <file>...
 
+# -e omitted intentionally: fail=1 accumulates tool failures without early exit.
 set -uo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
@@ -16,41 +18,26 @@ IMAGE_TAG_TYPECHECK="local/typecheck:latest"
 DOCKERFILE="Dockerfile.linters"
 DOCKERFILE_TESTS="Dockerfile.tests"
 
-_ensure_image() {
-  local tag="$1" stage="$2" dockerfile="${3:-$DOCKERFILE}"
-  if ! docker image inspect "$tag" >/dev/null 2>&1; then
-    echo "[lint] Building $tag (one-time)..."
-    docker build -q --target "$stage" -t "$tag" -f "$dockerfile" . >/dev/null
-  fi
-}
+docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target vulture-lint   -t "$IMAGE_TAG_VULTURE"   -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target hadolint-lint  -t "$IMAGE_TAG_HADOLINT"  -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target yamllint-lint  -t "$IMAGE_TAG_YAMLLINT"  -f "$DOCKERFILE"       . >/dev/null
+docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
 
-_ensure_image "$IMAGE_TAG_RUFF"      ruff-lint
-_ensure_image "$IMAGE_TAG_VULTURE"   vulture-lint
-_ensure_image "$IMAGE_TAG_PYDOCLINT" pydoclint-lint
-_ensure_image "$IMAGE_TAG_HADOLINT"  hadolint-lint
-_ensure_image "$IMAGE_TAG_YAMLLINT"  yamllint-lint
-
+# Bucket each input file by type so each linter only receives the files it understands.
 py_files=()
 dockerfiles=()
 yaml_files=()
 for f in "$@"; do
   case "$f" in
-    *.py)
-      py_files+=("$f")
-      ;;
-  esac
-  case "$f" in
-    Dockerfile|Dockerfile.*|*/Dockerfile|*/Dockerfile.*|*.dockerfile|*.Dockerfile)
-      dockerfiles+=("$f")
-      ;;
-  esac
-  case "$f" in
-    *.yml|*.yaml|*.YML|*.YAML)
-      yaml_files+=("$f")
-      ;;
+    *.py)                                                                   py_files+=("$f") ;;
+    Dockerfile|Dockerfile.*|*/Dockerfile|*/Dockerfile.*|*.dockerfile|*.Dockerfile) dockerfiles+=("$f") ;;
+    *.yml|*.yaml)                                                           yaml_files+=("$f") ;;
   esac
 done
 
+# Accumulate failures so every linter runs even when an earlier one fails.
 fail=0
 
 if (( ${#py_files[@]} > 0 )); then
@@ -62,25 +49,16 @@ if (( ${#py_files[@]} > 0 )); then
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
     check --force-exclude -- "${py_files[@]}" || fail=1
 
-  checked_py_files=()
-  for f in "${py_files[@]}"; do
-    case "$f" in
-      firmware-packages/vl53l0x/vl53l0x/vl53l0x.py) continue ;;
-      manifest.py) continue ;;
-    esac
-    checked_py_files+=("$f")
-  done
-  if (( ${#checked_py_files[@]} > 0 )); then
-    echo "[lint] vulture (${#checked_py_files[@]} file(s))"
-    docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
-      --min-confidence 70 -- "${checked_py_files[@]}" .vulture_allowlist.py || fail=1
+  echo "[lint] vulture (${#py_files[@]} file(s))"
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
+    -- "${py_files[@]}" .vulture_allowlist.py || fail=1
 
-    echo "[lint] pydoclint (${#checked_py_files[@]} file(s))"
-    docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
-      --style=google --allow-init-docstring=True -- "${checked_py_files[@]}" || fail=1
-  fi
+  echo "[lint] pydoclint (${#py_files[@]} file(s))"
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
+    --style=google --allow-init-docstring=True -- "${py_files[@]}" || fail=1
 
-  _ensure_image "$IMAGE_TAG_TYPECHECK" typecheck "$DOCKERFILE_TESTS"
+  # ty type-checks the whole source tree, not just the changed files,
+  # so it always runs once rather than per-file.
   echo "[lint] ty check"
   docker run --rm \
     -v "$PWD/firmware-packages":/work/firmware-packages:ro \
@@ -89,6 +67,7 @@ if (( ${#py_files[@]} > 0 )); then
     "$IMAGE_TAG_TYPECHECK" || fail=1
 fi
 
+# Lint each Dockerfile for best-practice errors; warnings are informational only.
 if (( ${#dockerfiles[@]} > 0 )); then
   for df in "${dockerfiles[@]}"; do
     echo "[lint] hadolint $df"
@@ -97,6 +76,7 @@ if (( ${#dockerfiles[@]} > 0 )); then
   done
 fi
 
+# Lint each YAML file for syntax and style conformance.
 if (( ${#yaml_files[@]} > 0 )); then
   for yf in "${yaml_files[@]}"; do
     echo "[lint] yamllint $yf"
