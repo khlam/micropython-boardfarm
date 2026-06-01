@@ -97,3 +97,35 @@ jobs:
 
       - name: Scan uv.lock (fail only on actionable fixes)
         run: docker run --rm -v "$PWD":/work -w /work local/uv-secure
+
+  cve-scan:
+    name: Image CVE scan (Trivy ${{ matrix.target }})
+    needs: version-check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.host
+            target: viz
+          - dockerfile: Dockerfile.tests
+            target: pytest
+          - dockerfile: Dockerfile.linters
+            target: uv-secure
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.target }} image
+        run: |
+          docker build --target ${{ matrix.target }} -t "local/scan:${{ matrix.target }}" \
+            -f ${{ matrix.dockerfile }} .
+
+      - name: Trivy image scan (report-only)
+        # renovate: datasource=docker depName=aquasec/trivy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.71.0 image \
+            --severity HIGH,CRITICAL --exit-code 0 --format table \
+            "local/scan:${{ matrix.target }}"

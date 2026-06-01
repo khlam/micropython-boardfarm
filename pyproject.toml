@@ -116,34 +116,28 @@ exclude = [
 # dynamically generated at runtime by board ports / firmware builds.
 [[tool.ty.overrides]]
 include = ["projects/*/firmware/**", "firmware-packages/*/*"]
-rules = {
-  "unresolved-import" = "ignore",
-  "unresolved-attribute" = "ignore",
-  "invalid-argument-type" = "ignore",
-  "invalid-argument-count" = "ignore",
-  "invalid-assignment" = "ignore",
-  "invalid-return-type" = "ignore",
-  "attribute-assignment" = "ignore",
-  "invalid-base-class" = "ignore",
-  "unsupported-operation" = "ignore",
-}
+rules.unresolved-import = "ignore"
+rules.unresolved-attribute = "ignore"
+rules.invalid-argument-type = "ignore"
+rules.invalid-argument-count = "ignore"
+rules.invalid-assignment = "ignore"
+rules.invalid-return-type = "ignore"
+rules.attribute-assignment = "ignore"
+rules.invalid-base-class = "ignore"
+rules.unsupported-operation = "ignore"
 
 [[tool.ty.overrides]]
 include = ["**/tests/**"]
-rules = {
-  "invalid-argument-type" = "ignore",
-  "invalid-assignment" = "ignore",
-  "unresolved-attribute" = "ignore",
-  "unresolved-import" = "ignore",
-}
+rules.invalid-argument-type = "ignore"
+rules.invalid-assignment = "ignore"
+rules.unresolved-attribute = "ignore"
+rules.unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
 include = ["cpython-packages/micropython_stubs/**"]
-rules = {
-  "unresolved-attribute" = "ignore",
-  "unresolved-import" = "ignore",
-  "invalid-return-type" = "ignore",
-}
+rules.unresolved-attribute = "ignore"
+rules.unresolved-import = "ignore"
+rules.invalid-return-type = "ignore"
 
 [tool.yamlfix]
 sequence_style = "block_style"
