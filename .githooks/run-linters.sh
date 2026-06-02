@@ -18,13 +18,6 @@ IMAGE_TAG_TYPECHECK="local/typecheck:latest"
 DOCKERFILE="Dockerfile.linters"
 DOCKERFILE_TESTS="Dockerfile.tests"
 
-docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
-docker build -q --target vulture-lint   -t "$IMAGE_TAG_VULTURE"   -f "$DOCKERFILE"       . >/dev/null
-docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
-docker build -q --target hadolint-lint  -t "$IMAGE_TAG_HADOLINT"  -f "$DOCKERFILE"       . >/dev/null
-docker build -q --target yamllint-lint  -t "$IMAGE_TAG_YAMLLINT"  -f "$DOCKERFILE"       . >/dev/null
-docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
-
 # Bucket each input file by type so each linter only receives the files it understands.
 py_files=()
 dockerfiles=()
@@ -41,6 +34,12 @@ done
 fail=0
 
 if (( ${#py_files[@]} > 0 )); then
+  # Build each image on first use; skip if it already exists locally.
+  docker image inspect "$IMAGE_TAG_RUFF"      >/dev/null 2>&1 || docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
+  docker image inspect "$IMAGE_TAG_VULTURE"   >/dev/null 2>&1 || docker build -q --target vulture-lint   -t "$IMAGE_TAG_VULTURE"   -f "$DOCKERFILE"       . >/dev/null
+  docker image inspect "$IMAGE_TAG_PYDOCLINT" >/dev/null 2>&1 || docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
+  docker image inspect "$IMAGE_TAG_TYPECHECK" >/dev/null 2>&1 || docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
+
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
     format --check -- "${py_files[@]}" || fail=1
@@ -69,6 +68,7 @@ fi
 
 # Lint each Dockerfile for best-practice errors; warnings are informational only.
 if (( ${#dockerfiles[@]} > 0 )); then
+  docker image inspect "$IMAGE_TAG_HADOLINT" >/dev/null 2>&1 || docker build -q --target hadolint-lint -t "$IMAGE_TAG_HADOLINT" -f "$DOCKERFILE" . >/dev/null
   for df in "${dockerfiles[@]}"; do
     echo "[lint] hadolint $df"
     docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_HADOLINT" \
@@ -78,6 +78,7 @@ fi
 
 # Lint each YAML file for syntax and style conformance.
 if (( ${#yaml_files[@]} > 0 )); then
+  docker image inspect "$IMAGE_TAG_YAMLLINT" >/dev/null 2>&1 || docker build -q --target yamllint-lint -t "$IMAGE_TAG_YAMLLINT" -f "$DOCKERFILE" . >/dev/null
   for yf in "${yaml_files[@]}"; do
     echo "[lint] yamllint $yf"
     docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_YAMLLINT" \
