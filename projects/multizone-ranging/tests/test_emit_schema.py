@@ -69,7 +69,7 @@ def _capture_emit():
     """Build emit() from main.py without executing the loop."""
     src = "def emit(obj):\n    print(ujson.dumps(obj))\n"
     ns = {"ujson": ujson}
-    exec(src, ns)  # noqa: S102
+    exec(src, ns)
     return ns["emit"]
 
 

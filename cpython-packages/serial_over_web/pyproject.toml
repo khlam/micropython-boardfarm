@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "serial_over_web"
-version = "0.2.0"
+version = "0.1.0"
 description = "Shared FastAPI dashboard server for boardfarm project serial streams"
 requires-python = ">=3.12"
 

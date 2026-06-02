@@ -13,18 +13,16 @@ from vl53l5cx.vl53l5cx import VL53L5CX
 class _FakeI2C:
     """No-op I2C stub: readfrom_mem returns zeros, writes are discarded."""
 
-    def readfrom_mem_into(
-        self, addr: int, reg: int, buf: bytearray, addrsize: int = 16
-    ) -> None:
+    def readfrom_mem_into(self, _addr, _reg, buf: bytearray, **_kwargs) -> None:
         """Fill buf with zeros."""
         for i in range(len(buf)):
             buf[i] = 0
 
-    def readfrom_mem(self, addr: int, reg: int, size: int, addrsize: int = 16) -> bytes:
+    def readfrom_mem(self, _addr, _reg, size: int, **_kwargs) -> bytes:
         """Return size zero bytes."""
         return bytes(size)
 
-    def writeto_mem(self, addr: int, reg: int, buf: bytes, addrsize: int = 16) -> None:
+    def writeto_mem(self, _addr, _reg, _buf, **_kwargs) -> None:
         """Discard the write."""
 
 

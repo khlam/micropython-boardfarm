@@ -76,7 +76,7 @@ def _load_main_namespace(fake_time: _FakeTime, fake_status: _FakeStatus) -> dict
         # stream() has `tof: VL53L5CX` annotation; name must resolve at def time.
         "VL53L5CX": object,
     }
-    exec(code, ns)  # noqa: S102
+    exec(code, ns)
     return ns
 
 

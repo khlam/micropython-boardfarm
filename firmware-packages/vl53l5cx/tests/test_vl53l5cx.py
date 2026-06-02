@@ -6,7 +6,8 @@ that require real I²C hardware.
 """
 
 from fake_vl53l5cx import make_results
-from vl53l5cx.vl53l5cx import RESOLUTION_8X8, VL53L5CX
+
+from vl53l5cx.vl53l5cx import RESOLUTION_8X8
 
 
 def test_read_returns_64_values(tof, monkeypatch):
@@ -54,7 +55,7 @@ def test_read_mixed_status_maps_individually(tof, monkeypatch):
 def test_check_data_ready_true_on_new_streamcount(tof):
     tof._streamcount = 5
     buf = bytes([6, 0x5, 0x5, 0x10])
-    tof.i2c.readfrom_mem = lambda addr, reg, size, addrsize=16: buf
+    tof.i2c.readfrom_mem = lambda _addr, _reg, _size, **_kwargs: buf
     assert tof.check_data_ready() is True
     assert tof._streamcount == 6
 
@@ -62,14 +63,14 @@ def test_check_data_ready_true_on_new_streamcount(tof):
 def test_check_data_ready_false_same_streamcount(tof):
     tof._streamcount = 6
     buf = bytes([6, 0x5, 0x5, 0x10])
-    tof.i2c.readfrom_mem = lambda addr, reg, size, addrsize=16: buf
+    tof.i2c.readfrom_mem = lambda _addr, _reg, _size, **_kwargs: buf
     assert tof.check_data_ready() is False
 
 
 def test_check_data_ready_false_count_255(tof):
     tof._streamcount = 5
     buf = bytes([255, 0x5, 0x5, 0x10])
-    tof.i2c.readfrom_mem = lambda addr, reg, size, addrsize=16: buf
+    tof.i2c.readfrom_mem = lambda _addr, _reg, _size, **_kwargs: buf
     assert tof.check_data_ready() is False
 
 
@@ -81,19 +82,19 @@ def test_start_sets_8x8_resolution(tof, monkeypatch):
         type(tof),
         "resolution",
         property(
-            fget=lambda self: RESOLUTION_8X8,
-            fset=lambda self, v: resolutions_set.append(v),
+            fget=lambda _self: RESOLUTION_8X8,
+            fset=lambda _self, v: resolutions_set.append(v),
         ),
     )
     monkeypatch.setattr(
         type(tof),
         "ranging_freq",
         property(
-            fget=lambda self: 10,
-            fset=lambda self, v: None,
+            fget=lambda _self: 10,
+            fset=lambda _self, _v: None,
         ),
     )
-    monkeypatch.setattr(tof, "start_ranging", lambda enables: start_ranging_calls.append(enables))
+    monkeypatch.setattr(tof, "start_ranging", start_ranging_calls.append)
 
     tof.start(freq=10)
 

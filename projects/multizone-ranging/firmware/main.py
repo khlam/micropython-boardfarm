@@ -1,4 +1,4 @@
-"""MCU-micropython firmware for multizone-ranging: I²C scan, VL53L5CX init, 8×8 JSON stream."""
+"""MCU-micropython firmware for multizone-ranging: I²C scan, VL53L5CX init, 8x8 JSON stream."""
 
 import time
 
@@ -9,7 +9,7 @@ from i2c_bus import soft_i2c as i2c
 from vl53l5cx import VL53L5CX
 
 _TOF_ADDRESS = 0x29
-# 8×8 hardware maximum. The VL53L5CX caps 8×8 ranging at 15 Hz; the read loop
+# 8x8 hardware maximum. The VL53L5CX caps 8x8 ranging at 15 Hz; the read loop
 # emits each grid as soon as the sensor flags it ready, so this sets the
 # end-to-end frame rate. Soft I²C is required: the sensor clock-stretches
 # heavily while loading its firmware in init(), which the hardware I²C
@@ -38,7 +38,7 @@ def emit(obj: dict) -> None:
 def init_sensor() -> VL53L5CX:
     """Scan the I²C bus and initialise the VL53L5CX, retrying until it comes up.
 
-    Loads ~86.5 KB of ST firmware into the sensor over I²C (~2-3 s at 400 kHz).
+    Loads ~86.5 KB of ST firmware into the sensor over soft I²C (~7-9 s at 100 kHz).
     Parks at status.no_device() when 0x29 is absent, or status.init_err() when
     the device ACKs but driver init raises.
     """
@@ -66,7 +66,7 @@ def init_sensor() -> VL53L5CX:
 
 
 def stream(tof: VL53L5CX) -> None:
-    """Stream 8×8 distance grids indefinitely, polling for new data.
+    """Stream 8x8 distance grids indefinitely, polling for new data.
 
     Emits one JSON line per measurement: {"t": <ms>, "grid": [<64 int|null>]}.
     Each grid element is an integer distance in mm, or null for zones with an

@@ -3,13 +3,13 @@
 MicroPython firmware that reads a VL53L5CX 8×8 multizone time-of-flight
 sensor and streams distance grids as JSON lines over USB-CDC at ~15 Hz
 (the 8×8 hardware maximum). A host FastAPI service serves a live Plotly
-heatmap dashboard.
+3D point-cloud dashboard.
 
 ## Layout
 ```
 multizone-ranging/
   firmware/main.py            chip-agnostic streaming loop, calls emit()
-  viz/static/index.html       Plotly 8×8 heatmap + distance stats
+  viz/static/index.html       Plotly 8×8 3D point cloud + distance stats
   tests/                      host pytest for the emit() schema
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         compile / esp32 / viz services
@@ -22,9 +22,9 @@ multizone-ranging/
    ```bash
    docker compose up --build compile
    ```
-   A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.uf2](outputs/app.rp2040.uf2) that flashes correctly on either device.
+   A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
 2. Put the board in [bootloader mode](../../README.md#bootloader-mode).
-3. Drag-and-drop [outputs/app.rp2040.uf2](outputs/app.rp2040.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
+3. Drag-and-drop [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
 
 ### ESP32-S3
 1. Put the board in [bootloader mode](../../README.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
@@ -40,7 +40,7 @@ With the board plugged in (`/dev/ttyACM0`):
 docker compose up --build viz
 ```
 Open `http://localhost:18501`. The connection pill turns green when the
-serial port is open, and the 8×8 heatmap and distance stats update in
+serial port is open, and the 8×8 point cloud and distance stats update in
 real time.
 
 ## Notes
