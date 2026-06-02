@@ -1,9 +1,9 @@
 # gyro-stream
 
 MicroPython firmware that reads an MPU6050 IMU and streams accelerometer, gyro, and temperature
-samples as JSON lines over USB-CDC at ~100 Hz. The browser reads those
-samples over the Web Serial API and renders a live Plotly dashboard
-with a 3D orientation view — no host-side server.
+samples as JSON lines over USB-CDC at ~100 Hz. A host FastAPI service
+fans the lines out over a WebSocket and serves a live Plotly dashboard
+with a 3D orientation view.
 
 ## Layout
 ```
@@ -35,14 +35,14 @@ gyro-stream/
    Runs `esp32-compile` to produce [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin), then immediately flashes it via `esptool.py` running inside the container.
 
 ### Web dashboard
-With the board plugged in, open [viz/static/index.html](viz/static/index.html)
-in Chrome or Edge — the dashboard talks to the board directly through the
-Web Serial API, which Safari and Firefox < 151 don't support. Click
-**Connect** and pick the board's serial port; the connection pill turns green
-and the 3D orientation panel + accel/gyro/temp line charts + roll/pitch
-readouts update in real time. If you unplug the board, click **Connect** again
-to resume. (On Linux, your user needs permission to open the serial device —
-e.g. membership in the `dialout` group.)
+With the board plugged in (`/dev/ttyACM0`):
+```bash
+docker compose up --build viz
+```
+Open `http://localhost:18501`. The connection pill turns green when the
+serial port is open, and the 3D orientation panel + accel/gyro/temp line
+charts + roll/pitch readouts update in real time. The dashboard
+auto-reconnects if you unplug and replug the board.
 
 ## Notes
 - The firmware initialises I²C, tries the MPU6050 at `0x68` (AD0=GND/floating)
