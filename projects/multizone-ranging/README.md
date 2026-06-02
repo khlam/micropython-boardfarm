@@ -2,8 +2,9 @@
 
 MicroPython firmware that reads a VL53L5CX 8×8 multizone time-of-flight
 sensor and streams distance grids as JSON lines over USB-CDC at ~15 Hz
-(the 8×8 hardware maximum). A host FastAPI service serves a live Plotly
-3D point-cloud dashboard.
+(the 8×8 hardware maximum). The browser reads those grids over the Web
+Serial API and renders a live Plotly 3D point-cloud dashboard — no
+host-side server.
 
 ## Layout
 ```
@@ -35,13 +36,13 @@ multizone-ranging/
    Builds [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin) and immediately flashes it via `esptool.py` running inside the container.
 
 ### Web dashboard
-With the board plugged in (`/dev/ttyACM0`):
-```bash
-docker compose up --build viz
-```
-Open `http://localhost:18501`. The connection pill turns green when the
-serial port is open, and the 8×8 point cloud and distance stats update in
-real time.
+With the board plugged in, open [viz/static/index.html](viz/static/index.html)
+in Chrome or Edge — the dashboard talks to the board directly through the
+Web Serial API, which Safari and Firefox < 151 don't support. Click
+**Connect** and pick the board's serial port; the connection pill turns green
+and the 8×8 point cloud + distance stats update in real time. (On Linux, your
+user needs permission to open the serial device — e.g. membership in the
+`dialout` group.)
 
 ## Notes
 - On boot the firmware loads ~86.5 KB of ST firmware into the VL53L5CX
@@ -52,8 +53,8 @@ real time.
   Each JSON line carries `{"t": <ms>, "grid": [<64 int|null>]}` where the
   grid is row-major (row 0 first) and each value is a distance in mm or
   `null` when the zone's target status is invalid.
-- A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
-  a WebSocket, and serves the dashboard at `http://localhost:18501`.
+- The browser reads those JSON lines straight off the serial port via the
+  Web Serial API and feeds them to Plotly — no host-side server.
 - LED indication is chip-aware — see the [Boot LED states table](../../README.md#boot-led-states)
   in the repo README.
 

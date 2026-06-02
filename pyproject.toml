@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.5.0"
+version = "0.6.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,6 @@ dependencies = [
     "mpu6050>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.0",
-    "serial_over_web>=0.1.0",
     "micropython_stubs>=0.1.0",
 ]
 
@@ -26,7 +25,6 @@ pythonpath = [
 
 [tool.uv.workspace]
 members = [
-    "cpython-packages/serial_over_web",
     "cpython-packages/micropython_stubs",
     "firmware-packages/boot_status_led",
     "firmware-packages/i2c_bus",
@@ -36,7 +34,6 @@ members = [
 ]
 
 [tool.uv.sources]
-serial_over_web = { workspace = true }
 micropython_stubs = { workspace = true }
 boot_status_led = { workspace = true }
 i2c_bus = { workspace = true }
@@ -45,9 +42,6 @@ vl53l0x = { workspace = true }
 vl53l5cx = { workspace = true }
 
 [dependency-groups]
-viz = [
-    "serial_over_web",
-]
 typecheck = [
     "ty>=0.0.42",
 ]
@@ -61,7 +55,6 @@ lint = [
     "uv-secure>=0.17.2",
 ]
 test = [
-    {include-group = "viz"},
     {include-group = "typecheck"},
     "micropython_stubs",
     "boot_status_led",
@@ -71,7 +64,6 @@ test = [
     "vl53l5cx",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "httpx>=0.28.1",
 ]
 
 # Container mount paths.
@@ -86,7 +78,6 @@ source = [
   "/projects/distance-stream/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
-  "/work/cpython-packages/serial_over_web/serial_over_web",
 ]
 omit = [
   "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
@@ -254,7 +245,6 @@ known-first-party = [
   "mpu6050",
   "vl53l0x",
   "vl53l5cx",
-  "serial_over_web",
   "micropython_stubs",
 ]
 

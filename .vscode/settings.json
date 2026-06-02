@@ -6,7 +6,6 @@
     "./firmware-packages/i2c_bus",
     "./firmware-packages/mpu6050",
     "./firmware-packages/vl53l0x",
-    "./cpython-packages/serial_over_web",
     "./cpython-packages/micropython_stubs/micropython_stubs"
   ]
 }

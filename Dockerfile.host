@@ -1,45 +1,13 @@
-# Host-Python stages: viz (FastAPI dashboard, port 18501) and uv-runner
-# (standalone uv to regenerate uv.lock). Both consume the lockfile that
-# uv-runner produces; viz pins fastapi/uvicorn/pyserial transitively.
+# Host-Python stage: uv-runner — standalone uv to regenerate uv.lock against the
+# bind-mounted repo, consumed by pytest (Dockerfile.tests) via `uv sync --frozen`.
 
 FROM ghcr.io/astral-sh/uv:0.11.18@sha256:78bc42400d77b0678ba95765305c826652ed5431f399257271dda681d0318f03 AS uv-bin
 
 
 # -----------------------------------------------------------------------------
-# Stage: viz — host FastAPI dashboard on port 18501 (serial → WebSocket → Plotly).
-# Per-project static/ comes via VIZ_DIR build-arg; build context must be repo root.
-# -----------------------------------------------------------------------------
-FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS viz
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
- && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY --from=uv-bin /uv /usr/local/bin/uv
-WORKDIR /app
-
-# Install serial_over_web (transitive: fastapi/uvicorn/pyserial via uv.lock).
-COPY pyproject.toml uv.lock ./
-COPY cpython-packages/serial_over_web/pyproject.toml ./cpython-packages/serial_over_web/pyproject.toml
-COPY cpython-packages/serial_over_web/serial_over_web ./cpython-packages/serial_over_web/serial_over_web
-RUN uv sync --frozen --no-dev --no-install-project --only-group viz
-ENV PATH=/app/.venv/bin:${PATH}
-
-# Per-project dashboard at /app/static; STATIC_DIR overrides the package default.
-ARG VIZ_DIR=projects/distance-stream/viz
-COPY ${VIZ_DIR}/static ./static
-ENV STATIC_DIR=/app/static
-
-EXPOSE 18501
-ENTRYPOINT ["uvicorn"]
-CMD ["serial_over_web.app:app", "--host", "0.0.0.0", "--port", "18501"]
-
-
-# -----------------------------------------------------------------------------
 # Stage: uv-runner — standalone uv to regenerate uv.lock against the
 # bind-mounted repo. Used by the `uv` service in docker-compose.yaml; consumed
-# by viz + pytest (Dockerfile.tests) via `uv sync --frozen`.
+# by pytest (Dockerfile.tests) via `uv sync --frozen`.
 # -----------------------------------------------------------------------------
 FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS uv-runner
 ENV UV_LINK_MODE=copy

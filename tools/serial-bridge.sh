@@ -4,19 +4,18 @@
 # Project-agnostic: it knows nothing about distance-stream / gyro-stream — it
 # just exposes whatever board is plugged in on a TCP port. Run it once in its
 # own terminal; then, with SERIAL_PORT exported (see AGENTS.md), every project's
-# `docker compose up viz` and `docker compose run esp32-flash` work the same as
-# on Linux.
+# `docker compose run esp32-flash` works the same as on Linux.
 #
 # Why this exists: Docker Desktop runs containers inside a Linux VM, and neither
 # it nor Apple's Virtualization.framework can pass a USB-serial device into that
-# VM. So the `- /dev:/dev` mount the viz/esp32-flash services rely on is a no-op on
+# VM. So the `- /dev:/dev` mount the esp32-flash service relies on is a no-op on
 # macOS. This script reads/writes the board on the host and relays it over TCP;
 # the containers connect with pyserial/esptool via
 # socket://host.docker.internal:<port>, getting the same access Linux gets from
 # native device passthrough. Built-in tools only (stty, cat, nc, mkfifo) —
 # nothing is installed on the host.
 #
-# The relay is full-duplex: viz only reads, but esptool must also write, so a
+# The relay is full-duplex: esptool both reads and writes, so a
 # fifo carries device->client while nc's stdout carries client->device.
 # Note: TCP carries no modem-control lines, so DTR/RTS auto-reset can't cross
 # the bridge — flash with the board already in bootloader mode (hold BOOT, tap

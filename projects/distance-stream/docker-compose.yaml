@@ -53,27 +53,3 @@ services:
       # Linux: native device passthrough. macOS: run tools/serial-bridge.sh and
       # export SERIAL_PORT=socket://host.docker.internal:5555.
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
-
-  # FastAPI dashboard on :18501. VIZ_DIR points the stage at this project's viz/.
-  viz:
-    build:
-      context: ../..
-      dockerfile: Dockerfile.host
-      target: viz
-      args:
-        VIZ_DIR: projects/distance-stream/viz
-    # /dev bind-mount (not `devices:`) so unplug/replug survives without restart.
-    volumes:
-      - /dev:/dev
-    device_cgroup_rules:
-      - c 166:* rmw  # USB-ACM (TTY) major
-    ports:
-      - 18501:18501
-    # Lets the container resolve host.docker.internal on Linux too (automatic on
-    # Docker Desktop) — used when SERIAL_PORT is the macOS socket:// bridge.
-    extra_hosts:
-      - host.docker.internal:host-gateway
-    environment:
-      # Linux: native device passthrough. macOS: run tools/serial-bridge.sh and
-      # export SERIAL_PORT=socket://host.docker.internal:5555.
-      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
