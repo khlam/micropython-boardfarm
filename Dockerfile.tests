@@ -11,6 +11,8 @@ WORKDIR /work
 
 # Copy workspace dependency files so uv can install them as editable packages.
 COPY pyproject.toml uv.lock ./
+COPY cpython-packages/serial_over_web/pyproject.toml ./cpython-packages/serial_over_web/pyproject.toml
+COPY cpython-packages/serial_over_web/serial_over_web ./cpython-packages/serial_over_web/serial_over_web
 COPY cpython-packages/micropython_stubs/pyproject.toml ./cpython-packages/micropython_stubs/pyproject.toml
 COPY cpython-packages/micropython_stubs/micropython_stubs ./cpython-packages/micropython_stubs/micropython_stubs
 COPY firmware-packages/boot_status_led/pyproject.toml ./firmware-packages/boot_status_led/pyproject.toml
@@ -31,7 +33,7 @@ ENV PATH=/work/.venv/bin:${PATH}
 # TODO: Simplify/make readable
 ENTRYPOINT ["sh", "-c", \
   "bash /check_project_compat.sh /work/pyproject.toml /projects/*/pyproject.toml && \
-   if [ \"$*\" = '/firmware-packages /projects' ]; \
+   if [ \"$*\" = '/firmware-packages /projects /cpython-packages/serial_over_web/tests' ]; \
      then COV_GATE='--cov-fail-under=90'; \
      else COV_GATE='--cov-fail-under=0'; \
    fi && \
@@ -39,7 +41,7 @@ ENTRYPOINT ["sh", "-c", \
                 -c /work/pyproject.toml --cov --cov-report=term-missing \
                 --cov-config=/work/pyproject.toml $COV_GATE \"$@\"", \
   "--"]
-CMD ["/firmware-packages", "/projects"]
+CMD ["/firmware-packages", "/projects", "/cpython-packages/serial_over_web/tests"]
 
 
 # ty over the workspace.

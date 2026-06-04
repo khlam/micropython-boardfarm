@@ -20,6 +20,7 @@
         "i2c_bus",
         "mpu6050",
         "vl53l0x",
+        "serial_over_web",
         "micropython_stubs"
       ],
       "enabled": false

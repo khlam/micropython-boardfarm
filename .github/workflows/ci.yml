@@ -103,6 +103,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - dockerfile: Dockerfile.host
+            target: viz
           - dockerfile: Dockerfile.tests
             target: pytest
           - dockerfile: Dockerfile.linters

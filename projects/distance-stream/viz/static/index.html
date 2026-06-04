@@ -32,12 +32,6 @@
     .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .stat b { color: var(--text); font-weight: 500; }
     .err-msg { font-size: 12px; color: #fca5a5; }
-    .btn {
-      padding: 4px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
-      background: #1e3a5f; color: #93c5fd; border: 1px solid #2a4a6f; cursor: pointer;
-    }
-    .btn:hover:not(:disabled) { background: #24496f; }
-    .btn:disabled { opacity: 0.5; cursor: default; }
     .panel {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 6px; padding: 12px;
@@ -83,7 +77,6 @@
 <body>
   <h1>VL53L0X — Live Distance</h1>
   <div class="status">
-    <button id="connect" class="btn">Connect</button>
     <span id="conn" class="pill err">Disconnected</span>
     <span class="stat">Port: <b id="port">—</b></span>
     <span class="stat">Rate: <b id="rate">—</b></span>
@@ -112,7 +105,7 @@
   <script>
   (function () {
     const MAX_POINTS = 1500;       // ~30 s at 50 Hz
-    const BAUD = 115200;           // matches the firmware UART baud
+    const RECONNECT_MS = 250;
     const LOG_MAX = 200;
 
     const $ = (id) => document.getElementById(id);
@@ -267,77 +260,20 @@
       scheduleFrame();
     }
 
-    // Short human-readable name for the chosen port (no server hands us one now).
-    function portLabel(port) {
-      const info = port.getInfo ? port.getInfo() : {};
-      const hex = (n) => (n != null ? n.toString(16).padStart(4, "0") : "????");
-      if (info.usbVendorId != null || info.usbProductId != null) {
-        return `usb ${hex(info.usbVendorId)}:${hex(info.usbProductId)}`;
-      }
-      return "serial";
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose will fire and reconnect */ };
     }
 
-    // Read JSON-per-line from the port and feed each line to onMessage — the
-    // browser-side equivalent of the old server's _pump_serial + broadcaster.
-    async function readLoop(port) {
-      const decoder = new TextDecoderStream();
-      const piped = port.readable.pipeTo(decoder.writable).catch(() => {});
-      const reader = decoder.readable.getReader();
-      let buf = "";
-      try {
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += value;
-          let nl;
-          while ((nl = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, nl).trim();
-            buf = buf.slice(nl + 1);
-            if (!line) continue;
-            try { onMessage(JSON.parse(line)); } catch { /* drop non-JSON, as the server did */ }
-          }
-        }
-      } finally {
-        reader.releaseLock();
-        await piped;
-      }
-    }
-
-    let activePort = null;
-
-    async function connect() {
-      if (activePort) return;
-      let port;
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: BAUD });
-      } catch (e) {
-        // Picker dismissed, or the port refused to open (busy / no permission).
-        setStatus(false, "", e && e.message ? e.message : "Could not open serial port");
-        return;
-      }
-      activePort = port;
-      $("connect").disabled = true;
-      const label = portLabel(port);
-      onMessage({ event: "connected", port: label });
-      try {
-        await readLoop(port);
-        onMessage({ event: "disconnected", port: label });
-      } catch (e) {
-        onMessage({ event: "disconnected", port: label, error: e && e.message ? e.message : String(e) });
-      } finally {
-        await port.close().catch(() => {});
-        activePort = null;
-        $("connect").disabled = false;
-      }
-    }
-
-    if ("serial" in navigator) {
-      $("connect").addEventListener("click", connect);
-    } else {
-      $("connect").disabled = true;
-      setStatus(false, "", "Web Serial unavailable — use Chrome or Edge");
-    }
+    connect();
   })();
   </script>
 </body>

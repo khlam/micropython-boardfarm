@@ -1,9 +1,8 @@
 # distance-stream
 
 MicroPython firmware that reads a VL53L0X time-of-flight sensor and
-streams distance samples as JSON lines over USB-CDC at ~50 Hz. The
-browser reads those samples over the Web Serial API and renders a live
-Plotly dashboard — no host-side server.
+streams distance samples as JSON lines over USB-CDC at ~50 Hz. A host
+FastAPI service serves a live Plotly dashboard.
 
 ## Layout
 ```
@@ -35,21 +34,21 @@ distance-stream/
    Runs `esp32-compile` to produce [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin), then immediately flashes it via `esptool.py` running inside the container.
 
 ### Web dashboard
-With the board plugged in, open [viz/static/index.html](viz/static/index.html)
-in Chrome or Edge — the dashboard talks to the board directly through the
-Web Serial API, which Safari and Firefox < 151 don't support. Click
-**Connect** and pick the board's serial port; the connection pill turns green
-and the distance readout + line chart update in real time. (On Linux, your
-user needs permission to open the serial device — e.g. membership in the
-`dialout` group.)
+With the board plugged in (`/dev/ttyACM0`):
+```bash
+docker compose up --build viz
+```
+Open `http://localhost:18501`. The connection pill turns green when the
+serial port is open, and the distance readout + line chart update in
+real time.
 
 ## Notes
 - The firmware initialises I²C, finds the VL53L0X at `0x29`, then enters
   a streaming loop that prints one JSON line per sample
   (`{"t": <ms>, "distance_mm": <int|null>}`) at ~50 Hz.
   `distance_mm` is `null` when the sensor returns `>= 8190` (out of range).
-- The browser reads those JSON lines straight off the serial port via the
-  Web Serial API and feeds them to Plotly — no host-side server.
+- A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
+  a WebSocket, and serves the dashboard at `http://localhost:18501`.
 
 ## Hardware
 

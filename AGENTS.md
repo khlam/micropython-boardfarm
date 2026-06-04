@@ -38,10 +38,11 @@ Before changing anything, identify the area you're touching:
 | I²C bus | `firmware-packages/i2c_bus/i2c_bus/` | `rp2040.py` / `rp2350.py` / `esp32s3.py` — `soft_i2c` / `hard_i2c`, chip dispatch |
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(i2c, skip_spad_info=False, interrupt_status_mask=0x07)` |
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(i2c, addr=0x68)` |
-| Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly chart + numeric readout; reads the board directly via the browser Web Serial API (no host server) |
+| Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
+| Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
 | Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
-| Host runtime | repo root | `Dockerfile.host` — stage: `uv-runner` |
+| Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
 | Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |

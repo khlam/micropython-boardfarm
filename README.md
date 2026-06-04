@@ -10,7 +10,7 @@ Write MicroPython firmware that behaves the same across all supported microcontr
 Two kinds of code live side by side in this repo:
 
 - **MCU** code runs on the microcontroller under MicroPython — firmware in [projects/](projects/) and shared [firmware-packages/](firmware-packages/) frozen onto the device at compile time.
-- **host** code runs on your computer under CPython inside Docker — pytest against [micropython_stubs](cpython-packages/micropython_stubs/) (shims for `machine`, `neopixel`, `ujson`, …) and every build toolchain (ARM cross-compiler, ESP-IDF, esptool, MicroPython sources). The live dashboards run entirely in your browser via the Web Serial API — no host server.
+- **host** code runs on your computer under CPython inside Docker — the [serial_over_web](cpython-packages/serial_over_web/) dashboard, pytest against [micropython_stubs](cpython-packages/micropython_stubs/) (shims for `machine`, `neopixel`, `ujson`, …), and every build toolchain (ARM cross-compiler, ESP-IDF, esptool, MicroPython sources).
 
 
 ## Supported Microcontrollers (MCU)
@@ -41,8 +41,8 @@ Two kinds of code live side by side in this repo:
 
 
 ## Projects
-- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → Web Serial → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
-- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → Web Serial → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
+- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
+- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
 
 
 ## Boot LED states
@@ -88,7 +88,7 @@ All commands run from a project directory (e.g. `cd projects/gyro-stream`).
 
 
 ## macOS: serial bridge
-Docker Desktop runs containers inside a Linux VM, and neither it nor Apple's Virtualization.framework can pass a USB-serial device into that VM — so the `/dev:/dev` mount the `esp32-flash` service relies on sees nothing on macOS. [`tools/serial-bridge.sh`](tools/serial-bridge.sh) works around this with a full-duplex serial↔TCP relay built from stock tools (`stty`/`cat`/`nc`) — nothing is installed on the host. Set it up **once**, then every project's flash command matches Linux. (The browser dashboard reads the serial port directly via Web Serial, so it needs no bridge.)
+Docker Desktop runs containers inside a Linux VM, and neither it nor Apple's Virtualization.framework can pass a USB-serial device into that VM — so the `/dev:/dev` mount the `viz` and `esp32-flash` services rely on sees nothing on macOS. [`tools/serial-bridge.sh`](tools/serial-bridge.sh) works around this with a full-duplex serial↔TCP relay built from stock tools (`stty`/`cat`/`nc`) — nothing is installed on the host. Set it up **once**, then every project's commands match Linux.
 
 1. In its own terminal, start the bridge and leave it running. It auto-detects the board (`/dev/cu.usbmodem*`) and serves it on TCP `5555`:
    ```sh
@@ -99,11 +99,12 @@ Docker Desktop runs containers inside a Linux VM, and neither it nor Apple's Vir
    export SERIAL_PORT=socket://host.docker.internal:5555
    ```
    Open a new terminal (or `source ~/.zshrc`) so the variable is set.
-3. Flash exactly as on Linux — `esp32-flash` reads `SERIAL_PORT`:
+3. Run the dashboard or flash exactly as on Linux — both read `SERIAL_PORT`:
    ```sh
+   docker compose up --build viz                # reads the board over the bridge
    docker compose run --rm --build esp32-flash  # compiles + flashes over the bridge
    ```
    The bridge carries no DTR/RTS reset line, so flashing requires the board to **already** be in bootloader mode (hold **BOOT**, tap **RESET**); the `esp32-flash` stage passes `--before/--after no_reset` automatically for `socket://` ports.
 
-> RP2040 / RP2350 firmware flashes by drag-copying a UF2 to the mounted bootloader drive, so it needs no serial bridge — only the `esp32-flash` service uses the serial port from Docker. The browser dashboard reads the port directly via Web Serial, so it needs no bridge even on macOS.
+> RP2040 / RP2350 firmware flashes by drag-copying a UF2 to the mounted bootloader drive, so it needs no serial bridge — only the `esp32-flash` service and the `viz` dashboard use the serial port.
 
