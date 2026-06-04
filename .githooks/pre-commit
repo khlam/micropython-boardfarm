@@ -1,76 +1,41 @@
 #!/usr/bin/env bash
-# Pre-commit hook. Three responsibilities, in order:
-#   1. Version-bump + project-compat guards (pure git/bash, fast-fail early).
-#   2. Auto-fix staged Python/YAML in-place (ruff format, ruff check --fix,
-#      yamlfix -i) and re-stage so the fixes land in this commit.
-#   3. Verify everything via .githooks/run-linters.sh — the SAME script CI
-#      calls. Any change to a linter invocation belongs there, not here.
+# Pre-commit hook. Two responsibilities, in order:
+#   1. Auto-fix staged Python in-place (ruff format, ruff check --fix) and
+#      re-stage so the fixes land in this commit.
+#   2. Verify via .githooks/run-linters.sh --precommit: ruff + pydoclint + ty on
+#      the staged Python, plus hadolint on every Dockerfile and yamllint on every
+#      YAML file in the repo (not just staged ones).
+#
+# Heavier global gates stay in CI, not here: version-bump and project-compat
+# guards and vendored-file enforcement (see .github/workflows/ci.yml). vulture
+# is CI-only too — that's what --precommit drops. Any change to a linter
+# invocation belongs in run-linters.sh, not here.
 
 set -euo pipefail
 
 hook_dir="$(dirname "$0")"
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
 
-# 1. Version-bump guard runs first: pure git/bash, no Docker images needed,
-#    so failures here surface before the slower Docker stages.
-"$hook_dir/check_version_bumps.sh"
-
-# Project ↔ root version-compat guard.
-"$hook_dir/check_project_compat.sh" pyproject.toml projects/*/pyproject.toml
-
-# Vendored-file guard: these files must not be edited directly. Patches must
-# go through the upstream vendoring process documented in each VENDOR.md.
-VENDORED_FILES=(
-  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py"
-)
-vendored_staged=()
-for f in "${VENDORED_FILES[@]}"; do
-  if git diff --cached --name-only | grep -qF "$f"; then
-    vendored_staged+=("$f")
-  fi
-done
-if (( ${#vendored_staged[@]} > 0 )); then
-  echo "[pre-commit] ERROR: the following vendored file(s) must not be edited directly:"
-  for f in "${vendored_staged[@]}"; do
-    echo "  $f"
-  done
-  echo "  See the corresponding VENDOR.md for the upstream source and patch process."
-  exit 1
-fi
-
-# Yamlfix image is fix-only (not used by CI), so its build guard lives here
-# rather than in run-linters.sh. Ruff/vulture/hadolint/yamllint images are
-# built on demand by run-linters.sh — no need to duplicate those guards.
 IMAGE_TAG_RUFF="local/ruff:latest"
-IMAGE_TAG_YAMLFIX="local/yamlfix:latest"
 DOCKERFILE="Dockerfile.linters"
 
-_ensure_image() {
-  local tag="$1" stage="$2"
-  if ! docker image inspect "$tag" >/dev/null 2>&1; then
-    echo "[pre-commit] Building $tag (one-time)..."
-    docker build -q --target "$stage" -t "$tag" -f "$DOCKERFILE" . >/dev/null
-  fi
-}
-
-# Collect staged Python, Dockerfile, and YAML paths in one pass each.
+# Staged Python: auto-fixed in place, then verified.
 mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z \
   | grep -zE '[.]py$' || true)
-mapfile -d '' -t dockerfiles < <(git diff --cached --name-only --diff-filter=ACMR -z \
-  | grep -zEi '(^|/)(Dockerfile(\.[^/]+)?|.*\.(dockerfile))$' || true)
-mapfile -d '' -t yaml_files < <(git diff --cached --name-only --diff-filter=ACMR -z \
-  | grep -zEi '[.]ya?ml$' || true)
 
-all_staged=("${py_files[@]}" "${dockerfiles[@]}" "${yaml_files[@]}")
-if (( ${#all_staged[@]} == 0 )); then
-  echo "[pre-commit] No staged Python, Dockerfile, or YAML changes to check."
-  exit 0
-fi
+# Dockerfiles and YAML: linted repo-wide, regardless of what's staged.
+mapfile -t docker_files < <(git ls-files \
+  | grep -E '(^|/)(Dockerfile(\.[^/]+)?|.*\.[dD]ockerfile)$' || true)
+mapfile -t yaml_files < <(git ls-files '*.yml' '*.yaml')
 
-# 2. Auto-fix staged files in place, then re-stage. Pre-commit is the only
+# 1. Auto-fix staged Python in place, then re-stage. Pre-commit is the only
 #    place that mutates files — CI verifies but never fixes.
-
 if (( ${#py_files[@]} > 0 )); then
-  _ensure_image "$IMAGE_TAG_RUFF" ruff-lint
+  if ! docker image inspect "$IMAGE_TAG_RUFF" >/dev/null 2>&1; then
+    echo "[pre-commit] Building $IMAGE_TAG_RUFF (one-time)..."
+    docker build -q --target ruff-lint -t "$IMAGE_TAG_RUFF" -f "$DOCKERFILE" . >/dev/null
+  fi
 
   echo "[pre-commit] Running ruff format on staged files..."
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -83,23 +48,8 @@ if (( ${#py_files[@]} > 0 )); then
   git add -- "${py_files[@]}"
 fi
 
-if (( ${#yaml_files[@]} > 0 )); then
-  _ensure_image "$IMAGE_TAG_YAMLFIX" yamlfix-fmt
-
-  echo "[pre-commit] Running yamlfix -i on staged YAML files..."
-  set +e
-  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_YAMLFIX" \
-    -i -- "${yaml_files[@]}"
-  status_fmt=$?
-  set -e
-  if [[ $status_fmt -eq 0 ]]; then
-    git add -- "${yaml_files[@]}"
-  else
-    echo "[pre-commit] yamlfix returned non-zero — skipping re-stage. The verify"
-    echo "             step below will surface any formatting issues."
-  fi
-fi
-
-# 3. Verify everything via the shared script. Same command CI runs.
-echo "[pre-commit] Verifying via .githooks/run-linters.sh..."
-exec "$hook_dir/run-linters.sh" "${all_staged[@]}"
+# 2. Verify via the shared script's pre-commit profile (ruff + pydoclint + ty on
+#    staged Python; hadolint + yamllint repo-wide).
+echo "[pre-commit] Verifying via .githooks/run-linters.sh --precommit..."
+exec "$hook_dir/run-linters.sh" --precommit \
+  "${py_files[@]}" "${docker_files[@]}" "${yaml_files[@]}"

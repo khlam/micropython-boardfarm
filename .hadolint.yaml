@@ -1,6 +1,6 @@
 ---
 # Hadolint configuration
-# Error-level findings will block commits. Failure threshold is set in .githooks/pre-commit
+# Error-level findings block CI. Failure threshold is set in .githooks/run-linters.sh
 override:
   error:
     # Use COPY instead of ADD

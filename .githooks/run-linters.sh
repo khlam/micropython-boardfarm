@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 # Docker lint verifier shared by pre-commit and CI.
 # Routes each file to the appropriate linter(s) based on its type.
-# Usage: run-linters.sh <file>...
+# Usage: run-linters.sh [--precommit] <file>...
+#
+# --precommit trims the suite to the fast Python subset the local hook runs
+# (ruff + pydoclint + ty); without it (CI) vulture also runs. hadolint/yamllint
+# are file-type routed, so they no-op when pre-commit passes only .py files.
 
 # -e omitted intentionally: fail=1 accumulates tool failures without early exit.
 set -uo pipefail
+
+precommit=0
+if [[ "${1:-}" == "--precommit" ]]; then
+  precommit=1
+  shift
+fi
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
@@ -36,9 +46,9 @@ fail=0
 if (( ${#py_files[@]} > 0 )); then
   # Build each image on first use; skip if it already exists locally.
   docker image inspect "$IMAGE_TAG_RUFF"      >/dev/null 2>&1 || docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
-  docker image inspect "$IMAGE_TAG_VULTURE"   >/dev/null 2>&1 || docker build -q --target vulture-lint   -t "$IMAGE_TAG_VULTURE"   -f "$DOCKERFILE"       . >/dev/null
   docker image inspect "$IMAGE_TAG_PYDOCLINT" >/dev/null 2>&1 || docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
   docker image inspect "$IMAGE_TAG_TYPECHECK" >/dev/null 2>&1 || docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
+  (( precommit )) || docker image inspect "$IMAGE_TAG_VULTURE" >/dev/null 2>&1 || docker build -q --target vulture-lint -t "$IMAGE_TAG_VULTURE" -f "$DOCKERFILE" . >/dev/null
 
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -48,9 +58,11 @@ if (( ${#py_files[@]} > 0 )); then
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
     check --force-exclude -- "${py_files[@]}" || fail=1
 
-  echo "[lint] vulture (${#py_files[@]} file(s))"
-  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
-    -- "${py_files[@]}" .vulture_allowlist.py || fail=1
+  if (( ! precommit )); then
+    echo "[lint] vulture (${#py_files[@]} file(s))"
+    docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
+      -- "${py_files[@]}" .vulture_allowlist.py || fail=1
+  fi
 
   echo "[lint] pydoclint (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
