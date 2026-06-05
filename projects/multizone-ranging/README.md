@@ -5,6 +5,8 @@ sensor and streams distance grids as JSON lines over USB-CDC at ~15 Hz
 (the 8×8 hardware maximum). A host FastAPI service serves a live Plotly
 3D point-cloud dashboard.
 
+<a href="https://www.youtube.com/watch?v=u9xHM_khi90" target="_blank" rel="noopener noreferrer"><img src="../../images/pizero-VL53L8CX.gif" alt="pizero-VL53L8CX" width="300"></a>
+
 ## Layout
 ```
 multizone-ranging/
