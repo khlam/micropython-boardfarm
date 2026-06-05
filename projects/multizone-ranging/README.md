@@ -15,7 +15,7 @@ multizone-ranging/
   viz/static/index.html       Plotly 8×8 3D point cloud + distance stats
   tests/                      host pytest for the emit() schema
   outputs/                    build artifacts (UF2 + ESP32 bin)
-  docker-compose.yaml         compile / esp32 / viz services
+  docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
 ```
 
 ## Usage
@@ -23,7 +23,7 @@ multizone-ranging/
 ### RP2040 / RP2350
 1. Build the firmware:
    ```bash
-   docker compose up --build compile
+   docker compose up --build pi-compile
    ```
    A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
 2. Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode).
@@ -33,9 +33,9 @@ multizone-ranging/
 1. Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
 2. Build and flash:
    ```bash
-   docker compose run --rm --build esp32
+   docker compose run --rm --build esp32-flash
    ```
-   Builds [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin) and immediately flashes it via `esptool.py` running inside the container.
+   Runs `esp32-compile` to produce [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin), then immediately flashes it via `esptool.py` running inside the container.
 
 ### Web dashboard
 With the board plugged in (`/dev/ttyACM0`):
