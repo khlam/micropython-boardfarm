@@ -48,10 +48,10 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 Mac Users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
 
 The following commands can be run from the project root directory. [projects/ 🚂](projects/) may have their own commands.
-| Command | Purpose |
+| Command | Notes |
 |---|---|
-| `docker compose up pytest --build --exit-code-from pytest` | Run all tests (everything) |
-| `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` |
-| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` |
-| `docker compose run --rm uv lock --upgrade` | Bump pinned versions |
+| `docker compose up pytest --build --exit-code-from pytest` | Run all tests (everything) 🤞🙏 |
+| `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` 🧑🏼‍⚖️ |
+| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` 🤳🏻 |
+| `docker compose run --rm uv lock --upgrade` | Bump pinned versions 🫡 |
 
