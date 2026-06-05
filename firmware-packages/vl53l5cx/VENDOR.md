@@ -31,7 +31,9 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
   payloads verbatim, but its `fw_data()` generator was rewritten to slice the
   frozen `bytes` directly instead of wrapping them in `io.BytesIO` (the stream
   object and its context-manager protocol are not present on every MicroPython
-  port). Module/class/method docstrings were added per `AGENTS.md`.
+  port). Module/class/method docstrings were added per `AGENTS.md`. The byte
+  literals were normalized to double-quote style by `ruff format` (`b"\x.."`
+  rather than `b'\x..'`); the payload bytes themselves are unchanged.
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and
   file-based firmware loader are not needed in this repo).
 
