@@ -5,7 +5,8 @@ samples as JSON lines over USB-CDC at ~100 Hz. A host FastAPI service
 fans the lines out over a WebSocket and serves a live Plotly dashboard
 with a 3D orientation view.
 
-<a href="https://www.youtube.com/watch?v=xvH-vMaSqCY" target="_blank" rel="noopener noreferrer"><img src="../../images/esp32-gyro.gif" alt="esp32-gyro" width="300"></a>
+<a href="https://youtu.be/xvH-vMaSqCY" target="_blank" rel="noopener noreferrer"><img src="../../images/esp32-gyro.gif" alt="esp32-gyro" width="300"></a><br>
+<a href="https://youtu.be/xvH-vMaSqCY">https://youtu.be/xvH-vMaSqCY</a>
 
 ## Layout
 ```
