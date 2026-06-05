@@ -1,9 +1,6 @@
 # MicroPython Boardfarm
 
-- Shared host [cpython-packages](cpython-packages/README.md)
-- Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
-- [projects](projects/README.md)
----
+[> Quickstart 🏇🏼](#quickstart)
 
 Develop embedded IoT hardware and software in parallel.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
@@ -27,6 +24,11 @@ Write-once library code runs across different MCUs and shared peripherals.
 |   | QMC5883P | Magnetometer |
 |   | I²C displays | Display |
 
+# Quickstart
+
+- Shared host [cpython-packages](cpython-packages/README.md)
+- Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
+- [projects](projects/README.md)
 
 ## Docker commands
 
