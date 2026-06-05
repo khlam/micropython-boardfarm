@@ -1,55 +1,12 @@
 #!/usr/bin/env bash
-# Pre-commit hook. Two responsibilities, in order:
-#   1. Auto-fix staged Python in-place (ruff format, ruff check --fix) and
-#      re-stage so the fixes land in this commit.
-#   2. Verify via .githooks/run-linters.sh --precommit: ruff + pydoclint + ty on
-#      the staged Python, plus hadolint on every Dockerfile and yamllint on every
-#      YAML file in the repo (not just staged ones).
+# Pre-commit hook: thin shim that runs `make precommit`. The entire pre-commit
+# definition — auto-fix staged Python (ruff format + ruff check --fix), then
+# verify ruff + pydoclint + ty on staged Python — lives self-contained in the
+# Makefile. Change linter invocations there.
 #
 # Heavier global gates stay in CI, not here: version-bump and project-compat
-# guards and vendored-file enforcement (see .github/workflows/ci.yml). vulture
-# is CI-only too — that's what --precommit drops. Any change to a linter
-# invocation belongs in run-linters.sh, not here.
+# guards, vendored-file enforcement, vulture, and the repo-wide hadolint /
+# yamllint sweep (see .github/workflows/ci.yml).
 
 set -euo pipefail
-
-hook_dir="$(dirname "$0")"
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
-
-IMAGE_TAG_RUFF="local/ruff:latest"
-DOCKERFILE="Dockerfile.linters"
-
-# Staged Python: auto-fixed in place, then verified.
-mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z \
-  | grep -zE '[.]py$' || true)
-
-# Dockerfiles and YAML: linted repo-wide, regardless of what's staged.
-mapfile -t docker_files < <(git ls-files \
-  | grep -E '(^|/)(Dockerfile(\.[^/]+)?|.*\.[dD]ockerfile)$' || true)
-mapfile -t yaml_files < <(git ls-files '*.yml' '*.yaml')
-
-# 1. Auto-fix staged Python in place, then re-stage. Pre-commit is the only
-#    place that mutates files — CI verifies but never fixes.
-if (( ${#py_files[@]} > 0 )); then
-  if ! docker image inspect "$IMAGE_TAG_RUFF" >/dev/null 2>&1; then
-    echo "[pre-commit] Building $IMAGE_TAG_RUFF (one-time)..."
-    docker build -q --target ruff-lint -t "$IMAGE_TAG_RUFF" -f "$DOCKERFILE" . >/dev/null
-  fi
-
-  echo "[pre-commit] Running ruff format on staged files..."
-  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
-    format -- "${py_files[@]}"
-  git add -- "${py_files[@]}"
-
-  echo "[pre-commit] Running ruff check --fix on staged files..."
-  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
-    check --fix --force-exclude -- "${py_files[@]}"
-  git add -- "${py_files[@]}"
-fi
-
-# 2. Verify via the shared script's pre-commit profile (ruff + pydoclint + ty on
-#    staged Python; hadolint + yamllint repo-wide).
-echo "[pre-commit] Verifying via .githooks/run-linters.sh --precommit..."
-exec "$hook_dir/run-linters.sh" --precommit \
-  "${py_files[@]}" "${docker_files[@]}" "${yaml_files[@]}"
+exec make -C "$(git rev-parse --show-toplevel)" precommit
