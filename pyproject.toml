@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.4.1"
+version = "0.5.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,6 +11,7 @@ dependencies = [
     "i2c_bus>=0.1.0",
     "mpu6050>=0.1.0",
     "vl53l0x>=0.1.0",
+    "vl53l5cx>=0.1.0",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.1.0",
 ]
@@ -20,6 +21,7 @@ dependencies = [
 pythonpath = [
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/vl53l0x/tests",
+    "/firmware-packages/vl53l5cx/tests",
 ]
 
 [tool.uv.workspace]
@@ -30,6 +32,7 @@ members = [
     "firmware-packages/i2c_bus",
     "firmware-packages/mpu6050",
     "firmware-packages/vl53l0x",
+    "firmware-packages/vl53l5cx",
 ]
 
 [tool.uv.sources]
@@ -39,6 +42,7 @@ boot_status_led = { workspace = true }
 i2c_bus = { workspace = true }
 mpu6050 = { workspace = true }
 vl53l0x = { workspace = true }
+vl53l5cx = { workspace = true }
 
 [dependency-groups]
 viz = [
@@ -51,7 +55,6 @@ lint = [
     {include-group = "typecheck"},
     "ruff>=0.15.15",
     "yamllint>=1.38.0",
-    "yamlfix>=1.19.1",
     "vulture>=2.16",
     "pydoclint>=0.8.4",
     "uv-secure>=0.17.2",
@@ -64,6 +67,7 @@ test = [
     "i2c_bus",
     "mpu6050",
     "vl53l0x",
+    "vl53l5cx",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
@@ -77,12 +81,16 @@ source = [
   "/work/firmware-packages/i2c_bus/i2c_bus",
   "/work/firmware-packages/mpu6050/mpu6050",
   "/work/firmware-packages/vl53l0x/vl53l0x",
+  "/work/firmware-packages/vl53l5cx/vl53l5cx",
   "/projects/distance-stream/firmware",
   "/projects/gyro-stream/firmware",
+  "/projects/multizone-ranging/firmware",
   "/work/cpython-packages/serial_over_web/serial_over_web",
 ]
 omit = [
-  "*/vl53l0x/vl53l0x.py",   # vendored upstream driver
+  "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
+  "*/vl53l5cx/vl53l5cx.py",    # vendored upstream driver
+  "*/vl53l5cx/_config_bytes.py",  # vendored firmware binary data
   "*/tests/*",
   "*/__init__.py",
 ]
@@ -98,7 +106,11 @@ allow-init-docstring = true
 arg-type-hints-in-docstring = false
 check-return-types = false
 check-class-attributes = false
-exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|manifest\.py'
+# Vendored drivers/data blobs. _config_bytes.py's fw_data() is a generator whose
+# only pydoclint-clean return annotation (Generator/Iterator/Iterable) needs a
+# typing/collections.abc import absent on MicroPython, so it can't be satisfied
+# in frozen firmware — excluded like the vendored vl53l0x.py.
+exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|manifest\.py'
 
 [tool.vulture]
 min_confidence = 70
@@ -112,6 +124,8 @@ include = [
 ]
 exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
+  "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
+  "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
   "manifest.py",
   "**/outputs/**",
 ]
@@ -143,9 +157,6 @@ rules.unresolved-attribute = "ignore"
 rules.unresolved-import = "ignore"
 rules.invalid-return-type = "ignore"
 
-[tool.yamlfix]
-sequence_style = "block_style"
-
 [tool.ruff]
 target-version = "py312"
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
@@ -154,6 +165,8 @@ indent-width = 4
 extend-exclude = [
   "*.ipynb",
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
+  "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
+  "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
   ".vulture_allowlist.py",
   "manifest.py",
 ]
@@ -240,6 +253,7 @@ known-first-party = [
   "i2c_bus",
   "mpu6050",
   "vl53l0x",
+  "vl53l5cx",
   "serial_over_web",
   "micropython_stubs",
 ]

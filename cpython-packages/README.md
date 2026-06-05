@@ -34,6 +34,8 @@ The `pytest` stage installs the full set (`uv sync --group test`).
 - Coverage is configured for `serial_over_web` in the root
 [pyproject.toml](../pyproject.toml); `micropython_stubs` is excluded
 because its job is to be replaced by real MicroPython on the device.
+- The projects served by the `serial_over_web` dashboard and exercised
+against these stubs live under [`../projects/`](../projects/README.md).
 
 
 ## Tests

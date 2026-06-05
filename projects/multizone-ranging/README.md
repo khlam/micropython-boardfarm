@@ -1,18 +1,18 @@
-# gyro-stream
+# multizone-ranging
 
-MicroPython firmware that reads an MPU6050 IMU and streams accelerometer, gyro, and temperature
-samples as JSON lines over USB-CDC at ~100 Hz. A host FastAPI service
-fans the lines out over a WebSocket and serves a live Plotly dashboard
-with a 3D orientation view.
+MicroPython firmware that reads a VL53L5CX 8×8 multizone time-of-flight
+sensor and streams distance grids as JSON lines over USB-CDC at ~15 Hz
+(the 8×8 hardware maximum). A host FastAPI service serves a live Plotly
+3D point-cloud dashboard.
 
-<a href="https://youtu.be/xvH-vMaSqCY" target="_blank" rel="noopener noreferrer"><img src="../../images/esp32-gyro.gif" alt="esp32-gyro" width="300"></a><br>
-<a href="https://youtu.be/xvH-vMaSqCY">https://youtu.be/xvH-vMaSqCY</a>
+<a href="https://youtu.be/u9xHM_khi90" target="_blank" rel="noopener noreferrer"><img src="../../images/pizero-VL53L8CX.gif" alt="pizero-VL53L8CX" width="300"></a><br>
+<a href="https://youtu.be/u9xHM_khi90">https://youtu.be/u9xHM_khi90</a>
 
 ## Layout
 ```
-gyro-stream/
+multizone-ranging/
   firmware/main.py            chip-agnostic streaming loop, calls emit()
-  viz/static/index.html       Plotly multi-trace + 3D orientation view
+  viz/static/index.html       Plotly 8×8 3D point cloud + distance stats
   tests/                      host pytest for the emit() schema
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
@@ -21,7 +21,7 @@ gyro-stream/
 ## Usage
 
 ### RP2040 / RP2350
-1. Compile the firmware:
+1. Build the firmware:
    ```bash
    docker compose up --build pi-compile
    ```
@@ -31,7 +31,7 @@ gyro-stream/
 
 ### ESP32-S3
 1. Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
-2. Compile and flash:
+2. Build and flash:
    ```bash
    docker compose run --rm --build esp32-flash
    ```
@@ -43,38 +43,41 @@ With the board plugged in (`/dev/ttyACM0`):
 docker compose up --build viz
 ```
 Open `http://localhost:18501`. The connection pill turns green when the
-serial port is open, and the 3D orientation panel + accel/gyro/temp line
-charts + roll/pitch readouts update in real time. The dashboard
-auto-reconnects if you unplug and replug the board.
+serial port is open, and the 8×8 point cloud and distance stats update in
+real time.
 
 ## Notes
-- The firmware initialises I²C, tries the MPU6050 at `0x68` (AD0=GND/floating)
-  then `0x69` (AD0=3V3), auto-detects the chip variant via WHO_AM_I, and
-  enters a streaming loop that prints one JSON line per sample.
-- Sample shape: `{"t": <ms>, "ax": <g>, "ay": <g>, "az": <g>, "gx": <°/s>, "gy": <°/s>, "gz": <°/s>, "T": <°C>}`.
-  Diagnostic events use the `diag` namespace (`scan`, `no_device`,
-  `init_err`, `imu_ok`, `read_err`, `sat`).
+- On boot the firmware loads ~86.5 KB of ST firmware into the VL53L5CX
+  over I²C — this takes ~7-9 s at 100 kHz (soft I²C, chosen because the
+  sensor clock-stretches during init) and is shown as a `firmware_loading`
+  diagnostic event in the dashboard log.
+- After initialisation the sensor enters continuous 8×8 ranging at 15 Hz.
+  Each JSON line carries `{"t": <ms>, "grid": [<64 int|null>]}` where the
+  grid is row-major (row 0 first) and each value is a distance in mm or
+  `null` when the zone's target status is invalid.
+- A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
+  a WebSocket, and serves the dashboard at `http://localhost:18501`.
 - LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
   in the boot_status_led README.
 
 ## Hardware
 
-| RP2040-Zero board | RP2350 | ESP32-S3-Zero | MPU6050 IMU |
+| RP2040-Zero board | RP2350 | ESP32-S3-Zero | VL53L5CX ToF sensor |
 |:---:|:---:|:---:|:---:|
-| <img src="../../images/rp2040-zero.jpg" alt="RP2040-Zero board" width="220"> | <img src="../../images/rp2350.jpg" alt="RP2350" width="220"> | <img src="../../images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="220"> | <img src="../../images/MPU6050.jpg" alt="MPU6050 IMU" width="220"> |
+| <img src="../../images/rp2040-zero.jpg" alt="RP2040-Zero board" width="220"> | <img src="../../images/rp2350.jpg" alt="RP2350" width="220"> | <img src="../../images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="220"> | <img src="../../images/VL53L5CX.jpg" alt="VL53L5CX sensor" width="220"> |
 
 ## Wiring
 
-### MPU6050 IMU
+### VL53L5CX ToF sensor
 
 ```
                               ┌─────────────────────┐
                               │   ┌──────────────┐  │
-                              │   │  MPU6050 IC  │  │
+                              │   │  VL53L5CX IC │  │
                               │   │      ◎       │  │
                               │   └──────────────┘  │
                               │                     │
-                5V ────► VCC ─┤                     │
+                5V ────► VIN ─┤                     │
                GND ────► GND ─┤   BREAKOUT BOARD    │
                SCL ────► SCL ─┤                     │
                SDA ────► SDA ─┤                     │
@@ -82,7 +85,8 @@ auto-reconnects if you unplug and replug the board.
                               └─────────────────────┘
 ```
 
-AD0 can be left floating (→ address `0x68`) or tied to 3V3 (→ address `0x69`); the firmware tries both.
+LPN/XSHUT is pulled high on most breakout boards — no extra wiring needed.
+If your board requires LPN to be driven high externally, connect it to 3V3.
 
 ### RP2040-Zero
 
@@ -90,8 +94,8 @@ AD0 can be left floating (→ address `0x68`) or tied to 3V3 (→ address `0x69`
                                    ┌─── USB-C ───┐
                               ┌────┴─────────────┴────┐
                               │                       │
-        MPU6050 VCC ◄───  5V ─┤                       ├─ 0  ────► MPU6050 SDA
-        MPU6050 GND ◄─── GND ─┤                       ├─ 1  ────► MPU6050 SCL
+        VL53L5CX VIN ◄───  5V ─┤                       ├─ 0  ────► VL53L5CX SDA
+        VL53L5CX GND ◄─── GND ─┤                       ├─ 1  ────► VL53L5CX SCL
                          3V3 ─┤                       ├─ 2
                           29 ─┤                       ├─ 3
                           28 ─┤                       ├─ 4
@@ -114,11 +118,11 @@ The on-board WS2812 sits between the BOOT and RESET buttons on the RP2040-Zero b
                                    ┌─── USB-C ───┐
                               ┌────┴─────────────┴────┐
                               │                       │
-        MPU6050 VCC ◄───  5V ─┤                       ├─ 13
-        MPU6050 GND ◄─── GND ─┤                       ├─ 12
+        VL53L5CX VIN ◄───  5V ─┤                       ├─ 13
+        VL53L5CX GND ◄─── GND ─┤                       ├─ 12
                          3V3 ─┤                       ├─ 11
-        MPU6050 SDA ◄───   1 ─┤                       ├─ 10
-        MPU6050 SCL ◄───   2 ─┤                       ├─ 9
+        VL53L5CX SDA ◄───   1 ─┤                       ├─ 10
+        VL53L5CX SCL ◄───   2 ─┤                       ├─ 9
                            3 ─┤  [BOOT] (●) [RESET]   ├─ 8
                            4 ─┤        WS2812         ├─ 43
                            5 ─┤        on GPIO21      ├─ 44
@@ -138,9 +142,9 @@ The on-board WS2812 is driven by GPIO21 — no external wiring required.
                                           ┌──── USB ────┐
                               ┌───────────┴─────────────┴───────────┐
                               │                                     │
-        MPU6050 SDA ◄───   0 ─┤                                     ├─ VBUS ────► MPU6050 VCC
-        MPU6050 SCL ◄───   1 ─┤                                     ├─ VSYS
-        MPU6050 GND ◄─── GND ─┤                                     ├─ GND
+        VL53L5CX SDA ◄───   0 ─┤                                     ├─ VBUS ────► VL53L5CX VIN
+        VL53L5CX SCL ◄───   1 ─┤                                     ├─ VSYS
+        VL53L5CX GND ◄─── GND ─┤                                     ├─ GND
                            2 ─┤                                     ├─ 3V3_EN
                            3 ─┤                                     ├─ 3V3
                            4 ─┤                                     ├─ ADC_VREF

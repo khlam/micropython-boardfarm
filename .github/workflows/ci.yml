@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   version-check:
-    name: Version bump gate
+    name: Repo guards
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,6 +27,28 @@ jobs:
           set -euo pipefail
           git fetch origin main --quiet
           ./.githooks/check_version_bumps.sh --base origin/main
+      - name: Enforce vendored files unchanged
+        # Vendored drivers must not be hand-edited. Escape hatch for legitimate
+        # re-vendoring: also touch the package VENDOR.md in the same change.
+        run: |
+          set -euo pipefail
+          vendored=(
+            "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py"
+            "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py"
+            "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py"
+          )
+          changed="$(git diff --name-only origin/main...HEAD)"
+          fail=0
+          for f in "${vendored[@]}"; do
+            if grep -qxF "$f" <<<"$changed"; then
+              vdir="$(dirname "$(dirname "$f")")"   # firmware-packages/<pkg>
+              if ! grep -qxF "$vdir/VENDOR.md" <<<"$changed"; then
+                echo "::error::vendored file edited without updating $vdir/VENDOR.md: $f (see VENDOR.md)"
+                fail=1
+              fi
+            fi
+          done
+          [[ $fail -eq 0 ]]
   lint:
     name: Lint
     needs: version-check

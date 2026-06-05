@@ -24,6 +24,7 @@ Run project commands from inside a project directory.
 |---|---|---|---|
 | [distance-stream](distance-stream/) | VL53L0X ToF | ~50 Hz | Plotly line chart of `distance_mm` |
 | [gyro-stream](gyro-stream/) | MPU6050 IMU (accel + gyro + temp) | ~100 Hz | Plotly multi-trace + 3D orientation view |
+| [multizone-ranging](multizone-ranging/) | VL53L5CX 8×8 ToF | ~15 Hz | Plotly 8×8 3D point cloud + distance stats |
 
 ## Usage
 From `projects/<project>/`:
@@ -34,6 +35,8 @@ From `projects/<project>/`:
 | Compile ESP32-S3 firmware (no board needed) | `docker compose up --build esp32-compile` |
 | Compile + flash ESP32-S3 (board must be in bootloader mode) | `docker compose run --rm --build esp32-flash` |
 | Run dashboard at http://localhost:18501 | `docker compose up --build viz` |
+
+Per-board flash and bootloader-mode steps: [microcontrollers.md](microcontrollers.md).
 
 Tests run from the **repo root** (one consolidated service for every project, package, and the dashboard):
 ```

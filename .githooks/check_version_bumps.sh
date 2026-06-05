@@ -60,10 +60,10 @@ done
 # A dirty scope must show a changed version against the comparison ref.
 failed=0
 for pp in "${!dirty[@]}"; do
-  old_ver=$(old_version "$pp")
+  old_ver=$(old_version "$pp") || true
   [[ -n "$old_ver" ]] || continue   # brand-new scope: nothing to compare
 
-  new_ver=$(new_version "$pp")
+  new_ver=$(new_version "$pp") || true
   if [[ -z "$new_ver" ]]; then
     echo "[$label] $pp: could not parse 'version = \"...\"'"
     failed=1

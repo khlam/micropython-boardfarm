@@ -22,11 +22,11 @@ distance-stream/
    docker compose up --build pi-compile
    ```
    A single Docker build compiles MicroPython for both boards and merges the UF2 outputs into one universal file at [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) that flashes correctly on either device.
-2. Put the board in [bootloader mode](../../README.md#bootloader-mode).
+2. Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode).
 3. Drag-and-drop [outputs/app.rp2040.rp2350.uf2](outputs/app.rp2040.rp2350.uf2) onto the mounted USB drive. The board ejects and reboots running the new firmware.
 
 ### ESP32-S3
-1. Put the board in [bootloader mode](../../README.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
+1. Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode) — the service fails fast if `/dev/ttyACM0` isn't present.
 2. Compile and flash:
    ```bash
    docker compose run --rm --build esp32-flash
@@ -49,6 +49,8 @@ real time.
   `distance_mm` is `null` when the sensor returns `>= 8190` (out of range).
 - A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
   a WebSocket, and serves the dashboard at `http://localhost:18501`.
+- LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
+  in the boot_status_led README.
 
 ## Hardware
 

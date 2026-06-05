@@ -20,9 +20,6 @@ ENTRYPOINT ["hadolint"]
 FROM python-lint-base AS yamllint-lint
 ENTRYPOINT ["yamllint"]
 
-FROM python-lint-base AS yamlfix-fmt
-ENTRYPOINT ["yamlfix"]
-
 FROM python-lint-base AS vulture-lint
 ENTRYPOINT ["vulture"]
 

@@ -19,6 +19,7 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [i2c_bus](i2c_bus/) | Import-time–selected `SoftI2C` / `I2C` instance per chip |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
+| [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
 
 
 ## Notes
@@ -26,6 +27,7 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 in [.vscode/settings.json](../.vscode/settings.json) pointing at each package directory.
 - Supporting a new MCU requires adding a new backend to all relevant packages.
 - Host CPython tooling lives under [`cpython-packages/`](../cpython-packages/).
+- The projects that freeze these packages onto devices live under [`../projects/`](../projects/README.md).
 - Chip-specific behaviour lives behind a backend dispatch inside the package
 (`os.uname().machine` check at import time), never in a project's `main.py`.
 For the established pattern see,
