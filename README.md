@@ -54,11 +54,10 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 
 **Requirements**
 - [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container
-   - Flashing a board: [projects/microcontrollers.md](projects/microcontrollers.md).
+   - Flashing a board: [projects/microcontrollers.md](projects/microcontrollers.md)
+   - Mac Users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
 
 **Docker commands**
-No local toolchain to install; every compile, flash, workflow, lint, and test runs in a Docker container. `--build` rebuilds the image when files change.
-Mac Users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
 
 The following commands can be run from the project root directory. [projects/ 🚂](projects/) may have their own commands.
 | Command | Notes |
