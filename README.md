@@ -1,10 +1,10 @@
-### Contents
+# MicroPython Boardfarm
+
 - Shared host [cpython-packages](cpython-packages/README.md)
 - Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
 - [projects](projects/README.md)
+---
 
-
-# MicroPython Boardfarm
 An open-source experimental framework to develop embedded IoT hardware and software in parallel.
 
 
