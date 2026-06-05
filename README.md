@@ -6,8 +6,18 @@ An experiment on embedded IoT hardware and software.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
 Write-once library code runs across different MCUs and shared peripherals. 🦾🧠
 
-<a href="projects/multizone-ranging/"><img src="images/pizero-VL53L8CX.gif" alt="pizero-VL53L8CX" width="300"></a>
-<a href="projects/gyro-stream/"><img src="images/esp32-gyro.gif" alt="esp32-gyro" width="300"></a>
+<table>
+<tr>
+<td align="center">
+<a href="projects/multizone-ranging/"><img src="images/pizero-VL53L8CX.gif" alt="pizero-VL53L8CX" width="300"></a><br>
+<a href="https://youtu.be/u9xHM_khi90">https://youtu.be/u9xHM_khi90</a>
+</td>
+<td align="center">
+<a href="projects/gyro-stream/"><img src="images/esp32-gyro.gif" alt="esp32-gyro" width="300"></a><br>
+<a href="https://youtu.be/xvH-vMaSqCY">https://youtu.be/xvH-vMaSqCY</a>
+</td>
+</tr>
+</table>
 
 |   | MCU | Notes |
 |:---:|---|---|
