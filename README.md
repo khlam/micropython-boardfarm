@@ -2,7 +2,7 @@
 
 [> Quickstart 🏇🏼](#quickstart)
 
-An experiment to develop embedded IoT hardware and software.
+An experiment on embedded IoT hardware and software.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
 Write-once library code runs across different MCUs and shared peripherals. 🦾🧠
 
