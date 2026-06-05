@@ -5,12 +5,8 @@
 - [projects](projects/README.md)
 ---
 
-An open-source experimental framework to develop embedded IoT hardware and software in parallel.
-
-
-AI co-develops the software from human direction and diagnosis of the embedded system.
-
-
+Develop embedded IoT hardware and software in parallel.
+AI co-develops the software from human direction and diagnosis of the embedded system. 
 Write-once library code runs across different MCUs and shared peripherals.
 
 |   | Board | Notes | Compile & flash |
