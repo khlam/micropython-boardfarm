@@ -9,7 +9,7 @@ AI co-develops the software from human direction and diagnosis of the embedded s
 - [projects](projects/README.md)
 
 
-Write-once library code runs across different MCUs...
+Write-once library code runs across different MCUs and shared peripherals.
 
 |   | Board | Notes | Compile & flash |
 |:---:|---|---|---|
@@ -17,8 +17,6 @@ Write-once library code runs across different MCUs...
 | <img src="images/rp2350.jpg" alt="RP2350" width="80"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](#compile--flash) |
 | <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="80"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](#compile--flash) |
 
-
-and across different shared peripherals.
 
 |   | Chip | Role |
 |:---:|---|---|
