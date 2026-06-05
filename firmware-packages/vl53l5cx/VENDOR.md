@@ -35,5 +35,28 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and
   file-based firmware loader are not needed in this repo).
 
+### Local correctness fixes and cleanup
+
+Applied on top of the vendored snapshot; re-apply if re-syncing:
+
+- `stop_ranging()`: `struct.unpack("<I", buf)` returns a tuple, so the upstream
+  `auto_stop_flag != 0x4FF` guard was always true. Indexed `[0]` so the flag is
+  compared as an integer.
+- `integration_time_ms` setter: dropped a dead `self._b1[0] = itime` write. It was
+  unused (the real write uses `struct.pack`) and unsafe — values > 255 (the valid
+  range is 2–1000 ms) raised `ValueError` before the write.
+- `init()`: removed six `if self._poll_for_answer(...): return` guards. They were
+  unreachable — `_poll_for_answer` raises on failure and returns `0` on success, so
+  the `if` never fired; collapsed to bare calls.
+- Inlined three identity pass-through decoders (`_nb_target_detected`,
+  `_target_status`, `_reflectance`) that only returned their argument.
+- Private DCI/upload helpers (`_dci_read_data`, `_dci_write_data`,
+  `_dci_replace_data`, `_send_offset_data`, `_send_xtalk_data`) no longer return a
+  bool no caller consumed; they are now `-> None`.
+- Docstrings: moved the constructor `Args:` block from the class docstring into
+  `__init__`, corrected the `init()` firmware-upload timing to the project's 100 kHz
+  soft-I²C reality, and folded `init()`'s indirect `Raises:` into prose (satisfies
+  pydoclint DOC304/DOC502).
+
 Treat `vl53l5cx.py` and `_config_bytes.py` as vendored-with-local-modifications
 snapshots: don't re-sync from upstream without re-applying these changes.

@@ -1016,7 +1016,7 @@ source = { editable = "firmware-packages/vl53l0x" }
 
 [[package]]
 name = "vl53l5cx"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "firmware-packages/vl53l5cx" }
 
 [[package]]

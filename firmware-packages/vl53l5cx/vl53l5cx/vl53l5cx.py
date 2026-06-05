@@ -119,18 +119,19 @@ class VL53L5CX:
         while True:
             if tof.check_data_ready():
                 grid = tof.read()  # list of 64 int | None
-
-    Args:
-        i2c: MicroPython I2C or SoftI2C object with readfrom_mem /
-            writeto_mem support and addrsize=16 capability.
-        address: 7-bit I²C address; default 0x29.
-        lpn: Optional machine.Pin for the LPN (enable) line. Pass a Pin
-            pulled high to enable hardware reset via reset(). None means
-            the pin is not controlled (safe if the board pulls LPN high).
     """
 
     def __init__(self, i2c: object, address: int = 0x29, lpn: object = None) -> None:
-        """Initialise driver state; does not communicate with the sensor."""
+        """Initialise driver state; does not communicate with the sensor.
+
+        Args:
+            i2c: MicroPython I2C or SoftI2C object with readfrom_mem /
+                writeto_mem support and addrsize=16 capability.
+            address: 7-bit I²C address; default 0x29.
+            lpn: Optional machine.Pin for the LPN (enable) line. Pass a Pin
+                pulled high to enable hardware reset via reset(). None means
+                the pin is not controlled (safe if the board pulls LPN high).
+        """
         self.i2c = i2c
         self.addr = address
         self._ntpz = NB_TARGET_PER_ZONE
@@ -194,10 +195,13 @@ class VL53L5CX:
         """Byte-swap every 4-byte word in data in place."""
         for i in range(0, len(data), 4):
             data[i], data[i + 1], data[i + 2], data[i + 3] = (
-                data[i + 3], data[i + 2], data[i + 1], data[i]
+                data[i + 3],
+                data[i + 2],
+                data[i + 1],
+                data[i],
             )
 
-    def _send_offset_data(self, offset_data: bytes, resolution: int) -> bool:
+    def _send_offset_data(self, offset_data: bytes, resolution: int) -> None:
         """Upload calibration offset data for the selected resolution."""
         buf = bytearray(offset_data)
         if resolution == 16:
@@ -244,9 +248,9 @@ class VL53L5CX:
         x.extend(bytes([0x00, 0x00, 0x00, 0x0F, 0x03, 0x01, 0x01, 0xE4]))
 
         self._wr_multi(0x2E18, x)
-        return not self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
+        self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
 
-    def _send_xtalk_data(self, resolution: int) -> bool:
+    def _send_xtalk_data(self, resolution: int) -> None:
         """Upload cross-talk calibration data for the selected resolution."""
         if resolution == RESOLUTION_4X4:
             xtalk_data = self.config_data.xtalk4x4_data
@@ -254,9 +258,9 @@ class VL53L5CX:
             xtalk_data = self.config_data.xtalk_data
 
         self._wr_multi(0x2CF8, xtalk_data)
-        return not self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
+        self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
 
-    def _dci_read_data(self, data: bytearray, index: int) -> bool:
+    def _dci_read_data(self, data: bytearray, index: int) -> None:
         """Read data from the device configuration interface."""
         data_size = len(data)
         cmd = bytearray(12)
@@ -278,19 +282,14 @@ class VL53L5CX:
             data[i + 2] = buf[4 + i + 1]
             data[i + 3] = buf[4 + i + 0]
 
-        return True
-
-    def _dci_replace_data(
-        self, data: bytearray, index: int, new_data: bytes, pos: int
-    ) -> bool:
+    def _dci_replace_data(self, data: bytearray, index: int, new_data: bytes, pos: int) -> None:
         """Read-modify-write a slice of a DCI register block."""
         self._dci_read_data(data, index)
         for i in range(len(new_data)):
             data[pos + i] = new_data[i]
         self._dci_write_data(data, index)
-        return True
 
-    def _dci_write_data(self, data: bytearray, index: int) -> bool:
+    def _dci_write_data(self, data: bytearray, index: int) -> None:
         """Write data to the device configuration interface."""
         data_size = len(data)
         buf = bytearray(data_size + 12)
@@ -308,7 +307,12 @@ class VL53L5CX:
 
         for i, b in enumerate(
             [
-                0x00, 0x00, 0x00, 0x0F, 0x05, 0x01,
+                0x00,
+                0x00,
+                0x00,
+                0x0F,
+                0x05,
+                0x01,
                 (data_size + 8) >> 8,
                 (data_size + 8) & 0xFF,
             ],
@@ -319,7 +323,7 @@ class VL53L5CX:
         address = _UI_CMD_END - (data_size + 12) + 1
 
         self._wr_multi(address, buf)
-        return not self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
+        self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
 
     @staticmethod
     def _header(word: int) -> tuple:
@@ -343,21 +347,6 @@ class VL53L5CX:
         """Decode SPAD-enabled counts from raw bytes."""
         fmt = ">{}I".format(len(raw) // 4)
         return list(struct.unpack(fmt, raw))
-
-    @staticmethod
-    def _nb_target_detected(raw: bytes) -> bytes:
-        """Return nb-target-detected data unchanged."""
-        return raw
-
-    @staticmethod
-    def _target_status(raw: bytes) -> bytes:
-        """Return target-status data unchanged."""
-        return raw
-
-    @staticmethod
-    def _reflectance(raw: bytes) -> bytes:
-        """Return reflectance data unchanged."""
-        return raw
 
     @staticmethod
     def _motion_indicator(raw: bytes) -> tuple:
@@ -390,11 +379,10 @@ class VL53L5CX:
     def init(self) -> None:
         """Load ST firmware into the sensor and apply default configuration.
 
-        Takes ~2-3 seconds at 400 kHz due to the ~86.5 KB firmware upload.
-        Must be called once after power-on before start().
-
-        Raises:
-            ValueError: if any internal poll times out during initialisation.
+        Takes ~7-9 s over the project's 100 kHz soft I²C (≈2-3 s on a 400 kHz
+        hardware bus) due to the ~86.5 KB firmware upload. Must be called once
+        after power-on before start(). Propagates ValueError from
+        _poll_for_answer if any internal poll times out during initialisation.
         """
         self._wr_byte(0x7FFF, 0x00)
         self._wr_byte(0x0009, 0x04)
@@ -419,16 +407,14 @@ class VL53L5CX:
         sleep(0.1)
 
         self._wr_byte(0x7FFF, 0x00)
-        if self._poll_for_answer(1, 0, 0x06, 0xFF, 1):
-            return
+        self._poll_for_answer(1, 0, 0x06, 0xFF, 1)
 
         self._wr_byte(0x000E, 0x01)
         self._wr_byte(0x7FFF, 0x02)
 
         self._wr_byte(0x03, 0x0D)
         self._wr_byte(0x7FFF, 0x01)
-        if self._poll_for_answer(1, 0, 0x21, 0x10, 0x10):
-            return
+        self._poll_for_answer(1, 0, 0x21, 0x10, 0x10)
         self._wr_byte(0x7FFF, 0x00)
 
         self._wr_byte(0x0C, 0x01)
@@ -466,8 +452,7 @@ class VL53L5CX:
         self._wr_byte(0x7FFF, 0x02)
         self._wr_byte(0x03, 0x0D)
         self._wr_byte(0x7FFF, 0x01)
-        if self._poll_for_answer(1, 0, 0x21, 0x10, 0x10):
-            return
+        self._poll_for_answer(1, 0, 0x21, 0x10, 0x10)
         self._wr_byte(0x7FFF, 0x00)
         self._wr_byte(0x0C, 0x01)
 
@@ -479,37 +464,64 @@ class VL53L5CX:
         self._wr_byte(0x0B, 0x00)
         self._wr_byte(0x0C, 0x00)
         self._wr_byte(0x0B, 0x01)
-        if self._poll_for_answer(1, 0, 0x06, 0xFF, 0x00):
-            return
+        self._poll_for_answer(1, 0, 0x06, 0xFF, 0x00)
 
         self._wr_byte(0x7FFF, 0x02)
 
         nvm_cmd = bytes(
             [
-                0x54, 0x00, 0x00, 0x40,
-                0x9E, 0x14, 0x00, 0xC0,
-                0x9E, 0x20, 0x01, 0x40,
-                0x9E, 0x34, 0x00, 0x40,
-                0x9E, 0x38, 0x04, 0x04,
-                0x9F, 0x38, 0x04, 0x02,
-                0x9F, 0xB8, 0x01, 0x00,
-                0x9F, 0xC8, 0x01, 0x00,
-                0x00, 0x00, 0x00, 0x0F,
-                0x02, 0x02, 0x00, 0x24,
+                0x54,
+                0x00,
+                0x00,
+                0x40,
+                0x9E,
+                0x14,
+                0x00,
+                0xC0,
+                0x9E,
+                0x20,
+                0x01,
+                0x40,
+                0x9E,
+                0x34,
+                0x00,
+                0x40,
+                0x9E,
+                0x38,
+                0x04,
+                0x04,
+                0x9F,
+                0x38,
+                0x04,
+                0x02,
+                0x9F,
+                0xB8,
+                0x01,
+                0x00,
+                0x9F,
+                0xC8,
+                0x01,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x0F,
+                0x02,
+                0x02,
+                0x00,
+                0x24,
             ]
         )
 
         self._wr_multi(0x2FD8, nvm_cmd)
-        if self._poll_for_answer(4, 0, 0x2C00, 0xFF, 2):
-            return
+        self._poll_for_answer(4, 0, 0x2C00, 0xFF, 2)
 
         self._offset_data = self._rd_multi(0x2C04, 492)
         self._send_offset_data(self._offset_data, RESOLUTION_4X4)
         self._send_xtalk_data(RESOLUTION_4X4)
 
         self._wr_multi(0x2C34, self.config_data.default_config_data)
-        if self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03):
-            return
+        self._poll_for_answer(4, 1, _UI_CMD_STATUS, 0xFF, 0x03)
 
         self._dci_write_data(bytes([self._ntpz, 0x00, 0x01, 0x00]), _DCI_PIPE_CONTROL)
         self._dci_write_data(b"\x01\x00\x00\x00", _DCI_SINGLE_RANGE)
@@ -626,7 +638,7 @@ class VL53L5CX:
             elif idx == _MOTION_DETECT_IDX:
                 results.motion_indicator = self._motion_indicator(raw)
             elif idx == _NB_TARGET_DETECTED_IDX:
-                results.nb_target_detected = self._nb_target_detected(raw)
+                results.nb_target_detected = raw
             elif idx == _SIGNAL_RATE_IDX:
                 results.signal_per_spad = self._signal_per_spad(raw)
             elif idx == _RANGE_SIGMA_MM_IDX:
@@ -634,9 +646,9 @@ class VL53L5CX:
             elif idx == _DISTANCE_IDX:
                 results.distance_mm = self._distance_mm(raw)
             elif idx == _REFLECTANCE_EST_PC_IDX:
-                results.reflectance = self._reflectance(raw)
+                results.reflectance = raw
             elif idx == _TARGET_STATUS_IDX:
-                results.target_status = self._target_status(raw)
+                results.target_status = raw
 
             offset += msize
 
@@ -645,7 +657,7 @@ class VL53L5CX:
     def stop_ranging(self) -> None:
         """Stop continuous ranging and return the sensor to idle."""
         buf = self._rd_multi(0x2FFC, 4)
-        auto_stop_flag = struct.unpack("<I", buf)
+        auto_stop_flag = struct.unpack("<I", buf)[0]
         if auto_stop_flag != 0x4FF:
             self._wr_byte(0x7FFF, 0x00)
             self._wr_byte(0x15, 0x16)
@@ -701,7 +713,6 @@ class VL53L5CX:
             raise ValueError("invalid integration time (2 < it < 1000)")
 
         buf = bytearray(20)
-        self._b1[0] = itime
         self._dci_replace_data(buf, _DCI_INT_TIME, struct.pack("I", itime * 1000), 0)
 
     @property
