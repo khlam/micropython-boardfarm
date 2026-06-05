@@ -2,9 +2,9 @@
 
 [> Quickstart 🏇🏼](#quickstart)
 
-Develop embedded IoT hardware and software in parallel.
+Experiment to develop embedded IoT hardware and software in parallel.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
-Write-once library code runs across different MCUs and shared peripherals.
+Write-once library code runs across different MCUs and shared peripherals. 🦾🧠
 
 |   | MCU | Notes |
 |:---:|---|---|
@@ -30,19 +30,15 @@ Write-once library code runs across different MCUs and shared peripherals.
 - Shared Microcontroller (**MCU**) [firmware-packages/ 🕹️](firmware-packages/)
 - Browse the [projects/ 🚂](projects/) for examples
 
-## Requirements
+**Requirements**
+- [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container
+   - Flashing a board: [projects/microcontrollers.md](projects/microcontrollers.md).
 
-The only host tool you need is [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container.
-
-To flash an RP2040-Zero or RP2350, follow the official Raspberry Pi docs: [Drag-and-drop the `.uf2`](https://www.raspberrypi.com/documentation/microcontrollers/micropython.html#installing-micropython) onto the board in BOOTSEL mode. Mac users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
-
-## Docker commands
-
-All workflows run inside Docker — no local toolchain to install; every compile, flash, and test runs in a container. `--build` rebuilds the image when files change.
+**Docker commands**
+- All workflows run inside Docker — no local toolchain to install; every compile, flash, and test runs in a container. `--build` rebuilds the image when files change.
 Mac Users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
 
-**From the repo root:**
-
+The following commands can be run from the project root directory. [projects/ 🚂](projects/) may have their own commands.
 | Command | Purpose |
 |---|---|
 | `docker compose up pytest --build --exit-code-from pytest` | Run all tests (everything) |
