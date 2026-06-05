@@ -26,9 +26,9 @@ Write-once library code runs across different MCUs and shared peripherals.
 
 # Quickstart
 
-- Shared host [cpython-packages](cpython-packages/README.md)
-- Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
-- [projects](projects/README.md)
+- Shared host [cpython-packages/ 💻](cpython-packages/)
+- Shared Microcontroller (**MCU**) [firmware-packages/ 🕹️](firmware-packages/)
+- Browse the [projects/ 🚂](projects/) for examples
 
 ## Docker commands
 
