@@ -1,32 +1,42 @@
-# MicroPython Boardfarm 
-Write MicroPython firmware that behaves the same across all supported microcontroller boards
+# MicroPython Boardfarm
+An open-source experimental framework to develop embedded IoT hardware and software in parallel.
 
-* **Docker-only** — no local toolchain to install; every compile, flash, and test runs in a container.
-* **Reusable packages across projects** — drivers and shared logic in [firmware-packages/](firmware-packages/) keep board-specific quirks tucked away, so calls from your project code stay the same for each MCU board.
-* **Write firmware once, run on three chips** — the same project code runs on RP2040, RP2350, and ESP32-S3.
+
+AI co-develops the software from human direction and diagnosis of the embedded system.
+
 * **Test firmware** — pytest exercises MCU code against MicroPython stubs, so CI doesn't need a physical board.
-* **AI-coding-agent-ready** the repo is structured to facilitate AI-assisted development.
 
-Two kinds of code live side by side in this repo:
+- Shared Microcontroller (**MCU**) firmware code lives in [firmware-packages/](firmware-packages/)
+- **host** code runs on your computer under CPython inside Docker — the [serial_over_web](cpython-packages/serial_over_web/) dashboard, pytest against [micropython_stubs](cpython-packages/micropython_stubs/) (shims for `machine`, `neopixel`, `ujson`, …), and 
+every build toolchain (ARM cross-compiler, ESP-IDF, esptool, MicroPython sources).
 
-- **MCU** code runs on the microcontroller under MicroPython — firmware in [projects/](projects/) and shared [firmware-packages/](firmware-packages/) frozen onto the device at compile time.
-- **host** code runs on your computer under CPython inside Docker — the [serial_over_web](cpython-packages/serial_over_web/) dashboard, pytest against [micropython_stubs](cpython-packages/micropython_stubs/) (shims for `machine`, `neopixel`, `ujson`, …), and every build toolchain (ARM cross-compiler, ESP-IDF, esptool, MicroPython sources).
+## Projects
+- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
+- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
+- **[multizone-ranging](projects/multizone-ranging/)** — VL53L5CX 8×8 multizone distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly 3D point-cloud dashboard. See its [README](projects/multizone-ranging/README.md) for compile, flash, dashboard, and wiring details.
 
 
-## Supported Microcontrollers (MCU)
+
+## Supported Devices
+
+### Microcontrollers (MCU)
+Write-once library code runs across different microcontroller architectures.
+
 |   | Board | Notes | Compile & flash |
 |:---:|---|---|---|
-| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="80"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](#rp2040--rp2350) |
-| <img src="images/rp2350.jpg" alt="RP2350" width="80"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](#rp2040--rp2350) |
-| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="80"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](#esp32-s3-zero) |
+| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="80"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](#compile--flash) |
+| <img src="images/rp2350.jpg" alt="RP2350" width="80"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](#compile--flash) |
+| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="80"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](#compile--flash) |
 
 
-## Supported Peripherals
+### Supported Peripherals
+Write-once library code runs across different shared peripherals.
+
 |   | Chip | Role |
 |:---:|---|---|
 | <img src="images/MPU6050.jpg" alt="MPU6050" width="80"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
 | <img src="images/VL53L0X.jpg" alt="VL53L0X" width="80"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
-|   | VL53L5X | Time-of-flight range |
+|   | [VL53L5CX](firmware-packages/vl53l5cx/) | Time-of-flight range (8×8 multizone) |
 |   | VL53L8CX | Time-of-flight range |
 |   | PN532 | NFC |
 |   | ATGM336H | GPS |
@@ -34,24 +44,10 @@ Two kinds of code live side by side in this repo:
 |   | I²C displays | Display |
 
 
-## Software Dependencies / Stack
-- Docker
-- MicroPython
-- CPython
-
-
-## Projects
-- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
-- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
-
-
-## Boot LED states
-Shared [`boot_status_led`](firmware-packages/boot_status_led/#boot-led-states) package enables uniform LED board-state reporting. 
-
-
 ## Docker commands
 
-All workflows run inside Docker — no host toolchain required. `--build` rebuilds the image when files change.
+All workflows run inside Docker — no local toolchain to install; every compile, flash, and test runs in a container. `--build` rebuilds the image when files change.
+Mac Users: see [serial bridge setup](#macos-serial-bridge).
 
 **From the repo root:**
 
@@ -63,28 +59,31 @@ All workflows run inside Docker — no host toolchain required. `--build` rebuil
 | `docker compose run --rm uv lock --upgrade` | Bump pinned versions |
 
 
-## Compile
-All commands run from a project directory (e.g. `cd projects/gyro-stream`).
+## Compile & flash
+Compile and flash run **per project** — `cd projects/<project>` first, then follow that project's README, which carries the full step-by-step for every board alongside its dashboard and wiring. The command summary lives in [projects/README.md](projects/README.md#usage).
 
+> RP2040 / RP2350 firmware flashes by drag-copying a UF2 onto the mounted bootloader drive, so it needs no serial bridge — only the `esp32-flash` service and the `viz` dashboard use the serial port. **On macOS, do the [serial bridge setup](#macos-serial-bridge) first** — Docker can't see USB devices there.
 
-### RP2040 / RP2350
-1. Compile the firmware:
-   ```
-   docker compose up --build pi-compile
-   ```
-   Produces `outputs/app.rp2040.rp2350.uf2` — one universal UF2 that flashes on both RP2040 and RP2350 (each bootloader skips foreign-family blocks).
-2. Put the board in bootloader mode: hold **BOOT** and connect USB (or tap **RESET** while holding BOOT). The board enumerates as a USB mass-storage drive (`RPI-RP2` for RP2040, `RP2350` for RP2350).
-3. Copy `outputs/app.rp2040.rp2350.uf2` onto the mounted RP-drive. The board will reboot into the new firmware when the copy completes.
+## Bootloader mode
+Put the board in bootloader mode before flashing.
 
+| Board | How | Result |
+|---|---|---|
+| RP2040-Zero | Hold **BOOT** and connect USB (or tap **RESET** while holding **BOOT**) | Mounts as USB drive `RPI-RP2` — drag the UF2 onto it |
+| RP2350 | Hold **BOOT** and connect USB (or tap **RESET** while holding **BOOT**) | Mounts as USB drive `RP2350` — drag the UF2 onto it |
+| ESP32-S3-Zero | Hold **BOOT** and tap **RESET**, or hold **BOOT** and connect USB | Appears as `/dev/ttyACM0`; the `esp32-flash` service fails fast if the node is missing |
 
-### ESP32-S3-Zero
-1. Put the board in bootloader mode: hold **BOOT** and tap **RESET** OR hold **BOOT** and connect USB. Confirm it appears as `/dev/ttyACM0` on the host — the `esp32-flash` service fails fast if the device node is missing. **On macOS, do the [serial bridge setup](#macos-serial-bridge) first** — Docker can't see USB devices there.
-2. Compile and flash in one step:
-   ```
-   docker compose run --rm --build esp32-flash
-   ```
-   This runs `esp32-compile` first to produce `outputs/app.esp32-s3.bin`, then runs `esptool.py` against `$SERIAL_PORT` (default `/dev/ttyACM0`).
-3. Power-cycle to boot into the new firmware.
+## Boot LED states
+RP2040-Zero and ESP32-S3-Zero use a full-colour WS2812; the RP2350 has a single green LED (on/off only). See [boot_status_led](firmware-packages/boot_status_led/) for the state machine.
+
+| State | RP2040-Zero & ESP32-S3-Zero | RP2350 |
+|---|---|---|
+| Boot | White | Off |
+| I²C init | Cyan | Off |
+| No device | Orange | Off |
+| Init error | Magenta | Off |
+| Streaming | Green | On |
+| Read error | Red flash (200 ms) | Brief off (200 ms) |
 
 
 ## macOS: serial bridge
@@ -105,6 +104,4 @@ Docker Desktop runs containers inside a Linux VM, and neither it nor Apple's Vir
    docker compose run --rm --build esp32-flash  # compiles + flashes over the bridge
    ```
    The bridge carries no DTR/RTS reset line, so flashing requires the board to **already** be in bootloader mode (hold **BOOT**, tap **RESET**); the `esp32-flash` stage passes `--before/--after no_reset` automatically for `socket://` ports.
-
-> RP2040 / RP2350 firmware flashes by drag-copying a UF2 to the mounted bootloader drive, so it needs no serial bridge — only the `esp32-flash` service and the `viz` dashboard use the serial port.
 

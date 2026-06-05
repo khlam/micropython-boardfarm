@@ -19,6 +19,7 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [i2c_bus](i2c_bus/) | Import-time–selected `SoftI2C` / `I2C` instance per chip |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
+| [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
 
 
 ## Notes
