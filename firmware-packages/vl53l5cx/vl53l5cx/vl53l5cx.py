@@ -2,13 +2,8 @@
 #
 # SPDX-License-Identifier: MIT
 #
-# Vendored from https://github.com/mp-extras/vl53l5cx commit c7476877e9
-# (2021-10-07). Base class (originally __init__.py) and MicroPython I2C
-# adapter (originally mp.py) merged into one module; ConfigData source
-# switched from file-based to bytes-based (_config_bytes.py); upstream
-# VL53L5CX/VL53L5CXMP class hierarchy collapsed into a single VL53L5CX
-# class; public start() / read() / stop() helpers added for project use.
-# See firmware-packages/vl53l5cx/VENDOR.md for full divergence notes.
+# Vendored from https://github.com/mp-extras/vl53l5cx (commit c7476877e9,
+# 2021-10-07) with local modifications; see VENDOR.md for divergence notes.
 
 """VL53L5CX MicroPython driver — vendored from mp-extras/vl53l5cx."""
 
@@ -105,10 +100,9 @@ class Results:
 class VL53L5CX:
     """MicroPython driver for the VL53L5CX 8×8 multizone ToF sensor.
 
-    Combines the upstream base class and MicroPython I²C adapter into a
-    single class. Configuration firmware (~86.5 KB) is loaded from frozen
-    flash on every power-on via init(); start() then configures 8×8 mode
-    and begins continuous ranging.
+    Configuration firmware (~86.5 KB) is loaded from frozen flash on every
+    power-on via init(); start() then configures 8×8 mode and begins
+    continuous ranging.
 
     Typical usage::
 

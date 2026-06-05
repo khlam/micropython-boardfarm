@@ -44,7 +44,7 @@ def test_init_sensor_retries_on_oserror(init_ns, monkeypatch):
     assert "init_err" in init_ns.status.calls
 
 
-def test_init_sensor_retries_on_value_error(init_ns, monkeypatch):
+def test_init_sensor_retries_on_value_error(init_ns):
     bus = _FakeBus(scans=[[_TOF_ADDRESS], [_TOF_ADDRESS]])
     init_ns.ns["i2c"] = bus
 
@@ -62,7 +62,7 @@ def test_init_sensor_retries_on_value_error(init_ns, monkeypatch):
     assert "init_err" in init_ns.status.calls
 
 
-def test_init_sensor_retries_on_runtime_error(init_ns, monkeypatch):
+def test_init_sensor_retries_on_runtime_error(init_ns):
     bus = _FakeBus(scans=[[_TOF_ADDRESS], [_TOF_ADDRESS]])
     init_ns.ns["i2c"] = bus
 
