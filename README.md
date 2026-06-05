@@ -29,9 +29,9 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 
 # Quickstart
 
-- [cpython-packages/ 💻](cpython-packages/) holds shared host-side CPython code.
-- [firmware-packages/ 🕹️](firmware-packages/) holds shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
-- [projects/ 🚂](projects/) holds runnable example projects that wire those packages together into firmware and dashboards.
+- [cpython-packages/ 💻](cpython-packages/) contains shared host-side CPython code.
+- [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
+- [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
 
 **Makefile**
 - Quality-gate helpers; see [CI.md](CI.md) for the full CI and pre-commit details.
@@ -47,14 +47,14 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
    - Flashing a board: [projects/microcontrollers.md](projects/microcontrollers.md).
 
 **Docker commands**
-- All workflows run inside Docker — no local toolchain to install; every compile, flash, and test runs in a container. `--build` rebuilds the image when files change.
+No local toolchain to install; every compile, flash, workflow, lint, and test runs in a Docker container. `--build` rebuilds the image when files change.
 Mac Users: see [serial bridge setup](tools/serial-bridge/serial-bridge.md#macos-serial-bridge).
 
 The following commands can be run from the project root directory. [projects/ 🚂](projects/) may have their own commands.
 | Command | Notes |
 |---|---|
-| `docker compose up pytest --build --exit-code-from pytest` | Run all tests (everything) 🤞🙏 |
-| `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` 🧑🏼‍⚖️ |
+| `docker compose up pytest --build --exit-code-from pytest` | Run all tests 🤞🙏 |
+| `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` 🐒 |
 | `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` 🤳🏻 |
 | `docker compose run --rm uv lock --upgrade` | Bump pinned versions 🫡 |
 
