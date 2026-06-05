@@ -36,6 +36,8 @@ From `projects/<project>/`:
 | Compile + flash ESP32-S3 (board must be in bootloader mode) | `docker compose run --rm --build esp32-flash` |
 | Run dashboard at http://localhost:18501 | `docker compose up --build viz` |
 
+Per-board flash and bootloader-mode steps: [microcontrollers.md](microcontrollers.md).
+
 Tests run from the **repo root** (one consolidated service for every project, package, and the dashboard):
 ```
 docker compose up pytest --build --exit-code-from pytest             # everything
