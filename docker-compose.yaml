@@ -11,6 +11,7 @@ services:
       - ./cpython-packages/serial_over_web:/cpython-packages/serial_over_web:ro
       # Linux-only optional Pylance venv.
       # - ./.venv:/work/.venv
+
   typecheck:
     build:
       context: .
@@ -20,6 +21,7 @@ services:
       - ./firmware-packages:/work/firmware-packages:ro
       - ./cpython-packages:/work/cpython-packages:ro
       - ./projects:/work/projects:ro
+
   uv:
     build:
       context: .
