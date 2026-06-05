@@ -54,8 +54,8 @@ real time.
   `null` when the zone's target status is invalid.
 - A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
   a WebSocket, and serves the dashboard at `http://localhost:18501`.
-- LED indication is chip-aware — see the [Boot LED states table](../../README.md#boot-led-states)
-  in the repo README.
+- LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
+  in the boot_status_led README.
 
 ## Hardware
 

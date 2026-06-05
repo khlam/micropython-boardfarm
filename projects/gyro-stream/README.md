@@ -51,8 +51,8 @@ auto-reconnects if you unplug and replug the board.
 - Sample shape: `{"t": <ms>, "ax": <g>, "ay": <g>, "az": <g>, "gx": <°/s>, "gy": <°/s>, "gz": <°/s>, "T": <°C>}`.
   Diagnostic events use the `diag` namespace (`scan`, `no_device`,
   `init_err`, `imu_ok`, `read_err`, `sat`).
-- LED indication is chip-aware — see the [Boot LED states table](../../README.md#boot-led-states)
-  in the repo README.
+- LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
+  in the boot_status_led README.
 
 ## Hardware
 

@@ -27,6 +27,7 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 in [.vscode/settings.json](../.vscode/settings.json) pointing at each package directory.
 - Supporting a new MCU requires adding a new backend to all relevant packages.
 - Host CPython tooling lives under [`cpython-packages/`](../cpython-packages/).
+- The projects that freeze these packages onto devices live under [`../projects/`](../projects/README.md).
 - Chip-specific behaviour lives behind a backend dispatch inside the package
 (`os.uname().machine` check at import time), never in a project's `main.py`.
 For the established pattern see,

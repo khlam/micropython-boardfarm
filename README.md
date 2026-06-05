@@ -4,18 +4,11 @@ An open-source experimental framework to develop embedded IoT hardware and softw
 
 AI co-develops the software from human direction and diagnosis of the embedded system.
 
-* **Test firmware** — pytest exercises MCU code against MicroPython stubs, so CI doesn't need a physical board.
 
-- Shared Microcontroller (**MCU**) firmware code lives in [firmware-packages/](firmware-packages/)
-- **host** code runs on your computer under CPython inside Docker — the [serial_over_web](cpython-packages/serial_over_web/) dashboard, pytest against [micropython_stubs](cpython-packages/micropython_stubs/) (shims for `machine`, `neopixel`, `ujson`, …), and 
-every build toolchain (ARM cross-compiler, ESP-IDF, esptool, MicroPython sources).
-
-## Projects
-- **[distance-stream](projects/distance-stream/)** — VL53L0X distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard. See its [README](projects/distance-stream/README.md) for compile, flash, dashboard, and wiring details.
-- **[gyro-stream](projects/gyro-stream/)** — MPU6050 accelerometer/gyro/temperature → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly dashboard with 3D orientation view. See its [README](projects/gyro-stream/README.md) for compile, flash, dashboard, and wiring details.
-- **[multizone-ranging](projects/multizone-ranging/)** — VL53L5CX 8×8 multizone distance → JSON-lines over USB-CDC → FastAPI/WebSocket → Plotly 3D point-cloud dashboard. See its [README](projects/multizone-ranging/README.md) for compile, flash, dashboard, and wiring details.
-
-
+## Important links
+- Shared host [cpython-packages](cpython-packages/README.md)
+- Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
+- [projects](projects/README.md)
 
 ## Supported Devices
 
@@ -72,18 +65,6 @@ Put the board in bootloader mode before flashing.
 | RP2040-Zero | Hold **BOOT** and connect USB (or tap **RESET** while holding **BOOT**) | Mounts as USB drive `RPI-RP2` — drag the UF2 onto it |
 | RP2350 | Hold **BOOT** and connect USB (or tap **RESET** while holding **BOOT**) | Mounts as USB drive `RP2350` — drag the UF2 onto it |
 | ESP32-S3-Zero | Hold **BOOT** and tap **RESET**, or hold **BOOT** and connect USB | Appears as `/dev/ttyACM0`; the `esp32-flash` service fails fast if the node is missing |
-
-## Boot LED states
-RP2040-Zero and ESP32-S3-Zero use a full-colour WS2812; the RP2350 has a single green LED (on/off only). See [boot_status_led](firmware-packages/boot_status_led/) for the state machine.
-
-| State | RP2040-Zero & ESP32-S3-Zero | RP2350 |
-|---|---|---|
-| Boot | White | Off |
-| I²C init | Cyan | Off |
-| No device | Orange | Off |
-| Init error | Magenta | Off |
-| Streaming | Green | On |
-| Read error | Red flash (200 ms) | Brief off (200 ms) |
 
 
 ## macOS: serial bridge
