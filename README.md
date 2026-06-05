@@ -11,15 +11,15 @@ Write-once library code runs across different MCUs and shared peripherals.
 
 |   | Board | Notes | Compile & flash |
 |:---:|---|---|---|
-| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="80"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](projects/microcontrollers.md#compile--flash) |
-| <img src="images/rp2350.jpg" alt="RP2350" width="80"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](projects/microcontrollers.md#compile--flash) |
-| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="80"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](projects/microcontrollers.md#compile--flash) |
+| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="60"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](projects/microcontrollers.md#compile--flash) |
+| <img src="images/rp2350.jpg" alt="RP2350" width="60"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](projects/microcontrollers.md#compile--flash) |
+| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="60"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](projects/microcontrollers.md#compile--flash) |
 
 
 |   | Chip | Role |
 |:---:|---|---|
-| <img src="images/MPU6050.jpg" alt="MPU6050" width="80"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
-| <img src="images/VL53L0X.jpg" alt="VL53L0X" width="80"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
+| <img src="images/MPU6050.jpg" alt="MPU6050" width="60"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
+| <img src="images/VL53L0X.jpg" alt="VL53L0X" width="60"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
 |   | [VL53L5CX](firmware-packages/vl53l5cx/) | Time-of-flight range (8×8 multizone) |
 |   | VL53L8CX | Time-of-flight range |
 |   | PN532 | NFC |
