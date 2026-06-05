@@ -4,16 +4,12 @@ An open-source experimental framework to develop embedded IoT hardware and softw
 
 AI co-develops the software from human direction and diagnosis of the embedded system.
 
-
-## Important links
 - Shared host [cpython-packages](cpython-packages/README.md)
 - Shared Microcontroller (**MCU**) [firmware-packages](firmware-packages/README.md)
 - [projects](projects/README.md)
 
-## Supported Devices
-
-### Microcontrollers (MCU)
-Write-once library code runs across different microcontroller architectures.
+### Supported MCUs
+Write-once library code runs across different MCUs.
 
 |   | Board | Notes | Compile & flash |
 |:---:|---|---|---|
