@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: init precommit
+.PHONY: init precommit remove-ci
 init:
 	@set -euo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel 2>/dev/null || true)"; \
@@ -60,3 +60,27 @@ precommit:
 		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro "$$image_typecheck" || fail=1; \
 	fi; \
 	exit "$$fail"
+
+# Strip the CI / pre-commit / linting scaffolding so a fork can wire up its own.
+# Deletes the GitHub Actions config, the pre-commit hook, the CI-only guard and
+# linter scripts, the linter Dockerfile, and the standalone lint configs. Keeps
+# .githooks/check_project_compat.sh — it is NOT CI-only; Dockerfile.firmware,
+# Dockerfile.tests, and the project docker-compose files all depend on it, so
+# deleting it would break firmware compiles and pytest. pyproject.toml lint
+# tables are left in place (inert without the tools; remove by hand if wanted).
+# Deletions hit the working tree only (not `git rm`) so you review and stage them.
+# Finally self-cleans: drops the now-dead init/precommit/remove-ci targets by
+# overwriting this Makefile with a stub (safe — make already parsed the recipe).
+remove-ci:
+	@set -uo pipefail; \
+	repo_root="$$(git rev-parse --show-toplevel)"; \
+	cd "$$repo_root"; \
+	echo "Removing CI / pre-commit / linting files..."; \
+	rm -rf .github; \
+	rm -f .githooks/pre-commit .githooks/.initialized \
+	      .githooks/run-linters.sh .githooks/check_version_bumps.sh; \
+	rm -f Dockerfile.linters .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
+	git config --local --unset core.hooksPath 2>/dev/null || true; \
+	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
+	echo "Done. Kept .githooks/check_project_compat.sh (used by firmware compile + pytest)."; \
+	echo "Review with 'git status' and commit when ready."

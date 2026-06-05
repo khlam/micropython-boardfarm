@@ -26,9 +26,9 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 
 # Quickstart
 
-- Shared host [cpython-packages/ 💻](cpython-packages/)
-- Shared Microcontroller (**MCU**) [firmware-packages/ 🕹️](firmware-packages/)
-- Browse the [projects/ 🚂](projects/) for examples
+- [cpython-packages/ 💻](cpython-packages/) holds shared host-side CPython code.
+- [firmware-packages/ 🕹️](firmware-packages/) holds shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
+- [projects/ 🚂](projects/) holds runnable example projects that wire those packages together into firmware and dashboards.
 
 **Requirements**
 - [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container
