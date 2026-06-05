@@ -9,14 +9,14 @@ Develop embedded IoT hardware and software in parallel.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
 Write-once library code runs across different MCUs and shared peripherals.
 
-|   | Board | Notes | Compile & flash |
-|:---:|---|---|---|
-| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="60"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. | [Steps →](projects/microcontrollers.md#compile--flash) |
-| <img src="images/rp2350.jpg" alt="RP2350" width="60"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. | [Steps →](projects/microcontrollers.md#compile--flash) |
-| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="60"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. | [Steps →](projects/microcontrollers.md#compile--flash) |
+|   | MCU | Notes |
+|:---:|---|---|
+| <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="60"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. |
+| <img src="images/rp2350.jpg" alt="RP2350" width="60"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. |
+| <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="60"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. |
 
 
-|   | Chip | Role |
+|   | Peripheral | Notes |
 |:---:|---|---|
 | <img src="images/MPU6050.jpg" alt="MPU6050" width="25"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
 | <img src="images/VL53L0X.jpg" alt="VL53L0X" width="25"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
