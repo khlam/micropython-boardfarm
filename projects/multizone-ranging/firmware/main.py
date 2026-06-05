@@ -17,7 +17,7 @@ _TOF_ADDRESS = 0x29
 _RANGING_FREQ_HZ = 15
 
 # Long enough for the USB host to finish enumerating before init_sensor()
-# begins the ~8 s VL53L5CX firmware upload. That upload is a run of ~370 ms
+# begins the ~7-9 s VL53L5CX firmware upload. That upload is a run of ~370 ms
 # blocking SoftI²C writes during which MicroPython can't service USB; if the
 # host hasn't enumerated by the first blackout it gives up, and the device
 # never re-attaches — the port is then dead until replug. Enumerating first

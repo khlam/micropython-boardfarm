@@ -10,7 +10,7 @@ See [VENDOR.md](VENDOR.md) for the source commit and divergence notes.
 from vl53l5cx import VL53L5CX
 
 tof = VL53L5CX(i2c, address=0x29, lpn=None)
-tof.init()           # load ~86.5 KB ST firmware over I²C (~2-3 s at 400 kHz)
+tof.init()           # load ~86.5 KB ST firmware over I²C (~7-9 s at 100 kHz soft I²C, ~2-3 s at 400 kHz)
 tof.start(freq=10)   # set 8×8 resolution, freq Hz, begin ranging
 while True:
     if tof.check_data_ready():
