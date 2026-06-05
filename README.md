@@ -30,6 +30,15 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 - [firmware-packages/ 🕹️](firmware-packages/) holds shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
 - [projects/ 🚂](projects/) holds runnable example projects that wire those packages together into firmware and dashboards.
 
+**Makefile**
+- Quality-gate helpers; see [CI.md](CI.md) for the full CI and pre-commit details.
+
+| Command | Note |
+|---|---|
+| `make init` | Install the git pre-commit hook (points `core.hooksPath` at `.githooks/`). Run once after cloning. 🧰 |
+| `make precommit` | Run the local gate on staged Python: auto-fix with `ruff`, then verify `ruff` + `pydoclint` + `ty`. Runs automatically on commit. 🔧 |
+| `make remove-ci` | DELETE the CI / pre-commit / linting files (keeps the build/test guard script). 🚀 |
+
 **Requirements**
 - [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container
    - Flashing a board: [projects/microcontrollers.md](projects/microcontrollers.md).
