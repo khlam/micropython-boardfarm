@@ -18,8 +18,8 @@ Write-once library code runs across different MCUs and shared peripherals.
 
 |   | Chip | Role |
 |:---:|---|---|
-| <img src="images/MPU6050.jpg" alt="MPU6050" width="60"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
-| <img src="images/VL53L0X.jpg" alt="VL53L0X" width="60"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
+| <img src="images/MPU6050.jpg" alt="MPU6050" width="25"> | [MPU6050](firmware-packages/mpu6050/) | 6-axis IMU (accel + gyro + temp) |
+| <img src="images/VL53L0X.jpg" alt="VL53L0X" width="25"> | [VL53L0X](firmware-packages/vl53l0x/) | Time-of-flight range |
 |   | [VL53L5CX](firmware-packages/vl53l5cx/) | Time-of-flight range (8×8 multizone) |
 |   | VL53L8CX | Time-of-flight range |
 |   | PN532 | NFC |
