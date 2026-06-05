@@ -6,9 +6,8 @@ Experiment to develop embedded IoT hardware and software in parallel.
 AI co-develops the software from human direction and diagnosis of the embedded system. 
 Write-once library code runs across different MCUs and shared peripherals. 🦾🧠
 
-[![pizero-VL53L8CX](images/hand.gif)](https://www.youtube.com/watch?v=u9xHM_khi90)
-
-[![esp32-gyro](images/esp32-gyro.gif)](https://www.youtube.com/watch?v=xvH-vMaSqCY)
+<a href="https://www.youtube.com/watch?v=u9xHM_khi90" target="_blank" rel="noopener noreferrer"><img src="images/pizero-VL53L8CX.gif" alt="pizero-VL53L8CX" width="250"></a>
+<a href="https://www.youtube.com/watch?v=xvH-vMaSqCY" target="_blank" rel="noopener noreferrer"><img src="images/esp32-gyro.gif" alt="esp32-gyro" width="250"></a>
 
 |   | MCU | Notes |
 |:---:|---|---|
