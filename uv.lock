@@ -11,6 +11,7 @@ members = [
     "mpu6050",
     "qmc5883p",
     "serial-over-web",
+    "smoothing",
     "vl53l0x",
     "vl53l5cx",
 ]
@@ -371,6 +372,7 @@ dependencies = [
     { name = "mpu6050" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
+    { name = "smoothing" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -394,6 +396,7 @@ test = [
     { name = "pytest-cov" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
+    { name = "smoothing" },
     { name = "ty" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
@@ -413,6 +416,7 @@ requires-dist = [
     { name = "mpu6050", editable = "firmware-packages/mpu6050" },
     { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
+    { name = "smoothing", editable = "firmware-packages/smoothing" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
     { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
 ]
@@ -436,6 +440,7 @@ test = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
+    { name = "smoothing", editable = "firmware-packages/smoothing" },
     { name = "ty", specifier = ">=0.0.42" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
     { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
@@ -823,6 +828,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
 ]
+
+[[package]]
+name = "smoothing"
+version = "0.1.0"
+source = { editable = "firmware-packages/smoothing" }
 
 [[package]]
 name = "stamina"

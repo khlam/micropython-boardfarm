@@ -23,6 +23,8 @@ COPY firmware-packages/mpu6050/pyproject.toml ./firmware-packages/mpu6050/pyproj
 COPY firmware-packages/mpu6050/mpu6050 ./firmware-packages/mpu6050/mpu6050
 COPY firmware-packages/qmc5883p/pyproject.toml ./firmware-packages/qmc5883p/pyproject.toml
 COPY firmware-packages/qmc5883p/qmc5883p ./firmware-packages/qmc5883p/qmc5883p
+COPY firmware-packages/smoothing/pyproject.toml ./firmware-packages/smoothing/pyproject.toml
+COPY firmware-packages/smoothing/smoothing ./firmware-packages/smoothing/smoothing
 COPY firmware-packages/vl53l0x/pyproject.toml ./firmware-packages/vl53l0x/pyproject.toml
 COPY firmware-packages/vl53l0x/vl53l0x ./firmware-packages/vl53l0x/vl53l0x
 COPY firmware-packages/vl53l5cx/pyproject.toml ./firmware-packages/vl53l5cx/pyproject.toml

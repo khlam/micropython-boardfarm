@@ -34,7 +34,7 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 |   | VL53L8CX | Time-of-flight range |
 |   | PN532 | NFC |
 |   | ATGM336H | GPS |
-|   | QMC5883P | Magnetometer |
+| <img src="images/qmc5883p.jpg" alt="QMC5883P" width="25"> | [QMC5883P](firmware-packages/qmc5883p/) | Magnetometer |
 |   | I²C displays | Display |
 
 # Quickstart

@@ -11,6 +11,7 @@ dependencies = [
     "i2c_bus>=0.1.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
+    "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.0",
     "serial_over_web>=0.1.0",
@@ -22,6 +23,7 @@ dependencies = [
 pythonpath = [
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
+    "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
@@ -34,6 +36,7 @@ members = [
     "firmware-packages/i2c_bus",
     "firmware-packages/mpu6050",
     "firmware-packages/qmc5883p",
+    "firmware-packages/smoothing",
     "firmware-packages/vl53l0x",
     "firmware-packages/vl53l5cx",
 ]
@@ -45,6 +48,7 @@ boot_status_led = { workspace = true }
 i2c_bus = { workspace = true }
 mpu6050 = { workspace = true }
 qmc5883p = { workspace = true }
+smoothing = { workspace = true }
 vl53l0x = { workspace = true }
 vl53l5cx = { workspace = true }
 
@@ -71,6 +75,7 @@ test = [
     "i2c_bus",
     "mpu6050",
     "qmc5883p",
+    "smoothing",
     "vl53l0x",
     "vl53l5cx",
     "pytest>=9.0.3",
@@ -86,6 +91,7 @@ source = [
   "/work/firmware-packages/i2c_bus/i2c_bus",
   "/work/firmware-packages/mpu6050/mpu6050",
   "/work/firmware-packages/qmc5883p/qmc5883p",
+  "/work/firmware-packages/smoothing/smoothing",
   "/work/firmware-packages/vl53l0x/vl53l0x",
   "/work/firmware-packages/vl53l5cx/vl53l5cx",
   "/projects/compass/firmware",
@@ -260,6 +266,7 @@ known-first-party = [
   "i2c_bus",
   "mpu6050",
   "qmc5883p",
+  "smoothing",
   "vl53l0x",
   "vl53l5cx",
   "serial_over_web",
