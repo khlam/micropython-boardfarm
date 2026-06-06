@@ -39,8 +39,8 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 
 # Quickstart
 
-- [cpython-packages/ 💻](cpython-packages/) contains shared host-side CPython code.
-- [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
+- [cpython-packages/ 💻](cpython-packages/) contains shared CPython code. These libraries run on an computer, not on the MCU.
+- [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython code; the microcontroller's I²C bus, status LED, sensor drivers etc. Stubs enable tests to run with CPython for regression tests.
 - [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
 
 **Makefile**
