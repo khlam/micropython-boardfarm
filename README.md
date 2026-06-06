@@ -67,3 +67,26 @@ The following commands can be run from the project root directory. [projects/ �
 | `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` 🤳🏻 |
 | `docker compose run --rm uv lock --upgrade` | Bump pinned versions 🫡 |
 
+# Versioning
+
+Each versioned scope — the repo root plus every `firmware-packages/*`,
+`cpython-packages/*`, and `projects/*` that carries a `pyproject.toml` — is versioned
+independently under [semantic versioning](https://semver.org). Any change to code or
+config inside a scope must raise that scope's `version`:
+
+| Bump | When |
+|---|---|
+| **PATCH** | Bug fixes and internal changes with no API or behaviour change. |
+| **MINOR** | Backward-compatible additions — new public API, or a new project feature. |
+| **MAJOR** | Breaking changes — incompatible API, runtime behaviour, or JSON output schema. |
+
+The new version must be **strictly greater** than the one on `main`; CI
+([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh) — the
+**version-check** guard described in [CI.md](CI.md)) rejects a commit that leaves a
+dirtied scope's version unchanged or lower.
+
+Workspace-level edits bump the **root** `pyproject.toml` rather than any nested package
+or project: the `uv.lock` lockfile, top-level `docs/` / `scripts/` / `tools/`, and a
+package's or project's own `tests/`. Build artifacts under `outputs/` (the `*.uf2` /
+`*.bin` images) never require a bump.
+
