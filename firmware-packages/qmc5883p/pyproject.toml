@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qmc5883p"
+version = "0.1.0"
+description = "MicroPython driver for the QST QMC5883P 3-axis magnetometer."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["qmc5883p"]

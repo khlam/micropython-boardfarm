@@ -9,6 +9,7 @@ members = [
     "micropython-boardfarm",
     "micropython-stubs",
     "mpu6050",
+    "qmc5883p",
     "serial-over-web",
     "vl53l0x",
     "vl53l5cx",
@@ -361,13 +362,14 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.5.1"
+version = "0.5.0"
 source = { virtual = "." }
 dependencies = [
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
@@ -390,6 +392,7 @@ test = [
     { name = "mpu6050" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "ty" },
     { name = "vl53l0x" },
@@ -408,6 +411,7 @@ requires-dist = [
     { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
     { name = "micropython-stubs", editable = "cpython-packages/micropython_stubs" },
     { name = "mpu6050", editable = "firmware-packages/mpu6050" },
+    { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
     { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
@@ -430,6 +434,7 @@ test = [
     { name = "mpu6050", editable = "firmware-packages/mpu6050" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
     { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
     { name = "ty", specifier = ">=0.0.42" },
     { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
@@ -747,6 +752,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
 ]
+
+[[package]]
+name = "qmc5883p"
+version = "0.1.0"
+source = { editable = "firmware-packages/qmc5883p" }
 
 [[package]]
 name = "rich"

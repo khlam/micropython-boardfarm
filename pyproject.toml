@@ -10,6 +10,7 @@ dependencies = [
     "boot_status_led>=0.1.0",
     "i2c_bus>=0.1.0",
     "mpu6050>=0.1.0",
+    "qmc5883p>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.0",
     "serial_over_web>=0.1.0",
@@ -20,6 +21,7 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/firmware-packages/mpu6050/tests",
+    "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
@@ -31,6 +33,7 @@ members = [
     "firmware-packages/boot_status_led",
     "firmware-packages/i2c_bus",
     "firmware-packages/mpu6050",
+    "firmware-packages/qmc5883p",
     "firmware-packages/vl53l0x",
     "firmware-packages/vl53l5cx",
 ]
@@ -41,6 +44,7 @@ micropython_stubs = { workspace = true }
 boot_status_led = { workspace = true }
 i2c_bus = { workspace = true }
 mpu6050 = { workspace = true }
+qmc5883p = { workspace = true }
 vl53l0x = { workspace = true }
 vl53l5cx = { workspace = true }
 
@@ -66,6 +70,7 @@ test = [
     "boot_status_led",
     "i2c_bus",
     "mpu6050",
+    "qmc5883p",
     "vl53l0x",
     "vl53l5cx",
     "pytest>=9.0.3",
@@ -80,8 +85,10 @@ source = [
   "/work/firmware-packages/boot_status_led/boot_status_led",
   "/work/firmware-packages/i2c_bus/i2c_bus",
   "/work/firmware-packages/mpu6050/mpu6050",
+  "/work/firmware-packages/qmc5883p/qmc5883p",
   "/work/firmware-packages/vl53l0x/vl53l0x",
   "/work/firmware-packages/vl53l5cx/vl53l5cx",
+  "/projects/compass/firmware",
   "/projects/distance-stream/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
@@ -252,6 +259,7 @@ known-first-party = [
   "boot_status_led",
   "i2c_bus",
   "mpu6050",
+  "qmc5883p",
   "vl53l0x",
   "vl53l5cx",
   "serial_over_web",
