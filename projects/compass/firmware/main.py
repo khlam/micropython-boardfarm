@@ -1,8 +1,9 @@
 """MCU-micropython firmware entry point for compass QMC5883P telemetry.
 
 Initialises the LED state machine, scans the I²C bus for a QMC5883P
-magnetometer at its fixed address 0x2C, then streams raw X/Y/Z field counts
-plus a computed heading as one-JSON-per-line on the serial port at ~50 Hz.
+magnetometer at its fixed address 0x2C, then streams raw X/Y/Z field counts,
+their smoothed counterparts (xs/ys/zs), and a computed heading as
+one-JSON-per-line on the serial port at ~50 Hz.
 
 Chip-agnostic: all hardware-specific behaviour lives in the package backends
 (boot_status_led, i2c_bus, qmc5883p).
@@ -16,9 +17,14 @@ import ujson
 from boot_status_led import status
 from i2c_bus import hard_i2c as i2c
 from qmc5883p import QMC5883P
+from smoothing import simple_moving_average
 
 # QMC5883P fixed I²C address (not configurable on this part).
 MAG_ADDRESS = 0x2C
+
+# Per-axis simple moving average; each smoothed value equals the raw reading
+# until its window fills with SMOOTH_WINDOW samples.
+SMOOTH_WINDOW = 10
 
 # STATUS bit1 — field saturation (usually a magnet too close).
 _OVL_MASK = 0x02
@@ -71,25 +77,46 @@ def init_sensor() -> QMC5883P:
 
 
 def stream(mag: QMC5883P) -> None:
-    """Stream heading + raw field samples until the system halts.
+    """Stream heading + raw and smoothed field samples until the system halts.
 
-    read() blocks until the next sample is ready (~20 ms at 50 Hz), so the loop
-    is self-paced with no extra sleep. Edge-triggers a {"diag": "ovl"} on the
-    rising edge of the STATUS overflow bit so a sustained saturation event
-    doesn't flood the stream.
+    Each record carries the raw x/y/z counts and their per-axis moving averages
+    xs/ys/zs (equal to the raw reading until each window fills). The heading is
+    computed from the smoothed field so the needle is steady. read() blocks
+    until the next sample is ready (~20 ms at 50 Hz), so the loop is self-paced
+    with no extra sleep. Edge-triggers a {"diag": "ovl"} on the rising edge of
+    the STATUS overflow bit so a sustained saturation event doesn't flood the
+    stream.
     """
+    xs_buf: list[int] = []
+    ys_buf: list[int] = []
+    zs_buf: list[int] = []
     ovl_prev = False
     status.streaming()
     while True:
         try:
             x, y, z = mag.read()
-            heading = (math.degrees(math.atan2(y, x)) + 360) % 360
+            xs_buf.append(x)
+            ys_buf.append(y)
+            zs_buf.append(z)
+            if len(xs_buf) > SMOOTH_WINDOW:
+                del xs_buf[0]
+                del ys_buf[0]
+                del zs_buf[0]
+            xs = simple_moving_average(xs_buf, SMOOTH_WINDOW)
+            ys = simple_moving_average(ys_buf, SMOOTH_WINDOW)
+            zs = simple_moving_average(zs_buf, SMOOTH_WINDOW)
+            # Heading is driven by the smoothed field so the needle doesn't
+            # jitter; xs/ys equal the raw reading until the window fills.
+            heading = (math.degrees(math.atan2(ys, xs)) + 360) % 360
             emit(
                 {
                     "t": time.ticks_ms(),
                     "x": x,
                     "y": y,
                     "z": z,
+                    "xs": xs,
+                    "ys": ys,
+                    "zs": zs,
                     "heading_deg": round(heading, 1),
                 }
             )

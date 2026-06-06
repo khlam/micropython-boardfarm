@@ -1,8 +1,9 @@
 """Host CPython pytest tests for stream() in compass firmware.
 
-Covers the happy path (one 5-key sample per loop, heading in range), the OVL
-edge-trigger ({"diag": "ovl"} only on rising edges of the STATUS overflow bit),
-and read_err → streaming recovery.
+Covers the happy path (one 8-key sample per loop with raw + smoothed axes,
+heading in range), the smoothed-equals-raw warmup before the window fills, the
+OVL edge-trigger ({"diag": "ovl"} only on rising edges of the STATUS overflow
+bit), and read_err → streaming recovery.
 """
 
 import io
@@ -14,11 +15,22 @@ import pytest
 _OK = (100, -50, 200)
 
 
-def test_one_sample_per_loop_with_5_keys(main_ns):
+def test_one_sample_per_loop_with_8_keys(main_ns):
     mag = _FakeMag(script=[_OK])
     samples = _samples(_run_stream(main_ns, mag))
     assert len(samples) == 1
-    assert set(samples[0]) == {"t", "x", "y", "z", "heading_deg"}
+    assert set(samples[0]) == {"t", "x", "y", "z", "xs", "ys", "zs", "heading_deg"}
+
+
+def test_smoothed_equals_raw_until_window_fills(main_ns):
+    """Before the window fills, xs/ys/zs equal the raw x/y/z of that sample."""
+    mag = _FakeMag(script=[_OK])
+    sample = _samples(_run_stream(main_ns, mag))[0]
+    assert (sample["xs"], sample["ys"], sample["zs"]) == (
+        sample["x"],
+        sample["y"],
+        sample["z"],
+    )
 
 
 def test_heading_normalised_to_circle(main_ns):

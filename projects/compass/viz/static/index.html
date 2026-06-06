@@ -119,7 +119,7 @@
   </div>
 
   <div class="panel">
-    <h2>Magnetic field — X / Y / Z (LSB counts)</h2>
+    <h2>Magnetic field — raw + smoothed X / Y / Z (LSB counts)</h2>
     <div id="plot-axes" style="height: 360px;"></div>
   </div>
 
@@ -172,41 +172,52 @@
       legend: { orientation: "h", x: 0, y: 1.08, font: { color: AXIS_COLOR } },
       showlegend: true,
     };
-    const traces = [
-      { x: [], y: [], mode: "lines", name: "X",
-        line: { color: "#3b82f6", width: 1.5 },
-        hovertemplate: "X %{y}<extra></extra>" },
-      { x: [], y: [], mode: "lines", name: "Y",
-        line: { color: "#22c55e", width: 1.5 },
-        hovertemplate: "Y %{y}<extra></extra>" },
-      { x: [], y: [], mode: "lines", name: "Z",
-        line: { color: "#ef4444", width: 1.5 },
-        hovertemplate: "Z %{y}<extra></extra>" },
+    // Per axis: raw drawn first (faint, behind) then smoothed on top (bold).
+    const AXES = [
+      { name: "X", color: "#3b82f6" },
+      { name: "Y", color: "#22c55e" },
+      { name: "Z", color: "#ef4444" },
     ];
+    const traces = [];
+    AXES.forEach((ax) => {
+      traces.push(
+        { x: [], y: [], mode: "lines", name: ax.name + " raw", opacity: 0.3,
+          line: { color: ax.color, width: 1 },
+          hovertemplate: ax.name + " raw %{y}<extra></extra>" },
+        { x: [], y: [], mode: "lines", name: ax.name,
+          line: { color: ax.color, width: 1.75 },
+          hovertemplate: ax.name + " %{y}<extra></extra>" },
+      );
+    });
     Plotly.newPlot("plot-axes", traces, layout, config);
 
     let t0 = null;
     let totalCount = 0;
     let rateCount = 0;
     let rateAt = performance.now();
-    let pending = { t: [], x: [], y: [], z: [] };
+    const emptyPending = () => ({
+      t: [], xr: [], xs: [], yr: [], ys: [], zr: [], zs: [],
+    });
+    let pending = emptyPending();
     let frameScheduled = false;
     let lastSample = null;
 
     function flushPending() {
       if (pending.t.length === 0) return;
+      const t = pending.t;
+      // Trace order matches AXES expansion: [X raw, X, Y raw, Y, Z raw, Z].
       Plotly.extendTraces("plot-axes", {
-        x: [pending.t, pending.t, pending.t],
-        y: [pending.x, pending.y, pending.z],
-      }, [0, 1, 2], MAX_POINTS);
-      pending = { t: [], x: [], y: [], z: [] };
+        x: [t, t, t, t, t, t],
+        y: [pending.xr, pending.xs, pending.yr, pending.ys, pending.zr, pending.zs],
+      }, [0, 1, 2, 3, 4, 5], MAX_POINTS);
+      pending = emptyPending();
       if (lastSample) {
         const h = lastSample.heading_deg;
         $("heading").textContent = h.toFixed(1) + "°";
         $("cardinal").textContent = CARDINALS[Math.round(h / 22.5) % 16];
-        $("ax-x").textContent = lastSample.x;
-        $("ax-y").textContent = lastSample.y;
-        $("ax-z").textContent = lastSample.z;
+        $("ax-x").textContent = Math.round(lastSample.xs);
+        $("ax-y").textContent = Math.round(lastSample.ys);
+        $("ax-z").textContent = Math.round(lastSample.zs);
         $("rose").setAttribute("transform", "rotate(" + (-h).toFixed(2) + ")");
       }
     }
@@ -246,9 +257,12 @@
       const tRel = (obj.t - t0) / 1000;
 
       pending.t.push(tRel);
-      pending.x.push(obj.x);
-      pending.y.push(obj.y);
-      pending.z.push(obj.z);
+      pending.xr.push(obj.x);
+      pending.xs.push(obj.xs);
+      pending.yr.push(obj.y);
+      pending.ys.push(obj.ys);
+      pending.zr.push(obj.z);
+      pending.zs.push(obj.zs);
       lastSample = obj;
 
       totalCount++;

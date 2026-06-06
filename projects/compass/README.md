@@ -1,15 +1,16 @@
 # compass
 
 MicroPython firmware that reads a QST QMC5883P 3-axis magnetometer and streams
-raw X/Y/Z field counts plus a computed heading as JSON lines over USB-CDC at
-~50 Hz. A host FastAPI service fans the lines out over a WebSocket and serves a
-live Plotly dashboard with a rotating compass rose.
+raw X/Y/Z field counts, their smoothed (moving-average) counterparts, and a
+heading computed from the smoothed field as JSON lines over USB-CDC at ~50 Hz.
+A host FastAPI service fans the lines out over a WebSocket and serves a live
+Plotly dashboard with a rotating compass rose driven by the smoothed signal.
 
 ## Layout
 ```
 compass/
   firmware/main.py            chip-agnostic streaming loop, calls emit()
-  viz/static/index.html       rotating compass rose + heading readout + X/Y/Z chart
+  viz/static/index.html       rotating compass rose + heading readout + raw + smoothed X/Y/Z chart
   tests/                      host pytest for the emit() schema
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
@@ -40,17 +41,20 @@ With the board plugged in (`/dev/ttyACM0`):
 docker compose up --build viz
 ```
 Open `http://localhost:18501`. The connection pill turns green when the serial
-port is open, and the compass rose, heading/cardinal readout, and X/Y/Z line
-chart update in real time. The dashboard auto-reconnects if you unplug and
-replug the board.
+port is open, and the compass rose, heading/cardinal readout, and the raw +
+smoothed X/Y/Z line chart update in real time. The dashboard auto-reconnects if
+you unplug and replug the board.
 
 ## Notes
 - The firmware initialises I²C, scans for the QMC5883P at its fixed address
   `0x2C`, verifies the chip-ID, soft-resets, inverts X/Y (so `atan2(y, x)` reads
   the QMC5883L convention), selects ±2 G range, and enters a continuous-mode
   streaming loop that prints one JSON line per sample at ~50 Hz.
-- Sample shape: `{"t": <ms>, "x": <LSB>, "y": <LSB>, "z": <LSB>, "heading_deg": <0–360>}`.
-  Heading is `(degrees(atan2(y, x)) + 360) % 360` — raw field counts (no
+- Sample shape: `{"t": <ms>, "x"/"y"/"z": <raw LSB>, "xs"/"ys"/"zs": <smoothed LSB>,
+  "heading_deg": <0–360>}`. The smoothed values are a per-axis moving average
+  (equal to the raw reading until the window fills); the dashboard plots both
+  raw and smoothed, while the needle/heading use only the smoothed values.
+  Heading is `(degrees(atan2(ys, xs)) + 360) % 360` off the smoothed field (no
   hard/soft-iron calibration or declination correction).
   Diagnostic events use the `diag` namespace (`scan`, `no_device`, `init_err`,
   `mag_ok`, `read_err`, `ovl`). `ovl` edge-triggers when the field saturates

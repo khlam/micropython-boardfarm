@@ -73,6 +73,8 @@ def _load_main_namespace(fake_time, fake_status):
 
     import ujson
 
+    from smoothing import simple_moving_average
+
     ns: dict = {
         "time": fake_time,
         "status": fake_status,
@@ -80,6 +82,9 @@ def _load_main_namespace(fake_time, fake_status):
         # stream() computes heading with math.atan2/math.degrees; main.py's
         # `import math` is dropped by the AST filter, so seed the real module.
         "math": math,
+        # The AST filter likewise drops the smoothing import; seed the real
+        # function stream() calls for the per-axis xs/ys/zs averages.
+        "simple_moving_average": simple_moving_average,
         # init_sensor() does `QMC5883P(i2c)`; the annotation in
         # stream(mag: QMC5883P) is evaluated at def time, so the name must
         # resolve. Tests override this as needed.
