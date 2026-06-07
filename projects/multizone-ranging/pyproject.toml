@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "VL53L5CX 8×8 multizone ToF firmware streaming distance grids over serial JSON."
 requires-python = ">=3.12"
 dependencies = [
-    "boot_status_led>=0.2.0",
-    "i2c_bus>=0.2.0",
-    "vl53l5cx>=0.1.1",
+    "boot_status_led>=0.1.0",
+    "i2c_bus>=0.1.0",
+    "vl53l5cx>=0.1.0",
 ]
 
 [tool.uv]

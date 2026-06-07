@@ -7,8 +7,8 @@ requires-python = ">=3.12"
 
 
 dependencies = [
-    "boot_status_led>=0.2.0",
-    "i2c_bus>=0.2.0",
+    "boot_status_led>=0.1.0",
+    "i2c_bus>=0.1.0",
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
 ]
