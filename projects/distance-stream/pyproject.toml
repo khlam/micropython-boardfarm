@@ -17,7 +17,7 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-boot_status_led = { workspace = true }
-i2c_bus = { workspace = true }
-smoothing = { workspace = true }
-vl53l0x = { workspace = true }
+boot_status_led = { index = "internal" }
+i2c_bus = { index = "internal" }
+smoothing = { index = "internal" }
+vl53l0x = { index = "internal" }

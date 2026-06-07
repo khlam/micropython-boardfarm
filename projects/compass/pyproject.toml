@@ -17,7 +17,7 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-boot_status_led = { workspace = true }
-i2c_bus = { workspace = true }
-qmc5883p = { workspace = true }
-smoothing = { workspace = true }
+boot_status_led = { index = "internal" }
+i2c_bus = { index = "internal" }
+qmc5883p = { index = "internal" }
+smoothing = { index = "internal" }

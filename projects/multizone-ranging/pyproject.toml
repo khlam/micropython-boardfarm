@@ -13,6 +13,6 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-boot_status_led = { workspace = true }
-i2c_bus = { workspace = true }
-vl53l5cx = { workspace = true }
+boot_status_led = { index = "internal" }
+i2c_bus = { index = "internal" }
+vl53l5cx = { index = "internal" }

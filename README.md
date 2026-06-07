@@ -64,7 +64,7 @@ The following commands can be run from the project root directory. [projects/ �
 |---|---|
 | `docker compose up pytest --build --exit-code-from pytest` | Run all tests 🤞🙏 |
 | `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` 🐒 |
-| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` 🤳🏻 |
+| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml`. `--build` [rebuilds internal-package wheels](Dockerfile.host#L27) so floors, `boot_status_led>=0.2.0`, are re-checked 🤳🏻 |
 | `docker compose run --rm uv lock --upgrade` | Bump pinned versions 🫡 |
 
 # Versioning
@@ -89,4 +89,3 @@ Workspace-level edits bump the **root** `pyproject.toml` rather than any nested 
 or project: the `uv.lock` lockfile, top-level `docs/` / `scripts/` / `tools/`, and a
 package's or project's own `tests/`. Build artifacts under `outputs/` (the `*.uf2` /
 `*.bin` images) never require a bump.
-

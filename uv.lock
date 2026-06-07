@@ -4,20 +4,11 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
-    "boot-status-led",
     "compass",
     "distance-stream",
     "gyro-stream",
-    "i2c-bus",
     "micropython-boardfarm",
-    "micropython-stubs",
-    "mpu6050",
     "multizone-ranging",
-    "qmc5883p",
-    "serial-over-web",
-    "smoothing",
-    "vl53l0x",
-    "vl53l5cx",
 ]
 
 [[package]]
@@ -54,7 +45,11 @@ wheels = [
 [[package]]
 name = "boot-status-led"
 version = "0.2.0"
-source = { editable = "firmware-packages/boot_status_led" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/boot_status_led-0.2.0.tar.gz" }
+wheels = [
+    { path = "/wheels/boot_status_led-0.2.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "certifi"
@@ -99,10 +94,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
-    { name = "smoothing", editable = "firmware-packages/smoothing" },
+    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -211,10 +206,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "smoothing", editable = "firmware-packages/smoothing" },
-    { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
+    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -276,9 +271,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "mpu6050", editable = "firmware-packages/mpu6050" },
+    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -366,7 +361,11 @@ wheels = [
 [[package]]
 name = "i2c-bus"
 version = "0.2.0"
-source = { editable = "firmware-packages/i2c_bus" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/i2c_bus-0.2.0.tar.gz" }
+wheels = [
+    { path = "/wheels/i2c_bus-0.2.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "idna"
@@ -469,15 +468,15 @@ viz = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "micropython-stubs", editable = "cpython-packages/micropython_stubs" },
-    { name = "mpu6050", editable = "firmware-packages/mpu6050" },
-    { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
-    { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
-    { name = "smoothing", editable = "firmware-packages/smoothing" },
-    { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
-    { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
+    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
 ]
 
 [package.metadata.requires-dev]
@@ -490,27 +489,31 @@ lint = [
     { name = "yamllint", specifier = ">=1.38.0" },
 ]
 test = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
+    { name = "boot-status-led", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "micropython-stubs", editable = "cpython-packages/micropython_stubs" },
-    { name = "mpu6050", editable = "firmware-packages/mpu6050" },
+    { name = "i2c-bus", index = "file:///wheels" },
+    { name = "micropython-stubs", index = "file:///wheels" },
+    { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "qmc5883p", editable = "firmware-packages/qmc5883p" },
-    { name = "serial-over-web", editable = "cpython-packages/serial_over_web" },
-    { name = "smoothing", editable = "firmware-packages/smoothing" },
+    { name = "qmc5883p", index = "file:///wheels" },
+    { name = "serial-over-web", index = "file:///wheels" },
+    { name = "smoothing", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
-    { name = "vl53l0x", editable = "firmware-packages/vl53l0x" },
-    { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
+    { name = "vl53l0x", index = "file:///wheels" },
+    { name = "vl53l5cx", index = "file:///wheels" },
 ]
 typecheck = [{ name = "ty", specifier = ">=0.0.42" }]
-viz = [{ name = "serial-over-web", editable = "cpython-packages/serial_over_web" }]
+viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
 version = "0.1.0"
-source = { editable = "cpython-packages/micropython_stubs" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/micropython_stubs-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/micropython_stubs-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "more-itertools"
@@ -524,7 +527,11 @@ wheels = [
 [[package]]
 name = "mpu6050"
 version = "0.1.0"
-source = { editable = "firmware-packages/mpu6050" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/mpu6050-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/mpu6050-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "multizone-ranging"
@@ -538,9 +545,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boot-status-led", editable = "firmware-packages/boot_status_led" },
-    { name = "i2c-bus", editable = "firmware-packages/i2c_bus" },
-    { name = "vl53l5cx", editable = "firmware-packages/vl53l5cx" },
+    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "vl53l5cx", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -837,7 +844,11 @@ wheels = [
 [[package]]
 name = "qmc5883p"
 version = "0.1.0"
-source = { editable = "firmware-packages/qmc5883p" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/qmc5883p-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/qmc5883p-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "rich"
@@ -880,20 +891,16 @@ wheels = [
 [[package]]
 name = "serial-over-web"
 version = "0.1.0"
-source = { editable = "cpython-packages/serial_over_web" }
+source = { registry = "/wheels" }
 dependencies = [
     { name = "fastapi" },
     { name = "pydantic" },
     { name = "pyserial" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.136.3" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pyserial", specifier = ">=3.5" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.48.0" },
+sdist = { path = "/wheels/serial_over_web-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/serial_over_web-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -908,7 +915,11 @@ wheels = [
 [[package]]
 name = "smoothing"
 version = "0.1.0"
-source = { editable = "firmware-packages/smoothing" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/smoothing-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/smoothing-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "stamina"
@@ -1108,12 +1119,20 @@ wheels = [
 [[package]]
 name = "vl53l0x"
 version = "0.1.0"
-source = { editable = "firmware-packages/vl53l0x" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/vl53l0x-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/vl53l0x-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "vl53l5cx"
 version = "0.1.1"
-source = { editable = "firmware-packages/vl53l5cx" }
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/vl53l5cx-0.1.1.tar.gz" }
+wheels = [
+    { path = "/wheels/vl53l5cx-0.1.1-py3-none-any.whl" },
+]
 
 [[package]]
 name = "vulture"

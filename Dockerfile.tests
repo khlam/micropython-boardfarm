@@ -9,26 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
 COPY --from=uv-bin /uv /usr/local/bin/uv
 WORKDIR /work
 
-# Copy workspace dependency files so uv can install them as editable packages.
+# Internal packages install from /wheels (built by the wheels stage in
+# Dockerfile.host, exposed via the "internal" file:// index in pyproject.toml).
+# Only the lockfile + workspace
+# member pyprojects are needed for `uv sync --frozen` to resolve and validate.
+COPY --from=wheels /wheels /wheels
 COPY pyproject.toml uv.lock ./
-COPY cpython-packages/serial_over_web/pyproject.toml ./cpython-packages/serial_over_web/pyproject.toml
-COPY cpython-packages/serial_over_web/serial_over_web ./cpython-packages/serial_over_web/serial_over_web
-COPY cpython-packages/micropython_stubs/pyproject.toml ./cpython-packages/micropython_stubs/pyproject.toml
-COPY cpython-packages/micropython_stubs/micropython_stubs ./cpython-packages/micropython_stubs/micropython_stubs
-COPY firmware-packages/boot_status_led/pyproject.toml ./firmware-packages/boot_status_led/pyproject.toml
-COPY firmware-packages/boot_status_led/boot_status_led ./firmware-packages/boot_status_led/boot_status_led
-COPY firmware-packages/i2c_bus/pyproject.toml ./firmware-packages/i2c_bus/pyproject.toml
-COPY firmware-packages/i2c_bus/i2c_bus ./firmware-packages/i2c_bus/i2c_bus
-COPY firmware-packages/mpu6050/pyproject.toml ./firmware-packages/mpu6050/pyproject.toml
-COPY firmware-packages/mpu6050/mpu6050 ./firmware-packages/mpu6050/mpu6050
-COPY firmware-packages/qmc5883p/pyproject.toml ./firmware-packages/qmc5883p/pyproject.toml
-COPY firmware-packages/qmc5883p/qmc5883p ./firmware-packages/qmc5883p/qmc5883p
-COPY firmware-packages/smoothing/pyproject.toml ./firmware-packages/smoothing/pyproject.toml
-COPY firmware-packages/smoothing/smoothing ./firmware-packages/smoothing/smoothing
-COPY firmware-packages/vl53l0x/pyproject.toml ./firmware-packages/vl53l0x/pyproject.toml
-COPY firmware-packages/vl53l0x/vl53l0x ./firmware-packages/vl53l0x/vl53l0x
-COPY firmware-packages/vl53l5cx/pyproject.toml ./firmware-packages/vl53l5cx/pyproject.toml
-COPY firmware-packages/vl53l5cx/vl53l5cx ./firmware-packages/vl53l5cx/vl53l5cx
 # Project pyprojects are virtual workspace members (no source dir to install);
 # uv needs them present to validate the frozen lock.
 COPY projects/compass/pyproject.toml ./projects/compass/pyproject.toml

@@ -1,5 +1,14 @@
 ---
 services:
+  # Builds the internal-package wheels so the viz stage installs serial_over_web
+  # from the file:// index. Compose builds it before viz (additional_contexts).
+  wheels:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
   # Compiles one universal UF2 for RP2040 + RP2350 (each bootloader skips foreign-family blocks).
   pi-compile:
     build:
@@ -52,6 +61,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.host
       target: viz
+      additional_contexts:
+        wheels: service:wheels
       args:
         VIZ_DIR: projects/gyro-stream/viz
     # /dev bind-mount (not `devices:`) so unplug/replug survives without restart.
