@@ -58,7 +58,6 @@ COPY manifest.py /manifest.py
 
 ENTRYPOINT ["sh","-c", "\
   set -e; \
-  bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
   for B in RPI_PICO RPI_PICO2_W; do \
     cmake -S . -B /build/$B \
       -DPICO_SDK_PATH=${PICO_SDK_PATH} \
@@ -107,7 +106,6 @@ COPY manifest.py /manifest.py
 # -Werror=overflow). The default in-tree build dir is fine.
 ENTRYPOINT ["sh","-c", "\
   set -e; \
-  bash /check_project_compat.sh /root_pyproject.toml /project_pyproject.toml; \
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   make -C ports/esp32 \
     BOARD=ESP32_GENERIC_S3 \

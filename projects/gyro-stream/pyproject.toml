@@ -7,5 +7,15 @@ requires-python = ">=3.12"
 
 
 dependencies = [
-    "micropython-boardfarm>=0.1.0",
+    "boot_status_led>=0.2.0",
+    "i2c_bus>=0.2.0",
+    "mpu6050>=0.1.0",
 ]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+boot_status_led = { workspace = true }
+i2c_bus = { workspace = true }
+mpu6050 = { workspace = true }

@@ -7,13 +7,13 @@ requires-python = ">=3.12"
 
 
 dependencies = [
-    "boot_status_led>=0.1.0",
-    "i2c_bus>=0.1.0",
+    "boot_status_led>=0.2.0",
+    "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
-    "vl53l5cx>=0.1.0",
+    "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.1.0",
 ]
@@ -39,6 +39,10 @@ members = [
     "firmware-packages/smoothing",
     "firmware-packages/vl53l0x",
     "firmware-packages/vl53l5cx",
+    "projects/compass",
+    "projects/distance-stream",
+    "projects/gyro-stream",
+    "projects/multizone-ranging",
 ]
 
 [tool.uv.sources]

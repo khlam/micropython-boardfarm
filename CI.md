@@ -31,8 +31,8 @@ linter invocations are changed in one place.
    and `ty` over the source tree.
 
 Heavier global gates are intentionally left out of the hook (to keep commits fast)
-and run only in CI: version-bump and project-compat guards, vendored-file
-enforcement, `vulture`, and the repo-wide `hadolint` / `yamllint` sweep.
+and run only in CI: the version-bump guard, vendored-file enforcement, `vulture`,
+and the repo-wide `hadolint` / `yamllint` sweep.
 
 ## GitHub Actions CI
 
@@ -99,10 +99,6 @@ deleted hook, and overwrites the `Makefile` with a minimal stub (dropping the no
 
 **Kept on purpose:**
 
-- **`.githooks/check_project_compat.sh`** — this is *not* CI-only. It is copied/mounted
-  by [Dockerfile.firmware](Dockerfile.firmware), [Dockerfile.tests](Dockerfile.tests),
-  and every `projects/*/docker-compose.yaml`, so deleting it would break firmware
-  compiles and pytest. The [.githooks/](.githooks/) directory therefore survives.
 - **Lint config in [pyproject.toml](pyproject.toml)** — the `[tool.ruff]`, `[tool.ty]`,
   `[tool.pydoclint]`, `[tool.vulture]` tables and the `lint` / `typecheck`
   dependency-groups are left untouched (the `typecheck` group is shared with the `test`

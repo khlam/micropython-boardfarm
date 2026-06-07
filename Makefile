@@ -24,8 +24,8 @@ init:
 # git. It does not source any project script. Two phases, mirroring the old
 # hook: (1) auto-fix staged Python in place (ruff format, ruff check --fix) and
 # re-stage; (2) verify ruff + pydoclint + ty on staged Python. Heavier global
-# gates (version-bump / project-compat guards, vendored-file enforcement,
-# vulture, and the repo-wide hadolint / yamllint sweep) stay in CI. Linter images
+# gates (the version-bump guard, vendored-file enforcement, vulture, and the
+# repo-wide hadolint / yamllint sweep) stay in CI. Linter images
 # reuse the same tags CI builds, so a clean checkout pays the build once.
 precommit:
 	@set -uo pipefail; \
@@ -63,11 +63,9 @@ precommit:
 
 # Strip the CI / pre-commit / linting scaffolding so a fork can wire up its own.
 # Deletes the GitHub Actions config, the pre-commit hook, the CI-only guard and
-# linter scripts, the linter Dockerfile, and the standalone lint configs. Keeps
-# .githooks/check_project_compat.sh — it is NOT CI-only; Dockerfile.firmware,
-# Dockerfile.tests, and the project docker-compose files all depend on it, so
-# deleting it would break firmware compiles and pytest. pyproject.toml lint
-# tables are left in place (inert without the tools; remove by hand if wanted).
+# linter scripts, the linter Dockerfile, and the standalone lint configs.
+# pyproject.toml lint tables are left in place (inert without the tools; remove
+# by hand if wanted).
 # Deletions hit the working tree only (not `git rm`) so you review and stage them.
 # Finally self-cleans: drops the now-dead init/precommit/remove-ci targets by
 # overwriting this Makefile with a stub (safe — make already parsed the recipe).
@@ -82,5 +80,5 @@ remove-ci:
 	rm -f Dockerfile.linters .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
 	git config --local --unset core.hooksPath 2>/dev/null || true; \
 	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
-	echo "Done. Kept .githooks/check_project_compat.sh (used by firmware compile + pytest)."; \
+	echo "Done. Removed CI / pre-commit / linting scaffolding."; \
 	echo "Review with 'git status' and commit when ready."
