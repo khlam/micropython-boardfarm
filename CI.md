@@ -46,8 +46,8 @@ parallel after the guards pass.
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
 | **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies the firmware artifact was produced. |
-| **vuln-check** | `uv-secure` scans [uv.lock](uv.lock); fails only when a vulnerable dependency has a fixed release available. |
-| **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `viz`, `pytest`, and `uv-secure` images. Report-only — does not fail the build. |
+| **vuln-check** | `uv-secure` scans [uv.lock](uv.lock) (image built via `docker buildx bake scan-uv-secure`); fails only when a vulnerable dependency has a fixed release available. |
+| **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `scan-viz`, `scan-pytest`, and `scan-uv-secure` bake images (`docker buildx bake`). Report-only — does not fail the build. |
 | **all-checks-pass** | Aggregates the results of the above into a single required status. |
 
 ### Renovate
@@ -66,7 +66,26 @@ re-runs `ci.yml`, so new pins are build-verified before merge.
 Tool versions are pinned in [pyproject.toml](pyproject.toml)'s `lint` dependency-group
 and resolved through [uv.lock](uv.lock), so local and CI runs use identical versions.
 Both [.githooks/run-linters.sh](.githooks/run-linters.sh) (CI) and the `precommit`
-target build/reuse these images by tag, so a clean checkout pays the build once.
+target build these images with `docker buildx bake` ([docker-bake.hcl](docker-bake.hcl));
+buildkit caches across runs, so a clean checkout pays the build once.
+
+### Builds: bake vs compose
+
+Two build front-ends, split by purpose:
+
+- **[docker-bake.hcl](docker-bake.hcl)** builds the *build-only* images — the
+  linters, the `typecheck` image, and the CVE-scan images. The `typecheck` and
+  `scan-pytest` targets need the internal-package wheels, so bake wires them in as
+  a build context (`contexts = { wheels = "target:wheels" }`), building the wheels
+  stage from [Dockerfile.host](Dockerfile.host) once per invocation.
+- **[docker-compose.yaml](docker-compose.yaml)** builds *and runs* the services
+  that need a runtime — `pytest` (volume mounts), firmware compiles, `viz` (port),
+  and `uv` (bind-mount). It supplies the same wheels context its own way, via
+  `additional_contexts: wheels: service:wheels`.
+
+The payoff: the wheels build logic lives only in `Dockerfile.host` —
+`Dockerfile.tests` just does `COPY --from=wheels`, and both front-ends provide
+that context. No stage is mirrored across Dockerfiles.
 
 Standalone linter configs live at the repo root:
 
@@ -89,7 +108,7 @@ you review and stage the deletions yourself.
   `renovate.json`, `CODEOWNERS`, and the pull-request template.
 - `.githooks/pre-commit`, `.githooks/.initialized`
 - `.githooks/run-linters.sh`, `.githooks/check_version_bumps.sh`
-- [Dockerfile.linters](Dockerfile.linters)
+- [Dockerfile.linters](Dockerfile.linters), [docker-bake.hcl](docker-bake.hcl)
 - [.hadolint.yaml](.hadolint.yaml), [.yamllint.yaml](.yamllint.yaml),
   [.vulture_allowlist.py](.vulture_allowlist.py)
 

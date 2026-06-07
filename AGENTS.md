@@ -43,6 +43,7 @@ Before changing anything, identify the area you're touching:
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
 | Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
 | Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
+| Image build graph | repo root | `docker-bake.hcl` — bake targets for the lint/typecheck + CVE-scan images; wires the wheels build context (`contexts = { wheels = "target:wheels" }`) |
 | Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |

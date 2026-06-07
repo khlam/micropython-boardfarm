@@ -113,31 +113,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Build uv-secure image
-        run: docker build --target uv-secure -t local/uv-secure -f Dockerfile.linters
-          .
+        run: docker buildx bake -f docker-bake.hcl scan-uv-secure
       - name: Scan uv.lock (fail only on actionable fixes)
         run: docker run --rm -v "$PWD":/work -w /work local/uv-secure
   cve-scan:
-    name: Image CVE scan (Trivy ${{ matrix.target }})
+    name: Image CVE scan (Trivy ${{ matrix.bake }})
     needs: version-check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - dockerfile: Dockerfile.host
-            target: viz
-          - dockerfile: Dockerfile.tests
-            target: pytest
-          - dockerfile: Dockerfile.linters
-            target: uv-secure
+          - bake: scan-viz
+            image: local/scan:viz
+          - bake: scan-pytest
+            image: local/scan:pytest
+          - bake: scan-uv-secure
+            image: local/scan:uv-secure
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Build ${{ matrix.target }} image
-        run: |
-          docker build --target ${{ matrix.target }} -t "local/scan:${{ matrix.target }}" \
-            -f ${{ matrix.dockerfile }} .
+      - name: Build ${{ matrix.bake }} image
+        run: docker buildx bake -f docker-bake.hcl ${{ matrix.bake }}
       - name: Trivy image scan (report-only)
         # renovate: datasource=docker depName=aquasec/trivy
         run: |-
@@ -145,7 +142,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.71.0 image \
             --severity HIGH,CRITICAL --exit-code 0 --format table \
-            "local/scan:${{ matrix.target }}"
+            "${{ matrix.image }}"
   all-checks-pass:
     name: All checks pass
     runs-on: ubuntu-latest
