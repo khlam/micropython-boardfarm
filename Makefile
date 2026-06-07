@@ -40,10 +40,10 @@ precommit:
 	if (( $${#py_files[@]} > 0 )); then \
 		docker image inspect "$$image_ruff" >/dev/null 2>&1 || docker build -q --target ruff-lint -t "$$image_ruff" -f "$$dockerfile" . >/dev/null; \
 		echo "[pre-commit] ruff format (auto-fix) on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
 		echo "[pre-commit] ruff check --fix on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
 	fi; \
 	fail=0; \
@@ -51,9 +51,9 @@ precommit:
 		docker image inspect "$$image_pydoclint" >/dev/null 2>&1 || docker build -q --target pydoclint-lint -t "$$image_pydoclint" -f "$$dockerfile" . >/dev/null; \
 		docker image inspect "$$image_typecheck" >/dev/null 2>&1 || docker build -q --target typecheck -t "$$image_typecheck" -f "$$dockerfile_tests" . >/dev/null; \
 		echo "[lint] ruff format --check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format --check -- "$${py_files[@]}" || fail=1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format --check -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] ruff check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --force-exclude -- "$${py_files[@]}" || fail=1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --force-exclude -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] pydoclint ($${#py_files[@]} file(s))"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] ty check"; \
