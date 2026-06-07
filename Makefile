@@ -24,36 +24,34 @@ init:
 # git. It does not source any project script. Two phases, mirroring the old
 # hook: (1) auto-fix staged Python in place (ruff format, ruff check --fix) and
 # re-stage; (2) verify ruff + pydoclint + ty on staged Python. Heavier global
-# gates (version-bump / project-compat guards, vendored-file enforcement,
-# vulture, and the repo-wide hadolint / yamllint sweep) stay in CI. Linter images
+# gates (the version-bump guard, vendored-file enforcement, vulture, and the
+# repo-wide hadolint / yamllint sweep) stay in CI. Linter images
 # reuse the same tags CI builds, so a clean checkout pays the build once.
 precommit:
 	@set -uo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel)"; \
 	cd "$$repo_root"; \
-	dockerfile="Dockerfile.linters"; \
-	dockerfile_tests="Dockerfile.tests"; \
+	bake_file="docker-bake.hcl"; \
 	image_ruff="local/ruff:latest"; \
 	image_pydoclint="local/pydoclint:latest"; \
 	image_typecheck="local/typecheck:latest"; \
 	mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z | grep -zE '[.]py$$' || true); \
 	if (( $${#py_files[@]} > 0 )); then \
-		docker image inspect "$$image_ruff" >/dev/null 2>&1 || docker build -q --target ruff-lint -t "$$image_ruff" -f "$$dockerfile" . >/dev/null; \
+		docker buildx bake -f "$$bake_file" ruff; \
 		echo "[pre-commit] ruff format (auto-fix) on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
 		echo "[pre-commit] ruff check --fix on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
 	fi; \
 	fail=0; \
 	if (( $${#py_files[@]} > 0 )); then \
-		docker image inspect "$$image_pydoclint" >/dev/null 2>&1 || docker build -q --target pydoclint-lint -t "$$image_pydoclint" -f "$$dockerfile" . >/dev/null; \
-		docker image inspect "$$image_typecheck" >/dev/null 2>&1 || docker build -q --target typecheck -t "$$image_typecheck" -f "$$dockerfile_tests" . >/dev/null; \
+		docker buildx bake -f "$$bake_file" pydoclint typecheck; \
 		echo "[lint] ruff format --check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format --check -- "$${py_files[@]}" || fail=1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format --check -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] ruff check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --force-exclude -- "$${py_files[@]}" || fail=1; \
+		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --force-exclude -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] pydoclint ($${#py_files[@]} file(s))"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True -- "$${py_files[@]}" || fail=1; \
 		echo "[lint] ty check"; \
@@ -63,11 +61,10 @@ precommit:
 
 # Strip the CI / pre-commit / linting scaffolding so a fork can wire up its own.
 # Deletes the GitHub Actions config, the pre-commit hook, the CI-only guard and
-# linter scripts, the linter Dockerfile, and the standalone lint configs. Keeps
-# .githooks/check_project_compat.sh — it is NOT CI-only; Dockerfile.firmware,
-# Dockerfile.tests, and the project docker-compose files all depend on it, so
-# deleting it would break firmware compiles and pytest. pyproject.toml lint
-# tables are left in place (inert without the tools; remove by hand if wanted).
+# linter scripts, the linter Dockerfile, the bake file, and the standalone lint
+# configs.
+# pyproject.toml lint tables are left in place (inert without the tools; remove
+# by hand if wanted).
 # Deletions hit the working tree only (not `git rm`) so you review and stage them.
 # Finally self-cleans: drops the now-dead init/precommit/remove-ci targets by
 # overwriting this Makefile with a stub (safe — make already parsed the recipe).
@@ -79,8 +76,8 @@ remove-ci:
 	rm -rf .github; \
 	rm -f .githooks/pre-commit .githooks/.initialized \
 	      .githooks/run-linters.sh .githooks/check_version_bumps.sh; \
-	rm -f Dockerfile.linters .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
+	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
 	git config --local --unset core.hooksPath 2>/dev/null || true; \
 	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
-	echo "Done. Kept .githooks/check_project_compat.sh (used by firmware compile + pytest)."; \
+	echo "Done. Removed CI / pre-commit / linting scaffolding."; \
 	echo "Review with 'git status' and commit when ready."

@@ -1,0 +1,27 @@
+# Host virtualenv (Linux-only optional Pylance venv) — never COPYd into an image.
+.venv/
+
+# Git metadata — no stage reads history (firmware clones MicroPython in-image).
+.git/
+.gitignore
+.githooks/
+
+# Build artifacts — produced into bind-mounted volumes, not via COPY.
+**/outputs/
+
+# Tool caches.
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.ty_cache/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Local packaging leftovers from running `uv build` outside the wheels stage.
+**/*.egg-info/
+**/dist/
+
+# Editor / CI files irrelevant to image builds.
+.vscode/
+.github/

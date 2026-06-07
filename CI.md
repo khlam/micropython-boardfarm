@@ -31,8 +31,8 @@ linter invocations are changed in one place.
    and `ty` over the source tree.
 
 Heavier global gates are intentionally left out of the hook (to keep commits fast)
-and run only in CI: version-bump and project-compat guards, vendored-file
-enforcement, `vulture`, and the repo-wide `hadolint` / `yamllint` sweep.
+and run only in CI: the version-bump guard, vendored-file enforcement, `vulture`,
+and the repo-wide `hadolint` / `yamllint` sweep.
 
 ## GitHub Actions CI
 
@@ -45,10 +45,32 @@ parallel after the guards pass.
 | **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), and locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff. All other jobs depend on this. |
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
-| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies the firmware artifact was produced. |
-| **vuln-check** | `uv-secure` scans [uv.lock](uv.lock); fails only when a vulnerable dependency has a fixed release available. |
-| **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `viz`, `pytest`, and `uv-secure` images. Report-only — does not fail the build. |
+| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). |
+| **vuln-check** | `uv-secure` scans [uv.lock](uv.lock) (image built via `docker buildx bake scan-uv-secure`); fails only when a vulnerable dependency has a fixed release available. |
+| **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `scan-viz`, `scan-pytest`, and `scan-uv-secure` bake images (`docker buildx bake`). Report-only — does not fail the build. |
 | **all-checks-pass** | Aggregates the results of the above into a single required status. |
+
+### Firmware size budgets
+
+The `compile-firmware` job is the only place firmware size is enforced — it's a
+cloud-only gate (no local equivalent), because the artifacts are build outputs
+that aren't checked in. After each compile it globs the produced artifacts and
+fails if any single file is empty or over budget:
+
+| Artifact | Glob | Budget |
+|---|---|---|
+| RP2040 + RP2350 UF2 | `outputs/*.uf2` | 3 MiB (3,145,728 B) per file |
+| ESP32-S3 image | `outputs/*.bin` | 2 MiB (2,097,152 B) per file |
+
+The budgets live in the `compile-firmware` matrix `include` (`max_bytes`) in
+[.github/workflows/ci.yml](.github/workflows/ci.yml). They sit ~10–15% above the
+current largest artifact, so they catch a few-hundred-KB regression while leaving
+real headroom under the chips' flash (RP2040 2 MB, RP2350/ESP32-S3 4 MB).
+
+The UF2 check is per-file by design: a project emits one universal
+`app.rp2040.rp2350.uf2` today, but may later split into separate per-chip UF2s if
+one grows too large — each is then checked against the same budget independently.
+Bump `max_bytes` deliberately when a size increase is justified.
 
 ### Renovate
 
@@ -66,7 +88,26 @@ re-runs `ci.yml`, so new pins are build-verified before merge.
 Tool versions are pinned in [pyproject.toml](pyproject.toml)'s `lint` dependency-group
 and resolved through [uv.lock](uv.lock), so local and CI runs use identical versions.
 Both [.githooks/run-linters.sh](.githooks/run-linters.sh) (CI) and the `precommit`
-target build/reuse these images by tag, so a clean checkout pays the build once.
+target build these images with `docker buildx bake` ([docker-bake.hcl](docker-bake.hcl));
+buildkit caches across runs, so a clean checkout pays the build once.
+
+### Builds: bake vs compose
+
+Two build front-ends, split by purpose:
+
+- **[docker-bake.hcl](docker-bake.hcl)** builds the *build-only* images — the
+  linters, the `typecheck` image, and the CVE-scan images. The `typecheck` and
+  `scan-pytest` targets need the internal-package wheels, so bake wires them in as
+  a build context (`contexts = { wheels = "target:wheels" }`), building the wheels
+  stage from [Dockerfile.host](Dockerfile.host) once per invocation.
+- **[docker-compose.yaml](docker-compose.yaml)** builds *and runs* the services
+  that need a runtime — `pytest` (volume mounts), firmware compiles, `viz` (port),
+  and `uv` (bind-mount). It supplies the same wheels context its own way, via
+  `additional_contexts: wheels: service:wheels`.
+
+The payoff: the wheels build logic lives only in `Dockerfile.host` —
+`Dockerfile.tests` just does `COPY --from=wheels`, and both front-ends provide
+that context. No stage is mirrored across Dockerfiles.
 
 Standalone linter configs live at the repo root:
 
@@ -89,7 +130,7 @@ you review and stage the deletions yourself.
   `renovate.json`, `CODEOWNERS`, and the pull-request template.
 - `.githooks/pre-commit`, `.githooks/.initialized`
 - `.githooks/run-linters.sh`, `.githooks/check_version_bumps.sh`
-- [Dockerfile.linters](Dockerfile.linters)
+- [Dockerfile.linters](Dockerfile.linters), [docker-bake.hcl](docker-bake.hcl)
 - [.hadolint.yaml](.hadolint.yaml), [.yamllint.yaml](.yamllint.yaml),
   [.vulture_allowlist.py](.vulture_allowlist.py)
 
@@ -99,10 +140,6 @@ deleted hook, and overwrites the `Makefile` with a minimal stub (dropping the no
 
 **Kept on purpose:**
 
-- **`.githooks/check_project_compat.sh`** — this is *not* CI-only. It is copied/mounted
-  by [Dockerfile.firmware](Dockerfile.firmware), [Dockerfile.tests](Dockerfile.tests),
-  and every `projects/*/docker-compose.yaml`, so deleting it would break firmware
-  compiles and pytest. The [.githooks/](.githooks/) directory therefore survives.
 - **Lint config in [pyproject.toml](pyproject.toml)** — the `[tool.ruff]`, `[tool.ty]`,
   `[tool.pydoclint]`, `[tool.vulture]` tables and the `lint` / `typecheck`
   dependency-groups are left untouched (the `typecheck` group is shared with the `test`

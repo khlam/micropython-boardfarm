@@ -1,12 +1,12 @@
 """MCU-micropython firmware for distance-stream: I²C scan, VL53L0X init, JSON stream."""
 
 import time
-from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
 from i2c_bus import soft_i2c as i2c
+from smoothing import median
 from vl53l0x import VL53L0X
 
 TOF_ADDRESS = 0x29
@@ -15,12 +15,13 @@ TOF_ADDRESS = 0x29
 # emit null so the viz shows a gap instead of a spurious large value.
 OUT_OF_RANGE_MM = 8190
 
-# Median-of-5 rejects single-sample glitches; EMA τ≈200 ms smooths residual noise.
-# Both reset on out-of-range to avoid bridging across gaps.
-MEDIAN_N = 5
-EMA_ALPHA = 0.1
+# Rolling median over the last SMOOTH_WINDOW in-range samples rejects spikes
+# while smoothing jitter. The window resets on out-of-range and read errors
+# so it never bridges across a gap.
+SMOOTH_WINDOW = 10
 
-# 20 ms budget → ~50 Hz; EMA compensates for the higher per-sample noise vs 40 ms.
+# 20 ms budget → ~50 Hz; the moving average compensates for the higher
+# per-sample noise vs 40 ms.
 TIMING_BUDGET_US = 20_000
 
 _BOOT_PAUSE_MS = 50
@@ -32,8 +33,6 @@ _SOFT_RESET_POLLS = 50
 _REG_SOFT_RESET = 0xBF
 _REG_MODEL_ID = 0xC0
 _MODEL_ID_BOOTED = 0xEE
-
-FilterResult = namedtuple("FilterResult", ("smoothed_mm", "median_buf", "ema"))
 
 
 def emit(obj: dict) -> None:
@@ -101,51 +100,34 @@ def init_sensor() -> VL53L0X:
             return tof
 
 
-def _filter_step(distance_mm: int, median_buf: list[int], ema: float | None) -> FilterResult:
-    """Median + EMA smoothing for one in-range sample.
-
-    Raw VL53L0X readings can have occasional in-range spikes
-    that slip past the out-of-range gate and a few mm of jitter on a
-    stationary target. The median-of-MEDIAN_N drops the spikes; EMA
-    smooths the residual jitter. Caller must gate out-of-range first;
-    median_buf is mutated in place.
-
-    Args:
-        distance_mm: An in-range reading in mm.
-        median_buf: Rolling window of recent in-range samples.
-        ema: Previous EMA, or None on the first call.
-
-    Returns:
-        FilterResult(smoothed_mm, median_buf, ema).
-    """
-    median_buf.append(distance_mm)
-    if len(median_buf) > MEDIAN_N:
-        median_buf.pop(0)
-    median = sorted(median_buf)[len(median_buf) // 2]
-    ema = median if ema is None else ema * (1 - EMA_ALPHA) + median * EMA_ALPHA
-    return FilterResult(int(ema + 0.5), median_buf, ema)
-
-
 def stream(tof: VL53L0X) -> None:
-    """Stream filtered distance samples indefinitely.
+    """Stream raw and smoothed distance samples indefinitely.
 
-    read() blocks until the next sample is ready, so the loop is
+    Each in-range record carries both the raw reading (`distance_mm_raw`) and
+    its rolling median (`distance_mm`, equal to the raw reading until the window
+    fills). read() blocks until the next sample is ready, so the loop is
     self-paced at the configured timing budget with no extra sleep.
     """
-    median_buf: list[int] = []
-    ema: float | None = None
+    window: list[int] = []
     status.streaming()
     while True:
         try:
             distance_mm = tof.read()
             if distance_mm >= OUT_OF_RANGE_MM:
-                del median_buf[:]
-                ema = None
-                emit({"t": time.ticks_ms(), "distance_mm": None})
+                del window[:]
+                emit({"t": time.ticks_ms(), "distance_mm": None, "distance_mm_raw": None})
             else:
-                result = _filter_step(distance_mm, median_buf, ema)
-                median_buf, ema = result.median_buf, result.ema
-                emit({"t": time.ticks_ms(), "distance_mm": result.smoothed_mm})
+                window.append(distance_mm)
+                if len(window) > SMOOTH_WINDOW:
+                    del window[0]
+                smoothed = median(window, SMOOTH_WINDOW)
+                emit(
+                    {
+                        "t": time.ticks_ms(),
+                        "distance_mm": round(smoothed),
+                        "distance_mm_raw": distance_mm,
+                    }
+                )
         except (OSError, RuntimeError) as err:
             # Transient fault; restart continuous mode before resuming.
             status.read_err()
@@ -155,8 +137,7 @@ def stream(tof: VL53L0X) -> None:
                 tof.start()
             except (OSError, RuntimeError):
                 pass
-            del median_buf[:]
-            ema = None
+            del window[:]
             time.sleep_ms(_READ_ERR_PAUSE_MS)
             status.streaming()
 

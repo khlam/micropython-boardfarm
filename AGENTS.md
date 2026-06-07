@@ -43,6 +43,7 @@ Before changing anything, identify the area you're touching:
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
 | Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
 | Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
+| Image build graph | repo root | `docker-bake.hcl` — bake targets for the lint/typecheck + CVE-scan images; wires the wheels build context (`contexts = { wheels = "target:wheels" }`) |
 | Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
@@ -73,26 +74,10 @@ docker compose up pytest --build --exit-code-from pytest -- /projects/distance-s
 docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/vl53l0x/tests # one package
 ```
 
-#### Python deps / locks (from the repo root)
-```
-docker compose run --rm uv lock
-```
-
 ## Architecture & invariants
 
-### Packages are frozen for firmware, installed editable for tests †
-| Context | Behavior |
-| --- | --- |
-| Firmware | `manifest.py` copies only `firmware-packages/<pkg>/<pkg>/` onto the chip. `tests/`, `pyproject.toml`, and `README.md` are excluded. |
-| Tests | `uv sync` installs every package editable into `/work/.venv`, so imports resolve inside the `pytest` Docker service. Do not add `sys.path` mutations. |
-
-### Package layout
-| Path | Role |
-| --- | --- |
-| `firmware-packages/<pkg>/pyproject.toml` | makes this a uv workspace member so tests can import it. Ignored by firmware compiles. |
-| `firmware-packages/<pkg>/<pkg>/` | the actual package. Only this inner directory ships to the chip; `tests/`, `pyproject.toml`, and `README.md` are excluded. |
-| `firmware-packages/<pkg>/tests/` | host tests. Put fixtures in `conftest.py`; sibling helpers (e.g. `fake_mpu6050.py`) are importable without `sys.path` hacks. |
-| `firmware-packages/<pkg>/README.md` | usage, public API, chip-dispatch rationale. |
+### Packages are frozen for firmware †
+`manifest.py` copies only `firmware-packages/<pkg>/<pkg>/` onto the chip — `tests/`, `pyproject.toml`, and `README.md` are excluded.
 
 ### Shared host-test stubs †
 - All MicroPython stubs live in `cpython-packages/micropython_stubs/micropython_stubs/`
@@ -123,7 +108,7 @@ Use standard Python ordering: docstring → imports → constants → public API
 - MicroPython has no package manager and no 3rd-party packages to install; all dependencies must be vendored or frozen into firmware via `manifest.py`. Do not use `mip`. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
 - Wrap `sensor.read()` in `try/except` — sensors occasionally NACK. On exception, call `status.read_err()` and `continue` the loop; never let a stray exception crash the loop.
-- Chip-specific logic belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`) and declares a `pyproject.toml` at `firmware-packages/<pkg>/` so uv can install it editable for host tests. Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes.
+- Chip-specific logic belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`). Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes.
 - Don't install tools on the host. All toolchains (esptool, ARM cross-compiler, ESP-IDF, uv, MicroPython source) live inside Docker images.
 - Don't add dependencies without tests + `uv lock`.
 

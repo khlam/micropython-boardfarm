@@ -19,8 +19,11 @@ IMAGE_TAG_PYDOCLINT="local/pydoclint:latest"
 IMAGE_TAG_HADOLINT="local/hadolint:latest"
 IMAGE_TAG_YAMLLINT="local/yamllint:latest"
 IMAGE_TAG_TYPECHECK="local/typecheck:latest"
-DOCKERFILE="Dockerfile.linters"
-DOCKERFILE_TESTS="Dockerfile.tests"
+
+# Images are built by docker buildx bake (docker-bake.hcl), which also wires the
+# wheels build context into the typecheck image. buildkit caches across runs, so
+# re-baking an unchanged target is cheap. The tags above match the bake targets.
+bake=(docker buildx bake -f docker-bake.hcl)
 
 # Bucket each input file by type so each linter only receives the files it understands.
 py_files=()
@@ -38,11 +41,7 @@ done
 fail=0
 
 if (( ${#py_files[@]} > 0 )); then
-  # Build each image on first use; skip if it already exists locally.
-  docker image inspect "$IMAGE_TAG_RUFF"      >/dev/null 2>&1 || docker build -q --target ruff-lint      -t "$IMAGE_TAG_RUFF"      -f "$DOCKERFILE"       . >/dev/null
-  docker image inspect "$IMAGE_TAG_PYDOCLINT" >/dev/null 2>&1 || docker build -q --target pydoclint-lint -t "$IMAGE_TAG_PYDOCLINT" -f "$DOCKERFILE"       . >/dev/null
-  docker image inspect "$IMAGE_TAG_TYPECHECK" >/dev/null 2>&1 || docker build -q --target typecheck      -t "$IMAGE_TAG_TYPECHECK" -f "$DOCKERFILE_TESTS" . >/dev/null
-  docker image inspect "$IMAGE_TAG_VULTURE" >/dev/null 2>&1 || docker build -q --target vulture-lint -t "$IMAGE_TAG_VULTURE" -f "$DOCKERFILE" . >/dev/null
+  "${bake[@]}" ruff pydoclint vulture typecheck || fail=1
 
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -72,7 +71,7 @@ fi
 
 # Lint each Dockerfile for best-practice errors; warnings are informational only.
 if (( ${#dockerfiles[@]} > 0 )); then
-  docker image inspect "$IMAGE_TAG_HADOLINT" >/dev/null 2>&1 || docker build -q --target hadolint-lint -t "$IMAGE_TAG_HADOLINT" -f "$DOCKERFILE" . >/dev/null
+  "${bake[@]}" hadolint || fail=1
   for df in "${dockerfiles[@]}"; do
     echo "[lint] hadolint $df"
     docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_HADOLINT" \
@@ -82,7 +81,7 @@ fi
 
 # Lint each YAML file for syntax and style conformance.
 if (( ${#yaml_files[@]} > 0 )); then
-  docker image inspect "$IMAGE_TAG_YAMLLINT" >/dev/null 2>&1 || docker build -q --target yamllint-lint -t "$IMAGE_TAG_YAMLLINT" -f "$DOCKERFILE" . >/dev/null
+  "${bake[@]}" yamllint || fail=1
   for yf in "${yaml_files[@]}"; do
     echo "[lint] yamllint $yf"
     docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_YAMLLINT" \

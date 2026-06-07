@@ -8,8 +8,23 @@ container runtime from `repo_root/firmware-packages` and
 `projects/<project>/firmware`.
 """
 
+import re
 from contextlib import suppress
 from pathlib import Path
+
+# Top-level module name of an `import X` / `from X import ...` line (X may
+# be dotted; capture only the first component). Indented imports match too,
+# in case a backend is pulled in lazily inside a function.
+_IMPORT_RE = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_]\w*)", re.MULTILINE)
+
+
+def _imported_names(root: Path) -> set:
+    """Return the set of top-level module names imported anywhere under root."""
+    names: set = set()
+    for py in root.rglob("*.py"):
+        names.update(_IMPORT_RE.findall(py.read_text()))
+    return names
+
 
 # Pull in the port's default frozen modules (extmod/asyncio, etc.).
 # Setting MICROPY_FROZEN_MANIFEST entirely replaces the default chain on
@@ -23,16 +38,32 @@ include("$(PORT_DIR)/boards/manifest.py")
 with suppress(Exception):
     include("$(BOARD_DIR)/manifest.py")
 
-# Each shared MicroPython package: firmware-packages/<pkg>/<pkg>/
-# becomes a frozen package on the device. Walking /firmware-packages
-# keeps new packages self-registering without touching this file.
+# Shared MicroPython packages available to freeze: name -> parent dir.
 # package() targets the inner <pkg>/ dir and ignores siblings
 # (pyproject.toml, tests/, README.md) — freeze() on the parent would
-# sweep those in.
-for _pkg_dir in sorted(Path("/firmware-packages").iterdir()):
-    _name = _pkg_dir.name
-    if (_pkg_dir / _name / "__init__.py").is_file():
-        package(_name, base_path=str(_pkg_dir))
+# sweep those in. Auto-discovery keeps new packages self-registering
+# without touching this file.
+_packages = {
+    p.name: p
+    for p in sorted(Path("/firmware-packages").iterdir())
+    if (p / p.name / "__init__.py").is_file()
+}
+
+# Freeze only the packages this project's firmware actually imports. The
+# manifest is shared across every project, so freezing all of them would
+# sweep large unused blobs (e.g. vl53l5cx's ~400 KB config) into firmware
+# that never touches them. Resolve the transitive closure so a package
+# that imports another package still works; today none do, but the
+# fixpoint keeps that from becoming a silent device-side ImportError.
+_needed: set = set()
+_frontier = _imported_names(Path("/firmware")) & _packages.keys()
+while _frontier:
+    _name = _frontier.pop()
+    _needed.add(_name)
+    _frontier |= (_imported_names(_packages[_name] / _name) & _packages.keys()) - _needed
+
+for _name in sorted(_needed):
+    package(_name, base_path=str(_packages[_name]))
 
 # Project-level firmware: every .py at /firmware becomes a top-level
 # frozen module. main.py is the boot entry point.

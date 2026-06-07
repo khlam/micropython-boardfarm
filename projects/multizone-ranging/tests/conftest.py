@@ -8,7 +8,6 @@ the module's top-level main() call running.
 
 import ast
 import pathlib
-from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -18,37 +17,7 @@ _FIRMWARE = _HERE.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "stream", "init_sensor"}
 
 
-class _FakeTime:
-    """time stub: monotonic ticks_ms counter and no-op sleep_ms."""
-
-    def __init__(self) -> None:
-        self.ticks = 0
-
-    def ticks_ms(self):
-        self.ticks += 1
-        return self.ticks
-
-    def sleep_ms(self, _ms):
-        return None
-
-
-class _FakeStatus:
-    """status stub: record every transition call by name into self.calls."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def __getattr__(self, name: str) -> Callable[[], None]:
-        if name.startswith("_"):
-            raise AttributeError(name)
-
-        def _rec() -> None:
-            self.calls.append(name)
-
-        return _rec
-
-
-def _load_main_namespace(fake_time: _FakeTime, fake_status: _FakeStatus) -> dict:
+def _load_main_namespace(fake_time, fake_status) -> dict:
     """Parse main.py and exec the constants + key functions in a fresh namespace.
 
     Keeps only module-level Assign nodes (constants) and the FunctionDefs the
@@ -81,7 +50,7 @@ def _load_main_namespace(fake_time: _FakeTime, fake_status: _FakeStatus) -> dict
 
 
 @pytest.fixture
-def main_ns():
+def main_ns(fake_time, fake_status):
     """Fresh AST-loaded main.py namespace with fakes injected.
 
     Returns a SimpleNamespace with:
@@ -89,7 +58,5 @@ def main_ns():
       - .time: the _FakeTime instance used as the `time` module
       - .status: the _FakeStatus instance; inspect .status.calls for transitions
     """
-    fake_time = _FakeTime()
-    fake_status = _FakeStatus()
     ns = _load_main_namespace(fake_time, fake_status)
     return SimpleNamespace(ns=ns, time=fake_time, status=fake_status)

@@ -1,10 +1,22 @@
 ---
 services:
+  # Builds the internal-package wheels; pytest/typecheck/uv consume them as the
+  # file:// index via `additional_contexts: wheels: service:wheels`. Compose
+  # builds this dependency first, so the consuming commands need no extra steps.
+  wheels:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
   pytest:
     build:
       context: .
       dockerfile: Dockerfile.tests
       target: pytest
+      additional_contexts:
+        wheels: service:wheels
     volumes:
       - ./firmware-packages:/firmware-packages:ro
       - ./projects:/projects:ro
@@ -17,6 +29,8 @@ services:
       context: .
       dockerfile: Dockerfile.tests
       target: typecheck
+      additional_contexts:
+        wheels: service:wheels
     volumes:
       - ./firmware-packages:/work/firmware-packages:ro
       - ./cpython-packages:/work/cpython-packages:ro
@@ -27,6 +41,8 @@ services:
       context: .
       dockerfile: Dockerfile.host
       target: uv-runner
+      additional_contexts:
+        wheels: service:wheels
     working_dir: /workspace
     user: ${UID:-1000}:${GID:-1000}
     environment:

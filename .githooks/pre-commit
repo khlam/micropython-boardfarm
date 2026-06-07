@@ -4,8 +4,8 @@
 # verify ruff + pydoclint + ty on staged Python — lives self-contained in the
 # Makefile. Change linter invocations there.
 #
-# Heavier global gates stay in CI, not here: version-bump and project-compat
-# guards, vendored-file enforcement, vulture, and the repo-wide hadolint /
+# Heavier global gates stay in CI, not here: the version-bump guard,
+# vendored-file enforcement, vulture, and the repo-wide hadolint /
 # yamllint sweep (see .github/workflows/ci.yml).
 
 set -euo pipefail

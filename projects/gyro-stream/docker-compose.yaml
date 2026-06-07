@@ -1,5 +1,14 @@
 ---
 services:
+  # Builds the internal-package wheels so the viz stage installs serial_over_web
+  # from the file:// index. Compose builds it before viz (additional_contexts).
+  wheels:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
   # Compiles one universal UF2 for RP2040 + RP2350 (each bootloader skips foreign-family blocks).
   pi-compile:
     build:
@@ -10,10 +19,6 @@ services:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
-      # Mounted for the version-compat preflight in the pi-compile ENTRYPOINT.
-      - ../../pyproject.toml:/root_pyproject.toml:ro
-      - ./pyproject.toml:/project_pyproject.toml:ro
-      - ../../.githooks/check_project_compat.sh:/check_project_compat.sh:ro
 
   # Compiles the ESP32-S3 firmware to outputs/app.esp32-s3.bin; no hardware needed.
   esp32-compile:
@@ -25,10 +30,6 @@ services:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
-      # Mounted for the version-compat preflight in the esp32-compile ENTRYPOINT.
-      - ../../pyproject.toml:/root_pyproject.toml:ro
-      - ./pyproject.toml:/project_pyproject.toml:ro
-      - ../../.githooks/check_project_compat.sh:/check_project_compat.sh:ro
 
   # Flashes the compiled .bin to /dev/ttyACM0; runs esp32-compile first, then
   # fails fast if the board isn't visible.
@@ -60,6 +61,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.host
       target: viz
+      additional_contexts:
+        wheels: service:wheels
       args:
         VIZ_DIR: projects/gyro-stream/viz
     # /dev bind-mount (not `devices:`) so unplug/replug survives without restart.

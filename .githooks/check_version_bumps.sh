@@ -43,15 +43,23 @@ done
 declare -A dirty=()
 for f in "${files[@]}"; do
   case "$f" in
-    *.md|uv.lock|*/outputs/*|*.uf2|*.bin) continue ;;       # never a bump trigger
-    *.py|*.toml|*.yaml|*.yml|Dockerfile*|*/Dockerfile*) ;;  # source/config: counts
+    */outputs/*|*.uf2|*.bin) continue ;;                                                        # build artifacts: never a bump
+    *.py|*.toml|*.yaml|*.yml|*.sh|*.md|uv.lock|Dockerfile*|*/Dockerfile*|scripts/*|tools/*) ;;  # source/config/workspace: counts
     *) continue ;;
   esac
 
-  pp="pyproject.toml"
-  for d in "${scope_dirs[@]}"; do
-    [[ "$f" == "$d"* ]] && { pp="${d}pyproject.toml"; break; }
-  done
+  # Workspace-level paths bump the root scope regardless of nesting: the lockfile,
+  # top-level docs/scripts/tools, and package tests (buzzai bumps root, not the
+  # package, on test changes). Everything else maps to its nearest enclosing scope.
+  case "$f" in
+    uv.lock|docs/*|README*|scripts/*|tools/*|*/tests/*)
+      pp="pyproject.toml" ;;
+    *)
+      pp="pyproject.toml"
+      for d in "${scope_dirs[@]}"; do
+        [[ "$f" == "$d"* ]] && { pp="${d}pyproject.toml"; break; }
+      done ;;
+  esac
 
   # Editing a pyproject.toml does not, by itself, dirty its own scope.
   [[ "$f" == "$pp" ]] || dirty["$pp"]=1
@@ -67,8 +75,8 @@ for pp in "${!dirty[@]}"; do
   if [[ -z "$new_ver" ]]; then
     echo "[$label] $pp: could not parse 'version = \"...\"'"
     failed=1
-  elif [[ "$new_ver" == "$old_ver" ]]; then
-    echo "[$label] $pp: version is still $new_ver, but code changes exist in its scope"
+  elif [[ "$(printf '%s\n%s\n' "$old_ver" "$new_ver" | sort -V | head -n1)" == "$new_ver" ]]; then
+    echo "[$label] $pp: version $new_ver <= $old_ver on $old_ref, but code changes exist in its scope"
     failed=1
   fi
 done
