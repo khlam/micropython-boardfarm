@@ -70,6 +70,7 @@ ENTRYPOINT ["sh","-c", "\
   done; \
   cat /build/RPI_PICO/firmware.uf2 /build/RPI_PICO2_W/firmware.uf2 \
     > /outputs/app.rp2040.rp2350.uf2; \
+  chown -R $(stat -c '%u:%g' /firmware 2>/dev/null || echo 0:0) /outputs; \
   echo '/outputs/app.rp2040.rp2350.uf2 ready'"]
 
 
@@ -112,6 +113,7 @@ ENTRYPOINT ["sh","-c", "\
     FROZEN_MANIFEST=/manifest.py \
     -j$(nproc); \
   cp ports/esp32/build-ESP32_GENERIC_S3/firmware.bin /outputs/app.esp32-s3.bin; \
+  chown -R $(stat -c '%u:%g' /firmware 2>/dev/null || echo 0:0) /outputs; \
   echo '/outputs/app.esp32-s3.bin ready'"]
 
 
