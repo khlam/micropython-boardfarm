@@ -6,7 +6,7 @@ import ujson
 
 from boot_status_led import status
 from i2c_bus import soft_i2c as i2c
-from smoothing import simple_moving_average
+from smoothing import median
 from vl53l0x import VL53L0X
 
 TOF_ADDRESS = 0x29
@@ -15,9 +15,9 @@ TOF_ADDRESS = 0x29
 # emit null so the viz shows a gap instead of a spurious large value.
 OUT_OF_RANGE_MM = 8190
 
-# Simple moving average over the last SMOOTH_WINDOW in-range samples smooths
-# jitter on a stationary target. The window resets on out-of-range and read
-# errors so it never bridges across a gap.
+# Rolling median over the last SMOOTH_WINDOW in-range samples rejects spikes
+# while smoothing jitter. The window resets on out-of-range and read errors
+# so it never bridges across a gap.
 SMOOTH_WINDOW = 10
 
 # 20 ms budget → ~50 Hz; the moving average compensates for the higher
@@ -104,7 +104,7 @@ def stream(tof: VL53L0X) -> None:
     """Stream raw and smoothed distance samples indefinitely.
 
     Each in-range record carries both the raw reading (`distance_mm_raw`) and
-    its moving average (`distance_mm`, equal to the raw reading until the window
+    its rolling median (`distance_mm`, equal to the raw reading until the window
     fills). read() blocks until the next sample is ready, so the loop is
     self-paced at the configured timing budget with no extra sleep.
     """
@@ -120,7 +120,7 @@ def stream(tof: VL53L0X) -> None:
                 window.append(distance_mm)
                 if len(window) > SMOOTH_WINDOW:
                     del window[0]
-                smoothed = simple_moving_average(window, SMOOTH_WINDOW)
+                smoothed = median(window, SMOOTH_WINDOW)
                 emit(
                     {
                         "t": time.ticks_ms(),

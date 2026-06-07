@@ -84,9 +84,9 @@ def exponential_moving_average(window: list[float], size: int = DEFAULT_WINDOW) 
 
 
 def median(window: list[float], size: int = DEFAULT_WINDOW) -> float:
-    """Lower median of the last `size` samples.
+    """Median of the last `size` samples.
 
-    Returns the lower-middle element of the sorted window (`sorted[size // 2]`),
+    Returns the middle element of the sorted window (`sorted[size // 2]`),
     which rejects single-sample spikes without averaging them in.
 
     Args:
@@ -94,7 +94,7 @@ def median(window: list[float], size: int = DEFAULT_WINDOW) -> float:
         size: Number of samples to rank once the window has filled.
 
     Returns:
-        The lower median of the last `size` samples, or `window[-1]` while fewer
+        The median of the last `size` samples, or `window[-1]` while fewer
         than `size` samples are available.
     """
     if len(window) < size:

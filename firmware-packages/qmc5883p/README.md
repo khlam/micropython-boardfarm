@@ -38,7 +38,7 @@ Heading is application-level and intentionally left to the caller:
 - `__init__` verifies the chip-ID register (`0x00` → `0x80`) and raises `OSError`
   on mismatch, then soft-resets, inverts X/Y (`AXIS_SIGN` = `0x06`) so the frame
   matches the QMC5883L convention, selects ±2 G range, and starts continuous
-  output at 50 Hz with OSR=8 (maximum in-sensor averaging).
+  output at 50 Hz with OSR=512 (maximum in-sensor averaging).
 - `read()` blocks on the STATUS data-ready bit (~20 ms at 50 Hz) and returns
   `(x, y, z)` signed ints — self-paced, so the caller's loop needs no sleep.
 - The driver imports `utime` (not `time`) so the data-ready poll's `sleep_ms`

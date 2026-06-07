@@ -4,7 +4,7 @@ Despite the near-identical name this is a different chip from the QMC5883L:
 different register map, fixed I²C address 0x2C, and an axis-sign quirk. __init__
 verifies the chip-ID, soft-resets, inverts X/Y so the output frame matches the
 QMC5883L convention (so atan2(y, x) heading reads the same), selects ±2 G range,
-and starts continuous output at 50 Hz with OSR=8 (max in-sensor averaging).
+and starts continuous output at 50 Hz with OSR=512 (max in-sensor averaging).
 read() blocks on the data-ready bit and returns signed (x, y, z) ints.
 
 Chip-agnostic w.r.t. the MCU: takes a machine.I2C / SoftI2C from the caller and
@@ -26,9 +26,9 @@ _REG_AXIS_SIGN = const(0x29)
 # QMC5883P product-id read back from _REG_CHIP_ID once powered.
 _CHIP_ID = const(0x80)
 
-# CTRL_1 = (DSR<<6)|(OSR<<4)|(ODR<<2)|MODE → continuous, 50 Hz, OSR=8.
+# CTRL_1 = (DSR<<6)|(OSR<<4)|(ODR<<2)|MODE → continuous, 50 Hz, OSR=512.
 _CTRL_1_VALUE = const((0b00 << 6) | (0b00 << 4) | (0b01 << 2) | 0b01)
-_CTRL_2_RANGE_2G = const(0b11 << 2)
+_CTRL_2_RANGE_2G = const(0b00 << 2)
 _CTRL_2_SOFT_RESET = const(0x80)
 _AXIS_SIGN_VALUE = const(0x06)  # invert X/Y → QMC5883L-compatible frame
 
@@ -38,7 +38,7 @@ _DRDY_POLL_MS = const(1)
 
 
 class QMC5883P:
-    """QMC5883P magnetometer in ±2 G continuous mode at 50 Hz, OSR=8.
+    """QMC5883P magnetometer in ±2 G continuous mode at 50 Hz, OSR=512.
 
     Attributes:
         i2c: The bus passed by the caller.

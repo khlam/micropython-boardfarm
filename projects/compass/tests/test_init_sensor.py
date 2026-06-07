@@ -34,6 +34,7 @@ def test_init_sensor_handles_init_err(init_ns):
 def _reset_mag():
     _FakeMag.raise_oserror_once = False
     _FakeMag._calls = 0
+    yield
 
 
 @pytest.fixture

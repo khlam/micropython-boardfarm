@@ -247,7 +247,7 @@
 
       // null distance = out-of-range; pushing null leaves a gap in both traces.
       pending.t.push(tRel);
-      pending.raw.push(obj.distance_mm_raw);
+      pending.raw.push(obj.distance_mm_raw ?? null);
       pending.smoothed.push(obj.distance_mm);
       lastDistance = obj.distance_mm;
 

@@ -32,8 +32,8 @@ def test_init_writes_config_sequence(fake_mag):
     assert fake_mag.writes == [
         (0x0B, bytes((0x80,))),  # CTRL_2 soft reset
         (0x29, bytes((0x06,))),  # AXIS_SIGN invert X/Y
-        (0x0B, bytes((0b11 << 2,))),  # CTRL_2 ±2 G range (0x0C)
-        (0x0A, bytes(((0b01 << 2) | 0b01,))),  # CTRL_1 continuous/50 Hz/OSR=8 (0x05)
+        (0x0B, bytes((0b00 << 2,))),  # CTRL_2 ±2 G range (0x00)
+        (0x0A, bytes(((0b01 << 2) | 0b01,))),  # CTRL_1 continuous/50 Hz/OSR=512 (0x05)
     ]
 
 
