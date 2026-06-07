@@ -82,29 +82,62 @@ jobs:
       fail-fast: false
       matrix:
         project:
+          - compass
           - distance-stream
           - gyro-stream
+          - multizone-ranging
         target:
           - rp
           - esp32
         include:
+          # max_bytes: per-artifact size budgets (cloud-only). See CI.md
+          # "Firmware size budgets" for the rationale and how to bump them.
           - target: rp
             service: pi-compile
             label: RP2040 + RP2350
-            artifact: outputs/app.rp2040.rp2350.uf2
+            pattern: outputs/*.uf2
+            max_bytes: 3145728  # 3 MiB per .uf2
           - target: esp32
             service: esp32-compile
             label: ESP32-S3
-            artifact: outputs/app.esp32-s3.bin
+            pattern: outputs/*.bin
+            max_bytes: 2097152  # 2 MiB per .bin
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Compile ${{ matrix.label }}
         working-directory: projects/${{ matrix.project }}
         run: docker compose up --build --exit-code-from ${{ matrix.service }} ${{ matrix.service }}
-      - name: Verify artifact was produced
+      - name: Check firmware artifact sizes
         working-directory: projects/${{ matrix.project }}
-        run: test -s ${{ matrix.artifact }}
+        env:
+          PATTERN: ${{ matrix.pattern }}
+          MAX_BYTES: ${{ matrix.max_bytes }}
+        # Every produced artifact must be non-empty and within budget. A
+        # project emits one universal .uf2 today, but may split into per-chip
+        # .uf2 files later; the glob checks each on its own, so both layouts
+        # pass as long as no single file blows the budget.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=($PATTERN)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::no firmware artifact matched $PATTERN"
+            exit 1
+          fi
+          fail=0
+          for f in "${files[@]}"; do
+            size=$(stat -c%s "$f")
+            if [[ "$size" -eq 0 ]]; then
+              echo "::error::$f is empty"
+              fail=1
+            elif [[ "$size" -gt "$MAX_BYTES" ]]; then
+              echo "::error::$f is ${size} B, over the ${MAX_BYTES} B budget"
+              fail=1
+            fi
+            echo "- \`$f\` — ${size} B / ${MAX_BYTES} B budget" >> "$GITHUB_STEP_SUMMARY"
+          done
+          [[ $fail -eq 0 ]]
   vuln-check:
     name: Dependency vulnerability scan
     needs: version-check
