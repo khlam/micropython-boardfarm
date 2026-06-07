@@ -1,6 +1,6 @@
 [project]
 name = "gyro-stream"
-version = "0.2.0"
+version = "0.3.0"
 description = "MPU6050 accel/gyro/temp → JSON-over-USB-CDC → FastAPI/WebSocket → Plotly + 3D orientation dashboard."
 readme = "README.md"
 requires-python = ">=3.12"
