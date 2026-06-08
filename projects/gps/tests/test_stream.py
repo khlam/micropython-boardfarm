@@ -68,17 +68,16 @@ class _FakeGPS:
 def _run(main_ns: object, sentences: list[str], stop_after: int = 1) -> list[dict]:
     """Exercise stream() for `stop_after` emit() calls and return the recorded objects.
 
-    Injects a _FakeGPS, overrides WINDOW_MS to _TEST_WINDOW_MS, replaces
-    emit() with a _CapturingEmit, then calls stream() inside a pytest.raises
-    so _StopLoopError is absorbed.
+    Overrides WINDOW_MS to _TEST_WINDOW_MS, replaces emit() with a _CapturingEmit,
+    passes a _FakeGPS directly to stream(), then absorbs _StopLoopError via
+    pytest.raises.
     """
     stream = main_ns.ns["stream"]
     cap = _CapturingEmit(stop_after)
     main_ns.ns["emit"] = cap
     main_ns.ns["WINDOW_MS"] = _TEST_WINDOW_MS
-    main_ns.ns["gps"] = _FakeGPS(sentences)
     with pytest.raises(_StopLoopError):
-        stream()
+        stream(_FakeGPS(sentences))
     return cap.calls
 
 
@@ -90,13 +89,11 @@ def test_stream_emits_batch_with_sentences(main_ns: object) -> None:
 
 
 def test_stream_batch_contains_all_expected_sentences(main_ns: object) -> None:
-    # Increase WINDOW_MS so the inner loop runs enough ticks to read both.
     main_ns.ns["WINDOW_MS"] = 20
     cap = _CapturingEmit(1)
     main_ns.ns["emit"] = cap
-    main_ns.ns["gps"] = _FakeGPS([_GPRMC, _GPGGA])
     with pytest.raises(_StopLoopError):
-        main_ns.ns["stream"]()
+        main_ns.ns["stream"](_FakeGPS([_GPRMC, _GPGGA]))
     assert _GPRMC in cap.calls[0]["sentences"]
     assert _GPGGA in cap.calls[0]["sentences"]
     assert cap.calls[0]["count"] == 2
@@ -133,11 +130,10 @@ def test_stream_read_err_calls_status_read_err(main_ns: object) -> None:
             return None
 
     main_ns.ns["WINDOW_MS"] = _TEST_WINDOW_MS
-    main_ns.ns["gps"] = _OsErrorOnFirstCall()
     cap = _CapturingEmit(2)  # 1st call = read_err diag; 2nd = no_data after recovery
     main_ns.ns["emit"] = cap
     with pytest.raises(_StopLoopError):
-        main_ns.ns["stream"]()
+        main_ns.ns["stream"](_OsErrorOnFirstCall())
 
     diags = [c.get("diag") for c in cap.calls if "diag" in c]
     assert "read_err" in diags
@@ -159,10 +155,9 @@ def test_stream_recovers_and_continues_after_read_err(main_ns: object) -> None:
             return None
 
     main_ns.ns["WINDOW_MS"] = _TEST_WINDOW_MS
-    main_ns.ns["gps"] = _FailThenRecover()
     cap = _CapturingEmit(2)
     main_ns.ns["emit"] = cap
     with pytest.raises(_StopLoopError):
-        main_ns.ns["stream"]()
+        main_ns.ns["stream"](_FailThenRecover())
 
     assert main_ns.status.calls[-1] == "streaming"

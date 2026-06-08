@@ -3,7 +3,7 @@
 import pytest
 from fake_uart import FakeUART
 
-from atgm336h.atgm336h import GPS
+from atgm336h import GPS
 
 _GPRMC = b"$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A\r\n"
 _GPGGA = b"$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n"

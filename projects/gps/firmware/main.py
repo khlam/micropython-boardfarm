@@ -1,16 +1,34 @@
 """MCU-micropython firmware for the gps project: ATGM336H NMEA collection over UART.
 
 Reads every NMEA sentence that arrives in a 10-second window and emits them as a
-single JSON object. No I²C or bus scan — UART is always available; the LED goes
-straight from boot to streaming.
+single JSON object.
+
+LED colour map (boot_status_led):
+    white   - firmware alive, atgm336h package import about to run
+    orange  - atgm336h package missing from firmware (recompile needed)
+    cyan    - package imported, UART open in progress
+    magenta - UART open failed (wiring / pin issue)
+    green   - streaming normally
+    red     - transient readline() fault; recovers automatically
 """
 
 import time
 
 import ujson
 
-from atgm336h import gps
 from boot_status_led import status
+
+# Firmware is alive — light LED immediately before any hardware init.
+status.boot()
+
+# If the atgm336h package is not in the firmware, show orange and halt.
+# Orange here means: rebuild with `docker compose up --build pi-compile`.
+try:
+    from atgm336h import connect as _connect_gps
+except Exception:  # noqa: BLE001
+    status.no_device()
+    while True:
+        time.sleep_ms(500)
 
 # Duration of each collection window in milliseconds.
 WINDOW_MS = 10_000
@@ -19,8 +37,11 @@ WINDOW_MS = 10_000
 # and bounds busy-looping between readline() calls.
 _POLL_SLEEP_MS = 10
 
-# Boot settle time before entering the stream loop.
+# Boot settle time before opening the UART.
 _BOOT_PAUSE_MS = 300
+
+# Retry pause when the UART cannot be opened.
+_INIT_ERR_PAUSE_MS = 1_000
 
 
 def emit(obj: dict) -> None:
@@ -33,8 +54,11 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def stream() -> None:
+def stream(gps: object) -> None:
     """Collect NMEA sentences for WINDOW_MS, emit a batch, repeat forever.
+
+    Args:
+        gps: An object with a ``readline() -> str | None`` method.
 
     Each successful window emits::
 
@@ -76,10 +100,23 @@ def stream() -> None:
 
 
 def main() -> None:
-    """Run boot → stream. MicroPython entry point."""
-    status.boot()
+    """Run boot → UART init → stream. MicroPython entry point.
+
+    LED sequence: white → cyan (UART opening) → green (streaming).
+    On UART failure: cyan → magenta → white (retry).
+    """
     time.sleep_ms(_BOOT_PAUSE_MS)
-    stream()
+    while True:
+        status.i2c_init()  # cyan: attempting UART open
+        try:
+            gps = _connect_gps()
+        except Exception as err:  # noqa: BLE001
+            status.init_err()  # magenta: UART open failed
+            emit({"diag": "init_err", "err": str(err)})
+            time.sleep_ms(_INIT_ERR_PAUSE_MS)
+            status.boot()  # white: retrying
+            continue
+        stream(gps)
 
 
 main()

@@ -1,8 +1,9 @@
 """Host CPython pytest bootstrap for the gps project firmware.
 
 Exposes the `main_ns` fixture: an AST-loaded namespace with `emit`, `stream`,
-and `main` extracted from main.py, and with fakes for `time`, `status`, and
-`gps` injected so the streaming loop is exercisable without real hardware.
+and `main` extracted from main.py, and with fakes for `time` and `status`
+injected. GPS hardware is not injected globally — tests pass a _FakeGPS
+directly to stream() as an argument.
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
     """Parse main.py and exec constants + key functions in a fresh namespace.
 
     Import nodes and the trailing ``main()`` call are dropped so the loader
-    does not block in the streaming loop. Callers seed ``time``, ``status``,
-    and ``gps`` substitutes.
+    does not block in the streaming loop. Callers seed ``time`` and ``status``
+    substitutes; GPS is passed as a parameter to stream() in each test.
     """
     src = _FIRMWARE.read_text()
     tree = ast.parse(src)
@@ -45,8 +46,6 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
-        # Placeholder — tests replace this with a _FakeGPS instance.
-        "gps": None,
     }
     exec(code, ns)
     return ns
