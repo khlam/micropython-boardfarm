@@ -8,7 +8,7 @@ FastAPI service serves a live Plotly dashboard.
 ```
 distance-stream/
   firmware/main.py            chip-agnostic streaming loop, calls emit()
-  viz/static/index.html       Plotly line chart + distance readout
+  viz/static/index.html       Plotly raw + smoothed line chart + distance readout
   tests/                      host pytest for the emit() schema
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
@@ -45,8 +45,11 @@ real time.
 ## Notes
 - The firmware initialises I²C, finds the VL53L0X at `0x29`, then enters
   a streaming loop that prints one JSON line per sample
-  (`{"t": <ms>, "distance_mm": <int|null>}`) at ~50 Hz.
-  `distance_mm` is `null` when the sensor returns `>= 8190` (out of range).
+  (`{"t": <ms>, "distance_mm": <int|null>, "distance_mm_raw": <int|null>}`)
+  at ~50 Hz. `distance_mm` is the moving average (equal to the raw reading
+  until the window fills) and `distance_mm_raw` is the unfiltered reading; the
+  dashboard plots both. Both are `null` when the sensor returns `>= 8190`
+  (out of range).
 - A FastAPI container reads `/dev/ttyACM0`, fans the JSON lines out over
   a WebSocket, and serves the dashboard at `http://localhost:18501`.
 - LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)

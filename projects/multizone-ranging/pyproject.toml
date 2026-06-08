@@ -1,6 +1,6 @@
 [project]
 name = "multizone-ranging"
-version = "0.1.0"
+version = "0.2.0"
 description = "VL53L5CX 8×8 multizone ToF firmware streaming distance grids over serial JSON."
 requires-python = ">=3.12"
 dependencies = ["micropython-boardfarm>=0.5.0"]

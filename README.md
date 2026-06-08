@@ -34,13 +34,13 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 |   | VL53L8CX | Time-of-flight range |
 |   | PN532 | NFC |
 |   | ATGM336H | GPS |
-|   | QMC5883P | Magnetometer |
+| <img src="images/qmc5883p.jpg" alt="QMC5883P" width="25"> | [QMC5883P](firmware-packages/qmc5883p/) | Magnetometer |
 |   | I²C displays | Display |
 
 # Quickstart
 
-- [cpython-packages/ 💻](cpython-packages/) contains shared host-side CPython code.
-- [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython (**MCU**) code; the I²C bus, status LED, sensor drivers etc.
+- [cpython-packages/ 💻](cpython-packages/) contains shared CPython code. CPython runs on a computer, not on the MCU.
+- [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython code; the microcontroller's I²C bus, status LED, sensor drivers etc. Stubs enable tests to run with CPython.
 - [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
 
 **Makefile**
@@ -64,6 +64,28 @@ The following commands can be run from the project root directory. [projects/ �
 |---|---|
 | `docker compose up pytest --build --exit-code-from pytest` | Run all tests 🤞🙏 |
 | `docker compose run --rm pytest <path>` | Run a targeted subset, e.g. `/projects/distance-stream/tests` or `/firmware-packages/vl53l0x/tests -k status` 🐒 |
-| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml` 🤳🏻 |
+| `docker compose run --rm --build uv lock` | Refresh `uv.lock` from `pyproject.toml`. `--build` [rebuilds internal-package wheels](Dockerfile.host#L27) so floors, `boot_status_led>=0.2.0`, are re-checked 🤳🏻 |
 | `docker compose run --rm uv lock --upgrade` | Bump pinned versions 🫡 |
 
+# Versioning
+
+Each versioned scope — the repo root plus every `firmware-packages/*`,
+`cpython-packages/*`, and `projects/*` that carries a `pyproject.toml` — is versioned
+independently under [semantic versioning](https://semver.org). Any change to code or
+config inside a scope must raise that scope's `version`:
+
+| Bump | When |
+|---|---|
+| **PATCH** | Bug fixes and internal changes with no API or behaviour change. |
+| **MINOR** | Backward-compatible additions — new public API, or a new project feature. |
+| **MAJOR** | Breaking changes — incompatible API, runtime behaviour, or JSON output schema. |
+
+The new version must be **strictly greater** than the one on `main`; CI
+([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh) — the
+**version-check** guard described in [CI.md](CI.md)) rejects a commit that leaves a
+dirtied scope's version unchanged or lower.
+
+Workspace-level edits bump the **root** `pyproject.toml` rather than any nested package
+or project: the `uv.lock` lockfile, top-level `docs/` / `scripts/` / `tools/`, and a
+package's or project's own `tests/`. Build artifacts under `outputs/` (the `*.uf2` /
+`*.bin` images) never require a bump.

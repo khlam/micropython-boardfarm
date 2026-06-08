@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.5.0"
+version = "0.6.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,8 @@ dependencies = [
     "boot_status_led>=0.2.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
+    "qmc5883p>=0.1.0",
+    "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
@@ -20,29 +22,38 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/firmware-packages/mpu6050/tests",
+    "/firmware-packages/qmc5883p/tests",
+    "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
 
 [tool.uv.workspace]
 members = [
-    "cpython-packages/serial_over_web",
-    "cpython-packages/micropython_stubs",
-    "firmware-packages/boot_status_led",
-    "firmware-packages/i2c_bus",
-    "firmware-packages/mpu6050",
-    "firmware-packages/vl53l0x",
-    "firmware-packages/vl53l5cx",
+    "projects/*",
 ]
 
+# Internal packages resolve from a local flat index of wheels built by the
+# wheels stage in Dockerfile.host — not from workspace source overrides.
+# Resolving from an index is what makes uv honor the inter-package version
+# floors declared above; a workspace source would pin the local version and
+# silently discard them.
+[[tool.uv.index]]
+name = "internal"
+url = "file:///wheels"
+format = "flat"
+explicit = true   # only sources pinned to it use it; third-party stays on PyPI
+
 [tool.uv.sources]
-serial_over_web = { workspace = true }
-micropython_stubs = { workspace = true }
-boot_status_led = { workspace = true }
-i2c_bus = { workspace = true }
-mpu6050 = { workspace = true }
-vl53l0x = { workspace = true }
-vl53l5cx = { workspace = true }
+serial_over_web = { index = "internal" }
+micropython_stubs = { index = "internal" }
+boot_status_led = { index = "internal" }
+i2c_bus = { index = "internal" }
+mpu6050 = { index = "internal" }
+qmc5883p = { index = "internal" }
+smoothing = { index = "internal" }
+vl53l0x = { index = "internal" }
+vl53l5cx = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -66,6 +77,8 @@ test = [
     "boot_status_led",
     "i2c_bus",
     "mpu6050",
+    "qmc5883p",
+    "smoothing",
     "vl53l0x",
     "vl53l5cx",
     "pytest>=9.0.3",
@@ -73,19 +86,26 @@ test = [
     "httpx>=0.28.1",
 ]
 
-# Container mount paths.
+# Packages install from wheels into site-packages, so measure them by import
+# name (source_pkgs) rather than by source path. Project firmware is AST-loaded
+# from the bind-mounted /projects tree, so it stays a path source.
 [tool.coverage.run]
 branch = true
 source = [
-  "/work/firmware-packages/boot_status_led/boot_status_led",
-  "/work/firmware-packages/i2c_bus/i2c_bus",
-  "/work/firmware-packages/mpu6050/mpu6050",
-  "/work/firmware-packages/vl53l0x/vl53l0x",
-  "/work/firmware-packages/vl53l5cx/vl53l5cx",
+  "/projects/compass/firmware",
   "/projects/distance-stream/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
-  "/work/cpython-packages/serial_over_web/serial_over_web",
+]
+source_pkgs = [
+  "boot_status_led",
+  "i2c_bus",
+  "mpu6050",
+  "qmc5883p",
+  "smoothing",
+  "vl53l0x",
+  "vl53l5cx",
+  "serial_over_web",
 ]
 omit = [
   "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
@@ -252,6 +272,8 @@ known-first-party = [
   "boot_status_led",
   "i2c_bus",
   "mpu6050",
+  "qmc5883p",
+  "smoothing",
   "vl53l0x",
   "vl53l5cx",
   "serial_over_web",

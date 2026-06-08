@@ -11,7 +11,6 @@ import io
 import json
 import pathlib
 import sys
-from collections.abc import Callable
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 
@@ -21,8 +20,8 @@ _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 TOF_ADDRESS = 0x29
 
 
-def test_main_executes_init_then_streams_one_sample(monkeypatch):
-    for name, module in _build_stubs().items():
+def test_main_executes_init_then_streams_one_sample(monkeypatch, fake_status):
+    for name, module in _build_stubs(fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
     # Earlier tests load main.py via AST-exec, leaving an entry in sys.modules.
     monkeypatch.delitem(sys.modules, "main", raising=False)
@@ -43,22 +42,6 @@ def test_main_executes_init_then_streams_one_sample(monkeypatch):
 
 class _StopMainError(Exception):
     """Raised by the fake tof on the second read() to escape stream()."""
-
-
-class _Status:
-    """Records named status transitions invoked by main.py."""
-
-    def __init__(self) -> None:
-        self.calls = []
-
-    def __getattr__(self, name) -> Callable[[], None]:
-        if name.startswith("_"):
-            raise AttributeError(name)
-
-        def _rec() -> None:
-            self.calls.append(name)
-
-        return _rec
 
 
 class _Bus:
@@ -97,13 +80,12 @@ class _FakeVL53L0X:
         return 500
 
 
-def _build_stubs():
+def _build_stubs(status_stub):
     """Build SimpleNamespace stubs matching main.py's module-level imports."""
     time_stub = SimpleNamespace(
         sleep_ms=lambda _ms: None,
         ticks_ms=lambda: 0,
     )
-    status_stub = _Status()
     boot_status_led_stub = SimpleNamespace(status=status_stub)
     i2c_bus_stub = SimpleNamespace(soft_i2c=_Bus())
     vl53l0x_stub = SimpleNamespace(VL53L0X=_FakeVL53L0X)

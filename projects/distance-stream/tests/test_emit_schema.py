@@ -2,8 +2,9 @@
 
 Asserts that:
   - every line is `ujson.dumps(obj)` with no extra prints
-  - `distance_mm` is `null` (None) when ToF reports OUT_OF_RANGE_MM (≥8190)
-  - `distance_mm` is an int mm otherwise
+  - `distance_mm` (smoothed) and `distance_mm_raw` are both `null` (None) when
+    the ToF reports OUT_OF_RANGE_MM (≥8190)
+  - both are int mm otherwise
 
 The viz parser at projects/distance-stream/viz/app.py drops any line that
 isn't valid JSON, so any regression here silently breaks the dashboard.
@@ -18,12 +19,14 @@ import ujson
 
 def test_emit_distance_int():
     emit = _capture_emit()
-    assert _run(emit, {"t": 100, "distance_mm": 412}) == {"t": 100, "distance_mm": 412}
+    sample = {"t": 100, "distance_mm": 412, "distance_mm_raw": 415}
+    assert _run(emit, sample) == sample
 
 
 def test_emit_out_of_range_is_null():
     emit = _capture_emit()
-    assert _run(emit, {"t": 100, "distance_mm": None}) == {"t": 100, "distance_mm": None}
+    sample = {"t": 100, "distance_mm": None, "distance_mm_raw": None}
+    assert _run(emit, sample) == sample
 
 
 def test_emit_diag_lines_are_valid_json():

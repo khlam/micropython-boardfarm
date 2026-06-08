@@ -167,30 +167,35 @@
         zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
         rangemode: "tozero",
       },
-      showlegend: false,
+      legend: { orientation: "h", x: 0, y: 1.08, font: { color: AXIS_COLOR } },
+      showlegend: true,
     };
-    const traces = [{
-      x: [], y: [], mode: "lines", name: "distance",
-      line: { color: "#3b82f6", width: 1.5 },
-      hovertemplate: "%{y} mm<extra></extra>",
-    }];
+    // Raw drawn first (faint, behind); smoothed on top (bold).
+    const traces = [
+      { x: [], y: [], mode: "lines", name: "raw",
+        line: { color: "#6b7280", width: 1 },
+        hovertemplate: "raw %{y} mm<extra></extra>" },
+      { x: [], y: [], mode: "lines", name: "smoothed",
+        line: { color: "#3b82f6", width: 1.5 },
+        hovertemplate: "smoothed %{y} mm<extra></extra>" },
+    ];
     Plotly.newPlot("plot-distance", traces, layout, config);
 
     let t0 = null;
     let totalCount = 0;
     let rateCount = 0;
     let rateAt = performance.now();
-    let pending = { t: [], d: [] };
+    let pending = { t: [], raw: [], smoothed: [] };
     let frameScheduled = false;
     let lastDistance = null;
 
     function flushPending() {
       if (pending.t.length === 0) return;
       Plotly.extendTraces("plot-distance", {
-        x: [pending.t],
-        y: [pending.d],
-      }, [0], MAX_POINTS);
-      pending = { t: [], d: [] };
+        x: [pending.t, pending.t],
+        y: [pending.raw, pending.smoothed],
+      }, [0, 1], MAX_POINTS);
+      pending = { t: [], raw: [], smoothed: [] };
       const el = $("distance");
       if (lastDistance === null) {
         el.textContent = "Out of range";
@@ -240,9 +245,10 @@
       if (t0 === null || obj.t < t0) t0 = obj.t;
       const tRel = (obj.t - t0) / 1000;
 
-      // null distance = out-of-range; pushing null leaves a gap in the chart.
+      // null distance = out-of-range; pushing null leaves a gap in both traces.
       pending.t.push(tRel);
-      pending.d.push(obj.distance_mm);
+      pending.raw.push(obj.distance_mm_raw ?? null);
+      pending.smoothed.push(obj.distance_mm);
       lastDistance = obj.distance_mm;
 
       totalCount++;

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QMC5883P — Live Compass</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --dim: #71717a;
+      --x: #3b82f6;
+      --y: #22c55e;
+      --z: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .err-msg { font-size: 12px; color: #fca5a5; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+      margin-bottom: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .compass-row {
+      display: flex; gap: 24px; align-items: center; flex-wrap: wrap;
+    }
+    .compass-svg { width: 220px; height: 220px; flex-shrink: 0; }
+    .compass-svg .ring { fill: none; stroke: var(--border); stroke-width: 1; }
+    .compass-svg .tick { stroke: var(--muted); stroke-width: 1; }
+    .compass-svg .label { fill: var(--muted); font-size: 13px; font-weight: 500;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    .compass-svg .label.cardinal { fill: var(--text); }
+    .compass-svg .lubber { fill: #f87171; }
+    .compass-svg .pivot { fill: var(--text); }
+    .readout {
+      display: flex; flex-direction: column; gap: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .readout-value {
+      font-size: 64px; font-weight: 300; line-height: 1.1;
+      color: var(--text);
+    }
+    .readout-cardinal {
+      font-size: 18px; color: var(--muted); letter-spacing: 0.08em;
+    }
+    .axes {
+      display: flex; gap: 16px; margin-top: 8px;
+      font-variant-numeric: tabular-nums; font-size: 13px;
+    }
+    .axes b { font-weight: 500; }
+    .axes .ax-x b { color: var(--x); }
+    .axes .ax-y b { color: var(--y); }
+    .axes .ax-z b { color: var(--z); }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>QMC5883P — Live Compass</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Rate: <b id="rate">—</b></span>
+    <span class="stat">Samples: <b id="count">0</b></span>
+    <span id="err" class="err-msg"></span>
+  </div>
+
+  <div class="panel">
+    <h2>Heading</h2>
+    <div class="compass-row">
+      <svg class="compass-svg" viewBox="-110 -110 220 220">
+        <!-- Rotating rose: rings, ticks, and cardinal labels rotate by -heading_deg
+             so N always points toward magnetic north. -->
+        <g id="rose" transform="rotate(0)">
+          <circle class="ring" r="100"></circle>
+          <circle class="ring" r="86"></circle>
+          <g id="ticks"></g>
+          <text class="label cardinal" x="0"  y="-90" text-anchor="middle" dominant-baseline="central">N</text>
+          <text class="label cardinal" x="90" y="0"   text-anchor="middle" dominant-baseline="central">E</text>
+          <text class="label cardinal" x="0"  y="90"  text-anchor="middle" dominant-baseline="central">S</text>
+          <text class="label cardinal" x="-90" y="0"  text-anchor="middle" dominant-baseline="central">W</text>
+        </g>
+        <!-- Fixed lubber line at top: marks the device's heading direction. -->
+        <polygon class="lubber" points="0,-100 -7,-110 7,-110"></polygon>
+        <circle class="pivot" r="4"></circle>
+      </svg>
+      <div class="readout">
+        <span class="readout-value" id="heading">—°</span>
+        <span class="readout-cardinal" id="cardinal">—</span>
+        <div class="axes">
+          <span class="ax-x">X <b id="ax-x">—</b></span>
+          <span class="ax-y">Y <b id="ax-y">—</b></span>
+          <span class="ax-z">Z <b id="ax-z">—</b></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Magnetic field — raw + smoothed X / Y / Z (LSB counts)</h2>
+    <div id="plot-axes" style="height: 360px;"></div>
+  </div>
+
+  <script>
+  (function () {
+    const MAX_POINTS = 1500;       // ~30 s at 50 Hz
+    const RECONNECT_MS = 250;
+    const CARDINALS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
+                       "S","SSW","SW","WSW","W","WNW","NW","NNW"];
+
+    const $ = (id) => document.getElementById(id);
+
+    const PANEL_BG = "#131722";
+    const AXIS_COLOR = "#a1a1aa";
+    const GRID_COLOR = "#1f2937";
+    const config = { displayModeBar: false, responsive: true };
+
+    // Render minor ticks (16 around the dial — every 22.5°).
+    (function renderTicks() {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const ticks = $("ticks");
+      for (let i = 0; i < 16; i++) {
+        const angle = (i * 22.5) * Math.PI / 180;
+        const isMajor = i % 4 === 0;
+        const r1 = isMajor ? 96 : 98;
+        const r2 = 100;
+        const line = document.createElementNS(svgNS, "line");
+        line.setAttribute("class", "tick");
+        line.setAttribute("x1", (Math.sin(angle) * r1).toFixed(2));
+        line.setAttribute("y1", (-Math.cos(angle) * r1).toFixed(2));
+        line.setAttribute("x2", (Math.sin(angle) * r2).toFixed(2));
+        line.setAttribute("y2", (-Math.cos(angle) * r2).toFixed(2));
+        ticks.appendChild(line);
+      }
+    })();
+
+    const layout = {
+      paper_bgcolor: PANEL_BG,
+      plot_bgcolor: PANEL_BG,
+      font: { color: AXIS_COLOR, size: 11 },
+      margin: { l: 60, r: 10, t: 6, b: 32 },
+      xaxis: {
+        title: "t (s)", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+      },
+      yaxis: {
+        title: "LSB", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+      },
+      legend: { orientation: "h", x: 0, y: 1.08, font: { color: AXIS_COLOR } },
+      showlegend: true,
+    };
+    // Per axis: raw drawn first (faint, behind) then smoothed on top (bold).
+    const AXES = [
+      { name: "X", color: "#3b82f6" },
+      { name: "Y", color: "#22c55e" },
+      { name: "Z", color: "#ef4444" },
+    ];
+    const traces = [];
+    AXES.forEach((ax) => {
+      traces.push(
+        { x: [], y: [], mode: "lines", name: ax.name + " raw", opacity: 0.3,
+          line: { color: ax.color, width: 1 },
+          hovertemplate: ax.name + " raw %{y}<extra></extra>" },
+        { x: [], y: [], mode: "lines", name: ax.name,
+          line: { color: ax.color, width: 1.75 },
+          hovertemplate: ax.name + " %{y}<extra></extra>" },
+      );
+    });
+    Plotly.newPlot("plot-axes", traces, layout, config);
+
+    let t0 = null;
+    let totalCount = 0;
+    let rateCount = 0;
+    let rateAt = performance.now();
+    const emptyPending = () => ({
+      t: [], xr: [], xs: [], yr: [], ys: [], zr: [], zs: [],
+    });
+    let pending = emptyPending();
+    let frameScheduled = false;
+    let lastSample = null;
+
+    function flushPending() {
+      if (pending.t.length === 0) return;
+      const t = pending.t;
+      // Trace order matches AXES expansion: [X raw, X, Y raw, Y, Z raw, Z].
+      Plotly.extendTraces("plot-axes", {
+        x: [t, t, t, t, t, t],
+        y: [pending.xr, pending.xs, pending.yr, pending.ys, pending.zr, pending.zs],
+      }, [0, 1, 2, 3, 4, 5], MAX_POINTS);
+      pending = emptyPending();
+      if (lastSample) {
+        const h = lastSample.heading_deg;
+        $("heading").textContent = h.toFixed(1) + "°";
+        $("cardinal").textContent = CARDINALS[Math.round(h / 22.5) % 16];
+        $("ax-x").textContent = Math.round(lastSample.xs);
+        $("ax-y").textContent = Math.round(lastSample.ys);
+        $("ax-z").textContent = Math.round(lastSample.zs);
+        $("rose").setAttribute("transform", "rotate(" + (-h).toFixed(2) + ")");
+      }
+    }
+
+    function scheduleFrame() {
+      if (frameScheduled) return;
+      frameScheduled = true;
+      requestAnimationFrame(() => {
+        frameScheduled = false;
+        flushPending();
+      });
+    }
+
+    function setStatus(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        setStatus(true, obj.port, null);
+        // Firmware may have rebooted — restart our relative-time origin.
+        t0 = null;
+        return;
+      }
+      if (obj.event === "disconnected") {
+        setStatus(false, obj.port, obj.error);
+        return;
+      }
+      if (obj.diag !== undefined) return;
+      if (!("heading_deg" in obj)) return;
+
+      if (t0 === null || obj.t < t0) t0 = obj.t;
+      const tRel = (obj.t - t0) / 1000;
+
+      pending.t.push(tRel);
+      pending.xr.push(obj.x);
+      pending.xs.push(obj.xs);
+      pending.yr.push(obj.y);
+      pending.ys.push(obj.ys);
+      pending.zr.push(obj.z);
+      pending.zs.push(obj.zs);
+      lastSample = obj;
+
+      totalCount++;
+      rateCount++;
+      $("count").textContent = totalCount;
+
+      const now = performance.now();
+      const dt = now - rateAt;
+      if (dt >= 1000) {
+        $("rate").textContent = (rateCount * 1000 / dt).toFixed(1) + " Hz";
+        rateCount = 0;
+        rateAt = now;
+      }
+
+      scheduleFrame();
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose will fire and reconnect */ };
+    }
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
