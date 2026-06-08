@@ -43,14 +43,37 @@ _BOOT_PAUSE_MS = 300
 # Retry pause when the UART cannot be opened.
 _INIT_ERR_PAUSE_MS = 1_000
 
+# Best-effort TX buffer check: poll sys.stdout before each print() so a full
+# USB-CDC ring buffer never stalls the collection loop.  uselect is a
+# MicroPython built-in absent on CPython; NameError covers the case where the
+# test conftest strips the import statements from the AST before exec().
+try:
+    import sys as _sys
+
+    import uselect as _uselect
+
+    _poll = _uselect.poll()
+    _poll.register(_sys.stdout, _uselect.POLLOUT)
+    _USELECT_OK = True
+except (ImportError, AttributeError, NameError):
+    _USELECT_OK = False
+    _poll = None
+
 
 def emit(obj: dict) -> None:
     """Print one line of compact JSON to the serial port.
 
-    All firmware output must go through this helper; raw ``print()`` calls
-    elsewhere pollute the serial stream and are silently dropped by the viz
-    JSON parser.
+    Checks that the USB-CDC transmit buffer has space before writing;
+    silently drops the line if the host is not consuming output so the
+    collection loop is never stalled. All firmware output must go through
+    this helper; raw ``print()`` calls elsewhere pollute the serial stream
+    and are silently dropped by the viz JSON parser.
+
+    Args:
+        obj: Serialisable dict to emit as a single JSON line.
     """
+    if _USELECT_OK and not _poll.poll(0):
+        return
     print(ujson.dumps(obj))
 
 

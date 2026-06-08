@@ -21,10 +21,10 @@
       background: var(--bg);
       color: var(--text);
     }
-    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
-    .status {
+    h1 { margin: 0; font-size: 20px; font-weight: 500; }
+    .header {
       display: flex; gap: 16px; align-items: center;
-      margin-bottom: 16px; flex-wrap: wrap;
+      margin-bottom: 12px; flex-wrap: wrap;
     }
     .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
     .pill.ok  { background: #14532d; color: #86efac; }
@@ -32,124 +32,482 @@
     .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .stat b { color: var(--text); font-weight: 500; }
     .err-msg { font-size: 12px; color: #fca5a5; }
-    .row {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-      margin-bottom: 16px; align-items: stretch;
-    }
-    @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
     .panel {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 6px; padding: 12px;
+      margin-bottom: 16px;
     }
     .panel h2 {
       margin: 0 0 8px; font-size: 13px; font-weight: 500;
       color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
     }
-    .sentence-log {
+    /* Fix badge */
+    .fix-badge {
+      display: inline-block;
+      padding: 4px 12px; border-radius: 4px;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+    }
+    .fix-badge.nofix { background: #7f1d1d; color: #fca5a5; }
+    .fix-badge.fix   { background: #14532d; color: #86efac; }
+    .fix-badge.dgps  { background: #164e63; color: #67e8f9; }
+    /* Current values strip */
+    .current-values {
+      display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+      margin-bottom: 0;
+    }
+    /* 2-column chart grid */
+    .chart-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+      margin-bottom: 16px;
+    }
+    .chart-grid .panel { margin-bottom: 0; }
+    @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
+    /* NMEA log */
+    .nmea-log {
       background: var(--bg); border: 1px solid var(--border);
       border-radius: 4px; padding: 10px;
       font-family: "Menlo", "Consolas", "Courier New", monospace;
-      font-size: 12px; line-height: 1.6; color: #86efac;
-      height: 340px; overflow-y: auto; white-space: pre;
-      word-break: break-all;
-    }
-    .sentence-log .dim { color: var(--dim); }
-    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-    .metric {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 6px; padding: 10px;
-    }
-    .metric-label { font-size: 12px; color: var(--muted); }
-    .metric-value {
-      font-size: 24px; font-weight: 500; margin-top: 4px;
-      font-variant-numeric: tabular-nums;
+      font-size: 12px; line-height: 1.6;
+      height: 280px; overflow-y: auto;
     }
   </style>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLEo=" crossorigin=""></script>
+  <style>
+    /* Override Leaflet's default light focus ring inside our dark panel */
+    .leaflet-container { background: #0e1117; }
+    .leaflet-bar a, .leaflet-bar a:hover { background: #1f2937; color: #e6e6e6; border-color: #374151; }
+    .leaflet-bar a:hover { background: #374151; }
+  </style>
 </head>
 <body>
-  <h1>ATGM336H GPS — Live NMEA</h1>
-  <div class="status">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>ATGM336H GPS — Live</h1>
     <span id="conn" class="pill err">Disconnected</span>
     <span class="stat">Port: <b id="port">—</b></span>
-    <span class="stat">Windows: <b id="win-count">0</b></span>
-    <span class="stat">Last window: <b id="last-count">—</b> sentences</span>
+    <span class="stat">UTC: <b id="utc-time">—</b></span>
+    <span class="stat">Window: <b id="win-num">0</b></span>
     <span id="err" class="err-msg"></span>
   </div>
 
-  <div class="row">
-    <div class="panel">
-      <h2>Sentences per 10-second window</h2>
-      <div id="plot-count" style="height: 340px;"></div>
-    </div>
-    <div class="panel">
-      <h2>Latest window — NMEA sentences</h2>
-      <div class="sentence-log" id="sentence-log"><span class="dim">Waiting for data…</span></div>
+  <!-- Current values -->
+  <div class="panel">
+    <div class="current-values">
+      <span id="fix-badge" class="fix-badge nofix">NO FIX</span>
+      <span class="stat">Lat: <b id="stat-lat">—</b></span>
+      <span class="stat">Lon: <b id="stat-lon">—</b></span>
+      <span class="stat">Alt: <b id="stat-alt">—</b></span>
+      <span class="stat">Sats: <b id="stat-sats-use">0</b> used / <b id="stat-sats-view">0</b> in view</span>
+      <span class="stat">HDOP: <b id="stat-hdop">—</b></span>
     </div>
   </div>
 
-  <div class="panel" style="margin-bottom: 16px;">
-    <h2>Window stats</h2>
-    <div class="metrics">
-      <div class="metric">
-        <div class="metric-label">Total windows received</div>
-        <div class="metric-value" id="stat-windows">0</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Total sentences received</div>
-        <div class="metric-value" id="stat-sentences">0</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Empty windows (no data)</div>
-        <div class="metric-value" id="stat-empty">0</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Max sentences in a window</div>
-        <div class="metric-value" id="stat-max">—</div>
-      </div>
+  <!-- 4 charts -->
+  <div class="chart-grid">
+    <div class="panel">
+      <h2>Satellites Tracked</h2>
+      <div id="plot-sats" style="height:260px;"></div>
     </div>
+    <div class="panel">
+      <h2>DOP Values</h2>
+      <div id="plot-dop" style="height:260px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Signal Strength — Current Window</h2>
+      <div id="plot-snr" style="height:260px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Sentences per Window</h2>
+      <div id="plot-count" style="height:260px;"></div>
+    </div>
+  </div>
+
+  <!-- Map (hidden until first GPS fix) -->
+  <div id="map-panel" class="panel" style="display:none;">
+    <h2>Live Position</h2>
+    <div id="map" style="height:360px; border-radius:4px;"></div>
+  </div>
+
+  <!-- NMEA log -->
+  <div class="panel" style="margin-bottom:0;">
+    <h2>NMEA Log — Latest Window</h2>
+    <div id="nmea-log" class="nmea-log"><span style="color:var(--dim)">Waiting for data…</span></div>
   </div>
 
   <script>
   (function () {
-    const MAX_WINDOWS = 120;   // keep ~20 minutes of history in the bar chart
+    const MAX_WINDOWS = 120;
     const RECONNECT_MS = 250;
 
     const $ = (id) => document.getElementById(id);
 
-    const PANEL_BG = "#131722";
+    // ── Plotly shared config ──────────────────────────────────────────────────
+
+    const PANEL_BG   = "#131722";
     const AXIS_COLOR = "#a1a1aa";
     const GRID_COLOR = "#1f2937";
-    const config = { displayModeBar: false, responsive: true };
+    const plotConfig = { displayModeBar: false, responsive: true };
 
-    const barLayout = {
+    function baseLayout(xTitle, yTitle) {
+      return {
+        paper_bgcolor: PANEL_BG,
+        plot_bgcolor:  PANEL_BG,
+        font:   { color: AXIS_COLOR, size: 11 },
+        margin: { l: 50, r: 10, t: 6, b: 40 },
+        xaxis: {
+          title: xTitle, gridcolor: GRID_COLOR,
+          zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        },
+        yaxis: {
+          title: yTitle, gridcolor: GRID_COLOR,
+          zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+          rangemode: "tozero",
+        },
+        legend: {
+          orientation: "h", x: 0, y: 1.12,
+          font: { color: AXIS_COLOR, size: 10 },
+        },
+        showlegend: true,
+      };
+    }
+
+    // SNR layout stored at closure scope so Plotly.react reuses it
+    const snrLayout = {
       paper_bgcolor: PANEL_BG,
-      plot_bgcolor: PANEL_BG,
-      font: { color: AXIS_COLOR, size: 11 },
-      margin: { l: 50, r: 10, t: 6, b: 40 },
+      plot_bgcolor:  PANEL_BG,
+      font:   { color: AXIS_COLOR, size: 11 },
+      margin: { l: 60, r: 10, t: 6, b: 40 },
       xaxis: {
-        title: "Window #", gridcolor: GRID_COLOR,
-        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        title: "SNR (dB)", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR, rangemode: "tozero",
       },
       yaxis: {
-        title: "Sentences", gridcolor: GRID_COLOR,
+        title: "", gridcolor: GRID_COLOR,
         zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
-        rangemode: "tozero",
+        automargin: true,
       },
-      bargap: 0.15,
+      barmode: "overlay",
+      legend: {
+        orientation: "h", x: 0, y: 1.12,
+        font: { color: AXIS_COLOR, size: 10 },
+      },
+      showlegend: true,
     };
 
+    // ── Chart initialization ──────────────────────────────────────────────────
+
+    Plotly.newPlot("plot-sats", [
+      {
+        type: "scatter", mode: "lines",
+        name: "In Use",
+        x: [], y: [],
+        line: { color: "#22c55e", width: 1.5 },
+        hovertemplate: "Window %{x}<br>%{y} in use<extra></extra>",
+      },
+      {
+        type: "scatter", mode: "lines",
+        name: "In View",
+        x: [], y: [],
+        line: { color: "#3b82f6", width: 1.5 },
+        hovertemplate: "Window %{x}<br>%{y} in view<extra></extra>",
+      },
+    ], baseLayout("Window #", "Satellites"), plotConfig);
+
+    const dopLayout = baseLayout("Window #", "DOP");
+    dopLayout.annotations = [{
+      text: "lower = better accuracy",
+      xref: "paper", yref: "paper",
+      x: 1, y: 1.02, xanchor: "right", yanchor: "bottom",
+      showarrow: false,
+      font: { color: AXIS_COLOR, size: 10 },
+    }];
+    Plotly.newPlot("plot-dop", [
+      {
+        type: "scatter", mode: "lines",
+        name: "HDOP",
+        x: [], y: [],
+        line: { color: "#fde68a", width: 1.5 },
+        hovertemplate: "Window %{x}<br>HDOP %{y:.1f}<extra></extra>",
+      },
+      {
+        type: "scatter", mode: "lines",
+        name: "VDOP",
+        x: [], y: [],
+        line: { color: "#fb923c", width: 1.5 },
+        hovertemplate: "Window %{x}<br>VDOP %{y:.1f}<extra></extra>",
+      },
+      {
+        type: "scatter", mode: "lines",
+        name: "PDOP",
+        x: [], y: [],
+        line: { color: "#ef4444", width: 1.5 },
+        hovertemplate: "Window %{x}<br>PDOP %{y:.1f}<extra></extra>",
+      },
+    ], dopLayout, plotConfig);
+
+    Plotly.newPlot("plot-snr", [], snrLayout, plotConfig);
+
+    const countLayout = Object.assign(baseLayout("Window #", "Sentences"), {
+      showlegend: false, bargap: 0.15,
+    });
     Plotly.newPlot("plot-count", [{
       type: "bar",
       x: [], y: [],
       marker: { color: "#22c55e", opacity: 0.85 },
       hovertemplate: "Window %{x}<br>%{y} sentences<extra></extra>",
-    }], barLayout, config);
+    }], countLayout, plotConfig);
+
+    // ── NMEA parsing ──────────────────────────────────────────────────────────
+
+    function parseGGA(fields) {
+      const fixQuality = parseInt(fields[6], 10);
+      const satsInUse  = parseInt(fields[7], 10);
+      const hdop       = parseFloat(fields[8]);
+
+      const rawTime = fields[1];
+      let time = null;
+      if (rawTime && rawTime.length >= 6) {
+        time = rawTime.slice(0, 2) + ":" + rawTime.slice(2, 4) + ":" + rawTime.slice(4, 6);
+      }
+
+      let lat = null, lon = null, altitude = null;
+      const fq = isNaN(fixQuality) ? 0 : fixQuality;
+      if (fq > 0 && fields[2] && fields[4]) {
+        const latRaw = fields[2], latHem = fields[3];
+        const lonRaw = fields[4], lonHem = fields[5];
+        const latDeg = parseFloat(latRaw.slice(0, 2));
+        const latMin = parseFloat(latRaw.slice(2));
+        lat = (latDeg + latMin / 60) * (latHem === "S" ? -1 : 1);
+        const lonDeg = parseFloat(lonRaw.slice(0, 3));
+        const lonMin = parseFloat(lonRaw.slice(3));
+        lon = (lonDeg + lonMin / 60) * (lonHem === "W" ? -1 : 1);
+        if (fields[9]) altitude = parseFloat(fields[9]);
+      }
+
+      return {
+        fixQuality: fq,
+        satsInUse:  isNaN(satsInUse) ? 0 : satsInUse,
+        hdop:       isNaN(hdop) ? null : hdop,
+        time, lat, lon,
+        altitude:   (altitude !== null && !isNaN(altitude)) ? altitude : null,
+      };
+    }
+
+    function parseGSA(fields) {
+      // VDOP is at index 17; checksum is on index 18 (system ID field) — no strip needed,
+      // but guard anyway in case a non-extended variant puts checksum directly on field 17.
+      const vdopRaw = fields[17] ? fields[17].split("*")[0] : "";
+      const pdop = parseFloat(fields[15]);
+      const hdop = parseFloat(fields[16]);
+      const vdop = parseFloat(vdopRaw);
+      const fixType = parseInt(fields[2], 10);
+      return {
+        fixType: isNaN(fixType) ? 1 : fixType,
+        pdop: isNaN(pdop) ? null : pdop,
+        hdop: isNaN(hdop) ? null : hdop,
+        vdop: isNaN(vdop) ? null : vdop,
+      };
+    }
+
+    function parseGSV(fields, constellation) {
+      const msgNum    = parseInt(fields[1], 10);
+      const totalSats = parseInt(fields[3], 10);
+      const satellites = [];
+      for (let i = 4; i + 3 < fields.length; i += 4) {
+        const prn    = fields[i];
+        const snrRaw = fields[i + 3] ? fields[i + 3].split("*")[0] : "";
+        if (!prn || snrRaw === "") continue;
+        const snr = parseInt(snrRaw, 10);
+        if (isNaN(snr)) continue;
+        satellites.push({ prn, snr, constellation });
+      }
+      return {
+        msgNum,
+        totalSats: isNaN(totalSats) ? 0 : totalSats,
+        satellites,
+      };
+    }
+
+    function parseWindow(sentences) {
+      let fixQuality = 0, satsInUse = 0, hdop = null;
+      let vdop = null, pdop = null;
+      let time = null, lat = null, lon = null, altitude = null;
+      let satsInView = 0;
+      const allSatellites = [];
+      const viewCounted = { GPS: false, BeiDou: false };
+
+      for (const raw of sentences) {
+        const s = raw.trim();
+        if (!s.startsWith("$")) continue;
+        const fields = s.split(",");
+        const type = fields[0];
+
+        if (type === "$GNGGA") {
+          const r = parseGGA(fields);
+          fixQuality = r.fixQuality;
+          satsInUse  = r.satsInUse;
+          if (r.hdop !== null) hdop = r.hdop;
+          if (r.time !== null) time = r.time;
+          if (r.lat  !== null) lat  = r.lat;
+          if (r.lon  !== null) lon  = r.lon;
+          if (r.altitude !== null) altitude = r.altitude;
+
+        } else if (type === "$GNGSA") {
+          const r = parseGSA(fields);
+          if (r.hdop !== null) hdop = r.hdop;
+          if (r.vdop !== null) vdop = r.vdop;
+          if (r.pdop !== null) pdop = r.pdop;
+
+        } else if (type === "$GPGSV") {
+          const r = parseGSV(fields, "GPS");
+          if (r.msgNum === 1 && !viewCounted.GPS) {
+            satsInView += r.totalSats;
+            viewCounted.GPS = true;
+          }
+          allSatellites.push(...r.satellites);
+
+        } else if (type === "$BDGSV") {
+          const r = parseGSV(fields, "BeiDou");
+          if (r.msgNum === 1 && !viewCounted.BeiDou) {
+            satsInView += r.totalSats;
+            viewCounted.BeiDou = true;
+          }
+          allSatellites.push(...r.satellites);
+
+        } else if (type === "$GNZDA" && time === null) {
+          const rawTime = fields[1];
+          if (rawTime && rawTime.length >= 6) {
+            time = rawTime.slice(0, 2) + ":" + rawTime.slice(2, 4) + ":" + rawTime.slice(4, 6);
+          }
+        }
+      }
+
+      // Sort satellites by SNR descending so strongest signals appear at the top
+      allSatellites.sort((a, b) => b.snr - a.snr);
+
+      return { fixQuality, satsInUse, satsInView, hdop, vdop, pdop, time, lat, lon, altitude, satellites: allSatellites };
+    }
+
+    // ── Render helpers ────────────────────────────────────────────────────────
+
+    const SENTENCE_COLORS = {
+      "$GNGGA": "#60a5fa",
+      "$GNRMC": "#86efac",
+      "$GNGSA": "#fde68a",
+      "$GPGSV": "#c4b5fd",
+      "$BDGSV": "#c4b5fd",
+      "$GNZDA": "#67e8f9",
+    };
+
+    function renderNmeaLog(sentences) {
+      const log = $("nmea-log");
+      const frag = document.createDocumentFragment();
+      for (const s of sentences) {
+        const type = s.split(",")[0];
+        const line = document.createElement("div");
+        line.style.color = SENTENCE_COLORS[type] || "var(--dim)";
+        line.textContent = s;
+        frag.appendChild(line);
+      }
+      log.textContent = "";
+      log.appendChild(frag);
+      log.scrollTop = 0;
+    }
+
+    function updateSnrChart(satellites) {
+      const gpsSats = satellites.filter((s) => s.constellation === "GPS");
+      const bdSats  = satellites.filter((s) => s.constellation === "BeiDou");
+      const traces  = [];
+
+      if (gpsSats.length) {
+        traces.push({
+          type: "bar", orientation: "h",
+          name: "GPS",
+          x: gpsSats.map((s) => s.snr),
+          y: gpsSats.map((s) => "GPS-" + s.prn),
+          marker: { color: "#3b82f6" },
+          hovertemplate: "%{y}: %{x} dB<extra>GPS</extra>",
+        });
+      }
+      if (bdSats.length) {
+        traces.push({
+          type: "bar", orientation: "h",
+          name: "BeiDou",
+          x: bdSats.map((s) => s.snr),
+          y: bdSats.map((s) => "BD-" + s.prn),
+          marker: { color: "#fb923c" },
+          hovertemplate: "%{y}: %{x} dB<extra>BeiDou</extra>",
+        });
+      }
+      if (!traces.length) {
+        traces.push({ type: "bar", orientation: "h", x: [], y: [], name: "No signal" });
+      }
+
+      Plotly.react("plot-snr", traces, snrLayout, plotConfig);
+    }
+
+    // ── Map ───────────────────────────────────────────────────────────────────
+
+    const MAX_TRACK = 500;   // positions kept in the polyline
+    let leafletMap  = null;
+    let posMarker   = null;
+    let trackLine   = null;
+    let trackCoords = [];
+
+    const markerIcon = L.divIcon({
+      className: "",
+      html: '<div style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #fff;box-shadow:0 0 6px #22c55e88;"></div>',
+      iconSize:   [14, 14],
+      iconAnchor: [7, 7],
+      popupAnchor:[0, -10],
+    });
+
+    function initMap(lat, lon) {
+      $("map-panel").style.display = "";
+      leafletMap = L.map("map", { zoomControl: true }).setView([lat, lon], 15);
+
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 19,
+      }).addTo(leafletMap);
+
+      trackLine = L.polyline([], { color: "#22c55e", weight: 2, opacity: 0.7 }).addTo(leafletMap);
+      posMarker = L.marker([lat, lon], { icon: markerIcon }).addTo(leafletMap);
+    }
+
+    function updateMap(lat, lon, fixQuality, hdop, altitude) {
+      if (fixQuality === 0 || lat === null || lon === null) return;
+
+      if (!leafletMap) {
+        initMap(lat, lon);
+      } else {
+        posMarker.setLatLng([lat, lon]);
+        leafletMap.panTo([lat, lon]);
+      }
+
+      // Update popup with current fix details
+      const altStr  = altitude !== null ? altitude.toFixed(1) + " m" : "—";
+      const hdopStr = hdop     !== null ? hdop.toFixed(1)            : "—";
+      const typeStr = fixQuality === 2 ? "DGPS" : "GPS";
+      posMarker.bindPopup(
+        "<b>" + typeStr + " Fix</b><br>" +
+        lat.toFixed(6) + ", " + lon.toFixed(6) + "<br>" +
+        "Alt: " + altStr + " &nbsp; HDOP: " + hdopStr,
+        { className: "map-popup" }
+      );
+
+      // Extend track polyline
+      trackCoords.push([lat, lon]);
+      if (trackCoords.length > MAX_TRACK) trackCoords.shift();
+      trackLine.setLatLngs(trackCoords);
+    }
+
+    // ── State & update logic ──────────────────────────────────────────────────
 
     let winNum = 0;
-    let totalSentences = 0;
-    let emptyWindows = 0;
-    let maxSentences = 0;
 
     function setStatus(connected, port, error) {
       const pill = $("conn");
@@ -159,49 +517,71 @@
       $("err").textContent = error || "";
     }
 
-    function renderSentences(sentences) {
-      const log = $("sentence-log");
-      log.textContent = sentences.join("\n");
-      log.scrollTop = 0;
-    }
-
     function onDataWindow(obj) {
       winNum++;
-      const count = obj.count;
-      totalSentences += count;
-      if (count > maxSentences) maxSentences = count;
+      const count  = obj.count;
+      const parsed = parseWindow(obj.sentences);
 
-      $("win-count").textContent = winNum;
-      $("last-count").textContent = count;
-      $("stat-windows").textContent = winNum;
-      $("stat-sentences").textContent = totalSentences;
-      $("stat-empty").textContent = emptyWindows;
-      $("stat-max").textContent = maxSentences;
+      $("win-num").textContent = winNum;
+      if (parsed.time) $("utc-time").textContent = parsed.time;
+
+      // Fix badge
+      const badge = $("fix-badge");
+      if (parsed.fixQuality === 0) {
+        badge.textContent = "NO FIX";
+        badge.className = "fix-badge nofix";
+      } else if (parsed.fixQuality === 2) {
+        badge.textContent = "DGPS FIX";
+        badge.className = "fix-badge dgps";
+      } else {
+        badge.textContent = "GPS FIX";
+        badge.className = "fix-badge fix";
+      }
+
+      // Current values
+      $("stat-lat").textContent  = parsed.lat      !== null ? parsed.lat.toFixed(6)      : "—";
+      $("stat-lon").textContent  = parsed.lon      !== null ? parsed.lon.toFixed(6)      : "—";
+      $("stat-alt").textContent  = parsed.altitude !== null ? parsed.altitude.toFixed(1) + " m" : "—";
+      $("stat-sats-use").textContent  = parsed.satsInUse;
+      $("stat-sats-view").textContent = parsed.satsInView;
+      $("stat-hdop").textContent = parsed.hdop !== null ? parsed.hdop.toFixed(1) : "—";
+
+      // Map
+      updateMap(parsed.lat, parsed.lon, parsed.fixQuality, parsed.hdop, parsed.altitude);
+
+      // Charts
+      Plotly.extendTraces("plot-sats", {
+        x: [[winNum], [winNum]],
+        y: [[parsed.satsInUse], [parsed.satsInView]],
+      }, [0, 1], MAX_WINDOWS);
+
+      Plotly.extendTraces("plot-dop", {
+        x: [[winNum], [winNum], [winNum]],
+        y: [[parsed.hdop], [parsed.vdop], [parsed.pdop]],
+      }, [0, 1, 2], MAX_WINDOWS);
+
+      updateSnrChart(parsed.satellites);
 
       Plotly.extendTraces("plot-count", {
         x: [[winNum]],
         y: [[count]],
       }, [0], MAX_WINDOWS);
 
-      renderSentences(obj.sentences);
+      renderNmeaLog(obj.sentences);
     }
 
     function onNoData() {
       winNum++;
-      emptyWindows++;
+      $("win-num").textContent = winNum;
 
-      $("win-count").textContent = winNum;
-      $("last-count").textContent = "0";
-      $("stat-windows").textContent = winNum;
-      $("stat-empty").textContent = emptyWindows;
+      // Push zeros/nulls to keep x-axes aligned across all history charts
+      Plotly.extendTraces("plot-sats",  { x: [[winNum], [winNum]], y: [[0], [0]] },                          [0, 1], MAX_WINDOWS);
+      Plotly.extendTraces("plot-dop",   { x: [[winNum], [winNum], [winNum]], y: [[null], [null], [null]] },  [0, 1, 2], MAX_WINDOWS);
+      Plotly.extendTraces("plot-count", { x: [[winNum]], y: [[0]] },                                         [0], MAX_WINDOWS);
+      Plotly.react("plot-snr", [], snrLayout, plotConfig);
 
-      Plotly.extendTraces("plot-count", {
-        x: [[winNum]],
-        y: [[0]],
-      }, [0], MAX_WINDOWS);
-
-      const log = $("sentence-log");
-      log.innerHTML = '<span class="dim">Window ' + winNum + ': no data received</span>';
+      const log = $("nmea-log");
+      log.innerHTML = '<div style="color:var(--dim)">Window ' + winNum + ': no data received</div>';
     }
 
     function onMessage(obj) {
@@ -213,11 +593,8 @@
         setStatus(false, obj.port, obj.error);
         return;
       }
-      if (obj.diag === "no_data") {
-        onNoData();
-        return;
-      }
-      if (obj.diag !== undefined) return;   // read_err or other diagnostics: skip
+      if (obj.diag === "no_data") { onNoData(); return; }
+      if (obj.diag !== undefined) return;   // read_err / other diagnostics: skip
       if (obj.sentences === undefined) return;
       onDataWindow(obj);
     }
