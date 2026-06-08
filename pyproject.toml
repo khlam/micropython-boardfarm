@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 
 dependencies = [
     "boot_status_led>=0.2.0",
+    "atgm336h>=0.1.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
@@ -15,12 +16,13 @@ dependencies = [
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
-    "micropython_stubs>=0.1.0",
+    "micropython_stubs>=0.2.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
 [tool.pytest.ini_options]
 pythonpath = [
+    "/firmware-packages/atgm336h/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/smoothing/tests",
@@ -48,6 +50,7 @@ explicit = true   # only sources pinned to it use it; third-party stays on PyPI
 serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
 boot_status_led = { index = "internal" }
+atgm336h = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
@@ -75,6 +78,7 @@ test = [
     {include-group = "typecheck"},
     "micropython_stubs",
     "boot_status_led",
+    "atgm336h",
     "i2c_bus",
     "mpu6050",
     "qmc5883p",
@@ -94,11 +98,13 @@ branch = true
 source = [
   "/projects/compass/firmware",
   "/projects/distance-stream/firmware",
+  "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
 ]
 source_pkgs = [
   "boot_status_led",
+  "atgm336h",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",
@@ -270,6 +276,7 @@ ban-relative-imports = "all"
 [tool.ruff.lint.isort]
 known-first-party = [
   "boot_status_led",
+  "atgm336h",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",

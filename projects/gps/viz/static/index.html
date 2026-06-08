@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATGM336H GPS — Live</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --dim: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .err-msg { font-size: 12px; color: #fca5a5; }
+    .row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+      margin-bottom: 16px; align-items: stretch;
+    }
+    @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px; font-size: 13px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .sentence-log {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 10px;
+      font-family: "Menlo", "Consolas", "Courier New", monospace;
+      font-size: 12px; line-height: 1.6; color: #86efac;
+      height: 340px; overflow-y: auto; white-space: pre;
+      word-break: break-all;
+    }
+    .sentence-log .dim { color: var(--dim); }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .metric {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px;
+    }
+    .metric-label { font-size: 12px; color: var(--muted); }
+    .metric-value {
+      font-size: 24px; font-weight: 500; margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>ATGM336H GPS — Live NMEA</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Windows: <b id="win-count">0</b></span>
+    <span class="stat">Last window: <b id="last-count">—</b> sentences</span>
+    <span id="err" class="err-msg"></span>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Sentences per 10-second window</h2>
+      <div id="plot-count" style="height: 340px;"></div>
+    </div>
+    <div class="panel">
+      <h2>Latest window — NMEA sentences</h2>
+      <div class="sentence-log" id="sentence-log"><span class="dim">Waiting for data…</span></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom: 16px;">
+    <h2>Window stats</h2>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Total windows received</div>
+        <div class="metric-value" id="stat-windows">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Total sentences received</div>
+        <div class="metric-value" id="stat-sentences">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Empty windows (no data)</div>
+        <div class="metric-value" id="stat-empty">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Max sentences in a window</div>
+        <div class="metric-value" id="stat-max">—</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const MAX_WINDOWS = 120;   // keep ~20 minutes of history in the bar chart
+    const RECONNECT_MS = 250;
+
+    const $ = (id) => document.getElementById(id);
+
+    const PANEL_BG = "#131722";
+    const AXIS_COLOR = "#a1a1aa";
+    const GRID_COLOR = "#1f2937";
+    const config = { displayModeBar: false, responsive: true };
+
+    const barLayout = {
+      paper_bgcolor: PANEL_BG,
+      plot_bgcolor: PANEL_BG,
+      font: { color: AXIS_COLOR, size: 11 },
+      margin: { l: 50, r: 10, t: 6, b: 40 },
+      xaxis: {
+        title: "Window #", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+      },
+      yaxis: {
+        title: "Sentences", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
+        rangemode: "tozero",
+      },
+      bargap: 0.15,
+    };
+
+    Plotly.newPlot("plot-count", [{
+      type: "bar",
+      x: [], y: [],
+      marker: { color: "#22c55e", opacity: 0.85 },
+      hovertemplate: "Window %{x}<br>%{y} sentences<extra></extra>",
+    }], barLayout, config);
+
+    let winNum = 0;
+    let totalSentences = 0;
+    let emptyWindows = 0;
+    let maxSentences = 0;
+
+    function setStatus(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function renderSentences(sentences) {
+      const log = $("sentence-log");
+      log.textContent = sentences.join("\n");
+      log.scrollTop = 0;
+    }
+
+    function onDataWindow(obj) {
+      winNum++;
+      const count = obj.count;
+      totalSentences += count;
+      if (count > maxSentences) maxSentences = count;
+
+      $("win-count").textContent = winNum;
+      $("last-count").textContent = count;
+      $("stat-windows").textContent = winNum;
+      $("stat-sentences").textContent = totalSentences;
+      $("stat-empty").textContent = emptyWindows;
+      $("stat-max").textContent = maxSentences;
+
+      Plotly.extendTraces("plot-count", {
+        x: [[winNum]],
+        y: [[count]],
+      }, [0], MAX_WINDOWS);
+
+      renderSentences(obj.sentences);
+    }
+
+    function onNoData() {
+      winNum++;
+      emptyWindows++;
+
+      $("win-count").textContent = winNum;
+      $("last-count").textContent = "0";
+      $("stat-windows").textContent = winNum;
+      $("stat-empty").textContent = emptyWindows;
+
+      Plotly.extendTraces("plot-count", {
+        x: [[winNum]],
+        y: [[0]],
+      }, [0], MAX_WINDOWS);
+
+      const log = $("sentence-log");
+      log.innerHTML = '<span class="dim">Window ' + winNum + ': no data received</span>';
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        setStatus(true, obj.port, null);
+        return;
+      }
+      if (obj.event === "disconnected") {
+        setStatus(false, obj.port, obj.error);
+        return;
+      }
+      if (obj.diag === "no_data") {
+        onNoData();
+        return;
+      }
+      if (obj.diag !== undefined) return;   // read_err or other diagnostics: skip
+      if (obj.sentences === undefined) return;
+      onDataWindow(obj);
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setStatus(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose fires and reconnects */ };
+    }
+
+    connect();
+  })();
+  </script>
+</body>
+</html>
