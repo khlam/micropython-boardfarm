@@ -45,30 +45,23 @@
       margin: 0 0 8px; font-size: 13px; font-weight: 500;
       color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
     }
-    .sentence-log {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 4px; padding: 10px;
-      font-family: "Menlo", "Consolas", "Courier New", monospace;
-      font-size: 12px; line-height: 1.6; color: #86efac;
-      height: 340px; overflow-y: auto; white-space: pre;
-      word-break: break-all;
-    }
-    .sentence-log .dim { color: var(--dim); }
-    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 800px) { .metrics { grid-template-columns: 1fr 1fr; } }
     .metric {
       background: var(--bg); border: 1px solid var(--border);
       border-radius: 6px; padding: 10px;
     }
     .metric-label { font-size: 12px; color: var(--muted); }
     .metric-value {
-      font-size: 24px; font-weight: 500; margin-top: 4px;
+      font-size: 20px; font-weight: 500; margin-top: 4px;
       font-variant-numeric: tabular-nums;
     }
+    .metric-value.small { font-size: 15px; }
   </style>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
-  <h1>ATGM336H GPS — Live NMEA</h1>
+  <h1>ATGM336H GPS — Live</h1>
   <div class="status">
     <span id="conn" class="pill err">Disconnected</span>
     <span class="stat">Port: <b id="port">—</b></span>
@@ -79,40 +72,45 @@
 
   <div class="row">
     <div class="panel">
-      <h2>Sentences per 10-second window</h2>
-      <div id="plot-count" style="height: 340px;"></div>
+      <h2>Satellites Tracked</h2>
+      <div id="plot-sats" style="height: 300px;"></div>
     </div>
     <div class="panel">
-      <h2>Latest window — NMEA sentences</h2>
-      <div class="sentence-log" id="sentence-log"><span class="dim">Waiting for data…</span></div>
+      <h2>DOP Values</h2>
+      <div id="plot-dop" style="height: 300px;"></div>
     </div>
   </div>
 
   <div class="panel" style="margin-bottom: 16px;">
-    <h2>Window stats</h2>
+    <h2>Signal Strength</h2>
+    <div id="plot-signal" style="height: 260px;"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom: 16px;">
+    <h2>Current Fix</h2>
     <div class="metrics">
       <div class="metric">
-        <div class="metric-label">Total windows received</div>
-        <div class="metric-value" id="stat-windows">0</div>
+        <div class="metric-label">Latitude</div>
+        <div class="metric-value small" id="stat-lat">—</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Total sentences received</div>
-        <div class="metric-value" id="stat-sentences">0</div>
+        <div class="metric-label">Longitude</div>
+        <div class="metric-value small" id="stat-lon">—</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Empty windows (no data)</div>
-        <div class="metric-value" id="stat-empty">0</div>
+        <div class="metric-label">Satellites (use / view)</div>
+        <div class="metric-value" id="stat-sats">—</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Max sentences in a window</div>
-        <div class="metric-value" id="stat-max">—</div>
+        <div class="metric-label">HDOP / VDOP / PDOP</div>
+        <div class="metric-value small" id="stat-dop">—</div>
       </div>
     </div>
   </div>
 
   <script>
   (function () {
-    const MAX_WINDOWS = 120;   // keep ~20 minutes of history in the bar chart
+    const MAX_WINDOWS = 120;
     const RECONNECT_MS = 250;
 
     const $ = (id) => document.getElementById(id);
@@ -122,34 +120,97 @@
     const GRID_COLOR = "#1f2937";
     const config = { displayModeBar: false, responsive: true };
 
-    const barLayout = {
+    const lineLayoutBase = {
       paper_bgcolor: PANEL_BG,
       plot_bgcolor: PANEL_BG,
       font: { color: AXIS_COLOR, size: 11 },
-      margin: { l: 50, r: 10, t: 6, b: 40 },
+      margin: { l: 46, r: 10, t: 6, b: 40 },
       xaxis: {
         title: "Window #", gridcolor: GRID_COLOR,
         zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
       },
-      yaxis: {
-        title: "Sentences", gridcolor: GRID_COLOR,
-        zerolinecolor: GRID_COLOR, color: AXIS_COLOR,
-        rangemode: "tozero",
-      },
-      bargap: 0.15,
+      legend: { orientation: "h", y: -0.18, font: { size: 11 } },
     };
 
-    Plotly.newPlot("plot-count", [{
-      type: "bar",
-      x: [], y: [],
-      marker: { color: "#22c55e", opacity: 0.85 },
-      hovertemplate: "Window %{x}<br>%{y} sentences<extra></extra>",
-    }], barLayout, config);
+    // --- Satellites Tracked ---
+    Plotly.newPlot("plot-sats", [
+      {
+        name: "In Use", type: "scatter", mode: "lines",
+        x: [], y: [],
+        line: { color: "#22c55e", width: 2 },
+        hovertemplate: "Window %{x}<br>In Use: %{y}<extra></extra>",
+      },
+      {
+        name: "In View", type: "scatter", mode: "lines",
+        x: [], y: [],
+        line: { color: "#3b82f6", width: 2 },
+        hovertemplate: "Window %{x}<br>In View: %{y}<extra></extra>",
+      },
+    ], {
+      ...lineLayoutBase,
+      yaxis: {
+        title: "Count", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR, rangemode: "tozero",
+      },
+    }, config);
+
+    // --- DOP Values ---
+    Plotly.newPlot("plot-dop", [
+      {
+        name: "HDOP", type: "scatter", mode: "lines",
+        x: [], y: [],
+        line: { color: "#eab308", width: 2 },
+        hovertemplate: "Window %{x}<br>HDOP: %{y}<extra></extra>",
+      },
+      {
+        name: "VDOP", type: "scatter", mode: "lines",
+        x: [], y: [],
+        line: { color: "#f97316", width: 2 },
+        hovertemplate: "Window %{x}<br>VDOP: %{y}<extra></extra>",
+      },
+      {
+        name: "PDOP", type: "scatter", mode: "lines",
+        x: [], y: [],
+        line: { color: "#ef4444", width: 2 },
+        hovertemplate: "Window %{x}<br>PDOP: %{y}<extra></extra>",
+      },
+    ], {
+      ...lineLayoutBase,
+      yaxis: {
+        title: "DOP", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR, rangemode: "tozero",
+      },
+      annotations: [{
+        text: "lower = better accuracy",
+        xref: "paper", yref: "paper",
+        x: 0.99, y: 0.99,
+        xanchor: "right", yanchor: "top",
+        showarrow: false,
+        font: { size: 11, color: "#71717a" },
+      }],
+    }, config);
+
+    // --- Signal Strength (rebuilt each window) ---
+    const signalLayout = {
+      paper_bgcolor: PANEL_BG,
+      plot_bgcolor: PANEL_BG,
+      font: { color: AXIS_COLOR, size: 11 },
+      margin: { l: 64, r: 30, t: 6, b: 40 },
+      barmode: "overlay",
+      xaxis: {
+        title: "SNR (dB-Hz)", gridcolor: GRID_COLOR,
+        zerolinecolor: GRID_COLOR, color: AXIS_COLOR, rangemode: "tozero",
+      },
+      yaxis: { color: AXIS_COLOR, automargin: true },
+      legend: { orientation: "h", y: -0.18, font: { size: 11 } },
+    };
+
+    Plotly.newPlot("plot-signal", [
+      { name: "GPS",    type: "bar", orientation: "h", x: [], y: [], marker: { color: "#3b82f6" } },
+      { name: "BeiDou", type: "bar", orientation: "h", x: [], y: [], marker: { color: "#f97316" } },
+    ], signalLayout, config);
 
     let winNum = 0;
-    let totalSentences = 0;
-    let emptyWindows = 0;
-    let maxSentences = 0;
 
     function setStatus(connected, port, error) {
       const pill = $("conn");
@@ -159,49 +220,90 @@
       $("err").textContent = error || "";
     }
 
-    function renderSentences(sentences) {
-      const log = $("sentence-log");
-      log.textContent = sentences.join("\n");
-      log.scrollTop = 0;
+    function extendLine(divId, winN, values) {
+      // values is an array aligned with traces; null entries are skipped per trace.
+      const x = values.map(() => [winN]);
+      const y = values.map((v) => [v === null || v === undefined ? null : v]);
+      Plotly.extendTraces(divId, { x, y }, values.map((_, i) => i), MAX_WINDOWS);
+    }
+
+    function rebuildSignal(signals) {
+      if (!signals || signals.length === 0) {
+        Plotly.react("plot-signal", [
+          { name: "GPS",    type: "bar", orientation: "h", x: [], y: [], marker: { color: "#3b82f6" } },
+          { name: "BeiDou", type: "bar", orientation: "h", x: [], y: [], marker: { color: "#f97316" } },
+        ], signalLayout, config);
+        return;
+      }
+
+      // Sort ascending by SNR so weakest is at the bottom, strongest at the top.
+      const sorted = [...signals].sort((a, b) => a.snr - b.snr);
+      const allLabels = sorted.map((s) => s.sys + "-" + s.prn);
+
+      const gp = sorted.filter((s) => s.sys === "GP");
+      const bd = sorted.filter((s) => s.sys === "BD");
+
+      Plotly.react("plot-signal", [
+        {
+          name: "GPS", type: "bar", orientation: "h",
+          x: gp.map((s) => s.snr),
+          y: gp.map((s) => "GP-" + s.prn),
+          marker: { color: "#3b82f6" },
+          hovertemplate: "%{y}: %{x} dB-Hz<extra></extra>",
+        },
+        {
+          name: "BeiDou", type: "bar", orientation: "h",
+          x: bd.map((s) => s.snr),
+          y: bd.map((s) => "BD-" + s.prn),
+          marker: { color: "#f97316" },
+          hovertemplate: "%{y}: %{x} dB-Hz<extra></extra>",
+        },
+      ], {
+        ...signalLayout,
+        yaxis: {
+          ...signalLayout.yaxis,
+          categoryorder: "array",
+          categoryarray: allLabels,
+        },
+        height: Math.max(200, sorted.length * 26 + 80),
+      }, config);
+    }
+
+    function updateStats(obj) {
+      const fmt = (v, dec) => (v === null || v === undefined) ? "—" : v.toFixed(dec);
+      $("stat-lat").textContent = fmt(obj.lat, 6);
+      $("stat-lon").textContent = fmt(obj.lon, 6);
+      const u = obj.sats_in_use !== undefined ? obj.sats_in_use : "—";
+      const v = obj.sats_in_view !== undefined ? obj.sats_in_view : "—";
+      $("stat-sats").textContent = u + " / " + v;
+      const h = fmt(obj.hdop, 1), vd = fmt(obj.vdop, 1), p = fmt(obj.pdop, 1);
+      $("stat-dop").textContent = h + " / " + vd + " / " + p;
+    }
+
+    function clearStats() {
+      ["stat-lat", "stat-lon", "stat-sats", "stat-dop"].forEach((id) => { $(id).textContent = "—"; });
     }
 
     function onDataWindow(obj) {
       winNum++;
-      const count = obj.count;
-      totalSentences += count;
-      if (count > maxSentences) maxSentences = count;
-
       $("win-count").textContent = winNum;
-      $("last-count").textContent = count;
-      $("stat-windows").textContent = winNum;
-      $("stat-sentences").textContent = totalSentences;
-      $("stat-empty").textContent = emptyWindows;
-      $("stat-max").textContent = maxSentences;
+      $("last-count").textContent = obj.count;
 
-      Plotly.extendTraces("plot-count", {
-        x: [[winNum]],
-        y: [[count]],
-      }, [0], MAX_WINDOWS);
-
-      renderSentences(obj.sentences);
+      extendLine("plot-sats", winNum, [obj.sats_in_use, obj.sats_in_view]);
+      extendLine("plot-dop",  winNum, [obj.hdop, obj.vdop, obj.pdop]);
+      rebuildSignal(obj.signals);
+      updateStats(obj);
     }
 
     function onNoData() {
       winNum++;
-      emptyWindows++;
-
       $("win-count").textContent = winNum;
       $("last-count").textContent = "0";
-      $("stat-windows").textContent = winNum;
-      $("stat-empty").textContent = emptyWindows;
 
-      Plotly.extendTraces("plot-count", {
-        x: [[winNum]],
-        y: [[0]],
-      }, [0], MAX_WINDOWS);
-
-      const log = $("sentence-log");
-      log.innerHTML = '<span class="dim">Window ' + winNum + ': no data received</span>';
+      extendLine("plot-sats", winNum, [null, null]);
+      extendLine("plot-dop",  winNum, [null, null, null]);
+      rebuildSignal([]);
+      clearStats();
     }
 
     function onMessage(obj) {
@@ -217,7 +319,7 @@
         onNoData();
         return;
       }
-      if (obj.diag !== undefined) return;   // read_err or other diagnostics: skip
+      if (obj.diag !== undefined) return;
       if (obj.sentences === undefined) return;
       onDataWindow(obj);
     }
