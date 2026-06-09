@@ -45,18 +45,6 @@
       margin: 0 0 8px; font-size: 13px; font-weight: 500;
       color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
     }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    @media (max-width: 800px) { .metrics { grid-template-columns: 1fr 1fr; } }
-    .metric {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 6px; padding: 10px;
-    }
-    .metric-label { font-size: 12px; color: var(--muted); }
-    .metric-value {
-      font-size: 20px; font-weight: 500; margin-top: 4px;
-      font-variant-numeric: tabular-nums;
-    }
-    .metric-value.small { font-size: 15px; }
     .fix-bar {
       display: flex; gap: 16px; align-items: center;
       flex-wrap: wrap; margin-bottom: 16px;
@@ -122,28 +110,6 @@
   <div class="panel" style="margin-bottom: 16px;">
     <h2>Signal Strength</h2>
     <div id="plot-signal" style="height: 260px;"></div>
-  </div>
-
-  <div class="panel" style="margin-bottom: 16px;">
-    <h2>Current Fix</h2>
-    <div class="metrics">
-      <div class="metric">
-        <div class="metric-label">Latitude</div>
-        <div class="metric-value small" id="stat-lat">—</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Longitude</div>
-        <div class="metric-value small" id="stat-lon">—</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Satellites (use / view)</div>
-        <div class="metric-value" id="stat-sats">—</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">HDOP / VDOP / PDOP</div>
-        <div class="metric-value small" id="stat-dop">—</div>
-      </div>
-    </div>
   </div>
 
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
@@ -348,12 +314,6 @@
       const vv = obj.sats_in_view !== undefined ? obj.sats_in_view : 0;
       $("bar-sats").textContent = u + " used / " + vv + " in view";
       $("bar-hdop").textContent = fmt(obj.hdop, 1);
-
-      $("stat-lat").textContent = fmt(obj.lat, 6);
-      $("stat-lon").textContent = fmt(obj.lon, 6);
-      $("stat-sats").textContent = u + " / " + vv;
-      const h = fmt(obj.hdop, 1), vd = fmt(obj.vdop, 1), p = fmt(obj.pdop, 1);
-      $("stat-dop").textContent = h + " / " + vd + " / " + p;
     }
 
     function clearStats() {
@@ -362,7 +322,6 @@
       pill.className = "pill no-fix";
       ["bar-lat", "bar-lon", "bar-hdop"].forEach((id) => { $(id).textContent = "—"; });
       $("bar-sats").textContent = "0 used / 0 in view";
-      ["stat-lat", "stat-lon", "stat-sats", "stat-dop"].forEach((id) => { $(id).textContent = "—"; });
     }
 
     function onDataWindow(obj) {
