@@ -103,16 +103,10 @@ def test_stream_emits_no_data_when_gps_silent(main_ns: object) -> None:
     assert calls[0]["diag"] == "no_data"
 
 
-def test_stream_no_data_has_timestamp(main_ns: object) -> None:
-    calls = _run(main_ns, [])
-    assert "t" in calls[0]
-
-
 def test_stream_batch_has_required_keys(main_ns: object) -> None:
     calls = _run(main_ns, [_GPGGA])
     batch = calls[0]
     assert {
-        "t",
         "window_ms",
         "sats_in_use",
         "sats_in_view",

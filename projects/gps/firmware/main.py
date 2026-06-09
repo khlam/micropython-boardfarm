@@ -190,11 +190,11 @@ def stream(gps: object) -> None:
             status.streaming()
             continue
         if sentences:
-            payload = {"t": time.ticks_ms(), "window_ms": WINDOW_MS}
+            payload = {"window_ms": WINDOW_MS}
             payload.update(_parse_window(sentences))
             emit(payload)
         else:
-            emit({"diag": "no_data", "t": time.ticks_ms()})
+            emit({"diag": "no_data"})
 
 
 def main() -> None:

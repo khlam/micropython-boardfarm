@@ -91,7 +91,7 @@
     <span id="conn" class="pill err">Disconnected</span>
     <span class="stat">Port: <b id="port">—</b></span>
     <span class="stat">Windows: <b id="win-count">0</b></span>
-    <span class="stat">Last window: <b id="last-count">—</b> sentences</span>
+    <span class="stat">Last window: <b id="last-count">—</b> signals</span>
     <span id="err" class="err-msg"></span>
   </div>
 
@@ -99,7 +99,6 @@
     <span id="fix-pill" class="pill no-fix">NO FIX</span>
     <span class="stat">Lat: <b id="bar-lat">—</b></span>
     <span class="stat">Lon: <b id="bar-lon">—</b></span>
-    <span class="stat">Alt: <b id="bar-alt">—</b></span>
     <span class="stat">Sats: <b id="bar-sats">0 used / 0 in view</b></span>
     <span class="stat">HDOP: <b id="bar-hdop">—</b></span>
   </div>
@@ -345,7 +344,6 @@
 
       $("bar-lat").textContent  = fmt(obj.lat, 6);
       $("bar-lon").textContent  = fmt(obj.lon, 6);
-      $("bar-alt").textContent  = obj.alt !== null && obj.alt !== undefined ? fmt(obj.alt, 1) + " m" : "—";
       const u = obj.sats_in_use  !== undefined ? obj.sats_in_use  : 0;
       const vv = obj.sats_in_view !== undefined ? obj.sats_in_view : 0;
       $("bar-sats").textContent = u + " used / " + vv + " in view";
@@ -362,7 +360,7 @@
       const pill = $("fix-pill");
       pill.textContent = "NO FIX";
       pill.className = "pill no-fix";
-      ["bar-lat", "bar-lon", "bar-alt", "bar-hdop"].forEach((id) => { $(id).textContent = "—"; });
+      ["bar-lat", "bar-lon", "bar-hdop"].forEach((id) => { $(id).textContent = "—"; });
       $("bar-sats").textContent = "0 used / 0 in view";
       ["stat-lat", "stat-lon", "stat-sats", "stat-dop"].forEach((id) => { $(id).textContent = "—"; });
     }
@@ -370,7 +368,7 @@
     function onDataWindow(obj) {
       winNum++;
       $("win-count").textContent = winNum;
-      $("last-count").textContent = obj.count;
+      $("last-count").textContent = obj.signals ? obj.signals.length : 0;
 
       extendLine("plot-sats", winNum, [obj.sats_in_use, obj.sats_in_view]);
       extendLine("plot-dop",  winNum, [obj.hdop, obj.vdop, obj.pdop]);
@@ -404,7 +402,7 @@
         return;
       }
       if (obj.diag !== undefined) return;
-      if (obj.sentences === undefined) return;
+      if (obj.window_ms === undefined) return;
       onDataWindow(obj);
     }
 
