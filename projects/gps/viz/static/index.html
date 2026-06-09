@@ -58,7 +58,22 @@
     }
     .metric-value.small { font-size: 15px; }
   </style>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <style>
+    /* Override Leaflet's default light popup/attribution colours for the dark theme. */
+    .leaflet-container { background: #0e1117; }
+    .leaflet-control-attribution {
+      background: rgba(14,17,23,0.8) !important;
+      color: #71717a !important;
+    }
+    .leaflet-control-attribution a { color: #a1a1aa !important; }
+    .leaflet-bar a {
+      background: #131722 !important;
+      color: #e6e6e6 !important;
+      border-color: #1f2937 !important;
+    }
+    .leaflet-bar a:hover { background: #1f2937 !important; }
+  </style>
 </head>
 <body>
   <h1>ATGM336H GPS — Live</h1>
@@ -79,6 +94,11 @@
       <h2>DOP Values</h2>
       <div id="plot-dop" style="height: 300px;"></div>
     </div>
+  </div>
+
+  <div class="panel" style="margin-bottom: 16px;">
+    <h2>Position</h2>
+    <div id="map" style="height: 420px; border-radius: 4px; overflow: hidden;"></div>
   </div>
 
   <div class="panel" style="margin-bottom: 16px;">
@@ -108,6 +128,8 @@
     </div>
   </div>
 
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script async src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLs=" crossorigin=""></script>
   <script>
   (function () {
     const MAX_WINDOWS = 120;
@@ -212,6 +234,31 @@
 
     let winNum = 0;
 
+    // --- Map (Leaflet + CartoDB Dark Matter — no API key required) ---
+    // Leaflet loads async, so the map is initialised lazily on first valid fix.
+    let _map = null;
+    let _posMarker = null;
+
+    function updateMap(lat, lon) {
+      if (lat == null || lon == null) return;
+      if (typeof L === "undefined") return;
+      const latlng = [lat, lon];
+      if (_map === null) {
+        _map = L.map("map", { center: latlng, zoom: 15, zoomControl: true });
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: "abcd",
+          maxZoom: 19,
+        }).addTo(_map);
+        _posMarker = L.circleMarker(latlng, {
+          radius: 9, fillColor: "#22c55e", color: "#166534",
+          weight: 2, opacity: 1, fillOpacity: 0.9,
+        }).addTo(_map);
+      } else {
+        _posMarker.setLatLng(latlng);
+      }
+    }
+
     function setStatus(connected, port, error) {
       const pill = $("conn");
       pill.textContent = connected ? "Connected" : "Disconnected";
@@ -293,6 +340,7 @@
       extendLine("plot-dop",  winNum, [obj.hdop, obj.vdop, obj.pdop]);
       rebuildSignal(obj.signals);
       updateStats(obj);
+      updateMap(obj.lat, obj.lon);
     }
 
     function onNoData() {
