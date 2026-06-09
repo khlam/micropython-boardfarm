@@ -1,15 +1,17 @@
 """Host CPython pytest bootstrap for the gps project firmware.
 
 Exposes the `main_ns` fixture: an AST-loaded namespace with `emit`, `stream`,
-and `main` extracted from main.py, and with fakes for `time` and `status`
-injected. GPS hardware is not injected globally — tests pass a _FakeGPS
-directly to stream() as an argument.
+`_run_window`, and `main` extracted from main.py, and with fakes for `time`
+and `status` injected.  Pure NMEA helpers live in nmea.py and are imported
+directly in test_nmea.py; they are also injected into the exec namespace here
+so that `_run_window` can resolve them at call time.
 """
 
 from __future__ import annotations
 
 import ast
 import pathlib
+import sys
 from types import SimpleNamespace
 
 import machine
@@ -18,14 +20,19 @@ import pytest
 
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
+
+# Add firmware/ to sys.path so `import nmea` works in test_nmea.py and here.
+_FIRMWARE_DIR = str(_FIRMWARE.parent)
+if _FIRMWARE_DIR not in sys.path:
+    sys.path.insert(0, _FIRMWARE_DIR)
+
+import nmea  # noqa: E402 — must follow sys.path setup above
+
 _KEEP_FUNCS = {
     "emit",
     "stream",
     "main",
-    "_parse_gsv",
-    "_parse_gsa",
-    "_parse_gga",
-    "_parse_sentence",
+    "_run_window",
 }
 
 
@@ -33,8 +40,8 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
     """Parse main.py and exec constants + key functions in a fresh namespace.
 
     Import nodes and the trailing ``main()`` call are dropped so the loader
-    does not block in the streaming loop. Callers seed ``time`` and ``status``
-    substitutes; GPS is passed as a parameter to stream() in each test.
+    does not block in the streaming loop.  Callers seed ``time`` and ``status``
+    substitutes; nmea helpers are injected so ``_run_window`` can resolve them.
     """
     src = _FIRMWARE.read_text()
     tree = ast.parse(src)
@@ -54,6 +61,12 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
+        # Inject nmea helpers so _run_window can resolve them without the
+        # `from nmea import ...` statement that the AST loader strips.
+        "nmea_checksum_valid": nmea.nmea_checksum_valid,
+        "parse_sentence": nmea.parse_sentence,
+        "apply_parsed": nmea.apply_parsed,
+        "build_utc_full": nmea.build_utc_full,
     }
     exec(code, ns)
     return ns
