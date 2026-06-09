@@ -213,7 +213,7 @@ def _parse_sentence(line: str) -> tuple:
         is a dict keyed by PRN int.  Each value is empty (``{}``, ``set()``)
         when the sentence type is unknown or carries no usable data.
     """
-    parts = line.split("*", maxsplit=1)[0].split(",")
+    parts = line.split("*", 1)[0].split(",")
     if not parts:
         return {}, set(), {}, {}, {}
     tag = parts[0]
