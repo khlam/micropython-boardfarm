@@ -3,44 +3,18 @@
 Reads every NMEA sentence that arrives in a 10-second window, parses satellite
 and position data from the NMEA stream, and emits a structured JSON object.
 
-LED colour map (boot_status_led):
-    white   - firmware alive, atgm336h package import about to run
-    orange  - atgm336h package missing from firmware (recompile needed)
-    cyan    - package imported, UART open in progress
-    magenta - UART open failed (wiring / pin issue)
-    green   - streaming normally
-    red     - transient readline() fault; recovers automatically
 """
 
 import time
 
 import ujson
 
+from atgm336h import connect
 from boot_status_led import status
 
-# Firmware is alive — light LED immediately before any hardware init.
-status.boot()
-
-# If the atgm336h package is not in the firmware, show orange and halt.
-# Orange here means: rebuild with `docker compose up --build pi-compile`.
-try:
-    from atgm336h import connect as _connect_gps
-except Exception:  # noqa: BLE001
-    status.no_device()
-    while True:
-        time.sleep_ms(500)
-
-# Duration of each collection window in milliseconds.
 WINDOW_MS = 10_000
-
-# Pacing sleep inside the collection loop — yields the MicroPython scheduler
-# and bounds busy-looping between readline() calls.
 _POLL_SLEEP_MS = 10
-
-# Boot settle time before opening the UART.
 _BOOT_PAUSE_MS = 300
-
-# Retry pause when the UART cannot be opened.
 _INIT_ERR_PAUSE_MS = 1_000
 
 
@@ -190,7 +164,8 @@ def stream(gps: object) -> None:
 
     Each successful window emits::
 
-        {"t": <ms>, "window_ms": 10000, "sentences": [...], "count": <n>}
+        {"t": <ms>, "window_ms": 10000, "sats_in_use": <n>, "sats_in_view": <n>,
+         "hdop": <f>, "vdop": <f>, "pdop": <f>, "lat": <f>, "lon": <f>, "signals": [...]}
 
     An empty window (no GPS data) emits::
 
@@ -209,18 +184,13 @@ def stream(gps: object) -> None:
                 if line is not None:
                     sentences.append(line)
                 time.sleep_ms(_POLL_SLEEP_MS)
-        except Exception as err:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             status.read_err()
-            emit({"diag": "read_err", "err": str(err)})
+            emit({"diag": "read_err"})
             status.streaming()
             continue
         if sentences:
-            payload = {
-                "t": time.ticks_ms(),
-                "window_ms": WINDOW_MS,
-                "sentences": sentences,
-                "count": len(sentences),
-            }
+            payload = {"t": time.ticks_ms(), "window_ms": WINDOW_MS}
             payload.update(_parse_window(sentences))
             emit(payload)
         else:
@@ -233,16 +203,17 @@ def main() -> None:
     LED sequence: white → cyan (UART opening) → green (streaming).
     On UART failure: cyan → magenta → white (retry).
     """
+    status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
     while True:
-        status.i2c_init()  # cyan: attempting UART open
+        status.i2c_init()
         try:
-            gps = _connect_gps()
-        except Exception as err:  # noqa: BLE001
-            status.init_err()  # magenta: UART open failed
-            emit({"diag": "init_err", "err": str(err)})
+            gps = connect()
+        except Exception:  # noqa: BLE001
+            status.init_err()
+            emit({"diag": "init_err"})
             time.sleep_ms(_INIT_ERR_PAUSE_MS)
-            status.boot()  # white: retrying
+            status.boot()
             continue
         stream(gps)
 

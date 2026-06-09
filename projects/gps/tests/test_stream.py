@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-# Two NMEA sentences used across tests.
-_GPRMC = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"
+# NMEA sentences used across tests.
 _GPGGA = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"
+_GPGSA = "$GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,2.0,1.0,1.8*21"
 
 # Override WINDOW_MS to this small value so the inner loop exits after ~2
 # ticks_ms() calls (fake_time steps by 1; 2 steps push diff past the threshold).
@@ -81,22 +81,21 @@ def _run(main_ns: object, sentences: list[str], stop_after: int = 1) -> list[dic
     return cap.calls
 
 
-def test_stream_emits_batch_with_sentences(main_ns: object) -> None:
-    calls = _run(main_ns, [_GPRMC])
-    assert calls[0]["count"] >= 1
-    assert _GPRMC in calls[0]["sentences"]
+def test_stream_emits_parsed_position(main_ns: object) -> None:
+    calls = _run(main_ns, [_GPGGA])
+    assert calls[0]["lat"] is not None
+    assert calls[0]["lon"] is not None
     assert "window_ms" in calls[0]
 
 
-def test_stream_batch_contains_all_expected_sentences(main_ns: object) -> None:
+def test_stream_batch_parses_multiple_sentence_types(main_ns: object) -> None:
     main_ns.ns["WINDOW_MS"] = 20
     cap = _CapturingEmit(1)
     main_ns.ns["emit"] = cap
     with pytest.raises(_StopLoopError):
-        main_ns.ns["stream"](_FakeGPS([_GPRMC, _GPGGA]))
-    assert _GPRMC in cap.calls[0]["sentences"]
-    assert _GPGGA in cap.calls[0]["sentences"]
-    assert cap.calls[0]["count"] == 2
+        main_ns.ns["stream"](_FakeGPS([_GPGGA, _GPGSA]))
+    assert cap.calls[0]["lat"] is not None
+    assert cap.calls[0]["hdop"] is not None
 
 
 def test_stream_emits_no_data_when_gps_silent(main_ns: object) -> None:
@@ -110,9 +109,20 @@ def test_stream_no_data_has_timestamp(main_ns: object) -> None:
 
 
 def test_stream_batch_has_required_keys(main_ns: object) -> None:
-    calls = _run(main_ns, [_GPRMC])
+    calls = _run(main_ns, [_GPGGA])
     batch = calls[0]
-    assert {"t", "window_ms", "sentences", "count"} <= set(batch)
+    assert {
+        "t",
+        "window_ms",
+        "sats_in_use",
+        "sats_in_view",
+        "hdop",
+        "vdop",
+        "pdop",
+        "lat",
+        "lon",
+        "signals",
+    } <= set(batch)
 
 
 def test_stream_read_err_calls_status_read_err(main_ns: object) -> None:
