@@ -104,6 +104,8 @@ def _run_window(gps: object, cached_date: str | None) -> str | None:
     while time.ticks_diff(time.ticks_ms(), t_start) < WINDOW_MS:
         line = gps.readline()
         if line is not None:
+            if not _nmea_checksum_valid(line):
+                continue
             saw_data = True
             new_signals, new_in_use, new_total, new_dop, new_pos, new_parsed = _parse_sentence(line)
             signals.update(new_signals)
@@ -111,12 +113,7 @@ def _run_window(gps: object, cached_date: str | None) -> str | None:
             total_in_view.update(new_total)
             dop.update(new_dop)
             position.update(new_pos)
-            if "utc" in new_parsed:
-                utc_time = new_parsed["utc"]
-            if "date" in new_parsed:
-                new_date = new_parsed["date"]
-                if new_date != cached_date:
-                    cached_date = new_date
+            utc_time, cached_date = _apply_parsed(new_parsed, utc_time, cached_date)
         time.sleep_ms(_POLL_SLEEP_MS)
     if saw_data:
         emit(
@@ -151,6 +148,51 @@ def _build_utc_full(utc_time: str | None, cached_date: str | None) -> str | None
     if utc_time is None or cached_date is None:
         return None
     return f"{cached_date}T{utc_time}"
+
+
+def _nmea_checksum_valid(line: str) -> bool:
+    """Verify the XOR checksum of an NMEA sentence.
+
+    Args:
+        line: A raw NMEA sentence string including the leading ``$`` and
+            trailing ``*HH`` checksum suffix.
+
+    Returns:
+        ``True`` when the XOR of all bytes between ``$`` and ``*`` matches
+        the two-hex-digit checksum field; ``False`` when the ``*`` delimiter
+        is absent, the checksum field is not valid hex, or the values differ.
+    """
+    star = line.find("*")
+    if star < 0 or star + 3 > len(line):
+        return False
+    try:
+        expected = int(line[star + 1 : star + 3], 16)
+    except ValueError:
+        return False
+    actual = 0
+    for ch in line[1:star]:
+        actual ^= ord(ch)
+    return actual == expected
+
+
+def _apply_parsed(parsed: dict, utc_time: str | None, cached_date: str | None) -> tuple:
+    """Merge UTC time and date fields from a parsed sentence into accumulated state.
+
+    Args:
+        parsed: Dict returned by a sentence parser; may contain ``"utc"``
+            and/or ``"date"`` keys.
+        utc_time: Most-recently seen UTC time string for this window, or ``None``.
+        cached_date: Most-recently seen GPS date string across windows, or ``None``.
+
+    Returns:
+        ``(utc_time, cached_date)`` updated with any values present in ``parsed``.
+    """
+    if "utc" in parsed:
+        utc_time = parsed["utc"]
+    new_date = parsed.get("date")
+    if new_date is not None and new_date != cached_date:
+        cached_date = new_date
+    return utc_time, cached_date
 
 
 def _parse_gsv(parts: list) -> tuple:
