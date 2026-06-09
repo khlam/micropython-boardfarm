@@ -36,8 +36,9 @@ def stream(gps: object) -> None:
 
     Each successful window emits::
 
-        {"window_ms": 10000, "sats_in_use": <n>, "sats_in_view": <n>,
-         "hdop": <f>, "vdop": <f>, "pdop": <f>, "lat": <f>, "lon": <f>, "signals": [...]}
+        {"window_ms": 10000, "utc": <str | null>, "sats_in_use": <n>,
+         "sats_in_view": <n>, "hdop": <f>, "vdop": <f>, "pdop": <f>,
+         "lat": <f>, "lon": <f>, "signals": [...]}
 
     An empty window (no GPS data) emits::
 
@@ -53,6 +54,7 @@ def stream(gps: object) -> None:
         total_in_view: dict = {}
         dop: dict = {}
         position: dict = {}
+        utc: dict = {}
         saw_data = False
         t_start = time.ticks_ms()
         try:
@@ -60,12 +62,15 @@ def stream(gps: object) -> None:
                 line = gps.readline()
                 if line is not None:
                     saw_data = True
-                    new_signals, new_in_use, new_total, new_dop, new_pos = _parse_sentence(line)
+                    new_signals, new_in_use, new_total, new_dop, new_pos, new_utc = _parse_sentence(
+                        line
+                    )
                     signals.update(new_signals)
                     in_use_set |= new_in_use
                     total_in_view.update(new_total)
                     dop.update(new_dop)
                     position.update(new_pos)
+                    utc.update(new_utc)
                 time.sleep_ms(_POLL_SLEEP_MS)
         except Exception:  # noqa: BLE001
             status.read_err()
@@ -76,6 +81,7 @@ def stream(gps: object) -> None:
             emit(
                 {
                     "window_ms": WINDOW_MS,
+                    "utc": utc.get("utc"),
                     "sats_in_use": len(in_use_set),
                     "sats_in_view": sum(total_in_view.values()),
                     "hdop": dop.get("hdop"),
@@ -202,6 +208,93 @@ def _parse_gga(parts: list) -> dict:
         return {}
 
 
+def _parse_zda(parts: list) -> dict:
+    """Extract UTC date and time from a ZDA sentence.
+
+    Args:
+        parts: Comma-split NMEA fields (checksum stripped from last field).
+
+    Returns:
+        ``{"utc": str}`` with format ``"YYYY-MM-DDTHH:MM:SSZ"`` when all
+        fields are valid, or ``{}`` when the sentence is incomplete or
+        contains invalid data.
+
+    ZDA format: ``$GPZDA,hhmmss,dd,mm,yyyy<chk>``
+    """
+    if len(parts) < 6:
+        return {}
+    try:
+        time_str = parts[1]
+        day_str = parts[2]
+        month_str = parts[3]
+        year_str = parts[4]
+        if not all([time_str, day_str, month_str, year_str]):
+            return {}
+        hh = int(time_str[0:2])
+        mm = int(time_str[2:4])
+        ss = int(time_str[4:6])
+        dd = int(day_str)
+        mm_val = int(month_str)
+        yyyy = int(year_str)
+        if not (0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss <= 59):
+            return {}
+        if not (1 <= dd <= 31 and 1 <= mm_val <= 12):
+            return {}
+        utc_str = f"{yyyy:04d}-{mm_val:02d}-{dd:02d}T{hh:02d}:{mm:02d}:{ss:02d}Z"
+    except (ValueError, IndexError):
+        return {}
+    return {"utc": utc_str}
+
+
+def _parse_rmc_time_and_pos(parts: list) -> dict:
+    """Extract UTC time and position from RMC parts (status already validated as "A")."""
+    time_str = parts[1]
+    if not time_str:
+        return {}
+    hh = int(time_str[0:2])
+    mm = int(time_str[2:4])
+    ss = int(time_str[4:6])
+    if not (0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss <= 59):
+        return {}
+    utc_str = f"{hh:02d}:{mm:02d}:{ss:02d}Z"
+    lat_raw = float(parts[3])
+    lat_dir = parts[4]
+    lon_raw = float(parts[5])
+    lon_dir = parts[6]
+    d = int(lat_raw / 100)
+    lat = d + (lat_raw - d * 100) / 60.0
+    if lat_dir == "S":
+        lat = -lat
+    d = int(lon_raw / 100)
+    lon = d + (lon_raw - d * 100) / 60.0
+    if lon_dir == "W":
+        lon = -lon
+    return {"utc": utc_str, "lat": round(lat, 6), "lon": round(lon, 6)}
+
+
+def _parse_rmc(parts: list) -> dict:
+    """Extract UTC time and position from an RMC sentence.
+
+    Args:
+        parts: Comma-split NMEA fields (checksum stripped from last field).
+
+    Returns:
+        ``{"utc": str, "lat": float, "lon": float}`` when a valid fix is
+        present (status ``"A"``), or ``{}`` when status is ``"V"`` (void)
+        or coordinates are absent.
+
+    RMC format: ``$GPRMC,hhmmss,A,llll,llll,xx.x,x.x,xxxx,x.x,a,ddmmyyyy,x.x,a*hh<chk>``
+    """
+    if len(parts) < 10:
+        return {}
+    if parts[2] != "A":
+        return {}
+    try:
+        return _parse_rmc_time_and_pos(parts)
+    except (ValueError, IndexError):
+        return {}
+
+
 def _parse_sentence(line: str) -> tuple:
     """Dispatch one raw NMEA line and return parsed data for that sentence type.
 
@@ -209,23 +302,27 @@ def _parse_sentence(line: str) -> tuple:
         line: A single raw NMEA string, checksum included.
 
     Returns:
-        ``(signals, in_use, total_in_view, dop, position)`` where ``signals``
-        is a dict keyed by PRN int.  Each value is empty (``{}``, ``set()``)
-        when the sentence type is unknown or carries no usable data.
+        ``(signals, in_use, total_in_view, dop, position, utc)`` where
+        ``signals`` is a dict keyed by PRN int.  Each value is empty
+        (``{}``, ``set()``) when the sentence type is unknown or carries no
+        usable data.
     """
     parts = line.split("*", 1)[0].split(",")
     if not parts:
-        return {}, set(), {}, {}, {}
+        return {}, set(), {}, {}, {}, {}
     tag = parts[0]
+    signals, in_use, total_in_view, dop, position, utc = {}, set(), {}, {}, {}, {}
     if tag.endswith("GSV"):
         signals, total_in_view = _parse_gsv(parts)
-        return signals, set(), total_in_view, {}, {}
-    if tag.endswith("GSA"):
+    elif tag.endswith("GSA"):
         in_use, dop = _parse_gsa(parts)
-        return {}, in_use, {}, dop, {}
-    if tag in ("$GNGGA", "$GPGGA"):
-        return {}, set(), {}, {}, _parse_gga(parts)
-    return {}, set(), {}, {}, {}
+    elif tag in ("$GNGGA", "$GPGGA"):
+        position = _parse_gga(parts)
+    elif tag.endswith("ZDA"):
+        utc = _parse_zda(parts)
+    elif tag.endswith("RMC"):
+        utc = _parse_rmc(parts)
+    return signals, in_use, total_in_view, dop, position, utc
 
 
 main()
