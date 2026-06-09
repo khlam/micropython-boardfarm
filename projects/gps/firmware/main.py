@@ -29,7 +29,7 @@ def emit(obj: dict) -> None:
 
 
 def stream(gps: object) -> None:
-    """Parse NMEA sentences for WINDOW_MS as they arrive, emit a result, repeat forever.
+    """Parse NMEA sentences in WINDOW_MS windows, emit a result per window, repeat forever.
 
     Args:
         gps: An object with a ``readline() -> str | None`` method.
@@ -45,55 +45,19 @@ def stream(gps: object) -> None:
         {"diag": "no_data"}
 
     A UART exception emits a ``read_err`` diagnostic, resets the LED to
-    streaming, and starts a fresh window immediately.
+    streaming, and starts a fresh window immediately.  The most-recently seen
+    GPS date is carried forward across windows and combined with the per-window
+    UTC time to produce a full ISO-8601 timestamp.
     """
     status.streaming()
+    cached_date: str | None = None
     while True:
-        signals: dict = {}
-        in_use_set: set = set()
-        total_in_view: dict = {}
-        dop: dict = {}
-        position: dict = {}
-        utc: dict = {}
-        saw_data = False
-        t_start = time.ticks_ms()
         try:
-            while time.ticks_diff(time.ticks_ms(), t_start) < WINDOW_MS:
-                line = gps.readline()
-                if line is not None:
-                    saw_data = True
-                    new_signals, new_in_use, new_total, new_dop, new_pos, new_utc = _parse_sentence(
-                        line
-                    )
-                    signals.update(new_signals)
-                    in_use_set |= new_in_use
-                    total_in_view.update(new_total)
-                    dop.update(new_dop)
-                    position.update(new_pos)
-                    utc.update(new_utc)
-                time.sleep_ms(_POLL_SLEEP_MS)
+            cached_date = _run_window(gps, cached_date)
         except Exception:  # noqa: BLE001
             status.read_err()
             emit({"diag": "read_err"})
             status.streaming()
-            continue
-        if saw_data:
-            emit(
-                {
-                    "window_ms": WINDOW_MS,
-                    "utc": utc.get("utc"),
-                    "sats_in_use": len(in_use_set),
-                    "sats_in_view": sum(total_in_view.values()),
-                    "hdop": dop.get("hdop"),
-                    "vdop": dop.get("vdop"),
-                    "pdop": dop.get("pdop"),
-                    "lat": position.get("lat"),
-                    "lon": position.get("lon"),
-                    "signals": list(signals.values()),
-                }
-            )
-        else:
-            emit({"diag": "no_data"})
 
 
 def main() -> None:
@@ -115,6 +79,78 @@ def main() -> None:
             status.boot()
             continue
         stream(gps)
+
+
+def _run_window(gps: object, cached_date: str | None) -> str | None:
+    """Collect NMEA sentences for one WINDOW_MS window and emit a JSON result.
+
+    Args:
+        gps: An object with a ``readline() -> str | None`` method.
+        cached_date: Most-recently seen GPS date (``"YYYY-MM-DD"``), or
+            ``None`` if no date sentence has been received yet.
+
+    Returns:
+        Updated ``cached_date``; unchanged if no new date was seen this window.
+        UART or I/O errors from ``gps.readline()`` propagate to the caller.
+    """
+    signals: dict = {}
+    in_use_set: set = set()
+    total_in_view: dict = {}
+    dop: dict = {}
+    position: dict = {}
+    utc_time: str | None = None
+    saw_data = False
+    t_start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t_start) < WINDOW_MS:
+        line = gps.readline()
+        if line is not None:
+            saw_data = True
+            new_signals, new_in_use, new_total, new_dop, new_pos, new_parsed = _parse_sentence(line)
+            signals.update(new_signals)
+            in_use_set |= new_in_use
+            total_in_view.update(new_total)
+            dop.update(new_dop)
+            position.update(new_pos)
+            if "utc" in new_parsed:
+                utc_time = new_parsed["utc"]
+            if "date" in new_parsed:
+                new_date = new_parsed["date"]
+                if new_date != cached_date:
+                    cached_date = new_date
+        time.sleep_ms(_POLL_SLEEP_MS)
+    if saw_data:
+        emit(
+            {
+                "window_ms": WINDOW_MS,
+                "utc": _build_utc_full(utc_time, cached_date),
+                "sats_in_use": len(in_use_set),
+                "sats_in_view": sum(total_in_view.values()),
+                "hdop": dop.get("hdop"),
+                "vdop": dop.get("vdop"),
+                "pdop": dop.get("pdop"),
+                "lat": position.get("lat"),
+                "lon": position.get("lon"),
+                "signals": list(signals.values()),
+            }
+        )
+    else:
+        emit({"diag": "no_data"})
+    return cached_date
+
+
+def _build_utc_full(utc_time: str | None, cached_date: str | None) -> str | None:
+    """Combine a cached GPS date and a window UTC time into an ISO-8601 timestamp.
+
+    Args:
+        utc_time: Time string in ``"HH:MM:SSZ"`` format, or ``None``.
+        cached_date: Date string in ``"YYYY-MM-DD"`` format, or ``None``.
+
+    Returns:
+        ``"YYYY-MM-DDTHH:MM:SSZ"`` when both inputs are present, otherwise ``None``.
+    """
+    if utc_time is None or cached_date is None:
+        return None
+    return f"{cached_date}T{utc_time}"
 
 
 def _parse_gsv(parts: list) -> tuple:
@@ -215,9 +251,9 @@ def _parse_zda(parts: list) -> dict:
         parts: Comma-split NMEA fields (checksum stripped from last field).
 
     Returns:
-        ``{"utc": str}`` with format ``"YYYY-MM-DDTHH:MM:SSZ"`` when all
-        fields are valid, or ``{}`` when the sentence is incomplete or
-        contains invalid data.
+        ``{"date": str, "utc": str}`` where ``date`` is ``"YYYY-MM-DD"``
+        and ``utc`` is ``"HH:MM:SSZ"``, or ``{}`` when the sentence is
+        incomplete or contains invalid data.
 
     ZDA format: ``$GPZDA,hhmmss,dd,mm,yyyy<chk>``
     """
@@ -240,10 +276,13 @@ def _parse_zda(parts: list) -> dict:
             return {}
         if not (1 <= dd <= 31 and 1 <= mm_val <= 12):
             return {}
-        utc_str = f"{yyyy:04d}-{mm_val:02d}-{dd:02d}T{hh:02d}:{mm:02d}:{ss:02d}Z"
     except (ValueError, IndexError):
         return {}
-    return {"utc": utc_str}
+    else:
+        return {
+            "date": f"{yyyy:04d}-{mm_val:02d}-{dd:02d}",
+            "utc": f"{hh:02d}:{mm:02d}:{ss:02d}Z",
+        }
 
 
 def _parse_rmc_time_and_pos(parts: list) -> dict:
