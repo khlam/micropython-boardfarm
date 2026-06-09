@@ -18,7 +18,15 @@ import pytest
 
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
-_KEEP_FUNCS = {"emit", "stream", "main", "_parse_gsv", "_parse_gsa", "_parse_gga", "_parse_window"}
+_KEEP_FUNCS = {
+    "emit",
+    "stream",
+    "main",
+    "_parse_gsv",
+    "_parse_gsa",
+    "_parse_gga",
+    "_parse_sentence",
+}
 
 
 def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
