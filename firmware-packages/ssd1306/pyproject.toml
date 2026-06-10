@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ssd1306"
+version = "0.1.0"
+description = "MicroPython register-level driver for the SSD1306 monochrome OLED over I²C."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ssd1306"]

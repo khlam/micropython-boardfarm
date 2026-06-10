@@ -10,6 +10,7 @@ members = [
     "gyro-stream",
     "micropython-boardfarm",
     "multizone-ranging",
+    "oled-display",
 ]
 
 [[package]]
@@ -41,6 +42,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/14/2c5dd9f512b66549ae92767a9c7b330ae88e1932ca57876909410251fe13/anyio-4.13.0.tar.gz", hash = "sha256:334b70e641fd2221c1505b3890c69882fe4a2df910cba14d97019b90b24439dc", size = 231622, upload-time = "2026-03-24T12:59:09.671Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/da/42/e921fccf5015463e32a3cf6ee7f980a6ed0f395ceeaa45060b61d86486c2/anyio-4.13.0-py3-none-any.whl", hash = "sha256:08b310f9e24a9594186fd75b4f73f4a4152069e3853f1ed8bfbf58369f4ad708", size = 114353, upload-time = "2026-03-24T12:59:08.246Z" },
+]
+
+[[package]]
+name = "atgm336h"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -199,19 +209,11 @@ name = "distance-stream"
 version = "0.3.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "smoothing" },
-    { name = "vl53l0x" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "dnspython"
@@ -261,45 +263,26 @@ wheels = [
 ]
 
 [[package]]
-name = "atgm336h"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "gps-stream"
 version = "0.1.0"
 source = { virtual = "projects/gps" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "atgm336h" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
 version = "0.3.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "mpu6050" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "h11"
@@ -446,17 +429,19 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.6.0"
-source = { virtual = "." }
+version = "0.7.0"
+source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "oled-canvas" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "ssd1306" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -477,11 +462,13 @@ test = [
     { name = "i2c-bus" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "oled-canvas" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "ssd1306" },
     { name = "ty" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
@@ -500,9 +487,11 @@ requires-dist = [
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "oled-canvas", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "ssd1306", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
 ]
@@ -523,11 +512,13 @@ test = [
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
+    { name = "oled-canvas", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
+    { name = "ssd1306", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
     { name = "vl53l0x", index = "file:///wheels" },
     { name = "vl53l5cx", index = "file:///wheels" },
@@ -567,17 +558,31 @@ name = "multizone-ranging"
 version = "0.2.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "vl53l5cx" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l5cx", specifier = ">=0.1.0", index = "file:///wheels" },
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "oled-canvas"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/oled_canvas-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/oled_canvas-0.1.0-py3-none-any.whl" },
 ]
+
+[[package]]
+name = "oled-display"
+version = "0.1.0"
+source = { virtual = "projects/oled-display" }
+dependencies = [
+    { name = "micropython-boardfarm" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "orjson"
@@ -948,6 +953,15 @@ source = { registry = "/wheels" }
 sdist = { path = "/wheels/smoothing-0.1.0.tar.gz" }
 wheels = [
     { path = "/wheels/smoothing-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "ssd1306"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/ssd1306-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/ssd1306-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]

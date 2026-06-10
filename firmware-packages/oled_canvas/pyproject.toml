@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oled_canvas"
+version = "0.1.0"
+description = "MicroPython layout layer that auto-arranges and scales text to fit a monochrome panel."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["oled_canvas"]

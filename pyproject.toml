@@ -15,6 +15,8 @@ dependencies = [
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
+    "ssd1306>=0.1.0",
+    "oled_canvas>=0.1.0",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.2.0",
 ]
@@ -28,6 +30,8 @@ pythonpath = [
     "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
+    "/firmware-packages/ssd1306/tests",
+    "/firmware-packages/oled_canvas/tests",
 ]
 
 [tool.uv.workspace]
@@ -57,6 +61,8 @@ qmc5883p = { index = "internal" }
 smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
+ssd1306 = { index = "internal" }
+oled_canvas = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -85,6 +91,8 @@ test = [
     "smoothing",
     "vl53l0x",
     "vl53l5cx",
+    "ssd1306",
+    "oled_canvas",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
@@ -101,6 +109,7 @@ source = [
   "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
+  "/projects/oled-display/firmware",
 ]
 source_pkgs = [
   "boot_status_led",
@@ -111,6 +120,8 @@ source_pkgs = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "ssd1306",
+  "oled_canvas",
   "serial_over_web",
 ]
 omit = [
@@ -283,6 +294,8 @@ known-first-party = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "ssd1306",
+  "oled_canvas",
   "serial_over_web",
   "micropython_stubs",
 ]

@@ -1,7 +1,7 @@
 [project]
-name = "gyro-stream"
-version = "0.3.0"
-description = "MPU6050 accel/gyro/temp → JSON-over-USB-CDC → FastAPI/WebSocket → Plotly + 3D orientation dashboard."
+name = "oled-display"
+version = "0.1.0"
+description = "SSD1306 OLED bouncing 'hello world!' + once-per-second counter, auto-scaled to fit."
 readme = "README.md"
 requires-python = ">=3.12"
 
@@ -17,4 +17,5 @@ package = false
 micropython-boardfarm = { workspace = true }
 boot_status_led = { index = "internal" }
 i2c_bus = { index = "internal" }
-mpu6050 = { index = "internal" }
+ssd1306 = { index = "internal" }
+oled_canvas = { index = "internal" }
