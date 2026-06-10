@@ -14,7 +14,6 @@ from __future__ import annotations
 # Test state. Cleared by tests' autouse fixtures via reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
-_uart_queues: dict[int, list[bytes]] = {}
 
 
 def register_device(address: int, device: object) -> None:
@@ -22,16 +21,10 @@ def register_device(address: int, device: object) -> None:
     _devices[address] = device
 
 
-def register_uart(uart_id: int, lines: list[bytes]) -> None:
-    """Register a sequence of byte lines for a fake UART to emit via readline()."""
-    _uart_queues[uart_id] = list(lines)
-
-
 def reset() -> None:
-    """Clear recorded pin constructions, the device registry, and UART queues."""
+    """Clear recorded pin constructions and the device registry."""
     pin_constructions.clear()
     _devices.clear()
-    _uart_queues.clear()
 
 
 class Pin:
@@ -116,31 +109,3 @@ class I2C(_I2CBase):
 
 class SoftI2C(_I2CBase):
     """Fake `machine.SoftI2C` (bit-banged)."""
-
-
-class UART:
-    """Fake `machine.UART` — replays lines registered via register_uart()."""
-
-    def __init__(
-        self,
-        id: int,  # noqa: A002
-        *,
-        baudrate: int = 9600,
-        tx: object = None,
-        rx: object = None,
-        timeout: int | None = None,
-        **_kwargs: object,
-    ) -> None:
-        """Record UART id, baudrate, tx/rx pins, and timeout."""
-        self.id = id
-        self.baudrate = baudrate
-        self.tx = tx
-        self.rx = rx
-        self.timeout = timeout
-
-    def readline(self) -> bytes | None:
-        """Pop the next queued line, or None if the queue is empty."""
-        queue = _uart_queues.get(self.id)
-        if not queue:
-            return None
-        return queue.pop(0)

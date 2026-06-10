@@ -166,6 +166,7 @@ def test_parse_rmc_valid() -> None:
     assert result["utc"] == "12:35:19Z"
     assert result["lat"] == pytest.approx(48.1173, abs=1e-4)
     assert result["lon"] == pytest.approx(11.5167, abs=1e-4)
+    assert result["date"] == "2094-03-23"
 
 
 @pytest.mark.parametrize(
@@ -215,6 +216,7 @@ def test_parse_sentence_zda_fills_parsed_slot() -> None:
 def test_parse_sentence_rmc_fills_parsed_slot() -> None:
     signals, in_use, _total, _dop, position, parsed = nmea.parse_sentence(_GPRMC_VALID)
     assert parsed["utc"] == "12:35:19Z"
+    assert parsed["date"] == "2094-03-23"
     assert signals == {} and in_use == set() and position == {}
 
 

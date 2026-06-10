@@ -162,8 +162,21 @@ def parse_zda(parts: list) -> dict:
         }
 
 
+def _parse_rmc_date(date_str: str) -> str | None:
+    """Parse a 6-digit DDMMYY date field from RMC into YYYY-MM-DD, or None if invalid."""
+    try:
+        dd = int(date_str[0:2])
+        mm_val = int(date_str[2:4])
+        yy = int(date_str[4:6])
+        if 1 <= dd <= 31 and 1 <= mm_val <= 12:
+            return f"{2000 + yy:04d}-{mm_val:02d}-{dd:02d}"
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 def _parse_rmc_time_and_pos(parts: list) -> dict:
-    """Extract UTC time and position from RMC parts (status already validated as "A")."""
+    """Extract UTC time, date, and position from RMC parts (status already validated as "A")."""
     time_str = parts[1]
     if not time_str:
         return {}
@@ -185,7 +198,13 @@ def _parse_rmc_time_and_pos(parts: list) -> dict:
     lon = d + (lon_raw - d * 100) / 60.0
     if lon_dir == "W":
         lon = -lon
-    return {"utc": utc_str, "lat": round(lat, 6), "lon": round(lon, 6)}
+    result: dict = {"utc": utc_str, "lat": round(lat, 6), "lon": round(lon, 6)}
+    date_str = parts[9] if len(parts) > 9 else ""
+    if date_str:
+        date = _parse_rmc_date(date_str)
+        if date is not None:
+            result["date"] = date
+    return result
 
 
 def parse_rmc(parts: list) -> dict:
@@ -195,11 +214,12 @@ def parse_rmc(parts: list) -> dict:
         parts: Comma-split NMEA fields (checksum stripped from last field).
 
     Returns:
-        ``{"utc": str, "lat": float, "lon": float}`` when a valid fix is
-        present (status ``"A"``), or ``{}`` when status is ``"V"`` (void)
-        or coordinates are absent.
+        ``{"utc": str, "lat": float, "lon": float}`` (plus ``"date": str``
+        when the date field is present and valid) when a fix is present
+        (status ``"A"``), or ``{}`` when status is ``"V"`` (void) or
+        coordinates are absent.
 
-    RMC format: ``$GPRMC,hhmmss,A,llll.llll,a,lllll.llll,a,...``
+    RMC format: ``$GPRMC,hhmmss,A,llll.llll,a,lllll.llll,a,spd,crs,DDMMYY,...``
     """
     if len(parts) < 10:
         return {}
