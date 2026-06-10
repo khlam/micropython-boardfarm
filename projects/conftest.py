@@ -11,17 +11,23 @@ import pytest
 
 
 class _FakeTime:
-    """time stub: monotonic ticks_ms counter and no-op sleep_ms."""
+    """time stub: monotonic ticks_ms counter, ticks_diff, and no-op sleep_ms."""
 
     def __init__(self) -> None:
         self.ticks = 0
 
     def ticks_ms(self) -> int:
+        """Return the next monotonic tick value (increments by 1)."""
         self.ticks += 1
         return self.ticks
 
+    def ticks_diff(self, a: int, b: int) -> int:
+        """Return the signed difference between two ticks_ms() snapshots."""
+        return a - b
+
     def sleep_ms(self, _ms: int) -> None:
-        return None
+        """No-op sleep so tests run without delay."""
+        return
 
 
 class _FakeStatus:

@@ -1,0 +1,17 @@
+[project]
+name = "gps-stream"
+version = "0.1.0"
+description = "ATGM336H NMEA → 10-second JSON windows → FastAPI/WebSocket → dashboard."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "micropython-boardfarm>=0.6.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+boot_status_led = { index = "internal" }
+atgm336h = { index = "internal" }

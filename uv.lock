@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "compass",
     "distance-stream",
+    "gps-stream",
     "gyro-stream",
     "micropython-boardfarm",
     "multizone-ranging",
@@ -260,6 +261,30 @@ wheels = [
 ]
 
 [[package]]
+name = "atgm336h"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "gps-stream"
+version = "0.1.0"
+source = { virtual = "projects/gps" }
+dependencies = [
+    { name = "boot-status-led" },
+    { name = "atgm336h" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
+]
+
+[[package]]
 name = "gyro-stream"
 version = "0.3.0"
 source = { virtual = "projects/gyro-stream" }
@@ -424,6 +449,7 @@ name = "micropython-boardfarm"
 version = "0.6.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "micropython-stubs" },
@@ -445,6 +471,7 @@ lint = [
     { name = "yamllint" },
 ]
 test = [
+    { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "httpx" },
     { name = "i2c-bus" },
@@ -468,9 +495,10 @@ viz = [
 
 [package.metadata]
 requires-dist = [
+    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -489,6 +517,7 @@ lint = [
     { name = "yamllint", specifier = ">=1.38.0" },
 ]
 test = [
+    { name = "atgm336h", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
@@ -508,11 +537,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.1.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.1.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
