@@ -257,7 +257,7 @@ def apply_parsed(parsed: dict, utc_time: str | None, cached_date: str | None) ->
     if "utc" in parsed:
         utc_time = parsed["utc"]
     new_date = parsed.get("date")
-    if new_date is not None and new_date != cached_date:
+    if new_date is not None and (cached_date is None or new_date > cached_date):
         cached_date = new_date
     return utc_time, cached_date
 
