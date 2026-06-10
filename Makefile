@@ -37,27 +37,24 @@ precommit:
 	image_typecheck="local/typecheck:latest"; \
 	mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z | grep -zE '[.]py$$' || true); \
 	if (( $${#py_files[@]} > 0 )); then \
-		docker buildx bake -f "$$bake_file" ruff; \
+		docker buildx bake -f "$$bake_file" ruff pydoclint typecheck; \
 		echo "[pre-commit] ruff format (auto-fix) on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
 		echo "[pre-commit] ruff check --fix on staged files"; \
-		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
+		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --fix --force-exclude -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
-	fi; \
-	fail=0; \
-	if (( $${#py_files[@]} > 0 )); then \
-		docker buildx bake -f "$$bake_file" pydoclint typecheck; \
-		echo "[lint] ruff format --check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" format --check -- "$${py_files[@]}" || fail=1; \
-		echo "[lint] ruff check ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work -e RUFF_CACHE_DIR=/tmp/ruff "$$image_ruff" check --force-exclude -- "$${py_files[@]}" || fail=1; \
-		echo "[lint] pydoclint ($${#py_files[@]} file(s))"; \
-		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True -- "$${py_files[@]}" || fail=1; \
+		fail=0; \
+		echo "[lint] ruff format --check"; \
+		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format --check || fail=1; \
+		echo "[lint] ruff check"; \
+		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" check --force-exclude || fail=1; \
+		echo "[lint] pydoclint"; \
+		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True . || fail=1; \
 		echo "[lint] ty check"; \
 		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro "$$image_typecheck" || fail=1; \
-	fi; \
-	exit "$$fail"
+		exit "$$fail"; \
+	fi
 
 # Strip the CI / pre-commit / linting scaffolding so a fork can wire up its own.
 # Deletes the GitHub Actions config, the pre-commit hook, the CI-only guard and
