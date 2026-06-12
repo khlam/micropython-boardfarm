@@ -15,6 +15,7 @@ dependencies = [
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
+    "ws2812b>=0.1.0",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.2.0",
 ]
@@ -28,6 +29,7 @@ pythonpath = [
     "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
+    "/firmware-packages/ws2812b/tests",
 ]
 
 [tool.uv.workspace]
@@ -57,6 +59,7 @@ qmc5883p = { index = "internal" }
 smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
+ws2812b = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -85,6 +88,7 @@ test = [
     "smoothing",
     "vl53l0x",
     "vl53l5cx",
+    "ws2812b",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
@@ -111,6 +115,7 @@ source_pkgs = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "ws2812b",
   "serial_over_web",
 ]
 omit = [
@@ -283,6 +288,7 @@ known-first-party = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "ws2812b",
   "serial_over_web",
   "micropython_stubs",
 ]

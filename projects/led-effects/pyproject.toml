@@ -1,0 +1,19 @@
+[project]
+name = "led-effects"
+version = "0.1.0"
+description = "WS2812B strip animation demo — cycles rainbow/hue/breathe/fade effects on RP2040, RP2350, and ESP32-S3."
+readme = "README.md"
+requires-python = ">=3.12"
+
+
+dependencies = [
+    "boot_status_led>=0.2.0",
+    "ws2812b>=0.1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+boot_status_led = { index = "internal" }
+ws2812b = { index = "internal" }

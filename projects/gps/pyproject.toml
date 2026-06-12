@@ -13,5 +13,6 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
+micropython-boardfarm = { workspace = true }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }

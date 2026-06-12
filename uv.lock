@@ -8,6 +8,7 @@ members = [
     "distance-stream",
     "gps-stream",
     "gyro-stream",
+    "led-effects",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -41,6 +42,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/14/2c5dd9f512b66549ae92767a9c7b330ae88e1932ca57876909410251fe13/anyio-4.13.0.tar.gz", hash = "sha256:334b70e641fd2221c1505b3890c69882fe4a2df910cba14d97019b90b24439dc", size = 231622, upload-time = "2026-03-24T12:59:09.671Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/da/42/e921fccf5015463e32a3cf6ee7f980a6ed0f395ceeaa45060b61d86486c2/anyio-4.13.0-py3-none-any.whl", hash = "sha256:08b310f9e24a9594186fd75b4f73f4a4152069e3853f1ed8bfbf58369f4ad708", size = 114353, upload-time = "2026-03-24T12:59:08.246Z" },
+]
+
+[[package]]
+name = "atgm336h"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -199,19 +209,11 @@ name = "distance-stream"
 version = "0.3.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "smoothing" },
-    { name = "vl53l0x" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "dnspython"
@@ -261,45 +263,26 @@ wheels = [
 ]
 
 [[package]]
-name = "atgm336h"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "gps-stream"
 version = "0.1.0"
 source = { virtual = "projects/gps" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "atgm336h" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
 version = "0.3.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "mpu6050" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "h11"
@@ -424,6 +407,21 @@ wheels = [
 ]
 
 [[package]]
+name = "led-effects"
+version = "0.1.0"
+source = { virtual = "projects/led-effects" }
+dependencies = [
+    { name = "boot-status-led" },
+    { name = "ws2812b" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "ws2812b", specifier = ">=0.1.0", index = "file:///wheels" },
+]
+
+[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -446,8 +444,8 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.6.0"
-source = { virtual = "." }
+version = "0.7.0"
+source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
@@ -459,6 +457,7 @@ dependencies = [
     { name = "smoothing" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
+    { name = "ws2812b" },
 ]
 
 [package.dev-dependencies]
@@ -485,6 +484,7 @@ test = [
     { name = "ty" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
+    { name = "ws2812b" },
 ]
 typecheck = [
     { name = "ty" },
@@ -505,6 +505,7 @@ requires-dist = [
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
+    { name = "ws2812b", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [package.metadata.requires-dev]
@@ -531,6 +532,7 @@ test = [
     { name = "ty", specifier = ">=0.0.42" },
     { name = "vl53l0x", index = "file:///wheels" },
     { name = "vl53l5cx", index = "file:///wheels" },
+    { name = "ws2812b", index = "file:///wheels" },
 ]
 typecheck = [{ name = "ty", specifier = ">=0.0.42" }]
 viz = [{ name = "serial-over-web", index = "file:///wheels" }]
@@ -567,17 +569,11 @@ name = "multizone-ranging"
 version = "0.2.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "vl53l5cx" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l5cx", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "orjson"
@@ -1301,6 +1297,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/b6/b9afed2afadddaf5ebb2afa801abf4b0868f42f8539bfe4b071b5266c9fe/websockets-16.0-cp314-cp314t-win32.whl", hash = "sha256:5a4b4cc550cb665dd8a47f868c8d04c8230f857363ad3c9caf7a0c3bf8c61ca6", size = 178085, upload-time = "2026-01-10T09:23:33.816Z" },
     { url = "https://files.pythonhosted.org/packages/9f/3e/28135a24e384493fa804216b79a6a6759a38cc4ff59118787b9fb693df93/websockets-16.0-cp314-cp314t-win_amd64.whl", hash = "sha256:b14dc141ed6d2dde437cddb216004bcac6a1df0935d79656387bd41632ba0bbd", size = 178531, upload-time = "2026-01-10T09:23:35.016Z" },
     { url = "https://files.pythonhosted.org/packages/6f/28/258ebab549c2bf3e64d2b0217b973467394a9cea8c42f70418ca2c5d0d2e/websockets-16.0-py3-none-any.whl", hash = "sha256:1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec", size = 171598, upload-time = "2026-01-10T09:23:45.395Z" },
+]
+
+[[package]]
+name = "ws2812b"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/ws2812b-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/ws2812b-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]

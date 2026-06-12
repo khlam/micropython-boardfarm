@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ws2812b"
+version = "0.1.0"
+description = "Chip-dispatched WS2812B strip driver with parametric rainbow/hue/breathe/fade effects."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ws2812b"]

@@ -21,6 +21,7 @@ COPY projects/compass/pyproject.toml ./projects/compass/pyproject.toml
 COPY projects/distance-stream/pyproject.toml ./projects/distance-stream/pyproject.toml
 COPY projects/gps/pyproject.toml ./projects/gps/pyproject.toml
 COPY projects/gyro-stream/pyproject.toml ./projects/gyro-stream/pyproject.toml
+COPY projects/led-effects/pyproject.toml ./projects/led-effects/pyproject.toml
 COPY projects/multizone-ranging/pyproject.toml ./projects/multizone-ranging/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-project --group test
 ENV PATH=/work/.venv/bin:${PATH}
