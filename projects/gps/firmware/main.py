@@ -8,10 +8,10 @@ and position data from the NMEA stream, and emits a structured JSON object.
 import time
 
 import ujson
-from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
 from atgm336h import connect
 from boot_status_led import status
+from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
 WINDOW_MS = 10_000
 _POLL_SLEEP_MS = 10

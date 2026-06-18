@@ -14,6 +14,7 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
+micropython-boardfarm = { workspace = true }
 boot_status_led = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }

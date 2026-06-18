@@ -9,6 +9,9 @@ requires-python = ">=3.12"
 dependencies = [
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
+    "nmea>=0.1.0",
+    "tz_offset>=0.1.0",
+    "max7219>=0.1.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
@@ -23,9 +26,12 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/firmware-packages/atgm336h/tests",
+    "/firmware-packages/max7219/tests",
     "/firmware-packages/mpu6050/tests",
+    "/firmware-packages/nmea/tests",
     "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/smoothing/tests",
+    "/firmware-packages/tz_offset/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
@@ -51,6 +57,9 @@ serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
+nmea = { index = "internal" }
+tz_offset = { index = "internal" }
+max7219 = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
@@ -79,6 +88,9 @@ test = [
     "micropython_stubs",
     "boot_status_led",
     "atgm336h",
+    "nmea",
+    "tz_offset",
+    "max7219",
     "i2c_bus",
     "mpu6050",
     "qmc5883p",
@@ -96,6 +108,7 @@ test = [
 [tool.coverage.run]
 branch = true
 source = [
+  "/projects/clock/firmware",
   "/projects/compass/firmware",
   "/projects/distance-stream/firmware",
   "/projects/gps/firmware",
@@ -105,6 +118,9 @@ source = [
 source_pkgs = [
   "boot_status_led",
   "atgm336h",
+  "nmea",
+  "tz_offset",
+  "max7219",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",
@@ -169,6 +185,9 @@ rules.invalid-assignment = "ignore"
 rules.invalid-return-type = "ignore"
 rules.invalid-base = "ignore"
 rules.unsupported-operator = "ignore"
+# Firmware duck-types callables (e.g. the MAX7219 driver's glyph-lookup function
+# passed as `object`); Callable isn't importable at MicroPython runtime.
+rules.call-non-callable = "ignore"
 
 [[tool.ty.overrides]]
 include = ["**/tests/**"]
@@ -277,6 +296,9 @@ ban-relative-imports = "all"
 known-first-party = [
   "boot_status_led",
   "atgm336h",
+  "nmea",
+  "tz_offset",
+  "max7219",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",

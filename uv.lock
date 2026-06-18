@@ -4,6 +4,7 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
+    "clock",
     "compass",
     "distance-stream",
     "gps-stream",
@@ -44,6 +45,15 @@ wheels = [
 ]
 
 [[package]]
+name = "atgm336h"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "boot-status-led"
 version = "0.2.0"
 source = { registry = "/wheels" }
@@ -71,6 +81,27 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9b/98/518d8e5081007684232226f475082b30087d0f585e8457db087298259f49/click-8.4.1.tar.gz", hash = "sha256:918b5633eddf6b41c32d4f454bf0de810065c74e3f7dbf8ee5452f8be88d3e96", size = 353007, upload-time = "2026-05-22T04:08:37.769Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/0d/67e5b4109ea4a837e80daa87c2c696711955e40449a97e8926672534def2/click-8.4.1-py3-none-any.whl", hash = "sha256:482be17c6991b8c19c5429a1e995d9b0efdbb63172824c41f99965dc0ade8ec2", size = 116639, upload-time = "2026-05-22T04:08:35.26Z" },
+]
+
+[[package]]
+name = "clock"
+version = "0.1.0"
+source = { virtual = "projects/clock" }
+dependencies = [
+    { name = "atgm336h" },
+    { name = "boot-status-led" },
+    { name = "max7219" },
+    { name = "nmea" },
+    { name = "tz-offset" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "nmea", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "tz-offset", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -199,19 +230,11 @@ name = "distance-stream"
 version = "0.3.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "smoothing" },
-    { name = "vl53l0x" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "dnspython"
@@ -261,45 +284,26 @@ wheels = [
 ]
 
 [[package]]
-name = "atgm336h"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "gps-stream"
 version = "0.1.0"
 source = { virtual = "projects/gps" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "atgm336h" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
 version = "0.3.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "mpu6050" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "h11"
@@ -436,6 +440,15 @@ wheels = [
 ]
 
 [[package]]
+name = "max7219"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/max7219-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/max7219-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -446,17 +459,20 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.6.0"
-source = { virtual = "." }
+version = "0.7.0"
+source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
+    { name = "max7219" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "nmea" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "tz-offset" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -475,14 +491,17 @@ test = [
     { name = "boot-status-led" },
     { name = "httpx" },
     { name = "i2c-bus" },
+    { name = "max7219" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "nmea" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
     { name = "ty" },
+    { name = "tz-offset" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -498,11 +517,14 @@ requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "nmea", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "tz-offset", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
 ]
@@ -521,14 +543,17 @@ test = [
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
+    { name = "max7219", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
+    { name = "nmea", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
+    { name = "tz-offset", index = "file:///wheels" },
     { name = "vl53l0x", index = "file:///wheels" },
     { name = "vl53l5cx", index = "file:///wheels" },
 ]
@@ -567,16 +592,19 @@ name = "multizone-ranging"
 version = "0.2.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "vl53l5cx" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l5cx", specifier = ">=0.1.0", index = "file:///wheels" },
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "nmea"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/nmea-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/nmea-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -1064,6 +1092,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
+]
+
+[[package]]
+name = "tz-offset"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/tz_offset-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/tz_offset-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]

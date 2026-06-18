@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tz_offset"
+version = "0.1.0"
+description = "Convert GPS UTC date/time to local time via a longitude-derived fixed UTC offset."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tz_offset"]

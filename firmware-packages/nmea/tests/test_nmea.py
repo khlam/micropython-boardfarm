@@ -5,8 +5,9 @@ All tests import nmea directly — no AST loading, no fake hardware.
 
 from __future__ import annotations
 
-import nmea
 import pytest
+
+import nmea
 
 # ---------------------------------------------------------------------------
 # Shared sentence fixtures

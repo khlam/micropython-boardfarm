@@ -1,4 +1,4 @@
-"""Pure NMEA-0183 sentence parsing helpers for the gps project.
+"""Pure NMEA-0183 sentence parsing helpers, shared across projects.
 
 All functions are stateless and free of I/O — safe to import on both the MCU
 and the CPython host test environment.

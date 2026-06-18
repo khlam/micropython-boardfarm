@@ -17,6 +17,7 @@ COPY --from=wheels /wheels /wheels
 COPY pyproject.toml uv.lock ./
 # Project pyprojects are virtual workspace members (no source dir to install);
 # uv needs them present to validate the frozen lock.
+COPY projects/clock/pyproject.toml ./projects/clock/pyproject.toml
 COPY projects/compass/pyproject.toml ./projects/compass/pyproject.toml
 COPY projects/distance-stream/pyproject.toml ./projects/distance-stream/pyproject.toml
 COPY projects/gps/pyproject.toml ./projects/gps/pyproject.toml

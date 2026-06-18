@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPS Clock — Live</title>
+  <style>
+    :root {
+      --bg: #0e1117;
+      --panel: #131722;
+      --border: #1f2937;
+      --text: #e6e6e6;
+      --muted: #a1a1aa;
+      --accent: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; font-weight: 500; }
+    .status {
+      display: flex; gap: 16px; align-items: center;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .pill { padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; }
+    .pill.ok  { background: #14532d; color: #86efac; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .pill.fix    { background: #14532d; color: #86efac; }
+    .pill.no-fix { background: #3f3f46; color: #a1a1aa; }
+    .stat { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 500; }
+    .clock-panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 40px 16px; text-align: center;
+      margin-bottom: 16px;
+    }
+    .time {
+      font-size: clamp(56px, 18vw, 160px); font-weight: 700;
+      line-height: 1; letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums; color: var(--text);
+    }
+    .time .colon.off { opacity: 0; }
+    .ampm { font-size: clamp(20px, 5vw, 44px); color: var(--muted); margin-left: 0.15em; }
+    .day {
+      margin-top: 18px; font-size: clamp(22px, 7vw, 52px);
+      font-weight: 600; letter-spacing: 0.12em; color: var(--accent);
+    }
+    .meta {
+      display: flex; gap: 24px; justify-content: center; flex-wrap: wrap;
+      margin-top: 22px;
+    }
+  </style>
+</head>
+<body>
+  <h1>GPS Clock — Live</h1>
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span id="fix-pill" class="pill no-fix">NO FIX</span>
+    <span id="err" class="stat"></span>
+  </div>
+
+  <div class="clock-panel">
+    <div class="time">
+      <span id="hh">--</span><span id="colon" class="colon">:</span><span id="mm">--</span><span id="ampm" class="ampm">--</span>
+    </div>
+    <div id="day" class="day">—</div>
+    <div class="meta">
+      <span class="stat">Longitude: <b id="lon">—</b></span>
+      <span class="stat">UTC offset: <b id="offset">—</b></span>
+      <span class="stat">Last fix: <b id="age">—</b></span>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const RECONNECT_MS = 250;
+    const $ = (id) => document.getElementById(id);
+
+    let lastFixAt = null;
+
+    function setConn(connected, port, error) {
+      const pill = $("conn");
+      pill.textContent = connected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (connected ? "ok" : "err");
+      if (port) $("port").textContent = port;
+      $("err").textContent = error || "";
+    }
+
+    function setFix(hasFix) {
+      const pill = $("fix-pill");
+      pill.textContent = hasFix ? "FIX" : "NO FIX";
+      pill.className = "pill " + (hasFix ? "fix" : "no-fix");
+    }
+
+    function to12h(hour24, minute) {
+      const suffix = hour24 < 12 ? "AM" : "PM";
+      let h = hour24 % 12;
+      if (h === 0) h = 12;
+      return { hh: String(h), mm: String(minute).padStart(2, "0"), suffix };
+    }
+
+    function onClock(obj) {
+      // obj.local is "YYYY-MM-DDTHH:MM:SS" in local time.
+      const m = /T(\d{2}):(\d{2}):(\d{2})/.exec(obj.local || "");
+      if (m) {
+        const t = to12h(parseInt(m[1], 10), parseInt(m[2], 10));
+        $("hh").textContent = t.hh;
+        $("mm").textContent = t.mm;
+        $("ampm").textContent = t.suffix;
+      }
+      if (obj.day) $("day").textContent = obj.day;
+      if (obj.lon !== undefined && obj.lon !== null) $("lon").textContent = obj.lon.toFixed(4) + "°";
+      if (obj.offset_h !== undefined && obj.offset_h !== null) {
+        const o = obj.offset_h;
+        $("offset").textContent = (o >= 0 ? "UTC+" : "UTC") + o;
+      }
+      setFix(true);
+      lastFixAt = Date.now();
+    }
+
+    function tickAge() {
+      // Blink the colon once per second and show how stale the last fix is.
+      const on = Math.floor(Date.now() / 1000) % 2 === 0;
+      $("colon").className = "colon" + (on ? "" : " off");
+      if (lastFixAt !== null) {
+        const secs = Math.round((Date.now() - lastFixAt) / 1000);
+        $("age").textContent = secs + "s ago";
+        if (secs > 10) setFix(false);
+      }
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") { setConn(true, obj.port, null); return; }
+      if (obj.event === "disconnected") { setConn(false, obj.port, obj.error); return; }
+      if (obj.diag !== undefined) return;  // read_err / init_err — ignore in the readout
+      if (obj.fix) onClock(obj);
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(proto + "//" + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => {
+        setConn(false, $("port").textContent, "WebSocket closed — reconnecting…");
+        setTimeout(connect, RECONNECT_MS);
+      };
+      ws.onerror = () => { /* onclose fires and reconnects */ };
+    }
+
+    setInterval(tickAge, 250);
+    connect();
+  })();
+  </script>
+</body>
+</html>
