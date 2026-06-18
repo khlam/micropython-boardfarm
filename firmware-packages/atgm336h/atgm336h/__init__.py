@@ -1,12 +1,14 @@
-"""MCU-micropython ATGM336H package — chip-dispatched UART NMEA reader.
+"""MCU-micropython ATGM336H package — UART NMEA reader.
+
+The caller supplies the UART id and tx/rx pins (from ``board_pinout.BOARD``), so
+the project owns the wiring and this package claims no pins at import time.
 
 Example:
+    from board_pinout import BOARD
     from atgm336h import connect
-    gps = connect()          # chip-specific UART initialised here
+    gps = connect(uart_id=BOARD.uart.id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
     line = gps.readline()    # "$GPRMC,..." or None on timeout
 """
-
-import os
 
 __all__ = ["GPS", "connect"]
 
@@ -41,17 +43,20 @@ class GPS:
         return line if line.startswith("$") else None
 
 
-def connect() -> "GPS":
-    """Open the chip-specific UART and return a ready-to-use GPS instance.
+def connect(*, uart_id: int, tx: int, rx: int) -> "GPS":
+    """Open the UART on the given pins and return a ready-to-use GPS instance.
+
+    Args:
+        uart_id: The UART peripheral instance (e.g. ``BOARD.uart.id``).
+        tx: GPIO for MCU TX → GPS RX (optional on the wire, required by the
+            constructor).
+        rx: GPIO for MCU RX ← GPS TX (carries the NMEA stream).
 
     Returns:
-        A GPS instance wrapping the chip-specific UART.
+        A GPS instance wrapping a UART configured at 9600 baud with a short
+        timeout so readline() returns without blocking the loop.
     """
-    _machine = os.uname().machine
-    if "ESP32S3" in _machine:
-        from atgm336h.esp32s3 import uart as _uart  # noqa: PLC0415
-    elif "RP2350" in _machine:
-        from atgm336h.rp2350 import uart as _uart  # noqa: PLC0415
-    else:
-        from atgm336h.rp2040 import uart as _uart  # noqa: PLC0415
-    return GPS(_uart)
+    from machine import UART, Pin  # noqa: PLC0415
+
+    uart = UART(uart_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=100)
+    return GPS(uart)

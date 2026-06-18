@@ -82,7 +82,10 @@ dashboard auto-reconnects if you unplug and replug the board.
 ## Wiring
 
 The clock uses two independent buses: **UART** to the GPS and **SPI** to the LED
-matrix. Both peripherals take 5 V and GND; the signal pins never overlap.
+matrix. Both peripherals take 5 V and GND; the signal pins never overlap. The
+authoritative pin map lives in
+[`board_pinout`](../../firmware-packages/board_pinout/README.md); the per-board
+diagrams below mirror it.
 
 ### ATGM336H GPS module
 
@@ -135,12 +138,12 @@ only feeds a downstream module.
                                    ┌─── USB-C ───┐
                               ┌────┴─────────────┴────┐
                               │                       │
-   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 0  ────► GPS RX (opt.)
-   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── GPS TX
+   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 0
+   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1
                          3V3 ─┤                       ├─ 2
                           29 ─┤                       ├─ 3
-                          28 ─┤                       ├─ 4
-                          27 ─┤  [BOOT] (●) [RESET]   ├─ 5
+                          28 ─┤                       ├─ 4  ────► GPS RX (opt.)
+                          27 ─┤  [BOOT] (●) [RESET]   ├─ 5  ◄──── GPS TX
                           26 ─┤        WS2812         ├─ 6
                           15 ─┤        on GP16        ├─ 7
                           14 ─┤                       ├─ 8
@@ -149,12 +152,17 @@ only feeds a downstream module.
                               └─┬────┬────┬────┬────┬─┘
                                 │    │    │    │    │
                                 13   12   11   10   9
+                                          │    │    │
+                                          │    │    └─► MATRIX CS
+                                          │    └──────► MATRIX CLK
+                                          └───────────► MATRIX DIN
 ```
 
-GP1 is UART0 RX (data flows from GPS into the MCU); GP0 is UART0 TX and is
-optional. The MAX7219 runs on SPI0 — **CS=GP17, CLK=GP18, DIN=GP19** — which on
-the RP2040-Zero are exposed on the underside solder pads, not the castellated edge
-header. The on-board WS2812 is driven by GP16 — no external wiring required.
+GP5 is UART1 RX (data flows from GPS into the MCU); GP4 is UART1 TX and is
+optional. The MAX7219 runs on SPI1 — **CLK=GP10, DIN=GP11, CS=GP9** — all on the
+castellated edge header. The underside solder pads **GP17/GP18/GP19 are banned**
+(see [`board_pinout`](../../firmware-packages/board_pinout/README.md)). The
+on-board WS2812 is driven by GP16 — no external wiring required.
 
 ### ESP32-S3-Zero
 
@@ -190,34 +198,35 @@ on-board WS2812 is driven by GPIO21 — no external wiring required.
                                           ┌──── USB ────┐
                               ┌───────────┴─────────────┴───────────┐
                               │                                     │
-        GPS RX (opt.) ◄─── 0 ─┤                                     ├─ VBUS ──► GPS · MATRIX VCC
-               GPS TX ───► 1 ─┤                                     ├─ VSYS
+                           0 ─┤                                     ├─ VBUS ──► GPS · MATRIX VCC
+                           1 ─┤                                     ├─ VSYS
    GPS · MATRIX GND ◄─── GND ─┤                                     ├─ GND
                            2 ─┤                                     ├─ 3V3_EN
                            3 ─┤                                     ├─ 3V3
-                           4 ─┤                                     ├─ ADC_VREF
-                           5 ─┤                                     ├─ 28
+        GPS RX (opt.) ◄─── 4 ─┤                                     ├─ ADC_VREF
+               GPS TX ───► 5 ─┤                                     ├─ 28
                          GND ─┤   [BOOTSEL] (●) LED on WL_GPIO0     ├─ AGND
                            6 ─┤                                     ├─ 27
                            7 ─┤                                     ├─ 26
                            8 ─┤      RP2350                         ├─ RUN
-                           9 ─┤                                     ├─ 22
+            MATRIX CS ◄─── 9 ─┤                                     ├─ 22
                          GND ─┤                                     ├─ GND
-                          10 ─┤                                     ├─ 21
-                          11 ─┤                                     ├─ 20
-                          12 ─┤                                     ├─ 19 ──► MATRIX DIN
-                          13 ─┤                                     ├─ 18 ──► MATRIX CLK
+          MATRIX CLK ◄─── 10 ─┤                                     ├─ 21
+          MATRIX DIN ◄─── 11 ─┤                                     ├─ 20
+                          12 ─┤                                     ├─ 19
+                          13 ─┤                                     ├─ 18
                          GND ─┤                                     ├─ GND
-                          14 ─┤                                     ├─ 17 ──► MATRIX CS
+                          14 ─┤                                     ├─ 17
                           15 ─┤                                     ├─ 16
                               │                                     │
                               └─────────────────────────────────────┘
 ```
 
-VBUS is the 5 V USB rail. GP1 is UART0 RX; GP0 is UART0 TX (optional). The MAX7219
-runs on SPI0 — CS=GP17, CLK=GP18, DIN=GP19.
+VBUS is the 5 V USB rail. GP5 is UART1 RX; GP4 is UART1 TX (optional). The MAX7219
+runs on SPI1 — CS=GP9, CLK=GP10, DIN=GP11 — mirroring the RP2040-Zero edge wiring.
 
 ## Packages used
 
-`atgm336h` (GPS UART), `nmea` (sentence parsing), `tz_offset` (UTC→local),
-`max7219` (display driver + fonts + display-cycle), `boot_status_led` (status LED).
+`board_pinout` (board pin topology), `atgm336h` (GPS UART), `nmea` (sentence
+parsing), `tz_offset` (UTC→local), `max7219` (display driver + fonts +
+display-cycle), `boot_status_led` (status LED).

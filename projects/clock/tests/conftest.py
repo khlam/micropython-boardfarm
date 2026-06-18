@@ -18,6 +18,7 @@ import machine
 import neopixel
 import pytest
 
+import board_pinout
 from max7219 import day_name
 from nmea import nmea_checksum_valid, parse_sentence
 from tz_offset import local_from_gps, offset_hours_from_longitude
@@ -60,6 +61,7 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
+        "BOARD": board_pinout.BOARD,
         "nmea_checksum_valid": nmea_checksum_valid,
         "parse_sentence": parse_sentence,
         "local_from_gps": local_from_gps,

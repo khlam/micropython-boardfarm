@@ -54,6 +54,15 @@ wheels = [
 ]
 
 [[package]]
+name = "board-pinout"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/board_pinout-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/board_pinout-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "boot-status-led"
 version = "0.2.0"
 source = { registry = "/wheels" }
@@ -463,6 +472,7 @@ version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
+    { name = "board-pinout" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "max7219" },
@@ -488,6 +498,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h" },
+    { name = "board-pinout" },
     { name = "boot-status-led" },
     { name = "httpx" },
     { name = "i2c-bus" },
@@ -515,6 +526,7 @@ viz = [
 [package.metadata]
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "board-pinout", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -540,6 +552,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h", index = "file:///wheels" },
+    { name = "board-pinout", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },

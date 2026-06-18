@@ -17,6 +17,7 @@ import ujson
 from machine import RTC
 
 from atgm336h import connect as gps_connect
+from board_pinout import BOARD
 from boot_status_led import status
 from max7219 import DisplayCycle, day_name
 from max7219 import connect as display_connect
@@ -148,8 +149,13 @@ def main() -> None:
     while True:
         status.i2c_init()
         try:
-            gps = gps_connect()
-            display = display_connect()
+            gps = gps_connect(uart_id=BOARD.uart.id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
+            display = display_connect(
+                spi_id=BOARD.spi.id,
+                sck=BOARD.spi.sck,
+                mosi=BOARD.spi.mosi,
+                cs=BOARD.devices["display"].cs,
+            )
         except Exception:  # noqa: BLE001
             status.init_err()
             emit({"diag": "init_err"})

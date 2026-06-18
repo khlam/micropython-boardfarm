@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 
 
 dependencies = [
+    "board_pinout>=0.1.0",
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
     "nmea>=0.1.0",
@@ -55,6 +56,7 @@ explicit = true   # only sources pinned to it use it; third-party stays on PyPI
 [tool.uv.sources]
 serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
+board_pinout = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
 nmea = { index = "internal" }
@@ -86,6 +88,7 @@ test = [
     {include-group = "viz"},
     {include-group = "typecheck"},
     "micropython_stubs",
+    "board_pinout",
     "boot_status_led",
     "atgm336h",
     "nmea",
@@ -116,6 +119,7 @@ source = [
   "/projects/multizone-ranging/firmware",
 ]
 source_pkgs = [
+  "board_pinout",
   "boot_status_led",
   "atgm336h",
   "nmea",
@@ -294,6 +298,7 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
 known-first-party = [
+  "board_pinout",
   "boot_status_led",
   "atgm336h",
   "nmea",

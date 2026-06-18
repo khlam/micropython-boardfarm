@@ -240,7 +240,7 @@ def test_main_reports_init_error_and_retries(main_ns: object) -> None:
     emitted: list[dict] = []
     main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
 
-    def _boom() -> None:
+    def _boom(**_kwargs: object) -> None:
         raise OSError("no device")
 
     main_ns.ns["gps_connect"] = _boom
@@ -256,8 +256,8 @@ def test_main_reports_init_error_and_retries(main_ns: object) -> None:
 def test_main_runs_after_successful_init(main_ns: object) -> None:
     main_ns.ns["time"] = _CountdownTime(stop_after=99)
     main_ns.ns["emit"] = lambda _obj: None
-    main_ns.ns["gps_connect"] = lambda: _FakeGPS([])
-    main_ns.ns["display_connect"] = _FakeDisplay
+    main_ns.ns["gps_connect"] = lambda **_kwargs: _FakeGPS([])
+    main_ns.ns["display_connect"] = lambda **_kwargs: _FakeDisplay()
     calls = {"run": 0}
 
     def _fake_run(gps: object, display: object) -> None:

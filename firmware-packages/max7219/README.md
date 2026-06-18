@@ -1,13 +1,14 @@
 # max7219
 
 MicroPython driver for a 4-module (8x32) MAX7219 LED matrix, plus fonts and a
-clock display-cycle. Chip-specific SPI pins live in per-chip backends, so callers
-stay board-agnostic.
+clock display-cycle. The caller supplies the SPI pins, so the project owns the
+wiring (see [`board_pinout`](../board_pinout/README.md)).
 
 ## Public API
 
-- `connect()` — open this chip's SPI bus and return a ready `MAX7219` (the only
-  function that touches `machine`).
+- `connect(*, spi_id, sck, mosi, cs)` — open the SPI bus on the given pins and
+  return a ready `MAX7219` (the only function that touches `machine`). `sck`/`mosi`
+  are the shared bus lines; `cs` is the display device's chip-select.
 - `MAX7219(spi, cs)` — framebuffer driver: `show_text`, `show_auto`, `show_time`,
   `set_text`, `scroll_step`, `wiggle_step`, `set_intensity`, `clear`, `refresh`.
 - `DisplayCycle(display, rtc)` — alternates a TIME phase (bold 12-hour digits,
@@ -17,14 +18,10 @@ stay board-agnostic.
 
 ## Pins
 
-| Chip | SCK | MOSI/DIN | CS |
-| --- | --- | --- | --- |
-| RP2040 | GP18 | GP19 | GP17 |
-| RP2350 | GP18 | GP19 | GP17 |
-| ESP32-S3 | GPIO12 | GPIO11 | GPIO10 |
-
-All are disjoint from the ATGM336H GPS UART pins, so display SPI and GPS UART run
-concurrently without contention.
+Supplied by the caller from `board_pinout.BOARD` — `spi_id`/`sck`/`mosi` from the
+shared `BOARD.spi` bus and `cs` from `BOARD.devices["display"]`. The wiring per
+board is documented in [`board_pinout`](../board_pinout/README.md); a write-only
+display uses no MISO.
 
 ## Hardware notes
 
