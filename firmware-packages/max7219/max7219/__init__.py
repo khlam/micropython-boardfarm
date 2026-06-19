@@ -1,36 +1,30 @@
-"""MCU-micropython MAX7219 display package — SPI matrix driver.
+"""MCU-micropython MAX7219 package — SPI driver for an 8xN LED-matrix chain.
 
-The caller supplies the SPI id, sck/mosi pins, and the device's chip-select
+The caller supplies the SPI id, sck/mosi pins, and the display's chip-select
 (from the project's ``BOARD`` wiring table), so the project owns the wiring and
-this package claims no pins at import time.
+this package claims no pins at import time. ``connect`` is the only entry point
+that touches ``machine``; ``MAX7219`` and the font are pure logic, so importing
+this package stays safe in the host CPython test environment.
 
 Example:
-    from max7219 import connect, DisplayCycle
-    display = connect(spi_id=BOARD.spi.id, sck=BOARD.spi.sck,
-                      mosi=BOARD.spi.mosi, cs=BOARD.devices["display"].cs,
-                      num_modules=8)
-    cycle = DisplayCycle(display, rtc)  # rtc is a machine.RTC
-
-``connect()`` is the only entry point that touches ``machine``; the driver,
-fonts, and DisplayCycle are pure logic, so importing this package stays safe in
-the host CPython test environment.
+    from max7219 import connect
+    top = connect(spi_id=1, sck=10, mosi=11, cs=9, num_modules=4)
+    top.show_text("top 123")
 """
 
-from max7219.display_cycle import DisplayCycle, day_name, format_time_12h, show_time
 from max7219.max7219 import MAX7219
 
-__all__ = ["MAX7219", "DisplayCycle", "connect", "day_name", "format_time_12h", "show_time"]
+__all__ = ["MAX7219", "connect"]
 
 
 def connect(*, spi_id: int, sck: int, mosi: int, cs: int, num_modules: int = 4) -> MAX7219:
     """Open the SPI bus on the given pins and return a ready-to-use display.
 
     Args:
-        spi_id: The SPI peripheral instance (e.g. ``BOARD.spi.id``).
-        sck: Shared SPI clock GPIO (``BOARD.spi.sck``).
-        mosi: Shared SPI data-out GPIO → matrix DIN (``BOARD.spi.mosi``).
-        cs: This display's chip-select GPIO (``BOARD.devices["display"].cs``);
-            a write-only device needs no MISO.
+        spi_id: The SPI peripheral instance (e.g. ``BOARD.display_top.spi_id``).
+        sck: SPI clock GPIO for this chain.
+        mosi: SPI data-out GPIO → matrix DIN.
+        cs: This display's chip-select GPIO; a write-only device needs no MISO.
         num_modules: Number of 8x8 modules in the cascade (default 4).
 
     Returns:

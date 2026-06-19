@@ -1,8 +1,7 @@
-"""Local test doubles for the max7219 driver and display-cycle tests.
+"""Local test doubles for the max7219 driver.
 
 No ``machine`` stub is needed: the driver accepts any object exposing
-``write``/``on``/``off``, and DisplayCycle accepts any object with ``datetime``
-and the display methods it calls.
+``write`` (SPI) and ``on``/``off`` (chip-select).
 """
 
 from __future__ import annotations
@@ -34,35 +33,3 @@ class FakeCS:
     def off(self) -> None:
         """Record a CS low (asserted)."""
         self.toggles.append("off")
-
-
-class FakeRTC:
-    """RTC stand-in returning a fixed ``datetime`` 8-tuple."""
-
-    def __init__(self, dt: tuple) -> None:
-        """Store the tuple ``(year, month, day, weekday, hour, minute, second, sub)``."""
-        self._dt = dt
-
-    def datetime(self) -> tuple:
-        """Return the stored datetime tuple."""
-        return self._dt
-
-
-class FakeDisplay:
-    """Display stand-in that records the cycle's render calls in order."""
-
-    def __init__(self) -> None:
-        """Start with no recorded calls."""
-        self.calls: list[tuple] = []
-
-    def show_time(self, text: str, suffix: str, *_fonts: object) -> None:
-        """Record a time render."""
-        self.calls.append(("show_time", text, suffix))
-
-    def show_auto(self, text: str, _fn: object = None) -> None:
-        """Record an auto/centered render."""
-        self.calls.append(("show_auto", text))
-
-    def wiggle_step(self) -> None:
-        """Record a wiggle advance."""
-        self.calls.append(("wiggle_step",))
