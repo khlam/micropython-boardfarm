@@ -16,8 +16,8 @@ The display alternates:
 - **Time** — 12-hour, bold font, blinking colon, AM/PM.
 - **Day of week** — the weekday name (wiggles if wider than 32 px).
 
-All board-specific pins live in the package backends (`atgm336h`, `max7219`), so
-`firmware/main.py` is board-agnostic and builds for RP2040, RP2350, and ESP32-S3.
+Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
+packages remain board-agnostic and the firmware builds for RP2040, RP2350, and ESP32-S3.
 
 ## Layout
 ```
@@ -53,7 +53,7 @@ With the board plugged in (`/dev/ttyACM0`):
 ```bash
 docker compose up --build viz
 ```
-Open `http://localhost:18502`. The connection pill turns green when the serial
+Open `http://localhost:18501`. The connection pill turns green when the serial
 port is open, and a second pill shows `FIX` / `NO FIX`. Once the GPS has a fix the
 panel mirrors the matrix — the local time, AM/PM, day of week — alongside the
 detected longitude, derived UTC offset, and the age of the last fix. The
@@ -152,19 +152,17 @@ lines from the MCU); the DOUT connectors are unused.
                           29 ─┤                       ├─ 3
                           28 ─┤                       ├─ 4  
                           27 ─┤  [BOOT] (●) [RESET]   ├─ 5  
-    TOP MATRIX     ◄───── 26 ─┤        WS2812         ├─ 6  ────► BOT MATRIX CLK
-    TOP MATRIX DIN ◄───── 15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX DIN
-    TOP MATRIX CLK ◄───── 14 ─┤                       ├─ 8  ────► BOT MATRIX CS
+    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  ────► BOT MATRIX CLK
+    TOP MATRIX CS  ◄───── 15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX CS
+    TOP MATRIX DIN ◄───── 14 ─┤                       ├─ 8  ────► BOT MATRIX DIN
                               │    RP2040 BOARD       │
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
-                                │    │    │    │    │
-                                13   12   11   10   9
 ```
 
-GP5 is UART1 RX (data flows from GPS into the MCU); GP4 is UART1 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GP14, DIN=GP15, CS=GP8**. The
-bottom MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP7, CS=GP5**. Pins GP9–GP13 are
+GP1 is UART0 RX (data flows from GPS into the MCU); GP0 is UART0 TX and is
+optional. The top MAX7219 runs on SPI1 — **CLK=GP26, DIN=GP14, CS=GP15**. The
+bottom MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP8, CS=GP7**. Pins GP9–GP13 are
 reserved (underside castellated pads) and must not be used. The on-board WS2812
 is driven by GP16 — no external wiring required.
 
@@ -179,22 +177,18 @@ is driven by GP16 — no external wiring required.
                          3V3 ─┤                       ├─ 11 
                            1 ─┤                       ├─ 10 
                            2 ─┤                       ├─ 9
-        BOT MATRIX CLK ◄── 3 ─┤  [BOOT] (●) [RESET]   ├─ 8
-        BOT MATRIX DIN ◄── 4 ─┤        WS2812         ├─ 43
-           BOT MATRIX CS ► 5 ─┤        on GPIO21      ├─ 44
-    TOP MATRIX DIN ◄────── 6 ─┤                       ├─ 14
-    TOP MATRIX CLK ◄────── 7 ─┤   ESP32-S3-Zero       ├─ 15 ────► TOP MATRIX CS
+                           3 ─┤  [BOOT] (●) [RESET]   ├─ 8
+                           4 ─┤        WS2812         ├─ 43
+     TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44 ────► BOT MATRIX CLK
+     TOP MATRIX CS  ◄───── 6 ─┤                       ├─ 14 ────► BOT MATRIX CS
+     TOP MATRIX DIN ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15 ────► BOT MATRIX DIN
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
-                                │    │    │    │    │
-                                16   17   18   21   45
-                                      │    │
-                          GPS RX (opt.)┘    └── GPS TX
 ```
 
 GPIO12 is UART1 RX (data flows from GPS into the MCU); GPIO13 is UART1 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GPIO7, DIN=GPIO6, CS=GPIO15**. The
-bottom MAX7219 runs on SPI2 — **CLK=GPIO3, DIN=GPIO4, CS=GPIO5**. The on-board
+optional. The top MAX7219 runs on SPI1 — **CLK=GPIO5, DIN=GPIO7, CS=GPIO6**. The
+bottom MAX7219 runs on SPI2 — **CLK=GPIO44, DIN=GPIO15, CS=GPIO14**. The on-board
 WS2812 is driven by GPIO21 — no external wiring required.
 
 ### RP2350
