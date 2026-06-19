@@ -37,7 +37,13 @@ precommit:
 	image_typecheck="local/typecheck:latest"; \
 	mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z | grep -zE '[.]py$$' || true); \
 	if (( $${#py_files[@]} > 0 )); then \
-		docker buildx bake -f "$$bake_file" ruff pydoclint typecheck; \
+		missing=0; \
+		for img in "$$image_ruff" "$$image_pydoclint" "$$image_typecheck"; do \
+			docker image inspect "$$img" >/dev/null 2>&1 || { missing=1; break; }; \
+		done; \
+		if (( missing )); then \
+			docker buildx bake -f "$$bake_file" ruff pydoclint typecheck; \
+		fi; \
 		echo "[pre-commit] ruff format (auto-fix) on staged files"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \
