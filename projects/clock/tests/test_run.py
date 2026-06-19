@@ -1,22 +1,18 @@
 """Host CPython tests for the clock project firmware.
 
-Covers the per-line RTC update (_apply_line), the GPS-pump helper, the display
-advance helper, and the run()/main() loops. The loops are infinite; tests escape
-them with a countdown ``time`` whose ``sleep_ms`` raises a BaseException after a
-set number of calls (run()/main() only catch ``Exception``).
+Covers emit(), _run_window() GPS collection with snake animation, and the
+run()/main() loops.  The loops are infinite; tests escape them with a countdown
+``time`` whose ``sleep_ms`` raises a BaseException after a set number of calls
+(run()/main() only catch ``Exception``).
 """
 
 from __future__ import annotations
 
 import json
-from typing import ClassVar
 
 import pytest
 
-# RMC carries UTC time + date + longitude together. lon 11.5167 -> +1h offset.
 _GPRMC_VALID = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"
-_GPRMC_VOID = "$GPRMC,123519,V,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*7D"
-_GPZDA = "$GPZDA,131415,01,06,2025,00,00*49"  # time + date but no longitude
 
 
 class _StopLoop(BaseException):
@@ -44,49 +40,19 @@ class _CountdownTime:
             raise _StopLoop
 
 
-class _FakeRTC:
-    """RTC stand-in: datetime(tuple) stores, datetime() returns."""
-
-    def __init__(self) -> None:
-        self.set_to: tuple | None = None
-
-    def datetime(self, dt: tuple | None = None) -> tuple | None:
-        if dt is None:
-            return self.set_to
-        self.set_to = dt
-        return None
-
-
-class _FakeCycle:
-    """DisplayCycle stand-in recording start()/step() counts."""
-
-    instances: ClassVar[list] = []
-
-    def __init__(self, display: object, rtc: object) -> None:
-        self.display = display
-        self.rtc = rtc
-        self.started = 0
-        self.steps = 0
-        _FakeCycle.instances.append(self)
-
-    def start(self) -> None:
-        self.started += 1
-
-    def step(self) -> None:
-        self.steps += 1
-
-
 class _FakeDisplay:
-    """Display stand-in recording show_auto/wiggle_step calls."""
+    """Display stand-in with a framebuffer for snake pixel tests."""
 
-    def __init__(self) -> None:
-        self.calls: list[tuple] = []
+    def __init__(self, num_modules: int = 4) -> None:
+        self.n = num_modules
+        self.buf = bytearray(8 * num_modules)
 
-    def show_auto(self, text: str, _fn: object = None) -> None:
-        self.calls.append(("show_auto", text))
+    def clear_buf(self) -> None:
+        for i in range(len(self.buf)):
+            self.buf[i] = 0
 
-    def wiggle_step(self) -> None:
-        self.calls.append(("wiggle_step",))
+    def refresh(self) -> None:
+        pass
 
 
 class _FakeGPS:
@@ -97,6 +63,12 @@ class _FakeGPS:
 
     def readline(self) -> str | None:
         return self._q.pop(0) if self._q else None
+
+
+def _make_snake(display_h: int = 16, length: int = 7) -> list:
+    """Build an initial snake body matching firmware's startup state."""
+    y = display_h // 2
+    return [(i, y) for i in range(length)]
 
 
 # ---------------------------------------------------------------------------
@@ -111,79 +83,37 @@ def test_emit_writes_one_json_line(main_ns: object, capsys: pytest.CaptureFixtur
 
 
 # ---------------------------------------------------------------------------
-# _apply_line
+# _run_window
 # ---------------------------------------------------------------------------
 
 
-def test_apply_line_sets_rtc_and_returns_payload(main_ns: object) -> None:
-    rtc = _FakeRTC()
-    payload = main_ns.ns["_apply_line"](_GPRMC_VALID, rtc)
-    assert payload["fix"] is True
-    assert payload["offset_h"] == 1  # lon 11.5167 -> round(0.77) = 1
-    assert payload["lon"] == pytest.approx(11.5167, abs=1e-4)
-    assert payload["local"].startswith("2094-03-23T13:35:19")  # 12:35:19 UTC + 1h
-    assert payload["day"] in {
-        "MONDAY",
-        "TUESDAY",
-        "WEDNESDAY",
-        "THURSDAY",
-        "FRIDAY",
-        "SATURDAY",
-        "SUNDAY",
-    }
-    assert rtc.set_to is not None
-    assert rtc.set_to[4] == 13  # local hour stored in the RTC tuple
+def test_run_window_emits_gps_data(main_ns: object, capsys: pytest.CaptureFixture) -> None:
+    """Valid NMEA line produces a JSON signal result with satellite data."""
+    snake = _make_snake()
+    main_ns.ns["_run_window"](_FakeGPS([_GPRMC_VALID]), None, _FakeDisplay(), _FakeDisplay(), snake)
+    out = capsys.readouterr().out.strip()
+    data = json.loads(out)
+    assert "window_ms" in data
+    assert "sats_in_use" in data
 
 
-@pytest.mark.parametrize(
-    "line",
-    [
-        _GPRMC_VALID[:-2] + "00",  # corrupted checksum
-        _GPRMC_VOID,  # status V -> no usable fields
-        _GPZDA,  # time + date but no longitude
-    ],
-    ids=["bad_checksum", "void_status", "no_longitude"],
-)
-def test_apply_line_returns_none(main_ns: object, line: str) -> None:
-    rtc = _FakeRTC()
-    assert main_ns.ns["_apply_line"](line, rtc) is None
-    assert rtc.set_to is None
+def test_run_window_emits_no_data_when_silent(
+    main_ns: object, capsys: pytest.CaptureFixture
+) -> None:
+    """No NMEA lines produce a no_data diagnostic."""
+    snake = _make_snake()
+    main_ns.ns["_run_window"](_FakeGPS([]), None, _FakeDisplay(), _FakeDisplay(), snake)
+    out = capsys.readouterr().out.strip()
+    assert json.loads(out) == {"diag": "no_data"}
 
 
-# ---------------------------------------------------------------------------
-# _read_payload
-# ---------------------------------------------------------------------------
-
-
-def test_read_payload_none_when_gps_silent(main_ns: object) -> None:
-    assert main_ns.ns["_read_payload"](_FakeGPS([]), _FakeRTC()) is None
-
-
-def test_read_payload_applies_rmc(main_ns: object) -> None:
-    rtc = _FakeRTC()
-    payload = main_ns.ns["_read_payload"](_FakeGPS([_GPRMC_VALID]), rtc)
-    assert payload["fix"] is True
-    assert rtc.set_to is not None
-
-
-# ---------------------------------------------------------------------------
-# _advance_display
-# ---------------------------------------------------------------------------
-
-
-def test_advance_display_steps_cycle_with_fix(main_ns: object) -> None:
-    cyc = _FakeCycle(_FakeDisplay(), None)
-    out = main_ns.ns["_advance_display"](_FakeDisplay(), cyc, have_fix=True, wiggle_tick=5)
-    assert cyc.steps == 1
-    assert out == 5  # wiggle tick unchanged while a fix drives the cycle
-
-
-def test_advance_display_wiggles_placeholder_without_fix(main_ns: object) -> None:
-    display = _FakeDisplay()
-    # wiggle_tick far in the past so ticks_diff exceeds _WIGGLE_MS.
-    out = main_ns.ns["_advance_display"](display, None, have_fix=False, wiggle_tick=-10_000)
-    assert ("wiggle_step",) in display.calls
-    assert out != -10_000  # tick advanced to "now"
+def test_run_window_passes_cached_date_through(main_ns: object) -> None:
+    """cached_date is returned unchanged when no new date is seen."""
+    snake = _make_snake()
+    result = main_ns.ns["_run_window"](
+        _FakeGPS([]), "2025-06-01", _FakeDisplay(), _FakeDisplay(), snake
+    )
+    assert result == "2025-06-01"
 
 
 # ---------------------------------------------------------------------------
@@ -191,41 +121,26 @@ def test_advance_display_wiggles_placeholder_without_fix(main_ns: object) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_run_sets_rtc_and_starts_cycle_on_first_fix(main_ns: object) -> None:
-    main_ns.ns["time"] = _CountdownTime(stop_after=1)  # escape after one iteration
-    captured: list[dict] = []
-    main_ns.ns["emit"] = lambda obj: captured.append(dict(obj))
-    rtc = _FakeRTC()
-    main_ns.ns["RTC"] = lambda: rtc
-    _FakeCycle.instances.clear()
-    main_ns.ns["DisplayCycle"] = _FakeCycle
-    display = _FakeDisplay()
+def test_run_enters_streaming_state(main_ns: object) -> None:
+    main_ns.ns["time"] = _CountdownTime(stop_after=1)
+    main_ns.ns["emit"] = lambda _obj: None
 
     with pytest.raises(_StopLoop):
-        main_ns.ns["run"](_FakeGPS([_GPRMC_VALID]), display)
+        main_ns.ns["run"](_FakeGPS([]), _FakeDisplay(), _FakeDisplay())
 
-    assert ("show_auto", "WAITING FOR GPS") in display.calls  # pre-fix placeholder
-    assert rtc.set_to is not None and rtc.set_to[4] == 13
-    assert captured and captured[0]["fix"] is True and "t" in captured[0]
-    cyc = _FakeCycle.instances[0]
-    assert cyc.started == 1
-    assert cyc.steps == 1
     assert "streaming" in main_ns.status.calls
 
 
 def test_run_recovers_from_read_error(main_ns: object) -> None:
     main_ns.ns["time"] = _CountdownTime(stop_after=1)
     main_ns.ns["emit"] = lambda _obj: None
-    main_ns.ns["RTC"] = _FakeRTC
-    _FakeCycle.instances.clear()
-    main_ns.ns["DisplayCycle"] = _FakeCycle
 
     class _FaultGPS:
         def readline(self) -> str | None:
             raise OSError("UART fault")
 
     with pytest.raises(_StopLoop):
-        main_ns.ns["run"](_FaultGPS(), _FakeDisplay())
+        main_ns.ns["run"](_FaultGPS(), _FakeDisplay(), _FakeDisplay())
 
     assert "read_err" in main_ns.status.calls
 
@@ -236,7 +151,7 @@ def test_run_recovers_from_read_error(main_ns: object) -> None:
 
 
 def test_main_reports_init_error_and_retries(main_ns: object) -> None:
-    main_ns.ns["time"] = _CountdownTime(stop_after=2)  # boot pause, then init-err pause
+    main_ns.ns["time"] = _CountdownTime(stop_after=2)
     emitted: list[dict] = []
     main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
 
@@ -260,7 +175,7 @@ def test_main_runs_after_successful_init(main_ns: object) -> None:
     main_ns.ns["display_connect"] = lambda **_kwargs: _FakeDisplay()
     calls = {"run": 0}
 
-    def _fake_run(gps: object, display: object) -> None:
+    def _fake_run(gps: object, display_top: object, display_bot: object) -> None:
         calls["run"] += 1
         raise _StopLoop
 

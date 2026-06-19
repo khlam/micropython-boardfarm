@@ -1,4 +1,4 @@
-"""MCU-micropython MAX7219 8x32 display package — SPI matrix driver.
+"""MCU-micropython MAX7219 display package — SPI matrix driver.
 
 The caller supplies the SPI id, sck/mosi pins, and the device's chip-select
 (from the project's ``BOARD`` wiring table), so the project owns the wiring and
@@ -7,7 +7,8 @@ this package claims no pins at import time.
 Example:
     from max7219 import connect, DisplayCycle
     display = connect(spi_id=BOARD.spi.id, sck=BOARD.spi.sck,
-                      mosi=BOARD.spi.mosi, cs=BOARD.devices["display"].cs)
+                      mosi=BOARD.spi.mosi, cs=BOARD.devices["display"].cs,
+                      num_modules=8)
     cycle = DisplayCycle(display, rtc)  # rtc is a machine.RTC
 
 ``connect()`` is the only entry point that touches ``machine``; the driver,
@@ -21,7 +22,7 @@ from max7219.max7219 import MAX7219
 __all__ = ["MAX7219", "DisplayCycle", "connect", "day_name", "format_time_12h", "show_time"]
 
 
-def connect(*, spi_id: int, sck: int, mosi: int, cs: int) -> MAX7219:
+def connect(*, spi_id: int, sck: int, mosi: int, cs: int, num_modules: int = 4) -> MAX7219:
     """Open the SPI bus on the given pins and return a ready-to-use display.
 
     Args:
@@ -30,11 +31,12 @@ def connect(*, spi_id: int, sck: int, mosi: int, cs: int) -> MAX7219:
         mosi: Shared SPI data-out GPIO → matrix DIN (``BOARD.spi.mosi``).
         cs: This display's chip-select GPIO (``BOARD.devices["display"].cs``);
             a write-only device needs no MISO.
+        num_modules: Number of 8x8 modules in the cascade (default 4).
 
     Returns:
-        A MAX7219 driving the 8x32 chain. CS idles high (active-low).
+        A MAX7219 driving the chain. CS idles high (active-low).
     """
     from machine import SPI, Pin  # noqa: PLC0415
 
     spi = SPI(spi_id, baudrate=1_000_000, polarity=0, phase=0, sck=Pin(sck), mosi=Pin(mosi))
-    return MAX7219(spi, Pin(cs, Pin.OUT, value=1))
+    return MAX7219(spi, Pin(cs, Pin.OUT, value=1), num_modules=num_modules)

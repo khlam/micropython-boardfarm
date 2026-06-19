@@ -1,4 +1,4 @@
-"""MAX7219 driver for 4 cascaded 8x8 LED matrix modules (8x32) with text + scroll.
+"""MAX7219 driver for cascaded 8x8 LED matrix modules with text + scroll.
 
 Hardware quirks baked in here:
 
@@ -14,7 +14,7 @@ from micropython import const
 
 from max7219.font5x7 import char_cols as _default_char_cols
 
-_NUM_MODULES = const(4)
+_DEFAULT_MODULES = const(4)
 _DISPLAY_W = const(32)
 _CELL = const(8)  # one 8x8 module
 _TIME_W = const(24)  # _DISPLAY_W - _CELL: columns reserved for the time text
@@ -29,25 +29,27 @@ _DISPLAY_TEST = const(0x0D)
 
 
 class MAX7219:
-    """Framebuffer-backed driver for a 4-module (8x32) MAX7219 chain.
+    """Framebuffer-backed driver for a cascaded MAX7219 chain.
 
     Only one animation is active at a time: ``show_*`` methods render immediately
     and clear the animation buffer; ``set_*`` methods load the animation buffer
     for ``scroll_step``/``wiggle_step`` to advance.
     """
 
-    def __init__(self, spi: object, cs: object) -> None:
+    def __init__(self, spi: object, cs: object, num_modules: int = _DEFAULT_MODULES) -> None:
         """Initialise the chain and clear the display.
 
         Args:
             spi: A ``machine.SPI`` instance (mode 0) wired to the chain's
                 SCK/MOSI.
             cs: A ``machine.Pin`` chip-select, active-low, configured as output.
+            num_modules: Number of 8x8 modules in the cascade (default 4).
         """
         self._spi = spi
         self._cs = cs
-        self._buf = bytearray(8 * _NUM_MODULES)  # framebuffer: 8 rows x 4 bytes
-        self._cmd = bytearray(2 * _NUM_MODULES)  # SPI transfer buffer
+        self._n = num_modules
+        self._buf = bytearray(8 * num_modules)
+        self._cmd = bytearray(2 * num_modules)
         self._text_buf: object = None
         self._text_len = 0
         self._scroll_pos = 0
@@ -74,7 +76,7 @@ class MAX7219:
     def _write_all(self, register: int, data: int) -> None:
         """Send the same register+data command to all modules at once."""
         cmd = self._cmd
-        for i in range(_NUM_MODULES):
+        for i in range(self._n):
             cmd[i * 2] = register
             cmd[i * 2 + 1] = data
         self._cs.off()
@@ -85,11 +87,12 @@ class MAX7219:
         """Send one framebuffer row to the chain (modules reversed for cascade)."""
         cmd = self._cmd
         buf = self._buf
+        n = self._n
         reg = row + 1  # digit registers are 1-based
-        base = row * _NUM_MODULES
-        for i in range(_NUM_MODULES):
+        base = row * n
+        for i in range(n):
             cmd[i * 2] = reg
-            cmd[i * 2 + 1] = buf[base + (_NUM_MODULES - 1 - i)]
+            cmd[i * 2 + 1] = buf[base + (n - 1 - i)]
         self._cs.off()
         self._spi.write(cmd)
         self._cs.on()
@@ -99,7 +102,17 @@ class MAX7219:
         for row in range(8):
             self._write_row(row)
 
-    def _clear_buf(self) -> None:
+    @property
+    def buf(self) -> bytearray:
+        """Raw framebuffer bytes (8 rows x n modules)."""
+        return self._buf
+
+    @property
+    def n(self) -> int:
+        """Number of 8x8 modules in the cascade."""
+        return self._n
+
+    def clear_buf(self) -> None:
         """Zero the framebuffer without refreshing."""
         buf = self._buf
         for i in range(len(buf)):
@@ -107,7 +120,7 @@ class MAX7219:
 
     def clear(self) -> None:
         """Clear the framebuffer and refresh the display."""
-        self._clear_buf()
+        self.clear_buf()
         self.refresh()
 
     def set_intensity(self, val: int) -> None:
@@ -125,6 +138,7 @@ class MAX7219:
             src: First source column index to read.
         """
         buf = self._buf
+        n = self._n
         end = min(width, max_w)
         for x in range(end):
             col_byte = cols_buf[src + x]
@@ -137,7 +151,7 @@ class MAX7219:
             bit = gx & 7
             for row in range(8):
                 if col_byte & (1 << row):
-                    buf[row * _NUM_MODULES + m] |= 1 << bit
+                    buf[row * n + m] |= 1 << bit
 
     def _build_cols(self, text: str, char_cols_fn: object = None) -> tuple:
         """Build a tightly packed column buffer for ``text``.
@@ -173,7 +187,7 @@ class MAX7219:
         """Render ``text`` centered and static (no animation)."""
         cols_buf, text_cols = self._build_cols(text, char_cols_fn)
         offset = max((_DISPLAY_W - text_cols) // 2, 0)
-        self._clear_buf()
+        self.clear_buf()
         self._blit(cols_buf, text_cols, offset, _DISPLAY_W)
         self.refresh()
         self._text_buf = None
@@ -190,7 +204,7 @@ class MAX7219:
             self._render_window()
         else:
             offset = (_DISPLAY_W - text_cols) // 2
-            self._clear_buf()
+            self.clear_buf()
             self._blit(cols_buf, text_cols, offset, _DISPLAY_W)
             self.refresh()
             self._text_buf = None
@@ -205,7 +219,7 @@ class MAX7219:
         """Render time in the first 24 columns and AM/PM in the last 8-col cell."""
         time_cols, time_w = self._build_cols(time_text, time_font)
         suffix_cols, suffix_w = self._build_cols(suffix, suffix_font)
-        self._clear_buf()
+        self.clear_buf()
         t_off = max((_TIME_W - time_w) // 2, 0)
         self._blit(time_cols, time_w, t_off, _TIME_W)
         s_off = _TIME_W + (_CELL - suffix_w) // 2
@@ -260,7 +274,7 @@ class MAX7219:
 
     def _render_window(self) -> None:
         """Render the 32-column window at the current scroll position and refresh."""
-        self._clear_buf()
+        self.clear_buf()
         self._blit(self._text_buf, _DISPLAY_W, 0, _DISPLAY_W, self._scroll_pos)
         self.refresh()
 
