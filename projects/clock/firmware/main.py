@@ -11,18 +11,63 @@ The display alternates the local time (12-hour, bold, blinking colon, AM/PM) and
 the current day of the week; see the max7219 DisplayCycle.
 """
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 from machine import RTC
 
 from atgm336h import connect as gps_connect
-from board_pinout import BOARD
 from boot_status_led import status
 from max7219 import DisplayCycle, day_name
 from max7219 import connect as display_connect
 from nmea import nmea_checksum_valid, parse_sentence
 from tz_offset import local_from_gps, offset_hours_from_longitude
+
+SpiBus = namedtuple("SpiBus", ("id", "sck", "mosi", "miso"))
+I2cBus = namedtuple("I2cBus", ("id", "sda", "scl"))
+UartBus = namedtuple("UartBus", ("id", "tx", "rx"))
+Device = namedtuple("Device", ("bus", "cs", "addr"))
+Board = namedtuple("Board", ("name", "status_led", "spi", "i2c", "uart", "devices"))
+
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(
+        name="ESP32-S3-Zero",
+        status_led=21,
+        spi=SpiBus(id=1, sck=12, mosi=11, miso=None),
+        i2c=I2cBus(id=0, sda=1, scl=2),
+        uart=UartBus(id=1, tx=17, rx=18),
+        devices={
+            "gps": Device(bus="uart", cs=None, addr=None),
+            "display": Device(bus="spi", cs=10, addr=None),
+        },
+    )
+elif "RP2350" in _machine:
+    BOARD = Board(
+        name="RP2350",
+        status_led="LED",
+        spi=SpiBus(id=1, sck=10, mosi=11, miso=None),
+        i2c=I2cBus(id=0, sda=0, scl=1),
+        uart=UartBus(id=1, tx=4, rx=5),
+        devices={
+            "gps": Device(bus="uart", cs=None, addr=None),
+            "display": Device(bus="spi", cs=9, addr=None),
+        },
+    )
+else:
+    BOARD = Board(
+        name="RP2040-Zero",
+        status_led=16,
+        spi=SpiBus(id=1, sck=14, mosi=15, miso=None),
+        i2c=I2cBus(id=0, sda=0, scl=1),
+        uart=UartBus(id=1, tx=4, rx=5),
+        devices={
+            "gps": Device(bus="uart", cs=None, addr=None),
+            "display": Device(bus="spi", cs=8, addr=None),
+        },
+    )
 
 _WAIT_TEXT = "WAITING FOR GPS"
 _LOOP_MS = 10

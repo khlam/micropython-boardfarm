@@ -1,10 +1,10 @@
 """MCU-micropython ATGM336H package — UART NMEA reader.
 
-The caller supplies the UART id and tx/rx pins (from ``board_pinout.BOARD``), so
-the project owns the wiring and this package claims no pins at import time.
+The caller supplies the UART id and tx/rx pins (from the project's ``BOARD``
+wiring table), so the project owns the wiring and this package claims no pins at
+import time.
 
 Example:
-    from board_pinout import BOARD
     from atgm336h import connect
     gps = connect(uart_id=BOARD.uart.id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
     line = gps.readline()    # "$GPRMC,..." or None on timeout

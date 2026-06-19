@@ -1,11 +1,10 @@
 """MCU-micropython MAX7219 8x32 display package — SPI matrix driver.
 
 The caller supplies the SPI id, sck/mosi pins, and the device's chip-select
-(from ``board_pinout.BOARD``), so the project owns the wiring and this package
-claims no pins at import time.
+(from the project's ``BOARD`` wiring table), so the project owns the wiring and
+this package claims no pins at import time.
 
 Example:
-    from board_pinout import BOARD
     from max7219 import connect, DisplayCycle
     display = connect(spi_id=BOARD.spi.id, sck=BOARD.spi.sck,
                       mosi=BOARD.spi.mosi, cs=BOARD.devices["display"].cs)

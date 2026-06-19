@@ -11,17 +11,36 @@ as fakes.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
+from collections import namedtuple
 from types import SimpleNamespace
 
 import machine
 import neopixel
 import pytest
 
-import board_pinout
 from max7219 import day_name
 from nmea import nmea_checksum_valid, parse_sentence
 from tz_offset import local_from_gps, offset_hours_from_longitude
+
+SpiBus = namedtuple("SpiBus", ("id", "sck", "mosi", "miso"))
+I2cBus = namedtuple("I2cBus", ("id", "sda", "scl"))
+UartBus = namedtuple("UartBus", ("id", "tx", "rx"))
+Device = namedtuple("Device", ("bus", "cs", "addr"))
+Board = namedtuple("Board", ("name", "status_led", "spi", "i2c", "uart", "devices"))
+
+_TEST_BOARD = Board(
+    name="RP2040-Zero",
+    status_led=16,
+    spi=SpiBus(id=1, sck=10, mosi=11, miso=None),
+    i2c=I2cBus(id=0, sda=0, scl=1),
+    uart=UartBus(id=1, tx=4, rx=5),
+    devices={
+        "gps": Device(bus="uart", cs=None, addr=None),
+        "display": Device(bus="spi", cs=9, addr=None),
+    },
+)
 
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
@@ -58,10 +77,12 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
     import ujson
 
     ns: dict = {
+        "os": os,
+        "namedtuple": namedtuple,
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
-        "BOARD": board_pinout.BOARD,
+        "BOARD": _TEST_BOARD,
         "nmea_checksum_valid": nmea_checksum_valid,
         "parse_sentence": parse_sentence,
         "local_from_gps": local_from_gps,

@@ -83,8 +83,7 @@ dashboard auto-reconnects if you unplug and replug the board.
 
 The clock uses two independent buses: **UART** to the GPS and **SPI** to the LED
 matrix. Both peripherals take 5 V and GND; the signal pins never overlap. The
-authoritative pin map lives in
-[`board_pinout`](../../firmware-packages/board_pinout/README.md); the per-board
+authoritative pin map lives in `main.py`'s `BOARD` wiring table; the per-board
 diagrams below mirror it.
 
 ### ATGM336H GPS module
@@ -145,23 +144,18 @@ only feeds a downstream module.
                           28 ─┤                       ├─ 4  ────► GPS RX (opt.)
                           27 ─┤  [BOOT] (●) [RESET]   ├─ 5  ◄──── GPS TX
                           26 ─┤        WS2812         ├─ 6
-                          15 ─┤        on GP16        ├─ 7
-                          14 ─┤                       ├─ 8
+        MATRIX DIN ◄───── 15 ─┤        on GP16        ├─ 7
+        MATRIX CLK ◄───── 14 ─┤                       ├─ 8  ────► MATRIX CS
                               │    RP2040 BOARD       │
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
                                 │    │    │    │    │
                                 13   12   11   10   9
-                                          │    │    │
-                                          │    │    └─► MATRIX CS
-                                          │    └──────► MATRIX CLK
-                                          └───────────► MATRIX DIN
 ```
 
 GP5 is UART1 RX (data flows from GPS into the MCU); GP4 is UART1 TX and is
-optional. The MAX7219 runs on SPI1 — **CLK=GP10, DIN=GP11, CS=GP9** — all on the
-castellated edge header. The underside solder pads **GP17/GP18/GP19 are banned**
-(see [`board_pinout`](../../firmware-packages/board_pinout/README.md)). The
+optional. The MAX7219 runs on SPI1 — **CLK=GP14, DIN=GP15, CS=GP8**. Pins
+GP9–GP13 are reserved (underside castellated pads) and must not be used. The
 on-board WS2812 is driven by GP16 — no external wiring required.
 
 ### ESP32-S3-Zero
@@ -227,6 +221,5 @@ runs on SPI1 — CS=GP9, CLK=GP10, DIN=GP11 — mirroring the RP2040-Zero edge w
 
 ## Packages used
 
-`board_pinout` (board pin topology), `atgm336h` (GPS UART), `nmea` (sentence
-parsing), `tz_offset` (UTC→local), `max7219` (display driver + fonts +
-display-cycle), `boot_status_led` (status LED).
+`atgm336h` (GPS UART), `nmea` (sentence parsing), `tz_offset` (UTC→local),
+`max7219` (display driver + fonts + display-cycle), `boot_status_led` (status LED).

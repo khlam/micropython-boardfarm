@@ -2,7 +2,7 @@
 
 MicroPython driver for a 4-module (8x32) MAX7219 LED matrix, plus fonts and a
 clock display-cycle. The caller supplies the SPI pins, so the project owns the
-wiring (see [`board_pinout`](../board_pinout/README.md)).
+wiring.
 
 ## Public API
 
@@ -18,10 +18,9 @@ wiring (see [`board_pinout`](../board_pinout/README.md)).
 
 ## Pins
 
-Supplied by the caller from `board_pinout.BOARD` — `spi_id`/`sck`/`mosi` from the
-shared `BOARD.spi` bus and `cs` from `BOARD.devices["display"]`. The wiring per
-board is documented in [`board_pinout`](../board_pinout/README.md); a write-only
-display uses no MISO.
+Supplied by the caller from the project's `BOARD` wiring table — `spi_id`/`sck`/`mosi`
+from the shared `BOARD.spi` bus and `cs` from `BOARD.devices["display"]`. Each
+project defines its own board wiring in `main.py`; a write-only display uses no MISO.
 
 ## Hardware notes
 
