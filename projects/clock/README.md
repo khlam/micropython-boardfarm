@@ -150,19 +150,19 @@ lines from the MCU); the DOUT connectors are unused.
    GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── GPS TX
                          3V3 ─┤                       ├─ 2
                           29 ─┤                       ├─ 3
-                          28 ─┤                       ├─ 4  
-                          27 ─┤  [BOOT] (●) [RESET]   ├─ 5  
+    TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4  
+    TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5  
     TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  ────► BOT MATRIX CLK
-    TOP MATRIX CS  ◄───── 15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX CS
-    TOP MATRIX DIN ◄───── 14 ─┤                       ├─ 8  ────► BOT MATRIX DIN
+                          15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX DIN
+                          14 ─┤                       ├─ 8  ────► BOT MATRIX CS
                               │    RP2040 BOARD       │
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
 ```
 
 GP1 is UART0 RX (data flows from GPS into the MCU); GP0 is UART0 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GP26, DIN=GP14, CS=GP15**. The
-bottom MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP8, CS=GP7**. Pins GP9–GP13 are
+optional. The top MAX7219 runs on SPI1 — **CLK=GP26, DIN=GP27, CS=GP28**. The
+bottom MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP7, CS=GP8**. Pins GP9–GP13 are
 reserved (underside castellated pads) and must not be used. The on-board WS2812
 is driven by GP16 — no external wiring required.
 
@@ -174,21 +174,21 @@ is driven by GP16 — no external wiring required.
                               │                       │
    GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 13 ────► GPS RX (opt.)
    GPS · MATRIX GND ◄─── GND ─┤                       ├─ 12 ◄──── GPS TX
-                         3V3 ─┤                       ├─ 11 
-                           1 ─┤                       ├─ 10 
-                           2 ─┤                       ├─ 9
+                         3V3 ─┤                       ├─ 11 ────► BOT MATRIX CS
+                           1 ─┤                       ├─ 10 ────► BOT MATRIX DIN
+                           2 ─┤                       ├─ 9  ────► BOT MATRIX CLK
                            3 ─┤  [BOOT] (●) [RESET]   ├─ 8
                            4 ─┤        WS2812         ├─ 43
-     TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44 ────► BOT MATRIX CLK
-     TOP MATRIX CS  ◄───── 6 ─┤                       ├─ 14 ────► BOT MATRIX CS
-     TOP MATRIX DIN ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15 ────► BOT MATRIX DIN
+     TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44
+     TOP MATRIX DIN ◄───── 6 ─┤                       ├─ 14
+     TOP MATRIX CS  ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
 ```
 
 GPIO12 is UART1 RX (data flows from GPS into the MCU); GPIO13 is UART1 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GPIO5, DIN=GPIO7, CS=GPIO6**. The
-bottom MAX7219 runs on SPI2 — **CLK=GPIO44, DIN=GPIO15, CS=GPIO14**. The on-board
+optional. The top MAX7219 runs on SPI1 — **CLK=GPIO5, DIN=GPIO6, CS=GPIO7**. The
+bottom MAX7219 runs on SPI2 — **CLK=GPIO9, DIN=GPIO10, CS=GPIO11**. The on-board
 WS2812 is driven by GPIO21 — no external wiring required.
 
 ### RP2350

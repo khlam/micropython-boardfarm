@@ -33,8 +33,8 @@ if "ESP32S3" in _machine:
         uart=UartBus(id=1, tx=13, rx=12),
         devices={
             "gps": Device(bus="uart", cs=None, addr=None),
-            "display_top": DisplayWiring(spi_id=1, sck=7, mosi=6, cs=15),
-            "display_bot": DisplayWiring(spi_id=2, sck=3, mosi=4, cs=5),
+            "display_top": DisplayWiring(spi_id=1, sck=5, mosi=6, cs=7),
+            "display_bot": DisplayWiring(spi_id=2, sck=9, mosi=10, cs=11),
         },
     )
 elif "RP2350" in _machine:
@@ -57,8 +57,8 @@ else:
         uart=UartBus(id=0, tx=0, rx=1),
         devices={
             "gps": Device(bus="uart", cs=None, addr=None),
-            "display_top": DisplayWiring(spi_id=1, sck=14, mosi=15, cs=8),
-            "display_bot": DisplayWiring(spi_id=0, sck=6, mosi=7, cs=5),
+            "display_top": DisplayWiring(spi_id=1, sck=26, mosi=27, cs=28),
+            "display_bot": DisplayWiring(spi_id=0, sck=6, mosi=7, cs=8),
         },
     )
 
