@@ -36,12 +36,12 @@ if "ESP32S3" in _machine:
     BOARD = Board(
         name="ESP32-S3-Zero",
         status_led=21,
-        spi=SpiBus(id=1, sck=12, mosi=11, miso=None),
+        spi=SpiBus(id=1, sck=7, mosi=6, miso=None),
         i2c=I2cBus(id=0, sda=1, scl=2),
-        uart=UartBus(id=1, tx=17, rx=18),
+        uart=UartBus(id=1, tx=13, rx=12),
         devices={
             "gps": Device(bus="uart", cs=None, addr=None),
-            "display": Device(bus="spi", cs=10, addr=None),
+            "display": Device(bus="spi", cs=15, addr=None),
         },
     )
 elif "RP2350" in _machine:
@@ -62,7 +62,7 @@ else:
         status_led=16,
         spi=SpiBus(id=1, sck=14, mosi=15, miso=None),
         i2c=I2cBus(id=0, sda=0, scl=1),
-        uart=UartBus(id=1, tx=4, rx=5),
+        uart=UartBus(id=0, tx=0, rx=1),
         devices={
             "gps": Device(bus="uart", cs=None, addr=None),
             "display": Device(bus="spi", cs=8, addr=None),

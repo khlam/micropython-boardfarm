@@ -137,12 +137,12 @@ only feeds a downstream module.
                                    ┌─── USB-C ───┐
                               ┌────┴─────────────┴────┐
                               │                       │
-   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 0
-   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1
+   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 0  ────► GPS RX (opt.)
+   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── GPS TX
                          3V3 ─┤                       ├─ 2
                           29 ─┤                       ├─ 3
-                          28 ─┤                       ├─ 4  ────► GPS RX (opt.)
-                          27 ─┤  [BOOT] (●) [RESET]   ├─ 5  ◄──── GPS TX
+                          28 ─┤                       ├─ 4  
+                          27 ─┤  [BOOT] (●) [RESET]   ├─ 5  
                           26 ─┤        WS2812         ├─ 6
         MATRIX DIN ◄───── 15 ─┤        on GP16        ├─ 7
         MATRIX CLK ◄───── 14 ─┤                       ├─ 8  ────► MATRIX CS
@@ -164,16 +164,16 @@ on-board WS2812 is driven by GP16 — no external wiring required.
                                    ┌─── USB-C ───┐
                               ┌────┴─────────────┴────┐
                               │                       │
-   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 13
-   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 12 ────► MATRIX CLK
-                         3V3 ─┤                       ├─ 11 ────► MATRIX DIN
-                           1 ─┤                       ├─ 10 ────► MATRIX CS
+   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 13 ────► GPS RX (opt.)
+   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 12 ◄──── GPS TX
+                         3V3 ─┤                       ├─ 11 
+                           1 ─┤                       ├─ 10 
                            2 ─┤                       ├─ 9
                            3 ─┤  [BOOT] (●) [RESET]   ├─ 8
                            4 ─┤        WS2812         ├─ 43
                            5 ─┤        on GPIO21      ├─ 44
-                           6 ─┤                       ├─ 14
-                           7 ─┤   ESP32-S3-Zero       ├─ 15
+         MATRIX DIN ◄───── 6 ─┤                       ├─ 14
+         MATRIX CLK ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15 ────► MATRIX CS
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
                                 │    │    │    │    │
