@@ -48,17 +48,7 @@ Before changing anything, identify the area you're touching:
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
 
-## Workflow & commands
-
-### Workflow (follow in order)
-| Step | Action |
-| --- | --- |
-| 1 | Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three). |
-| 2 | If the change requires chip-specific behavior, add or update a package backend — do not branch inside project firmware. |
-| 3 | Make the smallest change that achieves the goal — don't add shared abstractions for a single chip. |
-| 4 | Compile firmware and confirm it succeeds before reporting done. |
-
-### Commands (copy/paste, run from `projects/<project>/`)
+## Commands (copy/paste, run from `projects/<project>/`)
 
 #### Compile firmware
 ```
