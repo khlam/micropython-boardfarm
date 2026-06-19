@@ -71,7 +71,7 @@ services:
     device_cgroup_rules:
       - c 166:* rmw  # USB-ACM (TTY) major
     ports:
-      - 18502:18501
+      - 18501:18501
     # Lets the container resolve host.docker.internal on Linux too (automatic on
     # Docker Desktop) — used when SERIAL_PORT is the macOS socket:// bridge.
     extra_hosts:
