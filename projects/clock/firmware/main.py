@@ -1,14 +1,9 @@
 """MCU-micropython firmware for the clock project.
 
-Reads UTC date/time + longitude from an ATGM336H GPS over UART (NMEA), derives a
-fixed local-time offset from the longitude, sets the onboard RTC, and drives an
-8x32 MAX7219 LED matrix over SPI. UART and SPI are independent buses, so a single
-cooperative loop pumps the GPS (non-blocking ``readline``) and advances the
-display every iteration — the RTC keeps time between GPS bursts, so neither bus
-blocks the other.
-
-The display alternates the local time (12-hour, bold, blinking colon, AM/PM) and
-the current day of the week; see the max7219 DisplayCycle.
+Reads NMEA sentences from an ATGM336H GPS over UART in 10-second windows,
+emits structured GPS signal data (satellites, DOP, position) as compact JSON,
+and displays ``kinholam.com`` on an 8x32 MAX7219 LED matrix at the lowest
+brightness.
 """
 
 import os
@@ -16,14 +11,11 @@ import time
 from collections import namedtuple
 
 import ujson
-from machine import RTC
 
 from atgm336h import connect as gps_connect
 from boot_status_led import status
-from max7219 import DisplayCycle, day_name
 from max7219 import connect as display_connect
-from nmea import nmea_checksum_valid, parse_sentence
-from tz_offset import local_from_gps, offset_hours_from_longitude
+from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
 SpiBus = namedtuple("SpiBus", ("id", "sck", "mosi", "miso"))
 I2cBus = namedtuple("I2cBus", ("id", "sda", "scl"))
@@ -69,11 +61,12 @@ else:
         },
     )
 
-_WAIT_TEXT = "WAITING FOR GPS"
-_LOOP_MS = 10
+WINDOW_MS = 10_000
+_POLL_SLEEP_MS = 10
 _WIGGLE_MS = 120
 _BOOT_PAUSE_MS = 300
 _INIT_ERR_PAUSE_MS = 1_000
+_DISPLAY_TEXT = "kinholam.com"
 
 
 def emit(obj: dict) -> None:
@@ -86,101 +79,81 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def _apply_line(line: str, rtc: object) -> dict | None:
-    """Set the RTC from one NMEA line and return a status payload, or None.
-
-    Acts only on a checksum-valid RMC sentence (the one ATGM336H sentence that
-    carries UTC time, date, and longitude together). Other sentences return
-    None so the caller leaves the RTC untouched.
+def _run_window(gps: object, display: object, cached_date: str | None) -> str | None:
+    """Collect NMEA sentences for one window and emit a GPS signal result.
 
     Args:
-        line: A raw NMEA sentence including its ``*HH`` checksum.
-        rtc: A ``machine.RTC``; its ``datetime()`` is set to local time.
+        gps: An object with a ``readline() -> str | None`` method.
+        display: A MAX7219 instance; its wiggle is advanced during the window.
+        cached_date: Most-recently seen GPS date (``"YYYY-MM-DD"``), or
+            ``None`` if no date sentence has been received yet.
 
     Returns:
-        A dict describing the new local time (for ``emit``), or None when the
-        line is not a usable fix.
+        Updated ``cached_date``; unchanged if no new date was seen this window.
     """
-    if not nmea_checksum_valid(line):
-        return None
-    *_, parsed = parse_sentence(line)
-    if "utc" not in parsed or "date" not in parsed or "lon" not in parsed:
-        return None
-    year, month, day, wd, hour, minute, second = local_from_gps(
-        parsed["date"], parsed["utc"], parsed["lon"]
-    )
-    rtc.datetime((year, month, day, wd, hour, minute, second, 0))
-    return {
-        "fix": True,
-        "lon": parsed["lon"],
-        "offset_h": offset_hours_from_longitude(parsed["lon"]),
-        "local": f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}",
-        "day": day_name(wd),
-    }
-
-
-def _read_payload(gps: object, rtc: object) -> dict | None:
-    """Read one GPS line and apply it to the RTC; return the payload or None."""
-    line = gps.readline()
-    if line is None:
-        return None
-    return _apply_line(line, rtc)
-
-
-def _advance_display(display: object, cycle: object, *, have_fix: bool, wiggle_tick: int) -> int:
-    """Update the display for one loop tick and return the next wiggle tick.
-
-    Once a fix is acquired the DisplayCycle owns the display; before that, the
-    "waiting for GPS" placeholder is wiggled so the panel shows it is alive.
-
-    Args:
-        display: The MAX7219 instance.
-        cycle: The DisplayCycle instance.
-        have_fix: Whether a GPS fix has set the RTC yet.
-        wiggle_tick: ``ticks_ms`` of the last placeholder wiggle.
-
-    Returns:
-        The wiggle tick to carry into the next iteration.
-    """
-    if have_fix:
-        cycle.step()
-        return wiggle_tick
-    now = time.ticks_ms()
-    if time.ticks_diff(now, wiggle_tick) >= _WIGGLE_MS:
-        display.wiggle_step()
-        return now
-    return wiggle_tick
+    signals: dict = {}
+    in_use_set: set = set()
+    total_in_view: dict = {}
+    dop: dict = {}
+    position: dict = {}
+    utc_time: str | None = None
+    saw_data = False
+    wiggle_tick = time.ticks_ms()
+    t_start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t_start) < WINDOW_MS:
+        line = gps.readline()
+        if line is not None and nmea_checksum_valid(line):
+            saw_data = True
+            new_signals, new_in_use, new_total, new_dop, new_pos, new_parsed = parse_sentence(line)
+            signals.update(new_signals)
+            in_use_set |= new_in_use
+            total_in_view.update(new_total)
+            dop.update(new_dop)
+            position.update(new_pos)
+            utc_time, cached_date = apply_parsed(new_parsed, utc_time, cached_date)
+        now = time.ticks_ms()
+        if time.ticks_diff(now, wiggle_tick) >= _WIGGLE_MS:
+            display.wiggle_step()
+            wiggle_tick = now
+        time.sleep_ms(_POLL_SLEEP_MS)
+    if saw_data:
+        emit(
+            {
+                "window_ms": WINDOW_MS,
+                "utc": build_utc_full(utc_time, cached_date),
+                "sats_in_use": len(in_use_set),
+                "sats_in_view": sum(total_in_view.values()),
+                "hdop": dop.get("hdop"),
+                "vdop": dop.get("vdop"),
+                "pdop": dop.get("pdop"),
+                "lat": position.get("lat"),
+                "lon": position.get("lon"),
+                "signals": list(signals.values()),
+            }
+        )
+    else:
+        emit({"diag": "no_data"})
+    return cached_date
 
 
 def run(gps: object, display: object) -> None:
-    """Pump GPS and drive the display forever in one cooperative loop.
+    """Show ``kinholam.com`` on the matrix and stream GPS signal data forever.
 
     Args:
         gps: An object with ``readline() -> str | None`` (ATGM336H wrapper).
         display: A MAX7219 instance.
     """
-    rtc = RTC()
-    cycle = DisplayCycle(display, rtc)
-    have_fix = False
-    display.show_auto(_WAIT_TEXT)
-    wiggle_tick = time.ticks_ms()
+    display.set_intensity(0)
+    display.show_auto(_DISPLAY_TEXT)
     status.streaming()
+    cached_date: str | None = None
     while True:
         try:
-            payload = _read_payload(gps, rtc)
-        except Exception:  # noqa: BLE001 — a stray sensor/UART fault must not kill the loop
+            cached_date = _run_window(gps, display, cached_date)
+        except Exception:  # noqa: BLE001 — a stray UART fault must not kill the loop
             status.read_err()
             emit({"diag": "read_err"})
             status.streaming()
-            payload = None
-        if payload is not None:
-            payload["t"] = time.ticks_ms()
-            emit(payload)
-            if not have_fix:
-                have_fix = True
-                cycle.start()
-        wiggle_tick = _advance_display(display, cycle, have_fix=have_fix, wiggle_tick=wiggle_tick)
-        time.sleep_ms(_LOOP_MS)
 
 
 def main() -> None:
