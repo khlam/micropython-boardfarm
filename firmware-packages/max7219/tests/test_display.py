@@ -5,7 +5,15 @@ from __future__ import annotations
 import pytest
 from fakes import FakeCS, FakeSPI
 
-from max7219.max7219 import _FLIP_Y, _MIRROR_X, MAX7219, _text_columns
+from max7219.max7219 import (
+    _FLIP_Y,
+    _MIRROR_X,
+    _REG_DISPLAY_TEST,
+    _REG_INTENSITY,
+    _REG_SHUTDOWN,
+    MAX7219,
+    _text_columns,
+)
 
 _NUM_CHIPS = 8
 _PANEL_H = 8
@@ -74,6 +82,33 @@ def test_set_intensity_clamps_to_four_bits() -> None:
     # One _write_all -> one SPI write of num_chips register/data pairs.
     assert len(spi.writes) == 1
     assert spi.writes[0][1] == 0x0F  # 0xFF & 0x0F
+
+
+def test_reassert_reapplies_config_and_refreshes_without_flash() -> None:
+    disp, spi, cs = _make_display()
+    spi.writes.clear()
+    cs.toggles.clear()
+    disp.reassert()
+    regs = [frame[0] for frame in spi.writes]
+    # Control registers are re-asserted, including display-test off and the
+    # exit-shutdown that recover a glitched chip.
+    assert _REG_DISPLAY_TEST in regs
+    assert _REG_SHUTDOWN in regs
+    # The all-LEDs test flash is never replayed: display-test is only written 0.
+    assert [f[1] for f in spi.writes if f[0] == _REG_DISPLAY_TEST] == [0x00]
+    # The framebuffer is re-pushed: eight digit-row frames after the config.
+    assert sum(1 for r in regs if 1 <= r <= _PANEL_H) == _PANEL_H
+    # Every SPI write is bracketed by exactly one CS off/on pair.
+    assert cs.toggles.count("off") == cs.toggles.count("on") == len(spi.writes)
+
+
+def test_set_intensity_persists_across_reassert() -> None:
+    disp, spi, _ = _make_display()
+    disp.set_intensity(0x0B)
+    spi.writes.clear()
+    disp.reassert()
+    # reassert re-emits the brightness last set, not the power-on default.
+    assert [f[1] for f in spi.writes if f[0] == _REG_INTENSITY] == [0x0B]
 
 
 def test_dimensions_are_16x32() -> None:

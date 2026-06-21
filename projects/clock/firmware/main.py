@@ -82,6 +82,9 @@ def run(display: object) -> None:
     emit({"diag": "display_ready", "top": _TOP_TEXT, "bot": _BOT_TEXT})
     while True:
         time.sleep_ms(_IDLE_SLEEP_MS)
+        # Heal any chip that chain noise has glitched into test/shutdown mode;
+        # a no-op on screen when the chain is healthy.
+        display.reassert()
 
 
 def main() -> None:

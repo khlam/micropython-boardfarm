@@ -32,6 +32,7 @@ _HEIGHT = const(_PANEL_H * _PANELS)
 _BYTES_PER_ROW = const(_WIDTH // 8)
 _FONT_ROWS = const(7)
 _FLASH_MS = const(250)
+_DEFAULT_INTENSITY = const(0x00)  # lowest brightness (0x00-0x0F)
 
 # Orientation knobs — the two bring-up adjustments for this matrix. The pixels
 # live in the framebuffer the right way up; these flip how that image is mapped
@@ -68,6 +69,7 @@ class MAX7219:
         # the pixel at visual (x, y).
         self._fb = bytearray(_HEIGHT * _BYTES_PER_ROW)
         self._cmd = bytearray(2 * _NUM_CHIPS)
+        self._intensity = _DEFAULT_INTENSITY
         self._init_display()
 
     @property
@@ -84,17 +86,28 @@ class MAX7219:
         """Run the power-on register sequence, flash all LEDs, and clear."""
         # Light every LED via the display-test register: a wiring check that
         # ignores the framebuffer, so it works even before the first refresh.
+        # _apply_config's first write turns the test back off.
         self._write_all(_REG_DISPLAY_TEST, 0x01)
         utime.sleep_ms(_FLASH_MS)
-        self._write_all(_REG_DISPLAY_TEST, 0x00)
+        self._apply_config()
+        self.clear()
+
+    def _apply_config(self) -> None:
+        """Write the steady-state control registers to every chip.
+
+        Idempotent: each value matches what a healthy chip already holds, so on
+        screen this changes nothing. It is the recovery half of ``reassert`` —
+        only a chip that has drifted (display-test on, shutdown, wrong scan
+        limit/decode/intensity) is pulled back to drawing the framebuffer.
+        """
         for reg, val in (
+            (_REG_DISPLAY_TEST, 0x00),  # normal operation, not all-LEDs-on test
             (_REG_SCAN_LIMIT, 0x07),  # scan all eight rows
             (_REG_DECODE, 0x00),  # no BCD decode — this is a matrix, not 7-seg
-            (_REG_INTENSITY, 0x07),  # mid brightness
+            (_REG_INTENSITY, self._intensity),  # current brightness
             (_REG_SHUTDOWN, 0x01),  # leave shutdown for normal operation
         ):
             self._write_all(reg, val)
-        self.clear()
 
     def _write_all(self, register: int, data: int) -> None:
         """Send the same register+data word to every chip in one CS frame."""
@@ -136,9 +149,25 @@ class MAX7219:
             self._spi.write(cmd)
             self._cs.on()
 
+    def reassert(self) -> None:
+        """Re-apply control registers and re-push the framebuffer (flash-free).
+
+        A MAX7219 partway down a long daisy-chain occasionally latches a corrupt
+        frame from electrical noise on the shared CLK/DIN/LOAD lines and sticks
+        in display-test (a whole module on at full brightness) or shutdown until
+        power-cycled. Call this periodically from an idle loop: on a healthy
+        chain every write equals the chip's current state, so nothing changes on
+        screen; a drifted chip is snapped back within one tick. Unlike
+        ``_init_display`` it skips the test flash and its delay, so the heal is
+        invisible.
+        """
+        self._apply_config()
+        self.refresh()
+
     def set_intensity(self, value: int) -> None:
-        """Set display brightness (low nibble, 0-15)."""
-        self._write_all(_REG_INTENSITY, value & 0x0F)
+        """Set display brightness (low nibble, 0-15); persists across ``reassert``."""
+        self._intensity = value & 0x0F
+        self._write_all(_REG_INTENSITY, self._intensity)
 
     def pixel(self, x: int, y: int, *, on: bool = True) -> None:
         """Set or clear one pixel in the framebuffer (no refresh).
