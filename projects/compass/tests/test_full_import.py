@@ -5,7 +5,6 @@ module so the imports and trailing main() call run. A fake QMC5883P raises after
 one sample to escape stream().
 """
 
-import collections
 import importlib.util
 import io
 import json
@@ -48,7 +47,6 @@ def test_main_executes_init_then_streams_one_sample(
     assert module.BOARD.name == board_name
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
-    assert "scan" in diags
     assert "mag_ok" in diags
     assert any("heading_deg" in ln for ln in lines)
 
@@ -57,18 +55,14 @@ class _StopMainError(Exception):
     """Raised by the fake mag on the second read() to escape stream()."""
 
 
-class _Bus:
-    """Minimal I²C bus stub: scans to the QMC5883P fixed address."""
-
-    @staticmethod
-    def scan() -> list[int]:
-        return [ADDR]
+class _DeviceNotFoundError(Exception):
+    """Stand-in for the driver's DeviceNotFoundError (never raised on the happy path)."""
 
 
 class _FakeMag:
-    """Stub QMC5883P; second read() raises to escape stream()."""
+    """Stub QMC5883P that opens its own bus; second read() raises to escape stream()."""
 
-    def __init__(self, _bus, address=ADDR) -> None:
+    def __init__(self, *, sda, scl, bus_id=0, address=ADDR) -> None:
         self.address = address
         self.last_status = 0
         self._calls = 0
@@ -86,19 +80,15 @@ def _build_stubs(status_stub):
         ticks_ms=lambda: 0,
     )
     boot_status_led_stub = SimpleNamespace(status=status_stub)
-    # main() now calls hard_i2c(BOARD.i2c), so the stub factory must be callable
-    # and the package must expose the Wiring type main.py imports.
-    i2c_bus_stub = SimpleNamespace(
-        Wiring=collections.namedtuple("Wiring", ("id", "sda", "scl")),
-        hard_i2c=lambda _wiring, **_kw: _Bus(),
-    )
-    qmc5883p_stub = SimpleNamespace(QMC5883P=_FakeMag)
+    # main() now builds QMC5883P(id=, sda=, scl=) directly — the driver owns the
+    # bus — so the project no longer imports i2c_bus; the qmc5883p stub exposes
+    # the driver class and its DeviceNotFoundError.
+    qmc5883p_stub = SimpleNamespace(QMC5883P=_FakeMag, DeviceNotFoundError=_DeviceNotFoundError)
 
     return {
         "time": time_stub,
         "ujson": __import__("json"),
         "boot_status_led": boot_status_led_stub,
         "boot_status_led.status": status_stub,
-        "i2c_bus": i2c_bus_stub,
         "qmc5883p": qmc5883p_stub,
     }

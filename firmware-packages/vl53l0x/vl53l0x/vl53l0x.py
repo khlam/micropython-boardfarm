@@ -1,8 +1,16 @@
 import ustruct
 import utime
+from i2c_bus import DeviceNotFoundError, soft_i2c
 from micropython import const
 
 _IO_TIMEOUT = 1000
+
+# Soft-reset handshake: write 0 then 1 to 0xBF, then poll 0xC0 until it reads
+# 0xEE (booted). Clears half-init state from a previous attempt before the
+# driver touches calibration registers. Best-effort — a no-show doesn't block.
+_SOFT_RESET_PAUSE_MS = 2
+_SOFT_RESET_POLLS = 50
+_MODEL_ID_BOOTED = 0xEE
 _SYSRANGE_START = const(0x00)
 _EXTSUP_HV = const(0x89)
 _MSRC_CONFIG = const(0x60)
@@ -108,7 +116,13 @@ class TimeoutError(RuntimeError):
 
 
 class VL53L0X:
-    def __init__(self, i2c, address=0x29, skip_spad_info=False, interrupt_status_mask=0x07):
+    def __init__(
+        self, *, sda, scl, id=0, address=0x29, skip_spad_info=True, interrupt_status_mask=0xFF
+    ):
+        # Soft I²C: the VL53L0X clock-stretches heavily during the firmware
+        # upload, which the hardware peripheral aborts on. id is unused here
+        # (bit-banged) but accepted for a uniform driver signature.
+        i2c = soft_i2c(sda, scl)
         self.i2c = i2c
         self.address = address
         # skip_spad_info=True bypasses the SPAD-count read in _spad_info()
@@ -124,6 +138,9 @@ class VL53L0X:
         # passes 0xFF (any non-zero) to catch bit 6.
         self.interrupt_status_mask = interrupt_status_mask
         utime.sleep_ms(100)  # give the I2C time to init
+        if address not in i2c.scan():
+            raise DeviceNotFoundError("VL53L0X not found at 0x%02x" % address)
+        self._soft_reset()
         self.init()
         self._started = False
         self.measurement_timing_budget_us = 0
@@ -140,6 +157,28 @@ class VL53L0X:
             "final_range_us": 0,
         }
         self.vcsel_period_type = ["VcselPeriodPreRange", "VcselPeriodFinalRange"]
+
+    def _soft_reset(self):
+        """Reboot the chip and poll until it signals ready (best-effort).
+
+        Clears any half-init state from a previous attempt before init() touches
+        calibration registers. A NACK or a no-show is swallowed — init() runs
+        regardless, matching the chip's tolerance for a skipped reset.
+        """
+        try:
+            self.i2c.writeto_mem(self.address, SOFT_RESET_GO2_SOFT_RESET_N, b"\x00")
+            utime.sleep_ms(_SOFT_RESET_PAUSE_MS)
+            self.i2c.writeto_mem(self.address, SOFT_RESET_GO2_SOFT_RESET_N, b"\x01")
+            utime.sleep_ms(_SOFT_RESET_PAUSE_MS)
+            for _ in range(_SOFT_RESET_POLLS):
+                if (
+                    self.i2c.readfrom_mem(self.address, IDENTIFICATION_MODEL_ID, 1)[0]
+                    == _MODEL_ID_BOOTED
+                ):
+                    return
+                utime.sleep_ms(_SOFT_RESET_PAUSE_MS)
+        except OSError:
+            return
 
     def ping(self):
         self.start()

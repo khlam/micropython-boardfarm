@@ -14,6 +14,7 @@ from __future__ import annotations
 # Test state. Cleared by tests' autouse fixtures via reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
+_uart_lines: list[bytes] = []
 
 
 def register_device(address: int, device: object) -> None:
@@ -21,10 +22,16 @@ def register_device(address: int, device: object) -> None:
     _devices[address] = device
 
 
+def feed_uart(lines: list[bytes]) -> None:
+    """Queue byte lines for UART.readline() to return in order (FIFO)."""
+    _uart_lines.extend(lines)
+
+
 def reset() -> None:
-    """Clear recorded pin constructions and the device registry."""
+    """Clear recorded pin constructions, the device registry, and UART queue."""
     pin_constructions.clear()
     _devices.clear()
+    _uart_lines.clear()
 
 
 class Pin:
@@ -79,14 +86,18 @@ class _I2CBase:
         """Return registered device addresses in ascending order."""
         return sorted(_devices.keys())
 
-    def readfrom_mem(self, addr: int, reg: int, nbytes: int) -> bytes:
-        """Read `nbytes` from `addr`/`reg`; raises OSError when unregistered."""
+    def readfrom_mem(self, addr: int, reg: int, nbytes: int, **_kwargs: object) -> bytes:
+        """Read `nbytes` from `addr`/`reg`; raises OSError when unregistered.
+
+        `addrsize` (16-bit register addressing, used by the VL53L5CX driver) is
+        accepted and ignored — the fake register file is keyed by `reg` as-is.
+        """
         dev = _devices.get(addr)
         if dev is None:
             raise OSError("ENODEV")
         return dev.read(reg, nbytes)
 
-    def readfrom_mem_into(self, addr: int, reg: int, buf: bytearray) -> None:
+    def readfrom_mem_into(self, addr: int, reg: int, buf: bytearray, **_kwargs: object) -> None:
         """Read `len(buf)` from `addr`/`reg` into `buf` in place."""
         dev = _devices.get(addr)
         if dev is None:
@@ -95,7 +106,7 @@ class _I2CBase:
         for i, b in enumerate(data):
             buf[i] = b
 
-    def writeto_mem(self, addr: int, reg: int, buf: bytes) -> None:
+    def writeto_mem(self, addr: int, reg: int, buf: bytes, **_kwargs: object) -> None:
         """Write `buf` to `addr`/`reg`; raises OSError when unregistered."""
         dev = _devices.get(addr)
         if dev is None:
@@ -114,8 +125,9 @@ class SoftI2C(_I2CBase):
 class UART:
     """Fake `machine.UART` — records the peripheral id + tx/rx pins + baudrate.
 
-    `readline()` always returns None (no bytes on the host); tests that need
-    scripted NMEA bytes wrap a FakeUART around the GPS class directly instead.
+    `readline()` pops from the module-level queue seeded by `feed_uart()`, so
+    tests can script NMEA bytes for a driver that opens its own UART; it returns
+    None once the queue drains (mirroring a timeout on a quiet line).
     """
 
     def __init__(
@@ -135,6 +147,6 @@ class UART:
         self.rx = rx
         self.timeout = timeout
 
-    def readline(self) -> None:
-        """No bytes available in the host stub."""
-        return
+    def readline(self) -> bytes | None:
+        """Return the next queued byte line, or None when the queue is empty."""
+        return _uart_lines.pop(0) if _uart_lines else None

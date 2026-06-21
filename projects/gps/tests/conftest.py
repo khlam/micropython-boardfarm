@@ -37,12 +37,12 @@ _KEEP_FUNCS = {
     "_run_window",
 }
 
-# Stand-in for main.py's BOARD. Tests drive stream()/_run_window() with a fake
-# GPS directly and never call main(), so this only has to satisfy the kept
-# namedtuple/_machine Assigns; the BOARD if/else is an ast.If and is dropped.
-Wiring = namedtuple("Wiring", ("id", "tx", "rx"))
-Board = namedtuple("Board", ("name", "gps"))
-_TEST_BOARD = Board(name="RP2040-Zero", gps=Wiring(id=0, tx=0, rx=1))
+# Stand-in for main.py's BOARD — plain pin numbers. Tests drive
+# stream()/_run_window() with a fake GPS directly and never call main(), so this
+# only has to satisfy the kept namedtuple/_machine Assigns; the BOARD if/else is
+# an ast.If and is dropped.
+Board = namedtuple("Board", ("name", "uart_id", "tx", "rx"))
+_TEST_BOARD = Board(name="RP2040-Zero", uart_id=0, tx=0, rx=1)
 
 
 def _load_main_namespace(fake_time: object, fake_status: object) -> dict:

@@ -24,7 +24,7 @@ Firmware runs MicroPython (`ujson` built-in); host tests run CPython, where `ujs
 | host | CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host. |
 
 ### Design
-This is a shared-projects monorepo. Each project (`projects/<project>/`) contains firmware that builds for every chip it supports. Pin assignments — which GPIOs carry SPI, I2C, UART, and device chip-selects — live in the project's `main.py` as a `BOARD` wiring table dispatched by `os.uname().machine` at import time, because different projects wire their boards differently and the mapping is pure project-specific configuration. Chip-specific *behavior* (driver implementations, hardware abstraction) belongs in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`. Packages receive pins as arguments from the caller; they never claim pins at import time.
+This is a shared-projects monorepo. Each project (`projects/<project>/`) contains firmware that builds for every chip it supports. Pin assignments — which GPIOs carry SPI, I2C, UART, and device chip-selects — live in the project's `main.py` as a `BOARD` table of **plain pin numbers** dispatched by `os.uname().machine` at import time, because different projects wire their boards differently and the mapping is pure project-specific configuration. Chip-specific *behavior* (driver implementations, hardware abstraction) belongs in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`. Each driver constructor takes those pins as flat keyword arguments (I²C: `sda=`/`scl=`, plus `bus_id=` where a hardware peripheral selector matters; UART: `bus_id=`/`tx=`/`rx=`; SPI: `spi_id=`/`sck=`/`mosi=`/`cs=`), opens whatever bus it needs internally via the `i2c_bus` utility (projects never see a bus object), and scans — raising a specific `DeviceNotFoundError` (not a bare `OSError`) when the expected device is absent, so the project's retry loop can tell "nothing on the bus" from "init failed". Packages receive pins as arguments from the caller; they never claim pins at import time.
 
 `<project>` denotes any subdirectory under `projects/` — list it with `ls projects/` to see what's currently present, and substitute the real name when running commands.
 
@@ -33,11 +33,11 @@ Before changing anything, identify the area you're touching:
 
 | Area | Path | Key files |
 | --- | --- | --- |
-| Entry point | `projects/<project>/firmware/` | `main.py` — I²C scan, sensor init, JSON streaming loop |
+| Entry point | `projects/<project>/firmware/` | `main.py` — BOARD pin table, sensor init/retry, JSON streaming loop |
 | LED state machine | `firmware-packages/boot_status_led/boot_status_led/` | `status.py` — named transitions + colour constants, chip dispatch |
-| I²C bus | `firmware-packages/i2c_bus/i2c_bus/` | `rp2040.py` / `rp2350.py` / `esp32s3.py` — `soft_i2c` / `hard_i2c`, chip dispatch |
-| ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(i2c, skip_spad_info=False, interrupt_status_mask=0x07)` |
-| IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(i2c, addr=0x68)` |
+| I²C bus (internal) | `firmware-packages/i2c_bus/i2c_bus/` | `__init__.py` — `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` + `DeviceNotFoundError`; consumed only by drivers, never by projects |
+| ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(sda=, scl=, bus_id=0, skip_spad_info=True, interrupt_status_mask=0xFF)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
+| IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
@@ -98,7 +98,7 @@ Use standard Python ordering: docstring → imports → constants → public API
 - MicroPython has no package manager and no 3rd-party packages to install; all dependencies must be vendored or frozen into firmware via `manifest.py`. Do not use `mip`. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
 - Wrap `sensor.read()` in `try/except` — sensors occasionally NACK. On exception, call `status.read_err()` and `continue` the loop; never let a stray exception crash the loop.
-- Chip-specific *behavior* belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`). Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes. Pin assignments are the exception: each project defines its own `BOARD` wiring table in `main.py` via `os.uname().machine` dispatch, because pin maps are project-specific configuration — not reusable behavior — and different projects wire their boards differently.
+- Chip-specific *behavior* belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`). Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes. Pin assignments are the exception: each project defines its own `BOARD` table of plain pin numbers in `main.py` via `os.uname().machine` dispatch, because pin maps are project-specific configuration — not reusable behavior — and different projects wire their boards differently. Drivers take those pins as flat keyword arguments and open their own bus (via the internal `i2c_bus` utility for I²C); a driver re-exports `DeviceNotFoundError` so the project imports its retry-loop exception from the driver, never from `i2c_bus`.
 - Don't install tools on the host. All toolchains (esptool, ARM cross-compiler, ESP-IDF, uv, MicroPython source) live inside Docker images.
 - Don't add dependencies without tests + `uv lock`.
 

@@ -14,16 +14,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from mpu6050 import DeviceNotFoundError
+
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "init_sensor", "stream"}
 
-# Stand-in for main.py's BOARD. init_sensor() receives the bus directly in
-# tests, so this only has to satisfy the kept namedtuple/_machine Assigns; the
-# BOARD if/else is an ast.If and is dropped, so we inject a fixed record.
-Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
-Board = namedtuple("Board", ("name", "i2c"))
-_TEST_BOARD = Board(name="RP2040-Zero", i2c=Wiring(id=0, sda=0, scl=1))
+# Stand-in for main.py's BOARD — plain pin numbers. init_sensor() reads pins off
+# BOARD and the driver opens the bus, so this only has to satisfy the kept
+# namedtuple/_machine Assigns; the BOARD if/else is an ast.If and is dropped, so
+# we inject a fixed record.
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
+_TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 
 def _load_main_namespace(fake_time, fake_status):
@@ -57,10 +59,13 @@ def _load_main_namespace(fake_time, fake_status):
         "os": os,
         "namedtuple": namedtuple,
         "BOARD": _TEST_BOARD,
-        # init_sensor() does `MPU6050(i2c, addr=...)`; the annotation in
-        # stream(imu: MPU6050) is evaluated at def time, so the name must
+        # init_sensor() does `MPU6050(bus_id=..., sda=..., scl=...)`; the annotation
+        # in stream(imu: MPU6050) is evaluated at def time, so the name must
         # resolve. Tests override these as needed.
         "MPU6050": object,
+        # init_sensor()'s except clause references DeviceNotFoundError; main.py's
+        # import is dropped by the AST filter, so seed the real exception.
+        "DeviceNotFoundError": DeviceNotFoundError,
     }
     exec(code, ns)
     return ns

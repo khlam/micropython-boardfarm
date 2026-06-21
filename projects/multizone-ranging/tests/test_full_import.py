@@ -7,7 +7,6 @@ per-chip BOARD branch — while a fake VL53L5CX raises after one frame to escape
 stream().
 """
 
-import collections
 import importlib.util
 import io
 import json
@@ -50,7 +49,6 @@ def test_main_executes_init_then_streams_one_frame(
     assert module.BOARD.name == board_name
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
-    assert "scan" in diags
     assert "vl53l5cx_ok" in diags
     assert any("grid" in ln for ln in lines)
 
@@ -59,18 +57,15 @@ class _StopMainError(Exception):
     """Raised by the fake sensor on the second read() to escape stream()."""
 
 
-class _Bus:
-    """Minimal I²C bus stub: scans to the VL53L5CX fixed address."""
-
-    @staticmethod
-    def scan() -> list[int]:
-        return [_TOF_ADDRESS]
+class _DeviceNotFoundError(Exception):
+    """Stand-in for the driver's DeviceNotFoundError (never raised on the happy path)."""
 
 
 class _FakeVL53L5CX:
-    """Stub VL53L5CX driver; second read() raises to escape stream()."""
+    """Stub VL53L5CX that opens its own bus; second read() raises to escape stream()."""
 
-    def __init__(self, _bus) -> None:
+    def __init__(self, *, sda, scl, bus_id=0) -> None:
+        self.addr = _TOF_ADDRESS
         self._calls = 0
 
     def init(self) -> None:
@@ -96,19 +91,17 @@ def _build_stubs(status_stub):
         ticks_ms=lambda: 0,
     )
     boot_status_led_stub = SimpleNamespace(status=status_stub)
-    # main() calls soft_i2c(BOARD.i2c), so the stub factory must be callable and
-    # the package must expose the Wiring type main.py imports.
-    i2c_bus_stub = SimpleNamespace(
-        Wiring=collections.namedtuple("Wiring", ("id", "sda", "scl")),
-        soft_i2c=lambda _wiring, **_kw: _Bus(),
+    # main() builds VL53L5CX(sda=, scl=) directly — the driver owns the bus and
+    # scan — so the project no longer imports i2c_bus; the vl53l5cx stub exposes
+    # the driver class and its DeviceNotFoundError.
+    vl53l5cx_stub = SimpleNamespace(
+        VL53L5CX=_FakeVL53L5CX, DeviceNotFoundError=_DeviceNotFoundError
     )
-    vl53l5cx_stub = SimpleNamespace(VL53L5CX=_FakeVL53L5CX)
 
     return {
         "time": time_stub,
         "ujson": __import__("json"),
         "boot_status_led": boot_status_led_stub,
         "boot_status_led.status": status_stub,
-        "i2c_bus": i2c_bus_stub,
         "vl53l5cx": vl53l5cx_stub,
     }

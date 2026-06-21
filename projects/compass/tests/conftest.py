@@ -15,16 +15,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from qmc5883p import DeviceNotFoundError
+
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "init_sensor", "stream"}
 
-# Stand-in for main.py's BOARD. init_sensor() receives the bus directly in
-# tests, so this only has to satisfy the kept namedtuple/_machine Assigns; the
-# BOARD if/else is an ast.If and is dropped, so we inject a fixed record.
-Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
-Board = namedtuple("Board", ("name", "i2c"))
-_TEST_BOARD = Board(name="RP2040-Zero", i2c=Wiring(id=0, sda=0, scl=1))
+# Stand-in for main.py's BOARD — plain pin numbers. init_sensor() reads pins off
+# BOARD and the driver opens the bus, so this only has to satisfy the kept
+# namedtuple/_machine Assigns; the BOARD if/else is an ast.If and is dropped, so
+# we inject a fixed record.
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
+_TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 
 def _load_main_namespace(fake_time, fake_status):
@@ -66,10 +68,14 @@ def _load_main_namespace(fake_time, fake_status):
         # The AST filter likewise drops the smoothing import; seed the real
         # function stream() calls for the per-axis xs/ys/zs averages.
         "simple_moving_average": simple_moving_average,
-        # init_sensor() does `QMC5883P(i2c)`; the annotation in
-        # stream(mag: QMC5883P) is evaluated at def time, so the name must
+        # init_sensor() does `QMC5883P(bus_id=..., sda=..., scl=...)`; the annotation
+        # in stream(mag: QMC5883P) is evaluated at def time, so the name must
         # resolve. Tests override this as needed.
         "QMC5883P": object,
+        # init_sensor()'s except clause references DeviceNotFoundError; main.py's
+        # import is dropped by the AST filter, so seed the real exception so the
+        # no_device branch catches what the fake driver raises.
+        "DeviceNotFoundError": DeviceNotFoundError,
     }
     exec(code, ns)
     return ns

@@ -1,25 +1,29 @@
-"""MCU-micropython I²C bus factories built from a caller-supplied pin record.
+"""MCU-micropython internal I²C bus helpers, consumed only by sensor drivers.
 
-The package owns *what* pins it needs — the ``Wiring`` schema — but not *which*:
-the project's ``BOARD`` table fills ``Wiring`` per chip and passes it in. Nothing
-here touches ``os.uname()`` or claims a pin at import time.
+A driver supplies the plain pin numbers from the project's ``BOARD`` table and
+gets back a ready ``machine.I2C`` / ``SoftI2C``; the project never sees this
+package. Nothing here touches ``os.uname()`` or claims a pin at import time.
 
-Example:
-    from i2c_bus import Wiring, hard_i2c, soft_i2c
-    bus = hard_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that don't clock-stretch
-    bus = soft_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that do (VL53L0X/L5CX)
+Example (inside a driver):
+    from i2c_bus import DeviceNotFoundError, hard_i2c
+    i2c = hard_i2c(bus_id=0, sda=0, scl=1)     # sensors that don't clock-stretch
+    if address not in i2c.scan():
+        raise DeviceNotFoundError(...)
 """
 
-from collections import namedtuple
-
-__all__ = ["Wiring", "hard_i2c", "soft_i2c"]
-
-# Pin schema for an I²C bus. ``id`` selects the hardware peripheral for
-# hard_i2c; soft_i2c is bit-banged and ignores it.
-Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
+__all__ = ["DeviceNotFoundError", "hard_i2c", "soft_i2c"]
 
 
-def soft_i2c(wiring: Wiring, freq: int = 100_000) -> object:
+class DeviceNotFoundError(Exception):
+    """No expected device ACKed on the opened I²C bus.
+
+    Drivers raise this (instead of a generic ``OSError``) after scanning so a
+    project's retry loop can tell "nothing on the bus" — bad wiring, power, or
+    pull-ups — apart from "device present but init failed".
+    """
+
+
+def soft_i2c(sda: int, scl: int, freq: int = 100_000) -> object:
     """Build a bit-banged SoftI2C on the wired pins.
 
     Soft I²C tolerates the heavy clock-stretching some sensors do during
@@ -27,7 +31,8 @@ def soft_i2c(wiring: Wiring, freq: int = 100_000) -> object:
     peripheral aborts on.
 
     Args:
-        wiring: A ``Wiring`` record; only ``sda``/``scl`` are used.
+        sda: GPIO number for the data line.
+        scl: GPIO number for the clock line.
         freq: Bus clock in Hz; 100 kHz keeps long clock-stretches stable.
 
     Returns:
@@ -35,14 +40,16 @@ def soft_i2c(wiring: Wiring, freq: int = 100_000) -> object:
     """
     from machine import Pin, SoftI2C  # noqa: PLC0415
 
-    return SoftI2C(sda=Pin(wiring.sda), scl=Pin(wiring.scl), freq=freq)
+    return SoftI2C(sda=Pin(sda), scl=Pin(scl), freq=freq)
 
 
-def hard_i2c(wiring: Wiring, freq: int = 400_000) -> object:
+def hard_i2c(bus_id: int, sda: int, scl: int, freq: int = 400_000) -> object:
     """Build a hardware I2C peripheral on the wired pins.
 
     Args:
-        wiring: A ``Wiring`` record; ``id`` selects the I²C peripheral.
+        bus_id: Selects the hardware I²C peripheral.
+        sda: GPIO number for the data line.
+        scl: GPIO number for the clock line.
         freq: Bus clock in Hz; 400 kHz for sensors that don't clock-stretch.
 
     Returns:
@@ -50,4 +57,4 @@ def hard_i2c(wiring: Wiring, freq: int = 400_000) -> object:
     """
     from machine import I2C, Pin  # noqa: PLC0415
 
-    return I2C(wiring.id, sda=Pin(wiring.sda), scl=Pin(wiring.scl), freq=freq)
+    return I2C(bus_id, sda=Pin(sda), scl=Pin(scl), freq=freq)

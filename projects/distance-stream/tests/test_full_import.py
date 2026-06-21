@@ -6,7 +6,6 @@ sys.modules for every external dependency and loads main.py as a real
 module; a fake VL53L0X raises after one sample to escape stream().
 """
 
-import collections
 import importlib.util
 import io
 import json
@@ -50,7 +49,6 @@ def test_main_executes_init_then_streams_one_sample(
     assert module.BOARD.name == board_name
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
-    assert "scan" in diags
     assert "tof_ok" in diags
     assert any("distance_mm" in ln for ln in lines)
 
@@ -59,26 +57,14 @@ class _StopMainError(Exception):
     """Raised by the fake tof on the second read() to escape stream()."""
 
 
-class _Bus:
-    """Minimal I²C bus stub: scans to TOF_ADDRESS, returns a booted MODEL_ID."""
-
-    @staticmethod
-    def scan() -> list[int]:
-        return [TOF_ADDRESS]
-
-    @staticmethod
-    def writeto_mem(_addr, _reg, _buf) -> None:
-        return None
-
-    @staticmethod
-    def readfrom_mem(_addr, _reg, _n) -> bytes:
-        return b"\xee"  # _MODEL_ID_BOOTED
+class _DeviceNotFoundError(Exception):
+    """Stand-in for the driver's DeviceNotFoundError (never raised on the happy path)."""
 
 
 class _FakeVL53L0X:
-    """Stub VL53L0X driver; second read() raises to escape stream()."""
+    """Stub VL53L0X that opens its own bus; second read() raises to escape stream()."""
 
-    def __init__(self, _bus, *, skip_spad_info=False, interrupt_status_mask=0) -> None:
+    def __init__(self, *, sda, scl, bus_id=0) -> None:
         self.address = TOF_ADDRESS
         self._calls = 0
 
@@ -102,19 +88,15 @@ def _build_stubs(status_stub):
         ticks_ms=lambda: 0,
     )
     boot_status_led_stub = SimpleNamespace(status=status_stub)
-    # main() now calls soft_i2c(BOARD.i2c), so the stub factory must be callable
-    # and the package must expose the Wiring type main.py imports.
-    i2c_bus_stub = SimpleNamespace(
-        Wiring=collections.namedtuple("Wiring", ("id", "sda", "scl")),
-        soft_i2c=lambda _wiring, **_kw: _Bus(),
-    )
-    vl53l0x_stub = SimpleNamespace(VL53L0X=_FakeVL53L0X)
+    # main() now builds VL53L0X(sda=, scl=) directly — the driver owns the bus,
+    # scan, and soft reset — so the project no longer imports i2c_bus; the
+    # vl53l0x stub exposes the driver class and its DeviceNotFoundError.
+    vl53l0x_stub = SimpleNamespace(VL53L0X=_FakeVL53L0X, DeviceNotFoundError=_DeviceNotFoundError)
 
     return {
         "time": time_stub,
         "ujson": __import__("json"),
         "boot_status_led": boot_status_led_stub,
         "boot_status_led.status": status_stub,
-        "i2c_bus": i2c_bus_stub,
         "vl53l0x": vl53l0x_stub,
     }

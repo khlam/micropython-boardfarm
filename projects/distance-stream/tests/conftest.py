@@ -14,16 +14,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from vl53l0x import DeviceNotFoundError
+
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
-_KEEP_FUNCS = {"emit", "stream", "soft_reset_sensor", "init_sensor"}
+_KEEP_FUNCS = {"emit", "stream", "init_sensor"}
 
-# Stand-in for main.py's BOARD. init_sensor() receives the bus directly in
-# tests, so this only has to satisfy the kept namedtuple/_machine Assigns; the
-# BOARD if/else is an ast.If and is dropped, so we inject a fixed record.
-Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
-Board = namedtuple("Board", ("name", "i2c"))
-_TEST_BOARD = Board(name="RP2040-Zero", i2c=Wiring(id=0, sda=0, scl=1))
+# Stand-in for main.py's BOARD — plain pin numbers. init_sensor() reads pins off
+# BOARD and the driver opens the bus, so this only has to satisfy the kept
+# namedtuple/_machine Assigns; the BOARD if/else is an ast.If and is dropped, so
+# we inject a fixed record.
+Board = namedtuple("Board", ("name", "sda", "scl"))
+_TEST_BOARD = Board(name="RP2040-Zero", sda=0, scl=1)
 
 
 def _load_main_namespace(fake_time, fake_status):
@@ -65,6 +67,9 @@ def _load_main_namespace(fake_time, fake_status):
         # stream() has `tof: VL53L0X` in its signature; the annotation is
         # evaluated at def time, so the name must resolve. object suffices.
         "VL53L0X": object,
+        # init_sensor()'s except clause references DeviceNotFoundError; main.py's
+        # import is dropped by the AST filter, so seed the real exception.
+        "DeviceNotFoundError": DeviceNotFoundError,
     }
     exec(code, ns)
     return ns

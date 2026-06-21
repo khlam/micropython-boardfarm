@@ -5,8 +5,9 @@ Initialises the LED state machine, scans the I²C bus for an MPU6050 at
 samples as one-JSON-per-line on the serial port at ~100 Hz.
 
 Pin assignments live in this module's BOARD table (dispatched per chip by
-os.uname().machine); chip-specific *behaviour* stays in the packages
-(boot_status_led, i2c_bus, mpu6050).
+os.uname().machine); chip-specific *behaviour* — including which I²C bus the
+sensor opens and its 0x68/0x69 address probe — stays in the packages
+(boot_status_led, mpu6050).
 """
 
 import os
@@ -16,25 +17,19 @@ from collections import namedtuple
 import ujson
 
 from boot_status_led import status
-from i2c_bus import Wiring as I2cWiring
-from i2c_bus import hard_i2c
-from mpu6050 import MPU6050
+from mpu6050 import MPU6050, DeviceNotFoundError
 
-# Per-chip pin map — the authoritative wiring for this project. i2c.id selects
-# the hardware I²C peripheral; sda/scl are GPIO numbers. Filled per chip by
-# os.uname().machine dispatch at import.
-Board = namedtuple("Board", ("name", "i2c"))
+# Per-chip pin map — the authoritative wiring for this project, plain GPIO
+# numbers. i2c_id selects the hardware I²C peripheral the driver opens. Filled
+# per chip by os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
-    BOARD = Board(name="ESP32-S3-Zero", i2c=I2cWiring(id=0, sda=1, scl=2))
+    BOARD = Board(name="ESP32-S3-Zero", i2c_id=0, sda=1, scl=2)
 elif "RP2350" in _machine:
-    BOARD = Board(name="RP2350", i2c=I2cWiring(id=0, sda=0, scl=1))
+    BOARD = Board(name="RP2350", i2c_id=0, sda=0, scl=1)
 else:
-    BOARD = Board(name="RP2040-Zero", i2c=I2cWiring(id=0, sda=0, scl=1))
-
-# AD0=GND/floating → 0x68; AD0=3V3 → 0x69. We try both at boot.
-PRIMARY_ADDRESS = 0x68
-SECONDARY_ADDRESS = 0x69
+    BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 # ~100 Hz polling. The MPU6050 is poll-driven (no INT line wired), so
 # the loop sets the cadence via sleep_ms — distance-stream's self-paced
@@ -57,38 +52,28 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def init_sensor(i2c: object) -> MPU6050:
-    """Scan the bus and initialise the MPU6050, retrying until it comes up.
+def init_sensor() -> MPU6050:
+    """Open the bus and initialise the MPU6050, retrying until it comes up.
 
-    Tries 0x68 first (AD0=GND/floating), falls back to 0x69 (AD0=3V3).
-    Parks at status.no_device() when neither address responds, and at
-    status.init_err() when WHO_AM_I or a config write raises. Both states
-    retry every _RETRY_PAUSE_MS.
-
-    Args:
-        i2c: An open I²C bus (from i2c_bus.hard_i2c) exposing scan().
+    The driver opens its own bus from BOARD pins and auto-detects the address
+    (0x68 with AD0=GND/floating, else 0x69). Parks at status.no_device() when
+    neither address responds (DeviceNotFoundError), and at status.init_err() when
+    WHO_AM_I or a config write raises. Both states retry every _RETRY_PAUSE_MS.
 
     Returns:
-        An initialised MPU6050 driver bound to the bus.
+        An initialised MPU6050 driver bound to the bus it opened.
     """
     status.i2c_init()
     while True:
         try:
-            devices = i2c.scan()
-            emit({"diag": "scan", "devices": devices})
-            if PRIMARY_ADDRESS in devices:
-                addr = PRIMARY_ADDRESS
-            elif SECONDARY_ADDRESS in devices:
-                addr = SECONDARY_ADDRESS
-            else:
-                # Bus reachable but no device responded.
-                # Check SDA/SCL wiring, 3V3 power, GND, pull-ups.
-                status.no_device()
-                emit({"diag": "no_device", "devices": devices})
-                time.sleep_ms(_RETRY_PAUSE_MS)
-                continue
-            imu = MPU6050(i2c, addr=addr)
-            emit({"diag": "imu_ok", "addr": addr, "kind": imu.kind})
+            imu = MPU6050(bus_id=BOARD.i2c_id, sda=BOARD.sda, scl=BOARD.scl)
+            emit({"diag": "imu_ok", "addr": imu.addr, "kind": imu.kind})
+        except DeviceNotFoundError as e:
+            # Bus reachable but no device responded at 0x68/0x69.
+            # Check SDA/SCL wiring, 3V3 power, GND, pull-ups.
+            status.no_device()
+            emit({"diag": "no_device", "err": str(e)})
+            time.sleep_ms(_RETRY_PAUSE_MS)
         except OSError as e:
             # Device ACKed at 0x68/0x69 but WHO_AM_I or a config write
             # failed. Likely a counterfeit chip or a bus glitch.
@@ -141,8 +126,7 @@ def main() -> None:
     """Run boot → init → stream. MicroPython entry point."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    i2c = hard_i2c(BOARD.i2c)
-    imu = init_sensor(i2c)
+    imu = init_sensor()
     stream(imu)
 
 

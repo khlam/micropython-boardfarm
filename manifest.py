@@ -53,8 +53,9 @@ _packages = {
 # manifest is shared across every project, so freezing all of them would
 # sweep large unused blobs (e.g. vl53l5cx's ~400 KB config) into firmware
 # that never touches them. Resolve the transitive closure so a package
-# that imports another package still works; today none do, but the
-# fixpoint keeps that from becoming a silent device-side ImportError.
+# that imports another package still works — the sensor drivers import
+# i2c_bus to open their own bus, so that fixpoint pulls i2c_bus in for any
+# project whose firmware imports such a driver.
 _needed: set = set()
 _frontier = _imported_names(Path("/firmware")) & _packages.keys()
 while _frontier:

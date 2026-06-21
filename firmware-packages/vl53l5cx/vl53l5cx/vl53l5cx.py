@@ -10,6 +10,8 @@
 import struct
 from time import sleep
 
+from i2c_bus import DeviceNotFoundError, soft_i2c
+
 from vl53l5cx._config_bytes import ConfigDataBytes as _ConfigData
 
 NB_TARGET_PER_ZONE = 1
@@ -107,7 +109,7 @@ class VL53L5CX:
     Typical usage::
 
         from vl53l5cx import VL53L5CX
-        tof = VL53L5CX(i2c)
+        tof = VL53L5CX(sda=0, scl=1)
         tof.init()
         tof.start()
         while True:
@@ -115,26 +117,49 @@ class VL53L5CX:
                 grid = tof.read()  # list of 64 int | None
     """
 
-    def __init__(self, i2c: object, address: int = 0x29, lpn: object = None) -> None:
-        """Initialise driver state; does not communicate with the sensor.
+    def __init__(
+        self, *, sda: int, scl: int, id: int = 0, address: int = 0x29, lpn: int = None
+    ) -> None:
+        """Open the bus, confirm the device is present, and set up driver state.
+
+        Bit-banged soft I²C tolerates the heavy clock-stretching during the
+        ~86.5 KB firmware upload that init() performs. id is unused (soft I²C)
+        but accepted for a uniform driver signature. The chip is only scanned
+        here; init() / start() do the firmware upload and ranging setup.
 
         Args:
-            i2c: MicroPython I2C or SoftI2C object with readfrom_mem /
-                writeto_mem support and addrsize=16 capability.
+            sda: GPIO number for the I²C data line.
+            scl: GPIO number for the I²C clock line.
+            id: Hardware I²C peripheral selector (unused; soft I²C).
             address: 7-bit I²C address; default 0x29.
-            lpn: Optional machine.Pin for the LPN (enable) line. Pass a Pin
+            lpn: Optional GPIO number for the LPN (enable) line. Pass a pin
                 pulled high to enable hardware reset via reset(). None means
                 the pin is not controlled (safe if the board pulls LPN high).
+
+        Raises:
+            DeviceNotFoundError: Nothing ACKed at ``address`` on the scanned bus.
         """
+        i2c = soft_i2c(sda, scl)
         self.i2c = i2c
         self.addr = address
+        if address not in i2c.scan():
+            raise DeviceNotFoundError("VL53L5CX not found at 0x%02x" % address)
         self._ntpz = NB_TARGET_PER_ZONE
-        self._lpn = lpn
+        self._lpn = self._init_lpn(lpn)
         self._b1 = bytearray(1)
         self._streamcount = 255
         self._data_read_size = 0
         self._offset_data = None
         self.config_data = _ConfigData()
+
+    @staticmethod
+    def _init_lpn(lpn: int) -> object:
+        """Wrap an optional LPN GPIO number in an output Pin, or return None."""
+        if lpn is None:
+            return None
+        from machine import Pin  # noqa: PLC0415
+
+        return Pin(lpn, Pin.OUT)
 
     # ------------------------------------------------------------------ #
     # MicroPython I²C transport (from upstream mp.py)                     #

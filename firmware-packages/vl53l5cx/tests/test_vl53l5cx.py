@@ -5,9 +5,17 @@ check_data_ready() — without exercising the vendored init/ranging internals
 that require real I²C hardware.
 """
 
+import pytest
 from fake_vl53l5cx import make_results
 
+from vl53l5cx import VL53L5CX, DeviceNotFoundError
 from vl53l5cx.vl53l5cx import RESOLUTION_8X8
+
+
+def test_missing_device_raises_device_not_found():
+    """Nothing registered on the bus → DeviceNotFoundError, not OSError."""
+    with pytest.raises(DeviceNotFoundError):
+        VL53L5CX(sda=0, scl=1)
 
 
 def test_read_returns_64_values(tof, monkeypatch):
