@@ -117,20 +117,18 @@ class VL53L5CX:
                 grid = tof.read()  # list of 64 int | None
     """
 
-    def __init__(
-        self, *, sda: int, scl: int, id: int = 0, address: int = 0x29, lpn: int = None
-    ) -> None:
+    def __init__(self, *, sda: int, scl: int, address: int = 0x29, lpn: int = None) -> None:
         """Open the bus, confirm the device is present, and set up driver state.
 
         Bit-banged soft I²C tolerates the heavy clock-stretching during the
-        ~86.5 KB firmware upload that init() performs. id is unused (soft I²C)
-        but accepted for a uniform driver signature. The chip is only scanned
-        here; init() / start() do the firmware upload and ranging setup.
+        ~86.5 KB firmware upload that init() performs. There is no bus_id — soft
+        I²C is bit-banged, so no hardware peripheral is selected. The chip is
+        only scanned here; init() / start() do the firmware upload and ranging
+        setup.
 
         Args:
             sda: GPIO number for the I²C data line.
             scl: GPIO number for the I²C clock line.
-            id: Hardware I²C peripheral selector (unused; soft I²C).
             address: 7-bit I²C address; default 0x29.
             lpn: Optional GPIO number for the LPN (enable) line. Pass a pin
                 pulled high to enable hardware reset via reset(). None means

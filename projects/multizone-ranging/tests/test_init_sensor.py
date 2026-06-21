@@ -82,7 +82,7 @@ class _FakeVL53L5CX:
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, sda, scl, bus_id=0) -> None:
+    def __init__(self, *, sda, scl) -> None:
         if type(self).script:
             outcome = type(self).script.pop(0)
             if isinstance(outcome, Exception):

@@ -116,12 +116,10 @@ class TimeoutError(RuntimeError):
 
 
 class VL53L0X:
-    def __init__(
-        self, *, sda, scl, bus_id=0, address=0x29, skip_spad_info=True, interrupt_status_mask=0xFF
-    ):
+    def __init__(self, *, sda, scl, address=0x29, skip_spad_info=True, interrupt_status_mask=0xFF):
         # Soft I²C: the VL53L0X clock-stretches heavily during the firmware
-        # upload, which the hardware peripheral aborts on. bus_id is unused
-        # here (bit-banged) but accepted for a uniform driver signature.
+        # upload, which the hardware peripheral aborts on. No bus_id — soft I²C
+        # is bit-banged, so there is no hardware peripheral to select.
         i2c = soft_i2c(sda, scl)
         self.i2c = i2c
         self.address = address

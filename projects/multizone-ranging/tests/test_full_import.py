@@ -64,7 +64,7 @@ class _DeviceNotFoundError(Exception):
 class _FakeVL53L5CX:
     """Stub VL53L5CX that opens its own bus; second read() raises to escape stream()."""
 
-    def __init__(self, *, sda, scl, bus_id=0) -> None:
+    def __init__(self, *, sda, scl) -> None:
         self.addr = _TOF_ADDRESS
         self._calls = 0
 
