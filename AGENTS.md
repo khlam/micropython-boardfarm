@@ -24,7 +24,7 @@ Firmware runs MicroPython (`ujson` built-in); host tests run CPython, where `ujs
 | host | CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host. |
 
 ### Design
-This is a shared-projects monorepo. Projects (`projects/<project>/`) contain general, chip-agnostic firmware that builds for all chips the project supports. Chip-specific behavior belongs exclusively in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`. Project `main.py` files must not contain chip-detection branches.
+This is a shared-projects monorepo. Each project (`projects/<project>/`) contains firmware that builds for every chip it supports. Pin assignments — which GPIOs carry SPI, I2C, UART, and device chip-selects — live in the project's `main.py` as a `BOARD` wiring table dispatched by `os.uname().machine` at import time, because different projects wire their boards differently and the mapping is pure project-specific configuration. Chip-specific *behavior* (driver implementations, hardware abstraction) belongs in package backends (`firmware-packages/`), following the pattern established by `boot_status_led`. Packages receive pins as arguments from the caller; they never claim pins at import time.
 
 `<project>` denotes any subdirectory under `projects/` — list it with `ls projects/` to see what's currently present, and substitute the real name when running commands.
 
@@ -48,17 +48,7 @@ Before changing anything, identify the area you're touching:
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
 
-## Workflow & commands
-
-### Workflow (follow in order)
-| Step | Action |
-| --- | --- |
-| 1 | Identify the chip(s) affected (RP2040, RP2350, ESP32-S3, or all three). |
-| 2 | If the change requires chip-specific behavior, add or update a package backend — do not branch inside project firmware. |
-| 3 | Make the smallest change that achieves the goal — don't add shared abstractions for a single chip. |
-| 4 | Compile firmware and confirm it succeeds before reporting done. |
-
-### Commands (copy/paste, run from `projects/<project>/`)
+## Commands (copy/paste, run from `projects/<project>/`)
 
 #### Compile firmware
 ```
@@ -108,7 +98,7 @@ Use standard Python ordering: docstring → imports → constants → public API
 - MicroPython has no package manager and no 3rd-party packages to install; all dependencies must be vendored or frozen into firmware via `manifest.py`. Do not use `mip`. Use `const()` for register addresses; pre-allocate buffers in tight loops.
 - Never spin without `sleep` (≥ 10 ms) — starves the MicroPython scheduler.
 - Wrap `sensor.read()` in `try/except` — sensors occasionally NACK. On exception, call `status.read_err()` and `continue` the loop; never let a stray exception crash the loop.
-- Chip-specific logic belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`). Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes.
+- Chip-specific *behavior* belongs in packages, not in project firmware. Each package keeps MCU code under `firmware-packages/<pkg>/<pkg>/` (flat `.py` + `__init__.py`). Host tests live under `firmware-packages/<pkg>/tests/`. Use the backend-dispatch pattern (`os.uname().machine` at import time) that `boot_status_led` already establishes. Pin assignments are the exception: each project defines its own `BOARD` wiring table in `main.py` via `os.uname().machine` dispatch, because pin maps are project-specific configuration — not reusable behavior — and different projects wire their boards differently.
 - Don't install tools on the host. All toolchains (esptool, ARM cross-compiler, ESP-IDF, uv, MicroPython source) live inside Docker images.
 - Don't add dependencies without tests + `uv lock`.
 
