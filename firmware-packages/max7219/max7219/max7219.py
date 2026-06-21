@@ -47,7 +47,7 @@ _REG_DECODE = const(0x09)
 _REG_INTENSITY = const(0x0A)
 _REG_SCAN_LIMIT = const(0x0B)
 _REG_SHUTDOWN = const(0x0C)
-_REG_DISPLAY_TEST = const(0x0D)
+_REG_DISPLAY_TEST = const(0x0F)
 
 
 class MAX7219:
