@@ -1,13 +1,28 @@
 """MCU-micropython firmware for distance-stream: I²C scan, VL53L0X init, JSON stream."""
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
-from i2c_bus import soft_i2c as i2c
+from i2c_bus import Wiring as I2cWiring
+from i2c_bus import soft_i2c
 from smoothing import median
 from vl53l0x import VL53L0X
+
+# Per-chip pin map — the authoritative wiring for this project. Soft I²C is
+# bit-banged so i2c.id is unused; sda/scl are GPIO numbers. Filled per chip by
+# os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", i2c=I2cWiring(id=0, sda=1, scl=2))
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", i2c=I2cWiring(id=0, sda=0, scl=1))
+else:
+    BOARD = Board(name="RP2040-Zero", i2c=I2cWiring(id=0, sda=0, scl=1))
 
 TOF_ADDRESS = 0x29
 
@@ -67,11 +82,18 @@ def soft_reset_sensor(bus: object, address: int = TOF_ADDRESS) -> bool:
     return False
 
 
-def init_sensor() -> VL53L0X:
+def init_sensor(i2c: object) -> VL53L0X:
     """Scan i2c bus and initialise VL53L0X, retrying until it comes up.
 
     Parks at status.no_device() when no device is present at 0x29, and at
     status.init_err() when the device ACKs but driver init raises.
+
+    Args:
+        i2c: An open I²C bus (from i2c_bus.soft_i2c) exposing scan() and the
+            writeto_mem/readfrom_mem the soft reset uses.
+
+    Returns:
+        An initialised VL53L0X driver in continuous-ranging mode.
     """
     status.i2c_init()
     while True:
@@ -146,7 +168,8 @@ def main() -> None:
     """Run boot → init → stream."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    tof = init_sensor()
+    i2c = soft_i2c(BOARD.i2c)
+    tof = init_sensor(i2c)
     stream(tof)
 
 

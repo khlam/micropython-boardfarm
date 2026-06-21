@@ -109,3 +109,32 @@ class I2C(_I2CBase):
 
 class SoftI2C(_I2CBase):
     """Fake `machine.SoftI2C` (bit-banged)."""
+
+
+class UART:
+    """Fake `machine.UART` — records the peripheral id + tx/rx pins + baudrate.
+
+    `readline()` always returns None (no bytes on the host); tests that need
+    scripted NMEA bytes wrap a FakeUART around the GPS class directly instead.
+    """
+
+    def __init__(
+        self,
+        id: int | None = None,  # noqa: A002
+        *_args: object,
+        baudrate: int = 9600,
+        tx: object = None,
+        rx: object = None,
+        timeout: int = 0,
+        **_kwargs: object,
+    ) -> None:
+        """Record the positional bus id and the tx/rx/baudrate/timeout kwargs."""
+        self.id = id
+        self.baudrate = baudrate
+        self.tx = tx
+        self.rx = rx
+        self.timeout = timeout
+
+    def readline(self) -> None:
+        """No bytes available in the host stub."""
+        return

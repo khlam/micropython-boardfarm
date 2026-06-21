@@ -6,9 +6,11 @@ sys.modules for every external dependency and loads main.py as a real
 module; a fake VL53L0X raises after one sample to escape stream().
 """
 
+import collections
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import sys
 from contextlib import redirect_stdout
@@ -19,8 +21,20 @@ import pytest
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 TOF_ADDRESS = 0x29
 
+# (os.uname().machine string, expected BOARD.name) — exercises every per-chip
+# branch of main.py's BOARD table on a real import.
+_CHIPS = [
+    ("RP2040 with RP2040", "RP2040-Zero"),
+    ("RP2350 with RP2350", "RP2350"),
+    ("Generic ESP32S3 module with ESP32S3", "ESP32-S3-Zero"),
+]
 
-def test_main_executes_init_then_streams_one_sample(monkeypatch, fake_status):
+
+@pytest.mark.parametrize("machine_str,board_name", _CHIPS)
+def test_main_executes_init_then_streams_one_sample(
+    monkeypatch, fake_status, machine_str, board_name
+):
+    monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
     # Earlier tests load main.py via AST-exec, leaving an entry in sys.modules.
@@ -33,6 +47,7 @@ def test_main_executes_init_then_streams_one_sample(monkeypatch, fake_status):
     with redirect_stdout(buf), pytest.raises(_StopMainError):
         spec.loader.exec_module(module)
 
+    assert module.BOARD.name == board_name
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
     assert "scan" in diags
@@ -87,7 +102,12 @@ def _build_stubs(status_stub):
         ticks_ms=lambda: 0,
     )
     boot_status_led_stub = SimpleNamespace(status=status_stub)
-    i2c_bus_stub = SimpleNamespace(soft_i2c=_Bus())
+    # main() now calls soft_i2c(BOARD.i2c), so the stub factory must be callable
+    # and the package must expose the Wiring type main.py imports.
+    i2c_bus_stub = SimpleNamespace(
+        Wiring=collections.namedtuple("Wiring", ("id", "sda", "scl")),
+        soft_i2c=lambda _wiring, **_kw: _Bus(),
+    )
     vl53l0x_stub = SimpleNamespace(VL53L0X=_FakeVL53L0X)
 
     return {

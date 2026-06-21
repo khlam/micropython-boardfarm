@@ -10,23 +10,20 @@ ADDR = 0x2C
 
 
 def test_init_sensor_happy_path(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[ADDR]])
-    mag = init_ns.ns["init_sensor"]()
+    mag = init_ns.ns["init_sensor"](_FakeBus(scans=[[ADDR]]))
     assert mag.address == ADDR
     assert init_ns.status.calls == ["i2c_init"]
 
 
 def test_init_sensor_retries_when_device_missing(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[], [ADDR]])
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](_FakeBus(scans=[[], [ADDR]]))
     assert init_ns.status.calls == ["i2c_init", "no_device"]
 
 
 def test_init_sensor_handles_init_err(init_ns):
     # First construction raises (e.g. chip-ID mismatch); second succeeds.
     _FakeMag.raise_oserror_once = True
-    init_ns.ns["i2c"] = _FakeBus(scans=[[ADDR], [ADDR]])
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](_FakeBus(scans=[[ADDR], [ADDR]]))
     assert "init_err" in init_ns.status.calls
 
 

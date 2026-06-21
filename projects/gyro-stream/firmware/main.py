@@ -4,17 +4,33 @@ Initialises the LED state machine, scans the I²C bus for an MPU6050 at
 0x68 (or 0x69 if AD0 is tied to 3V3), then streams accel + gyro + temp
 samples as one-JSON-per-line on the serial port at ~100 Hz.
 
-Chip-agnostic: all hardware-specific behaviour lives in the package
-backends (boot_status_led, i2c_bus, mpu6050).
+Pin assignments live in this module's BOARD table (dispatched per chip by
+os.uname().machine); chip-specific *behaviour* stays in the packages
+(boot_status_led, i2c_bus, mpu6050).
 """
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
-from i2c_bus import hard_i2c as i2c
+from i2c_bus import Wiring as I2cWiring
+from i2c_bus import hard_i2c
 from mpu6050 import MPU6050
+
+# Per-chip pin map — the authoritative wiring for this project. i2c.id selects
+# the hardware I²C peripheral; sda/scl are GPIO numbers. Filled per chip by
+# os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", i2c=I2cWiring(id=0, sda=1, scl=2))
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", i2c=I2cWiring(id=0, sda=0, scl=1))
+else:
+    BOARD = Board(name="RP2040-Zero", i2c=I2cWiring(id=0, sda=0, scl=1))
 
 # AD0=GND/floating → 0x68; AD0=3V3 → 0x69. We try both at boot.
 PRIMARY_ADDRESS = 0x68
@@ -41,13 +57,19 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def init_sensor() -> MPU6050:
+def init_sensor(i2c: object) -> MPU6050:
     """Scan the bus and initialise the MPU6050, retrying until it comes up.
 
     Tries 0x68 first (AD0=GND/floating), falls back to 0x69 (AD0=3V3).
     Parks at status.no_device() when neither address responds, and at
     status.init_err() when WHO_AM_I or a config write raises. Both states
     retry every _RETRY_PAUSE_MS.
+
+    Args:
+        i2c: An open I²C bus (from i2c_bus.hard_i2c) exposing scan().
+
+    Returns:
+        An initialised MPU6050 driver bound to the bus.
     """
     status.i2c_init()
     while True:
@@ -119,7 +141,8 @@ def main() -> None:
     """Run boot → init → stream. MicroPython entry point."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    imu = init_sensor()
+    i2c = hard_i2c(BOARD.i2c)
+    imu = init_sensor(i2c)
     stream(imu)
 
 

@@ -1,32 +1,27 @@
 # i2c_bus
 
-MCU package exposing `soft_i2c` and `hard_i2c` bus objects.
-
-## Layout
-```
-i2c_bus/
-  i2c_bus/
-    __init__.py     dispatches to a backend based on os.uname().machine
-    rp2040.py       GP0=SDA, GP1=SCL — exposes soft_i2c + hard_i2c
-    rp2350.py       GP0=SDA, GP1=SCL — same wiring as RP2040
-    esp32s3.py      GPIO1=SDA, GPIO2=SCL — exposes soft_i2c + hard_i2c
-```
+MCU package that builds an I²C bus from a `Wiring` record supplied by the caller.
+The package owns *what* pins it needs (the `Wiring` schema); the project's `BOARD`
+table owns *which* pins, dispatched per chip.
 
 ## Public API
 ```python
-from i2c_bus import soft_i2c   # for sensors that clock-stretch (e.g. VL53L0X)
-from i2c_bus import hard_i2c   # sensors that don't (e.g. MPU6050)
+from i2c_bus import Wiring, soft_i2c, hard_i2c
+
+Wiring  # namedtuple("Wiring", ("id", "sda", "scl")) — id selects the hard-I²C peripheral
+
+bus = hard_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that don't clock-stretch (MPU6050)
+bus = soft_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that do (VL53L0X / VL53L5CX)
 ```
 
-## Notes
-None
+`soft_i2c` defaults to 100 kHz, `hard_i2c` to 400 kHz; pass `freq=` to override.
+`soft_i2c` is bit-banged and ignores `wiring.id`.
 
-**Adding a new chip:**
-1. Add a backend module under `i2c_bus/` named `<chip>.py` exposing
-   both `soft_i2c` and `hard_i2c`.
-2. Extend the dispatch in `i2c_bus/__init__.py` with a new
-   `os.uname().machine` substring match.
-3. Update `boot_status_led` similarly so the LED has a backend too.
+## Wiring lives in the project
+Pin numbers are not in this package. Each project fills `Wiring` per chip in its
+`main.py` `BOARD` table via `os.uname().machine` dispatch and passes it to the factory.
 
 ## Tests
-None, this package is a pin-wiring layer.
+```
+docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/i2c_bus/tests
+```

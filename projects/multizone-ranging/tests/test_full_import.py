@@ -1,8 +1,10 @@
-"""Host CPython end-to-end import test for compass firmware/main.py.
+"""Host CPython end-to-end import test for multizone-ranging firmware/main.py.
 
-Mirrors gyro-stream's full-import: stubs sys.modules and loads main.py as a real
-module so the imports and trailing main() call run. A fake QMC5883P raises after
-one sample to escape stream().
+The AST-load fixture in conftest covers function bodies but skips module-level
+imports and the trailing main() call. This test stubs sys.modules for every
+external dependency and loads main.py as a real module — exercising each
+per-chip BOARD branch — while a fake VL53L5CX raises after one frame to escape
+stream().
 """
 
 import collections
@@ -18,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
-ADDR = 0x2C
+_TOF_ADDRESS = 0x29
 
 # (os.uname().machine string, expected BOARD.name) — exercises every per-chip
 # branch of main.py's BOARD table on a real import.
@@ -30,7 +32,7 @@ _CHIPS = [
 
 
 @pytest.mark.parametrize("machine_str,board_name", _CHIPS)
-def test_main_executes_init_then_streams_one_sample(
+def test_main_executes_init_then_streams_one_frame(
     monkeypatch, fake_status, machine_str, board_name
 ):
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
@@ -49,50 +51,58 @@ def test_main_executes_init_then_streams_one_sample(
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
     assert "scan" in diags
-    assert "mag_ok" in diags
-    assert any("heading_deg" in ln for ln in lines)
+    assert "vl53l5cx_ok" in diags
+    assert any("grid" in ln for ln in lines)
 
 
 class _StopMainError(Exception):
-    """Raised by the fake mag on the second read() to escape stream()."""
+    """Raised by the fake sensor on the second read() to escape stream()."""
 
 
 class _Bus:
-    """Minimal I²C bus stub: scans to the QMC5883P fixed address."""
+    """Minimal I²C bus stub: scans to the VL53L5CX fixed address."""
 
     @staticmethod
     def scan() -> list[int]:
-        return [ADDR]
+        return [_TOF_ADDRESS]
 
 
-class _FakeMag:
-    """Stub QMC5883P; second read() raises to escape stream()."""
+class _FakeVL53L5CX:
+    """Stub VL53L5CX driver; second read() raises to escape stream()."""
 
-    def __init__(self, _bus, address=ADDR) -> None:
-        self.address = address
-        self.last_status = 0
+    def __init__(self, _bus) -> None:
         self._calls = 0
 
-    def read(self):
+    def init(self) -> None:
+        return None
+
+    def start(self, _freq) -> None:
+        return None
+
+    def check_data_ready(self) -> bool:
+        return True
+
+    def read(self) -> list[int]:
         self._calls += 1
         if self._calls > 1:
             raise _StopMainError
-        return (100, -50, 200)
+        return [100] * 64
 
 
 def _build_stubs(status_stub):
+    """Build SimpleNamespace stubs matching main.py's module-level imports."""
     time_stub = SimpleNamespace(
         sleep_ms=lambda _ms: None,
         ticks_ms=lambda: 0,
     )
     boot_status_led_stub = SimpleNamespace(status=status_stub)
-    # main() now calls hard_i2c(BOARD.i2c), so the stub factory must be callable
-    # and the package must expose the Wiring type main.py imports.
+    # main() calls soft_i2c(BOARD.i2c), so the stub factory must be callable and
+    # the package must expose the Wiring type main.py imports.
     i2c_bus_stub = SimpleNamespace(
         Wiring=collections.namedtuple("Wiring", ("id", "sda", "scl")),
-        hard_i2c=lambda _wiring, **_kw: _Bus(),
+        soft_i2c=lambda _wiring, **_kw: _Bus(),
     )
-    qmc5883p_stub = SimpleNamespace(QMC5883P=_FakeMag)
+    vl53l5cx_stub = SimpleNamespace(VL53L5CX=_FakeVL53L5CX)
 
     return {
         "time": time_stub,
@@ -100,5 +110,5 @@ def _build_stubs(status_stub):
         "boot_status_led": boot_status_led_stub,
         "boot_status_led.status": status_stub,
         "i2c_bus": i2c_bus_stub,
-        "qmc5883p": qmc5883p_stub,
+        "vl53l5cx": vl53l5cx_stub,
     }

@@ -63,6 +63,9 @@ real time.
 
 ## Wiring
 
+> The authoritative pin map is the `BOARD` table in [firmware/main.py](firmware/main.py);
+> the per-board diagrams below mirror it.
+
 ### VL53L0X ToF sensor
 
 ```

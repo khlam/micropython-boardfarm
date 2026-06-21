@@ -1,46 +1,53 @@
-"""MCU-micropython package selecting the correct I²C chip backend at import time.
+"""MCU-micropython I²C bus factories built from a caller-supplied pin record.
+
+The package owns *what* pins it needs — the ``Wiring`` schema — but not *which*:
+the project's ``BOARD`` table fills ``Wiring`` per chip and passes it in. Nothing
+here touches ``os.uname()`` or claims a pin at import time.
 
 Example:
-    from i2c_bus import soft_i2c   # sensors that clock-stretch (VL53L0X)
-    from i2c_bus import hard_i2c   # sensors that don't (MPU6050)
+    from i2c_bus import Wiring, hard_i2c, soft_i2c
+    bus = hard_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that don't clock-stretch
+    bus = soft_i2c(Wiring(id=0, sda=0, scl=1))   # sensors that do (VL53L0X/L5CX)
 """
 
-import os
+from collections import namedtuple
 
-import i2c_bus.esp32s3
-import i2c_bus.rp2040
-import i2c_bus.rp2350
+__all__ = ["Wiring", "hard_i2c", "soft_i2c"]
 
-_machine = os.uname().machine
-if "ESP32S3" in _machine:
-    _backend = i2c_bus.esp32s3
-elif "RP2350" in _machine:
-    _backend = i2c_bus.rp2350
-else:
-    _backend = i2c_bus.rp2040
+# Pin schema for an I²C bus. ``id`` selects the hardware peripheral for
+# hard_i2c; soft_i2c is bit-banged and ignores it.
+Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
 
 
-def __getattr__(name: str) -> object:
-    """Lazily forward bus lookups to the chip-specific backend.
+def soft_i2c(wiring: Wiring, freq: int = 100_000) -> object:
+    """Build a bit-banged SoftI2C on the wired pins.
 
-    Only the requested bus is instantiated — importing soft_i2c never
-    creates hard_i2c, so the two I²C peripherals cannot conflict on shared
-    pins even though both backends define both names.
+    Soft I²C tolerates the heavy clock-stretching some sensors do during
+    bring-up (the VL53L0X/VL53L5CX firmware upload), which the hardware
+    peripheral aborts on.
 
     Args:
-        name: Attribute name; must be ``soft_i2c`` or ``hard_i2c``.
+        wiring: A ``Wiring`` record; only ``sda``/``scl`` are used.
+        freq: Bus clock in Hz; 100 kHz keeps long clock-stretches stable.
 
     Returns:
-        The constructed I²C bus instance for the running chip.
-
-    Raises:
-        AttributeError: When name is not a known bus export.
+        A ready ``machine.SoftI2C``.
     """
-    if name not in ("soft_i2c", "hard_i2c"):
-        raise AttributeError(name)
-    v = getattr(_backend, name)
-    globals()[name] = v  # cache so subsequent accesses bypass __getattr__
-    return v
+    from machine import Pin, SoftI2C  # noqa: PLC0415
+
+    return SoftI2C(sda=Pin(wiring.sda), scl=Pin(wiring.scl), freq=freq)
 
 
-__all__ = ["hard_i2c", "soft_i2c"]
+def hard_i2c(wiring: Wiring, freq: int = 400_000) -> object:
+    """Build a hardware I2C peripheral on the wired pins.
+
+    Args:
+        wiring: A ``Wiring`` record; ``id`` selects the I²C peripheral.
+        freq: Bus clock in Hz; 400 kHz for sensors that don't clock-stretch.
+
+    Returns:
+        A ready ``machine.I2C``.
+    """
+    from machine import I2C, Pin  # noqa: PLC0415
+
+    return I2C(wiring.id, sda=Pin(wiring.sda), scl=Pin(wiring.scl), freq=freq)

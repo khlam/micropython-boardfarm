@@ -1,12 +1,27 @@
 """MCU-micropython firmware for multizone-ranging: I²C scan, VL53L5CX init, 8x8 JSON stream."""
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
-from i2c_bus import soft_i2c as i2c
+from i2c_bus import Wiring as I2cWiring
+from i2c_bus import soft_i2c
 from vl53l5cx import VL53L5CX
+
+# Per-chip pin map — the authoritative wiring for this project. Soft I²C is
+# bit-banged so i2c.id is unused; sda/scl are GPIO numbers. Filled per chip by
+# os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", i2c=I2cWiring(id=0, sda=1, scl=2))
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", i2c=I2cWiring(id=0, sda=0, scl=1))
+else:
+    BOARD = Board(name="RP2040-Zero", i2c=I2cWiring(id=0, sda=0, scl=1))
 
 _TOF_ADDRESS = 0x29
 # 8x8 hardware maximum. The VL53L5CX caps 8x8 ranging at 15 Hz; the read loop
@@ -35,12 +50,18 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def init_sensor() -> VL53L5CX:
+def init_sensor(i2c: object) -> VL53L5CX:
     """Scan the I²C bus and initialise the VL53L5CX, retrying until it comes up.
 
     Loads ~86.5 KB of ST firmware into the sensor over soft I²C (~7-9 s at 100 kHz).
     Parks at status.no_device() when 0x29 is absent, or status.init_err() when
     the device ACKs but driver init raises.
+
+    Args:
+        i2c: An open I²C bus (from i2c_bus.soft_i2c) exposing scan().
+
+    Returns:
+        An initialised VL53L5CX driver in 8x8 ranging mode.
     """
     status.i2c_init()
     while True:
@@ -96,7 +117,8 @@ def main() -> None:
     """Run boot → init → stream."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    tof = init_sensor()
+    i2c = soft_i2c(BOARD.i2c)
+    tof = init_sensor(i2c)
     stream(tof)
 
 

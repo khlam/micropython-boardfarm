@@ -5,19 +5,35 @@ magnetometer at its fixed address 0x2C, then streams raw X/Y/Z field counts,
 their smoothed counterparts (xs/ys/zs), and a computed heading as
 one-JSON-per-line on the serial port at ~50 Hz.
 
-Chip-agnostic: all hardware-specific behaviour lives in the package backends
+Pin assignments live in this module's BOARD table (dispatched per chip by
+os.uname().machine); chip-specific *behaviour* stays in the packages
 (boot_status_led, i2c_bus, qmc5883p).
 """
 
 import math
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
-from i2c_bus import hard_i2c as i2c
+from i2c_bus import Wiring as I2cWiring
+from i2c_bus import hard_i2c
 from qmc5883p import QMC5883P
 from smoothing import simple_moving_average
+
+# Per-chip pin map — the authoritative wiring for this project. i2c.id selects
+# the hardware I²C peripheral; sda/scl are GPIO numbers. Filled per chip by
+# os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", i2c=I2cWiring(id=0, sda=1, scl=2))
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", i2c=I2cWiring(id=0, sda=0, scl=1))
+else:
+    BOARD = Board(name="RP2040-Zero", i2c=I2cWiring(id=0, sda=0, scl=1))
 
 # QMC5883P fixed I²C address (not configurable on this part).
 MAG_ADDRESS = 0x2C
@@ -45,12 +61,18 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def init_sensor() -> QMC5883P:
+def init_sensor(i2c: object) -> QMC5883P:
     """Scan the bus and initialise the QMC5883P, retrying until it comes up.
 
     Parks at status.no_device() when nothing responds at 0x2C, and at
     status.init_err() when the device ACKs but the chip-ID check or a config
     write raises. Both states retry every _RETRY_PAUSE_MS.
+
+    Args:
+        i2c: An open I²C bus (from i2c_bus.hard_i2c) exposing scan().
+
+    Returns:
+        An initialised QMC5883P driver bound to the bus.
     """
     status.i2c_init()
     while True:
@@ -138,7 +160,8 @@ def main() -> None:
     """Run boot → init → stream. MicroPython entry point."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    mag = init_sensor()
+    i2c = hard_i2c(BOARD.i2c)
+    mag = init_sensor(i2c)
     stream(mag)
 
 

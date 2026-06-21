@@ -11,29 +11,25 @@ SECONDARY = 0x69
 
 
 def test_init_sensor_primary_address(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[PRIMARY]])
-    imu = init_ns.ns["init_sensor"]()
+    imu = init_ns.ns["init_sensor"](_FakeBus(scans=[[PRIMARY]]))
     assert imu.addr == PRIMARY
     assert init_ns.status.calls == ["i2c_init"]
 
 
 def test_init_sensor_falls_back_to_secondary(init_ns):
     # AD0 tied high → only 0x69 responds; init_sensor must use it.
-    init_ns.ns["i2c"] = _FakeBus(scans=[[SECONDARY]])
-    imu = init_ns.ns["init_sensor"]()
+    imu = init_ns.ns["init_sensor"](_FakeBus(scans=[[SECONDARY]]))
     assert imu.addr == SECONDARY
 
 
 def test_init_sensor_retries_when_device_missing(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[], [PRIMARY]])
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](_FakeBus(scans=[[], [PRIMARY]]))
     assert init_ns.status.calls == ["i2c_init", "no_device"]
 
 
 def test_init_sensor_handles_init_err(init_ns):
     _FakeIMU.raise_oserror_once = True
-    init_ns.ns["i2c"] = _FakeBus(scans=[[PRIMARY], [PRIMARY]])
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](_FakeBus(scans=[[PRIMARY], [PRIMARY]]))
     assert "init_err" in init_ns.status.calls
 
 

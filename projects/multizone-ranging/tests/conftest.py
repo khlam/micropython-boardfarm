@@ -7,7 +7,9 @@ the module's top-level main() call running.
 """
 
 import ast
+import os
 import pathlib
+from collections import namedtuple
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +17,13 @@ import pytest
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "stream", "init_sensor"}
+
+# Stand-in for main.py's BOARD. init_sensor() receives the bus directly in
+# tests, so this only has to satisfy the kept namedtuple/_machine Assigns; the
+# BOARD if/else is an ast.If and is dropped, so we inject a fixed record.
+Wiring = namedtuple("Wiring", ("id", "sda", "scl"))
+Board = namedtuple("Board", ("name", "i2c"))
+_TEST_BOARD = Board(name="RP2040-Zero", i2c=Wiring(id=0, sda=0, scl=1))
 
 
 def _load_main_namespace(fake_time, fake_status) -> dict:
@@ -42,6 +51,11 @@ def _load_main_namespace(fake_time, fake_status) -> dict:
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
+        # main.py's BOARD dispatch is dropped by the AST filter; inject the
+        # names its kept namedtuple/_machine Assigns need, plus a fixed BOARD.
+        "os": os,
+        "namedtuple": namedtuple,
+        "BOARD": _TEST_BOARD,
         # stream() has `tof: VL53L5CX` annotation; name must resolve at def time.
         "VL53L5CX": object,
     }

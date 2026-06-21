@@ -17,8 +17,7 @@ def test_init_sensor_happy_path(init_ns):
         scans=[[TOF_ADDRESS]],
         mem_reads={_REG_MODEL_ID: bytes([_MODEL_ID_BOOTED])},
     )
-    init_ns.ns["i2c"] = bus
-    tof = init_ns.ns["init_sensor"]()
+    tof = init_ns.ns["init_sensor"](bus)
     assert isinstance(tof, _FakeVL53L0X)
     assert tof._budget == 20_000  # TIMING_BUDGET_US
     assert tof._started is True
@@ -30,8 +29,7 @@ def test_init_sensor_retries_when_device_missing(init_ns):
         scans=[[], [TOF_ADDRESS]],
         mem_reads={_REG_MODEL_ID: bytes([_MODEL_ID_BOOTED])},
     )
-    init_ns.ns["i2c"] = bus
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert init_ns.status.calls == ["i2c_init", "no_device"]
 
 
@@ -40,7 +38,6 @@ def test_init_sensor_handles_init_err(init_ns, monkeypatch):
         scans=[[TOF_ADDRESS]],
         mem_reads={_REG_MODEL_ID: bytes([_MODEL_ID_BOOTED])},
     )
-    init_ns.ns["i2c"] = bus
 
     call = {"n": 0}
     real_init = _FakeVL53L0X.__init__
@@ -52,7 +49,7 @@ def test_init_sensor_handles_init_err(init_ns, monkeypatch):
         real_init(self, *a, **kw)
 
     monkeypatch.setattr(_FakeVL53L0X, "__init__", maybe_raise)
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert "init_err" in init_ns.status.calls
 
 
@@ -62,7 +59,6 @@ def test_init_sensor_handles_runtime_error_during_init(init_ns):
         scans=[[TOF_ADDRESS], [TOF_ADDRESS]],
         mem_reads={_REG_MODEL_ID: bytes([_MODEL_ID_BOOTED])},
     )
-    init_ns.ns["i2c"] = bus
 
     call = {"n": 0}
 
@@ -74,7 +70,7 @@ def test_init_sensor_handles_runtime_error_during_init(init_ns):
             super().__init__(*a, **kw)
 
     init_ns.ns["VL53L0X"] = _RTLOnce
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert "init_err" in init_ns.status.calls
 
 

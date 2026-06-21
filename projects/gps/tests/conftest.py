@@ -10,8 +10,10 @@ so that `_run_window` can resolve them at call time.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import sys
+from collections import namedtuple
 from types import SimpleNamespace
 
 import machine
@@ -34,6 +36,13 @@ _KEEP_FUNCS = {
     "main",
     "_run_window",
 }
+
+# Stand-in for main.py's BOARD. Tests drive stream()/_run_window() with a fake
+# GPS directly and never call main(), so this only has to satisfy the kept
+# namedtuple/_machine Assigns; the BOARD if/else is an ast.If and is dropped.
+Wiring = namedtuple("Wiring", ("id", "tx", "rx"))
+Board = namedtuple("Board", ("name", "gps"))
+_TEST_BOARD = Board(name="RP2040-Zero", gps=Wiring(id=0, tx=0, rx=1))
 
 
 def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
@@ -61,6 +70,11 @@ def _load_main_namespace(fake_time: object, fake_status: object) -> dict:
         "time": fake_time,
         "status": fake_status,
         "ujson": ujson,
+        # main.py's BOARD dispatch is dropped by the AST filter; inject the
+        # names its kept namedtuple/_machine Assigns need, plus a fixed BOARD.
+        "os": os,
+        "namedtuple": namedtuple,
+        "BOARD": _TEST_BOARD,
         # Inject nmea helpers so _run_window can resolve them without the
         # `from nmea import ...` statement that the AST loader strips.
         "nmea_checksum_valid": nmea.nmea_checksum_valid,

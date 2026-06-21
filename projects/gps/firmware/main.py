@@ -5,13 +5,28 @@ and position data from the NMEA stream, and emits a structured JSON object.
 
 """
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
+from atgm336h import Wiring as GpsWiring
 from atgm336h import connect
 from boot_status_led import status
+
+# Per-chip pin map — the authoritative wiring for this project. gps.id selects
+# the UART peripheral; tx drives the GPS RX line, rx carries the NMEA stream.
+# Filled per chip by os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "gps"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", gps=GpsWiring(id=1, tx=17, rx=18))
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", gps=GpsWiring(id=0, tx=0, rx=1))
+else:
+    BOARD = Board(name="RP2040-Zero", gps=GpsWiring(id=0, tx=0, rx=1))
 
 WINDOW_MS = 10_000
 _POLL_SLEEP_MS = 10
@@ -72,7 +87,7 @@ def main() -> None:
     while True:
         status.i2c_init()
         try:
-            gps = connect()
+            gps = connect(BOARD.gps)
         except Exception:  # noqa: BLE001
             status.init_err()
             emit({"diag": "init_err"})

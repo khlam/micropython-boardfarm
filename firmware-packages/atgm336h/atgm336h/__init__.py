@@ -1,14 +1,22 @@
-"""MCU-micropython ATGM336H package — chip-dispatched UART NMEA reader.
+"""MCU-micropython ATGM336H package — a UART NMEA reader.
+
+The caller supplies a ``Wiring`` record (the pin schema this package needs); the
+project's ``BOARD`` table fills it per chip. Nothing here touches ``os.uname()``
+or claims a pin at import time.
 
 Example:
-    from atgm336h import connect
-    gps = connect()          # chip-specific UART initialised here
-    line = gps.readline()    # "$GPRMC,..." or None on timeout
+    from atgm336h import Wiring, connect
+    gps = connect(Wiring(id=0, tx=0, rx=1))   # UART opened here
+    line = gps.readline()                      # "$GPRMC,..." or None on timeout
 """
 
-import os
+from collections import namedtuple
 
-__all__ = ["GPS", "connect"]
+__all__ = ["GPS", "Wiring", "connect"]
+
+# Pin schema for the GPS UART. ``id`` selects the UART peripheral, ``tx`` drives
+# the GPS RX line, ``rx`` carries the NMEA stream back.
+Wiring = namedtuple("Wiring", ("id", "tx", "rx"))
 
 
 class GPS:
@@ -41,17 +49,17 @@ class GPS:
         return line if line.startswith("$") else None
 
 
-def connect() -> "GPS":
-    """Open the chip-specific UART and return a ready-to-use GPS instance.
+def connect(wiring: Wiring) -> "GPS":
+    """Open the wired UART at 9600 baud and wrap it in a GPS reader.
+
+    Args:
+        wiring: A ``Wiring`` record; ``id`` selects the UART peripheral.
 
     Returns:
-        A GPS instance wrapping the chip-specific UART.
+        A GPS instance wrapping a UART configured with a short timeout so
+        readline() returns without blocking the loop.
     """
-    _machine = os.uname().machine
-    if "ESP32S3" in _machine:
-        from atgm336h.esp32s3 import uart as _uart  # noqa: PLC0415
-    elif "RP2350" in _machine:
-        from atgm336h.rp2350 import uart as _uart  # noqa: PLC0415
-    else:
-        from atgm336h.rp2040 import uart as _uart  # noqa: PLC0415
-    return GPS(_uart)
+    from machine import UART, Pin  # noqa: PLC0415
+
+    uart = UART(wiring.id, baudrate=9600, tx=Pin(wiring.tx), rx=Pin(wiring.rx), timeout=100)
+    return GPS(uart)

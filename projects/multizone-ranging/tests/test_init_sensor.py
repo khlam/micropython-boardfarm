@@ -10,9 +10,7 @@ _TOF_ADDRESS = 0x29
 
 
 def test_init_sensor_happy_path(init_ns):
-    bus = _FakeBus(scans=[[_TOF_ADDRESS]])
-    init_ns.ns["i2c"] = bus
-    tof = init_ns.ns["init_sensor"]()
+    tof = init_ns.ns["init_sensor"](_FakeBus(scans=[[_TOF_ADDRESS]]))
     assert isinstance(tof, _FakeVL53L5CX)
     assert tof._inited is True
     assert tof._started is True
@@ -20,15 +18,12 @@ def test_init_sensor_happy_path(init_ns):
 
 
 def test_init_sensor_retries_when_device_missing(init_ns):
-    bus = _FakeBus(scans=[[], [_TOF_ADDRESS]])
-    init_ns.ns["i2c"] = bus
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](_FakeBus(scans=[[], [_TOF_ADDRESS]]))
     assert init_ns.status.calls == ["i2c_init", "no_device"]
 
 
 def test_init_sensor_retries_on_oserror(init_ns, monkeypatch):
     bus = _FakeBus(scans=[[_TOF_ADDRESS], [_TOF_ADDRESS]])
-    init_ns.ns["i2c"] = bus
 
     call = {"n": 0}
     real_init = _FakeVL53L5CX.__init__
@@ -40,13 +35,12 @@ def test_init_sensor_retries_on_oserror(init_ns, monkeypatch):
         real_init(self, *a, **kw)
 
     monkeypatch.setattr(_FakeVL53L5CX, "__init__", maybe_raise)
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert "init_err" in init_ns.status.calls
 
 
 def test_init_sensor_retries_on_value_error(init_ns):
     bus = _FakeBus(scans=[[_TOF_ADDRESS], [_TOF_ADDRESS]])
-    init_ns.ns["i2c"] = bus
 
     call = {"n": 0}
 
@@ -58,13 +52,12 @@ def test_init_sensor_retries_on_value_error(init_ns):
             super().init()
 
     init_ns.ns["VL53L5CX"] = _FailOnce
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert "init_err" in init_ns.status.calls
 
 
 def test_init_sensor_retries_on_runtime_error(init_ns):
     bus = _FakeBus(scans=[[_TOF_ADDRESS], [_TOF_ADDRESS]])
-    init_ns.ns["i2c"] = bus
 
     call = {"n": 0}
 
@@ -76,7 +69,7 @@ def test_init_sensor_retries_on_runtime_error(init_ns):
             super().init()
 
     init_ns.ns["VL53L5CX"] = _RTEOnce
-    init_ns.ns["init_sensor"]()
+    init_ns.ns["init_sensor"](bus)
     assert "init_err" in init_ns.status.calls
 
 

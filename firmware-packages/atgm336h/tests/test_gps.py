@@ -3,7 +3,7 @@
 import pytest
 from fake_uart import FakeUART
 
-from atgm336h import GPS
+from atgm336h import GPS, Wiring, connect
 
 _GPRMC = b"$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A\r\n"
 _GPGGA = b"$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n"
@@ -73,3 +73,12 @@ def test_readline_accepts_standard_nmea_sentences(raw: bytes):
     result = gps.readline()
     assert result is not None
     assert result.startswith("$")
+
+
+def test_connect_opens_uart_on_wired_pins():
+    gps = connect(Wiring(id=1, tx=17, rx=18))
+    assert isinstance(gps, GPS)
+    # The factory wires the record's pins straight onto the UART peripheral.
+    assert gps._uart.id == 1
+    assert gps._uart.tx.id == 17
+    assert gps._uart.rx.id == 18
