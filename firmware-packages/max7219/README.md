@@ -1,64 +1,68 @@
 # max7219
 
-MicroPython driver for a cascaded MAX7219 8x8 LED-matrix chain (e.g. four
-modules = one 8x32 display). The caller supplies the SPI pins, so the project
-owns the wiring.
+MicroPython driver for a 16x32 LED matrix built from two 8x32 MAX7219 panels
+(four cascaded 8x8 FC-16 modules each) daisy-chained on one SPI bus. The caller
+supplies the SPI pins, so the project owns the wiring. The driver presents the
+cascade as a single 16-row x 32-column surface in human-visual coordinates
+(`y = 0` is the top row of the top panel, `x = 0` the leftmost column); callers
+never address individual chips.
 
 ## Public API
 
-- `connect(*, spi_id, sck, mosi, cs, num_modules=4)` — open the SPI bus on the
-  given pins and return a ready `MAX7219` (the only function that touches
-  `machine`). `sck`/`mosi` are the bus lines; `cs` is the display's chip-select.
-- `MAX7219(spi, cs, num_modules=4)` — framebuffer driver:
-  - `show_text(text)` — render text (centered, or left-aligned + clipped when it
-    overflows `width`).
+- `connect(*, spi_id, sck, mosi, cs)` — open the SPI bus on the given pins and
+  return a ready `MAX7219` (the only function that touches `machine`).
+  `sck`/`mosi` are the bus lines; `cs` is the chain's chip-select.
+- `MAX7219(spi, cs)` — framebuffer driver:
+  - `show_lines(top, bottom)` — center one string on each panel and refresh
+    (top → rows 0-7, bottom → rows 8-15).
+  - `draw_text(text, x, y)` — blit text at `(x, y)` without refreshing, so
+    several strings compose into one frame; returns the rendered width.
+  - `text_width(text)` — pixel width of `text` (for custom centering).
   - `pixel(x, y, on=True)` / `fill(on=True)` — light individual pixels or every
     LED (handy for wiring bring-up); `pixel` defers to `refresh`.
-  - `clear()`, `refresh()`, `set_intensity(0..15)`, `width`.
+  - `clear()`, `clear_buf()`, `refresh()`, `set_intensity(0..15)`, `width`,
+    `height`.
 
 ## Pins
 
 Supplied by the caller from the project's `BOARD` wiring table — `spi_id`/`sck`/
-`mosi` and `cs` per display. Each project defines its own board wiring in
-`main.py`; a write-only display uses no MISO.
+`mosi` and `cs`. Each project defines its own board wiring in `main.py`; a
+write-only display uses no MISO.
 
 ## Wiring — RP2040-Zero example
 
-The clock project drives two independent 8x32 panels on separate SPI buses that
-share only the 5 V and GND rails (the GPIOs below come from its `BOARD` table;
-the panel-side pins — VCC/GND/DIN/CS/CLK — are what matter on any board). Each
-panel exposes a single 5-pin input header; `DOUT` is unused (write-only, and the
-two panels are not daisy-chained to each other).
+The two panels share one SPI bus. The MCU cables to the **top** panel only
+(CLK/DIN/CS); the **bottom** panel daisy-chains off the top panel's DOUT header,
+which carries 5 V · GND · DOUT · CS · CLK down the chain. The GPIOs below come
+from the project's `BOARD` table; the panel-side pins (VCC/GND/DIN/CS/CLK) are
+what matter on any board.
 
-### MAX7219 8x32 panels
+### MAX7219 16x32 matrix (two 8x32 panels daisy-chained)
 
 ```
                               ┌──────────────────────────────┐
-                              │  ███ 8×32 MAX7219 MATRIX ███ │  top panel
-                              │██████████████████████████████│
-                              │                              │
-                5V ────► VCC ─┤                              │
+                              │  ███ 8×32 MAX7219 MATRIX ███ │  top panel — cabled to the MCU
+                5V ────► VCC ─┤██████████████████████████████│
                GND ────► GND ─┤                              │
-           TOP DIN ────► DIN ─┤   FC-16 MODULE (DIN side)    │
-            TOP CS ────► CS  ─┤                              │
-           TOP CLK ────► CLK ─┤                              │
-                              └──────────────────────────────┘
-                              ┌──────────────────────────────┐
-                              │  ███ 8×32 MAX7219 MATRIX ███ │  bottom panel
-                              │██████████████████████████████│
-                              │                              │
-                5V ────► VCC ─┤                              │
-               GND ────► GND ─┤                              │
-           BOT DIN ────► DIN ─┤   FC-16 MODULE (DIN side)    │
-            BOT CS ────► CS  ─┤                              │
-           BOT CLK ────► CLK ─┤                              │
+           MCU DIN ────► DIN ─┤  IN ►   FC-16 MODULE   ► OUT ├─┐
+            MCU CS ────► CS  ─┤                              │ │  OUT header carries
+           MCU CLK ────► CLK ─┤                              │ │  5 V · GND · DOUT · CS · CLK
+                              └──────────────────────────────┘ │
+                              ┌──────────────────────────────┐ │
+                              │  ███ 8×32 MAX7219 MATRIX ███ │ │  bottom panel — daisy-chained
+                       VCC ◄──┤██████████████████████████████│ │
+                       GND ◄──┤                              │ │
+                       DIN ◄──┤  IN ►   FC-16 MODULE         ├─┘  (top DOUT → bottom DIN;
+                       CS  ◄──┤                              │     CS / CLK shared down chain)
+                       CLK ◄──┤                              │
                               └──────────────────────────────┘
 ```
 
-**Power:** the MAX7219 is a 5 V part — power each panel's VCC from the 5 V USB
-rail (shared). The MCU's 3.3 V SPI drives DIN / CS / CLK directly — fine at
-1 MHz over short leads. Each panel has its own SPI bus (separate CLK, DIN, CS
-lines from the MCU); the DOUT connectors are unused.
+**Power:** the MAX7219 is a 5 V part — power both panels' VCC from the 5 V USB
+rail; the daisy-chain ribbon carries 5 V / GND from the top panel to the bottom.
+The MCU's 3.3 V SPI drives only the top panel's DIN / CS / CLK directly — fine at
+1 MHz over short leads. Eight cascaded MAX7219s can draw well over 1 A at full
+brightness, so use an external 5 V supply for sustained use.
 
 ### RP2040-Zero
 
@@ -72,24 +76,26 @@ lines from the MCU); the DOUT connectors are unused.
                           29 ─┤                       ├─ 3
     TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4
     TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5
-    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  ────► BOT MATRIX CLK
-                          15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX DIN
-                          14 ─┤                       ├─ 8  ────► BOT MATRIX CS
+    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  (free — bottom panel
+                          15 ─┤        on GP16        ├─ 7   daisy-chains off the
+                          14 ─┤                       ├─ 8   top panel's DOUT)
                               │    RP2040 BOARD       │
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
 ```
 
-The top MAX7219 runs on SPI1 — **CLK=GP26, DIN=GP27, CS=GP28**. The bottom
-MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP7, CS=GP8**. The on-board WS2812 is
-driven by GP16 — no external wiring required. Power the panels from a 5 V
-supply. The board's `5V` (USB) pad is fine for bench testing at the default mid
-intensity; use an external 5 V supply for sustained full brightness, since eight
-cascaded MAX7219s can draw well over 1 A.
+The chain runs on SPI1 — **CLK=GP26, DIN=GP27, CS=GP28** — to the top panel; the
+bottom panel takes its input from the top panel's DOUT, so it needs no MCU pins.
+The on-board WS2812 is driven by GP16 — no external wiring required. Power the
+panels from a 5 V supply.
 
 ## Hardware notes
 
-Digit registers 1-8 drive rows; data bits drive columns. The panel is x-mirrored
-(`gx = width - 1 - x`) and the SPI cascade shifts the first byte to the last
-module, so `_write_row` emits modules in reverse. On init the driver briefly
-lights every LED via the display-test register as a wiring check.
+Digit registers 1-8 drive each chip's rows; data bits drive its columns. The
+framebuffer holds the image the right way up; `refresh` maps it onto the chain at
+the last moment: chips 0-3 are the top panel and 4-7 the bottom, and the SPI
+cascade shifts the first byte to the last chip, so each frame is emitted with the
+chips reversed. Two orientation knobs in `max7219.py` correct the panels'
+physical mounting — `_MIRROR_X` (flip if text reads backwards left-to-right) and
+`_FLIP_Y` (flip if text reads upside down). On init the driver briefly lights
+every LED via the display-test register as a wiring check.

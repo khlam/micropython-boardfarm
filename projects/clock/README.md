@@ -1,11 +1,11 @@
 # clock
 
-A GPS-synced wall clock with a 16×32 MAX7219 LED matrix (two independent 8×32
-panels on separate SPI buses, sharing only 5 V and GND). MicroPython firmware reads
+A GPS-synced wall clock with a 16×32 MAX7219 LED matrix (two 8×32 panels
+daisy-chained in series on one SPI bus, sharing 5 V and GND). MicroPython firmware reads
 UTC date/time and longitude from an ATGM336H GPS over UART (NMEA RMC), derives a
 fixed UTC offset from the longitude (`round(lon/15)`, since MicroPython has no
 timezone database), converts to local time, sets the onboard RTC, and drives the
-matrix over SPI. The two buses are independent: one cooperative loop pumps the GPS
+matrix over SPI. The UART and SPI buses are independent: one cooperative loop pumps the GPS
 (non-blocking `readline`) and advances the display every tick while the RTC keeps
 time between GPS bursts — neither bus blocks the other. A host FastAPI service
 fans the per-fix JSON lines out over a WebSocket and serves a live clock
@@ -82,10 +82,14 @@ dashboard auto-reconnects if you unplug and replug the board.
 
 ## Wiring
 
-The clock uses three independent buses: **UART** to the GPS, **SPI** to the top
-LED matrix, and a second **SPI** to the bottom LED matrix. Both matrices share
-5 V and GND but have their own CLK, DIN, and CS lines. The authoritative pin map
-lives in `main.py`'s `BOARD` wiring table; the per-board diagrams below mirror it.
+The clock uses two buses: **UART** to the GPS and a single **SPI** chain to the
+LED matrices. The two 8×32 panels are daisy-chained in series — the MCU drives
+the top panel, whose output feeds the bottom panel — and the `max7219` driver
+presents the cascade as one 16×32 surface (top panel = rows 0-7, bottom panel =
+rows 8-15). CLK, DIN, and CS run from the MCU to the top panel only; the bottom
+panel takes DIN from the top panel's DOUT and shares CLK/CS down the chain. The
+authoritative pin map lives in `main.py`'s `BOARD` wiring table; the per-board
+diagrams below mirror it.
 
 ### ATGM336H GPS module
 
@@ -110,35 +114,33 @@ lives in `main.py`'s `BOARD` wiring table; the per-board diagrams below mirror i
 is safe for all three MCU targets. Only the GPS TX → MCU RX connection is required
 for receiving NMEA sentences; MCU TX → GPS RX is optional.
 
-### MAX7219 16×32 matrix (two independent 8×32 panels)
+### MAX7219 16×32 matrix (two 8×32 panels daisy-chained in series)
 
 ```
                               ┌──────────────────────────────┐
-                              │  ███ 8×32 MAX7219 MATRIX ███ │  top panel
-                              │██████████████████████████████│
-                              │                              │
-                5V ────► VCC ─┤                              │
+                              │  ███ 8×32 MAX7219 MATRIX ███ │  top panel — cabled to the MCU
+                5V ────► VCC ─┤██████████████████████████████│
                GND ────► GND ─┤                              │
-           TOP DIN ────► DIN ─┤   FC-16 MODULE (DIN side)    │
-            TOP CS ────► CS  ─┤                              │
-           TOP CLK ────► CLK ─┤                              │
-                              └──────────────────────────────┘
-                              ┌──────────────────────────────┐
-                              │  ███ 8×32 MAX7219 MATRIX ███ │  bottom panel
-                              │██████████████████████████████│
-                              │                              │
-                5V ────► VCC ─┤                              │
-               GND ────► GND ─┤                              │
-           BOT DIN ────► DIN ─┤   FC-16 MODULE (DIN side)    │
-            BOT CS ────► CS  ─┤                              │
-           BOT CLK ────► CLK ─┤                              │
+           MCU DIN ────► DIN ─┤  IN ►   FC-16 MODULE   ► OUT ├─┐
+            MCU CS ────► CS  ─┤                              │ │  OUT header carries
+           MCU CLK ────► CLK ─┤                              │ │  5 V · GND · DOUT · CS · CLK
+                              └──────────────────────────────┘ │
+                              ┌──────────────────────────────┐ │
+                              │  ███ 8×32 MAX7219 MATRIX ███ │ │  bottom panel — daisy-chained
+                       VCC ◄──┤██████████████████████████████│ │
+                       GND ◄──┤                              │ │
+                       DIN ◄──┤  IN ►   FC-16 MODULE         ├─┘  (top DOUT → bottom DIN;
+                       CS  ◄──┤                              │     CS / CLK shared down chain)
+                       CLK ◄──┤                              │
                               └──────────────────────────────┘
 ```
 
-**Power:** the MAX7219 is a 5 V part — power each panel's VCC from the 5 V USB
-rail (shared). The MCU's 3.3 V SPI drives DIN / CS / CLK directly — fine at
-1 MHz over short leads. Each panel has its own SPI bus (separate CLK, DIN, CS
-lines from the MCU); the DOUT connectors are unused.
+**Power:** the MAX7219 is a 5 V part — power both panels' VCC from the 5 V USB
+rail; the daisy-chain ribbon carries 5 V / GND from the top panel to the bottom.
+The MCU's 3.3 V SPI drives only the top panel's DIN / CS / CLK directly — fine at
+1 MHz over short leads — and the bottom panel is driven entirely through the top
+panel's DOUT. Eight cascaded MAX7219s can draw well over 1 A at full brightness,
+so use an external 5 V supply for sustained use.
 
 ### RP2040-Zero
 
@@ -150,21 +152,22 @@ lines from the MCU); the DOUT connectors are unused.
    GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── GPS TX
                          3V3 ─┤                       ├─ 2
                           29 ─┤                       ├─ 3
-    TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4  
-    TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5  
-    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  ────► BOT MATRIX CLK
-                          15 ─┤        on GP16        ├─ 7  ────► BOT MATRIX DIN
-                          14 ─┤                       ├─ 8  ────► BOT MATRIX CS
+    TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4
+    TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5
+    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  (free)
+                          15 ─┤        on GP16        ├─ 7  (free)
+                          14 ─┤                       ├─ 8  (free)
                               │    RP2040 BOARD       │
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
 ```
 
 GP1 is UART0 RX (data flows from GPS into the MCU); GP0 is UART0 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GP26, DIN=GP27, CS=GP28**. The
-bottom MAX7219 runs on SPI0 — **CLK=GP6, DIN=GP7, CS=GP8**. Pins GP9–GP13 are
-reserved (underside castellated pads) and must not be used. The on-board WS2812
-is driven by GP16 — no external wiring required.
+optional. The MAX7219 chain runs on SPI1 — **CLK=GP26, DIN=GP27, CS=GP28** — to
+the top panel; the bottom panel daisy-chains off the top panel's output header,
+so it needs no MCU pins (GP6–GP8 are free for other use). Pins
+GP9–GP13 are reserved (underside castellated pads) and must not be used. The
+on-board WS2812 is driven by GP16 — no external wiring required.
 
 ### ESP32-S3-Zero
 
@@ -174,9 +177,9 @@ is driven by GP16 — no external wiring required.
                               │                       │
    GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 13 ────► GPS RX (opt.)
    GPS · MATRIX GND ◄─── GND ─┤                       ├─ 12 ◄──── GPS TX
-                         3V3 ─┤                       ├─ 11 ────► BOT MATRIX CS
-                           1 ─┤                       ├─ 10 ────► BOT MATRIX DIN
-                           2 ─┤                       ├─ 9  ────► BOT MATRIX CLK
+                         3V3 ─┤                       ├─ 11 (free)
+                           1 ─┤                       ├─ 10 (free)
+                           2 ─┤                       ├─ 9  (free)
                            3 ─┤  [BOOT] (●) [RESET]   ├─ 8
                            4 ─┤        WS2812         ├─ 43
      TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44
@@ -187,9 +190,10 @@ is driven by GP16 — no external wiring required.
 ```
 
 GPIO12 is UART1 RX (data flows from GPS into the MCU); GPIO13 is UART1 TX and is
-optional. The top MAX7219 runs on SPI1 — **CLK=GPIO5, DIN=GPIO6, CS=GPIO7**. The
-bottom MAX7219 runs on SPI2 — **CLK=GPIO9, DIN=GPIO10, CS=GPIO11**. The on-board
-WS2812 is driven by GPIO21 — no external wiring required.
+optional. The MAX7219 chain runs on SPI1 — **CLK=GPIO5, DIN=GPIO6, CS=GPIO7** —
+to the top panel; the bottom panel daisy-chains off the top panel's output
+header, so it needs no MCU pins (GPIO9–GPIO11 are free for other use).
+The on-board WS2812 is driven by GPIO21 — no external wiring required.
 
 ### RP2350
 
@@ -205,9 +209,9 @@ WS2812 is driven by GPIO21 — no external wiring required.
         GPS RX (opt.) ◄─── 4 ─┤                                     ├─ ADC_VREF
                GPS TX ───► 5 ─┤                                     ├─ 28
                          GND ─┤   [BOOTSEL] (●) LED on WL_GPIO0     ├─ AGND
-      BOT MATRIX CLK ◄─── 6 ─┤                                     ├─ 27
-      BOT MATRIX DIN ◄─── 7 ─┤                                     ├─ 26
-       BOT MATRIX CS ◄─── 8 ─┤      RP2350                         ├─ RUN
+                           6 ─┤                                     ├─ 27
+                           7 ─┤                                     ├─ 26
+                           8 ─┤      RP2350                         ├─ RUN
         TOP MATRIX CS ◄─── 9 ─┤                                     ├─ 22
                          GND ─┤                                     ├─ GND
       TOP MATRIX CLK ◄─── 10 ─┤                                     ├─ 21
@@ -221,9 +225,10 @@ WS2812 is driven by GPIO21 — no external wiring required.
                               └─────────────────────────────────────┘
 ```
 
-VBUS is the 5 V USB rail. GP5 is UART1 RX; GP4 is UART1 TX (optional). The top
-MAX7219 runs on SPI1 — **CS=GP9, CLK=GP10, DIN=GP11**. The bottom MAX7219 runs
-on SPI0 — **CLK=GP6, DIN=GP7, CS=GP8**.
+VBUS is the 5 V USB rail. GP5 is UART1 RX; GP4 is UART1 TX (optional). The
+MAX7219 chain runs on SPI1 — **CS=GP9, CLK=GP10, DIN=GP11** — to the top panel;
+the bottom panel daisy-chains off the top panel's output header, so it needs no
+MCU pins (GP6–GP8 are free for other use).
 
 ## Packages used
 
