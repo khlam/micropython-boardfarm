@@ -36,6 +36,12 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
   rather than `b'\x..'`); the payload bytes themselves are unchanged.
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and
   file-based firmware loader are not needed in this repo).
+- Constructor refactored to follow the `i2c_bus` driver pattern: takes raw GPIO
+  numbers (`sda`, `scl`) instead of a pre-created I²C object, internally
+  constructs a soft I²C bus via `soft_i2c()`, and scans for the device at
+  initialization time. Raises `DeviceNotFoundError` if the sensor is not found
+  on the bus, following the error-handling convention established by other
+  drivers in the package.
 
 ### Local correctness fixes and cleanup
 
