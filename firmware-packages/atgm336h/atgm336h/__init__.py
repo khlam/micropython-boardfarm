@@ -1,11 +1,8 @@
 """MCU-micropython ATGM336H package — a UART NMEA reader.
 
-The constructor takes flat pin numbers and opens its own UART, so the project's
-BOARD table supplies only pins. UART has no address scan, so the driver probes
-the line at construction: a wired ATGM336H streams NMEA sentences continuously
-(even without a fix), so if no bytes arrive within ``probe_ms`` the module is
-unwired/unpowered and ``DeviceNotFoundError`` is raised — letting the project's retry
-loop tell "nothing connected" from a later read error.
+Takes flat pin numbers and opens its own UART. Since UART has no address scan,
+the constructor probes the line: a wired ATGM336H streams NMEA continuously, so
+if no bytes arrive within ``probe_ms`` it raises ``DeviceNotFoundError``.
 
 Example:
     from atgm336h import GPS, DeviceNotFoundError
@@ -66,23 +63,11 @@ class GPS:
             when the UART timeout fires before a newline arrives or when the
             bytes cannot be decoded as ASCII or do not start with ``$``.
         """
-        return _parse_line(self._uart.readline())
-
-
-def _parse_line(raw: bytes | None) -> str | None:
-    """Decode and validate one raw UART line as an NMEA sentence.
-
-    Args:
-        raw: Raw bytes from ``UART.readline()``, or ``None`` on timeout.
-
-    Returns:
-        The stripped sentence if it decodes as ASCII and starts with ``$``,
-        else ``None`` (timeout, decode error, or non-NMEA line).
-    """
-    if raw is None:
-        return None
-    try:
-        line = raw.decode().strip()
-    except (ValueError, UnicodeError):
-        return None
-    return line if line.startswith("$") else None
+        raw = self._uart.readline()
+        if raw is None:
+            return None
+        try:
+            line = raw.decode().strip()
+        except (ValueError, UnicodeError):
+            return None
+        return line if line.startswith("$") else None
