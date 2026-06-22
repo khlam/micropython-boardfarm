@@ -6,7 +6,6 @@ OVL edge-trigger ({"diag": "ovl"} only on rising edges of the STATUS overflow
 bit), and read_err → streaming recovery.
 """
 
-import ast
 import io
 import json
 import math
@@ -14,11 +13,10 @@ import os
 import pathlib
 from collections import namedtuple
 from contextlib import redirect_stdout
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
+from micropython_stubs.testing import firmware_namespace
 from qmc5883p import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
@@ -29,74 +27,21 @@ _TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 _OK = (100, -50, 200)
 
 
-class _FakeTime:
-    """Monotonic ticks_ms counter, ticks_diff, and no-op sleep_ms."""
-
-    def __init__(self) -> None:
-        self.ticks = 0
-
-    def ticks_ms(self):
-        self.ticks += 1
-        return self.ticks
-
-    def ticks_diff(self, a, b):
-        return a - b
-
-    def sleep_ms(self, _ms):
-        return
-
-
-class _FakeStatus:
-    """Record every transition call by name into self.calls."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def __getattr__(self, name) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
-
-        def _rec():
-            self.calls.append(name)
-
-        return _rec
-
-
 def _make_main_ns():
     """Create a fresh AST-loaded main.py namespace with fakes."""
-    fake_time = _FakeTime()
-    fake_status = _FakeStatus()
-
-    src = _FIRMWARE.read_text()
-    tree = ast.parse(src)
-    kept = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        or (isinstance(node, ast.FunctionDef) and node.name in _KEEP_FUNCS)
-    ]
-    module = ast.Module(body=kept, type_ignores=[])
-    ast.fix_missing_locations(module)
-    code = compile(module, str(_FIRMWARE), "exec")
-
-    import ujson
-
     from smoothing import simple_moving_average
 
-    ns: dict = {
-        "time": fake_time,
-        "status": fake_status,
-        "ujson": ujson,
-        "os": os,
-        "namedtuple": namedtuple,
-        "BOARD": _TEST_BOARD,
-        "math": math,
-        "simple_moving_average": simple_moving_average,
-        "QMC5883P": object,
-        "DeviceNotFoundError": DeviceNotFoundError,
-    }
-    exec(code, ns)
-    return SimpleNamespace(ns=ns, time=fake_time, status=fake_status)
+    return firmware_namespace(
+        _FIRMWARE,
+        _KEEP_FUNCS,
+        os=os,
+        namedtuple=namedtuple,
+        BOARD=_TEST_BOARD,
+        math=math,
+        simple_moving_average=simple_moving_average,
+        QMC5883P=object,
+        DeviceNotFoundError=DeviceNotFoundError,
+    )
 
 
 def test_one_sample_per_loop_with_8_keys():

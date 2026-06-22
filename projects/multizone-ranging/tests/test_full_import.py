@@ -15,9 +15,10 @@ import pathlib
 import sys
 from contextlib import redirect_stdout
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
+
+from micropython_stubs.testing import FakeStatus, FakeTime
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _TOF_ADDRESS = 0x29
@@ -31,18 +32,9 @@ _CHIPS = [
 ]
 
 
-class _FakeStatus:
-    """Accept any method call without crashing."""
-
-    def __getattr__(self, name) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
-        return lambda: None
-
-
 @pytest.mark.parametrize("machine_str,board_name", _CHIPS)
 def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, board_name):
-    fake_status = _FakeStatus()
+    fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
@@ -95,10 +87,7 @@ class _FakeVL53L5CX:
 
 def _build_stubs(status_stub):
     """Build SimpleNamespace stubs matching main.py's module-level imports."""
-    time_stub = SimpleNamespace(
-        sleep_ms=lambda _ms: None,
-        ticks_ms=lambda: 0,
-    )
+    time_stub = FakeTime()
     boot_status_led_stub = SimpleNamespace(status=status_stub)
     # main() builds VL53L5CX(sda=, scl=) directly — the driver owns the bus and
     # scan — so the project no longer imports i2c_bus; the vl53l5cx stub exposes

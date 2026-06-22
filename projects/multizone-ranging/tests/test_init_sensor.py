@@ -7,52 +7,18 @@ retry (OSError from the constructor), and ValueError/RuntimeError from init()
 (e.g. a poll timeout during firmware loading).
 """
 
-import ast
 import os
 import pathlib
 from collections import namedtuple
-from types import SimpleNamespace
-from typing import Any, ClassVar
+from typing import ClassVar
 
+from micropython_stubs.testing import firmware_namespace
 from vl53l5cx import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "stream", "init_sensor"}
 Board = namedtuple("Board", ("name", "sda", "scl"))
 _TEST_BOARD = Board(name="RP2040-Zero", sda=0, scl=1)
-
-
-class _FakeTime:
-    """Monotonic ticks_ms counter, ticks_diff, and no-op sleep_ms."""
-
-    def __init__(self) -> None:
-        self.ticks = 0
-
-    def ticks_ms(self):
-        self.ticks += 1
-        return self.ticks
-
-    def ticks_diff(self, a, b):
-        return a - b
-
-    def sleep_ms(self, _ms):
-        return
-
-
-class _FakeStatus:
-    """Record every transition call by name into self.calls."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def __getattr__(self, name) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
-
-        def _rec():
-            self.calls.append(name)
-
-        return _rec
 
 
 class _FakeVL53L5CX:
@@ -81,35 +47,15 @@ class _FakeVL53L5CX:
 def _make_init_ns():
     """Create AST-loaded namespace with _FakeVL53L5CX injected."""
     _FakeVL53L5CX.script = []
-    fake_time = _FakeTime()
-    fake_status = _FakeStatus()
-
-    src = _FIRMWARE.read_text()
-    tree = ast.parse(src)
-    kept = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        or (isinstance(node, ast.FunctionDef) and node.name in _KEEP_FUNCS)
-    ]
-    module = ast.Module(body=kept, type_ignores=[])
-    ast.fix_missing_locations(module)
-    code = compile(module, str(_FIRMWARE), "exec")
-
-    import ujson
-
-    ns: dict = {
-        "time": fake_time,
-        "status": fake_status,
-        "ujson": ujson,
-        "os": os,
-        "namedtuple": namedtuple,
-        "BOARD": _TEST_BOARD,
-        "VL53L5CX": _FakeVL53L5CX,
-        "DeviceNotFoundError": DeviceNotFoundError,
-    }
-    exec(code, ns)
-    return SimpleNamespace(ns=ns, time=fake_time, status=fake_status)
+    return firmware_namespace(
+        _FIRMWARE,
+        _KEEP_FUNCS,
+        os=os,
+        namedtuple=namedtuple,
+        BOARD=_TEST_BOARD,
+        VL53L5CX=_FakeVL53L5CX,
+        DeviceNotFoundError=DeviceNotFoundError,
+    )
 
 
 def test_init_sensor_happy_path():

@@ -14,15 +14,14 @@ exits in a handful of ticks_ms() calls, keeping tests fast.
 
 from __future__ import annotations
 
-import ast
 import os
 import pathlib
 import sys
 from collections import namedtuple
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
+
+from micropython_stubs.testing import firmware_namespace
 
 _HERE = pathlib.Path(__file__).parent.resolve()
 _FIRMWARE = _HERE.parent / "firmware" / "main.py"
@@ -44,72 +43,19 @@ _GPGSV = "$GPGSV,3,1,09,01,40,083,46,02,17,308,41,12,07,344,39,14,22,228,45*75"
 _TEST_WINDOW_MS = 2
 
 
-class _FakeTime:
-    """Monotonic ticks_ms counter, ticks_diff, and no-op sleep_ms."""
-
-    def __init__(self) -> None:
-        self.ticks = 0
-
-    def ticks_ms(self):
-        self.ticks += 1
-        return self.ticks
-
-    def ticks_diff(self, a, b):
-        return a - b
-
-    def sleep_ms(self, _ms):
-        return
-
-
-class _FakeStatus:
-    """Record every transition call by name into self.calls."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def __getattr__(self, name) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
-
-        def _rec():
-            self.calls.append(name)
-
-        return _rec
-
-
 def _make_main_ns():
     """Create a fresh AST-loaded main.py namespace with fakes."""
-    fake_time = _FakeTime()
-    fake_status = _FakeStatus()
-
-    src = _FIRMWARE.read_text()
-    tree = ast.parse(src)
-    kept = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        or (isinstance(node, ast.FunctionDef) and node.name in _KEEP_FUNCS)
-    ]
-    module = ast.Module(body=kept, type_ignores=[])
-    ast.fix_missing_locations(module)
-    code = compile(module, str(_FIRMWARE), "exec")
-
-    import ujson
-
-    ns: dict = {
-        "time": fake_time,
-        "status": fake_status,
-        "ujson": ujson,
-        "os": os,
-        "namedtuple": namedtuple,
-        "BOARD": _TEST_BOARD,
-        "nmea_checksum_valid": nmea.nmea_checksum_valid,
-        "parse_sentence": nmea.parse_sentence,
-        "apply_parsed": nmea.apply_parsed,
-        "build_utc_full": nmea.build_utc_full,
-    }
-    exec(code, ns)
-    return SimpleNamespace(ns=ns, time=fake_time, status=fake_status)
+    return firmware_namespace(
+        _FIRMWARE,
+        _KEEP_FUNCS,
+        os=os,
+        namedtuple=namedtuple,
+        BOARD=_TEST_BOARD,
+        nmea_checksum_valid=nmea.nmea_checksum_valid,
+        parse_sentence=nmea.parse_sentence,
+        apply_parsed=nmea.apply_parsed,
+        build_utc_full=nmea.build_utc_full,
+    )
 
 
 class _StopLoopError(BaseException):

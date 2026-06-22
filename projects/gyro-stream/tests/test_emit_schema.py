@@ -6,15 +6,14 @@ viz parser at projects/gyro-stream/viz/app.py drops non-JSON lines, so
 a regression here silently breaks the dashboard.
 """
 
-import ast
 import io
 import json
 import os
 import pathlib
 from collections import namedtuple
 from contextlib import redirect_stdout
-from types import SimpleNamespace
 
+from micropython_stubs.testing import firmware_namespace
 from mpu6050 import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
@@ -25,34 +24,15 @@ _TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 def _make_main_ns():
     """Create a fresh AST-loaded main.py namespace with fakes."""
-    src = _FIRMWARE.read_text()
-    tree = ast.parse(src)
-    kept = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        or (isinstance(node, ast.FunctionDef) and node.name in _KEEP_FUNCS)
-    ]
-    module = ast.Module(body=kept, type_ignores=[])
-    ast.fix_missing_locations(module)
-    code = compile(module, str(_FIRMWARE), "exec")
-
-    import ujson
-
-    ns: dict = {
-        "time": SimpleNamespace(
-            ticks=0, ticks_ms=lambda: 0, ticks_diff=lambda a, b: a - b, sleep_ms=lambda _ms: None
-        ),
-        "status": SimpleNamespace(),
-        "ujson": ujson,
-        "os": os,
-        "namedtuple": namedtuple,
-        "BOARD": _TEST_BOARD,
-        "MPU6050": object,
-        "DeviceNotFoundError": DeviceNotFoundError,
-    }
-    exec(code, ns)
-    return ns
+    return firmware_namespace(
+        _FIRMWARE,
+        _KEEP_FUNCS,
+        os=os,
+        namedtuple=namedtuple,
+        BOARD=_TEST_BOARD,
+        MPU6050=object,
+        DeviceNotFoundError=DeviceNotFoundError,
+    ).ns
 
 
 def test_emit_sample_dict():
