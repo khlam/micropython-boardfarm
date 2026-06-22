@@ -79,13 +79,13 @@ def stream(gps: object) -> None:
 def main() -> None:
     """Run boot → UART init → stream. MicroPython entry point.
 
-    LED sequence: white → cyan (UART opening) → green (streaming).
-    On UART failure: cyan → magenta → white (retry).
+    LED sequence: white → blue (UART opening) → green (streaming).
+    On UART failure: blue → magenta → white (retry).
     """
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
     while True:
-        status.i2c_init()
+        status.uart_init()
         try:
             gps = GPS(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
         except DeviceNotFoundError:
