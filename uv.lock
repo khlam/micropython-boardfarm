@@ -44,12 +44,21 @@ wheels = [
 ]
 
 [[package]]
-name = "boot-status-led"
+name = "atgm336h"
 version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/boot_status_led-0.2.0.tar.gz" }
+sdist = { path = "/wheels/atgm336h-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/boot_status_led-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/atgm336h-0.2.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "boot-status-led"
+version = "0.3.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/boot_status_led-0.3.0.tar.gz" }
+wheels = [
+    { path = "/wheels/boot_status_led-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -84,7 +93,7 @@ wheels = [
 
 [[package]]
 name = "compass"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/compass" }
 dependencies = [
     { name = "boot-status-led" },
@@ -196,22 +205,14 @@ wheels = [
 
 [[package]]
 name = "distance-stream"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "smoothing" },
-    { name = "vl53l0x" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "dnspython"
@@ -261,45 +262,26 @@ wheels = [
 ]
 
 [[package]]
-name = "atgm336h"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/atgm336h-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "gps-stream"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/gps" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "atgm336h" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "mpu6050" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "h11"
@@ -385,11 +367,11 @@ wheels = [
 
 [[package]]
 name = "i2c-bus"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/i2c_bus-0.2.0.tar.gz" }
+sdist = { path = "/wheels/i2c_bus-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/i2c_bus-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/i2c_bus-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -446,8 +428,8 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.6.0"
-source = { virtual = "." }
+version = "0.8.0"
+source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
@@ -537,11 +519,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.2.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -555,29 +537,23 @@ wheels = [
 
 [[package]]
 name = "mpu6050"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/mpu6050-0.1.0.tar.gz" }
+sdist = { path = "/wheels/mpu6050-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/mpu6050-0.1.0-py3-none-any.whl" },
+    { path = "/wheels/mpu6050-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "multizone-ranging"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
-    { name = "boot-status-led" },
-    { name = "i2c-bus" },
-    { name = "vl53l5cx" },
+    { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "boot-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "i2c-bus", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "vl53l5cx", specifier = ">=0.1.0", index = "file:///wheels" },
-]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "orjson"
@@ -872,11 +848,11 @@ wheels = [
 
 [[package]]
 name = "qmc5883p"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/qmc5883p-0.1.0.tar.gz" }
+sdist = { path = "/wheels/qmc5883p-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/qmc5883p-0.1.0-py3-none-any.whl" },
+    { path = "/wheels/qmc5883p-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -1147,20 +1123,20 @@ wheels = [
 
 [[package]]
 name = "vl53l0x"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l0x-0.1.0.tar.gz" }
+sdist = { path = "/wheels/vl53l0x-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l0x-0.1.0-py3-none-any.whl" },
+    { path = "/wheels/vl53l0x-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "vl53l5cx"
-version = "0.1.1"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l5cx-0.1.1.tar.gz" }
+sdist = { path = "/wheels/vl53l5cx-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l5cx-0.1.1-py3-none-any.whl" },
+    { path = "/wheels/vl53l5cx-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
