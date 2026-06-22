@@ -81,6 +81,7 @@ def test_esp32s3_backend_scales_brightness():
         ("i2c_init", (0, 255, 255)),
         ("no_device", (255, 128, 0)),
         ("init_err", (255, 0, 255)),
+        ("uart_init", (0, 0, 255)),
     ],
 )
 def test_named_transitions_write_expected_colour(transition, expected):
