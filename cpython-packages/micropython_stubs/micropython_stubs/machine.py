@@ -1,17 +1,8 @@
-"""Host CPython stub of the `machine` module used by host pytest.
-
-Records Pin construction and routes I2C / SoftI2C reads + writes to fake
-devices registered at the matching address. Union of the per-package stubs
-previously kept under each `packages/<pkg>/stubs/` directory — exactly one
-copy now lives here so every test in the session sees the same module.
-
-Test state (`pin_constructions`, `_devices`) is module-level; tests reset
-it between cases by calling `reset()` from an autouse fixture.
-"""
+"""Host CPython stub of MicroPython's `machine` module."""
 
 from __future__ import annotations
 
-# Test state. Cleared by tests' autouse fixtures via reset().
+# Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
@@ -61,12 +52,7 @@ class Pin:
 
 
 class _I2CBase:
-    """Common fake I2C / SoftI2C — records bus id (positional) + sda/scl + freq.
-
-    `I2C(0, sda=..., scl=...)` (hardware peripheral style, used by i2c_bus)
-    and `I2C(sda=..., scl=...)` (kwarg-only style, used by other packages)
-    both work.
-    """
+    """Common fake I2C / SoftI2C implementation."""
 
     def __init__(
         self,
@@ -76,7 +62,7 @@ class _I2CBase:
         freq: int = 100_000,
         **_kwargs: object,
     ) -> None:
-        """Record positional bus id (if any) and sda/scl/freq."""
+        """Record bus id, pins, and frequency."""
         self.id = args[0] if args else None
         self.sda = sda
         self.scl = scl
@@ -89,8 +75,8 @@ class _I2CBase:
     def readfrom_mem(self, addr: int, reg: int, nbytes: int, **_kwargs: object) -> bytes:
         """Read `nbytes` from `addr`/`reg`; raises OSError when unregistered.
 
-        `addrsize` (16-bit register addressing, used by the VL53L5CX driver) is
-        accepted and ignored — the fake register file is keyed by `reg` as-is.
+        `addrsize` is accepted and ignored; the fake register file is keyed by
+        `reg` as-is.
         """
         dev = _devices.get(addr)
         if dev is None:
@@ -123,12 +109,7 @@ class SoftI2C(_I2CBase):
 
 
 class UART:
-    """Fake `machine.UART` — records the peripheral id + tx/rx pins + baudrate.
-
-    `readline()` pops from the module-level queue seeded by `feed_uart()`, so
-    tests can script NMEA bytes for a driver that opens its own UART; it returns
-    None once the queue drains (mirroring a timeout on a quiet line).
-    """
+    """Fake `machine.UART` backed by a queued byte-line reader."""
 
     def __init__(
         self,

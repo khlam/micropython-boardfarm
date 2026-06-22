@@ -1,7 +1,7 @@
 # cpython-packages
 Shared host-CPython packages. Installed editable into the `pytest` and
-`viz` Docker stage venvs via uv workspace. Never frozen onto the device
-— for MCU code see [`../firmware-packages/`](../firmware-packages/).
+`viz` Docker stage venvs via uv workspace. Never frozen onto the device;
+for MCU code see [`../firmware-packages/`](../firmware-packages/).
 
 
 ## Package Layout
@@ -13,16 +13,59 @@ Shared host-CPython packages. Installed editable into the `pytest` and
   README.md         usage, public API
 ```
 
-`micropython_stubs` is the one exception: its modules also re-export at
-the top level via hatch `force-include`, so host tests resolve
-`import machine` exactly as on-device firmware does.
+`micropython_stubs` is the one exception: hatch `force-include` also ships
+its replacement modules at the wheel root, so host tests resolve `import machine`
+exactly as on-device firmware does.
 
 
 ## Packages
 | Package | What it does |
 |---|---|
 | [serial_over_web](serial_over_web/) | Shared FastAPI dashboard server. Tails `/dev/ttyACM0`, validates JSON lines, fans out over `/ws` WebSocket. Per-project static dashboards mount on top. |
-| [micropython_stubs](micropython_stubs/) | Host shims for the MicroPython builtins firmware code imports (`machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`). Lets host pytest exercise firmware without a board attached. |
+| [micropython_stubs](micropython_stubs/) | Test replacements for the MicroPython modules firmware code imports (`machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`). Lets host CPython pytest run MicroPython code on CPython by providing test versions of MicroPython-only modules. This enables testing firmware logic separately from firmware-and-hardware performance testing. |
+
+
+## micropython_stubs
+`micropython_stubs` is a tests-only uv workspace member. The `pytest`
+Docker stage installs it into the test venv, where its files are available
+both as `micropython_stubs.<module>` and as MicroPython-style top-level
+imports.
+
+```
+micropython_stubs/
+  pyproject.toml          uv workspace metadata plus hatch force-include
+  micropython_stubs/
+    __init__.py           package marker
+    machine.py            fake Pin, I2C, SoftI2C, and UART
+    neopixel.py           fake NeoPixel strip with recorded writes
+    ujson.py              CPython json exported as ujson
+    ustruct.py            CPython struct exported as ustruct
+    utime.py              no-op sleep_ms plus monotonic ticks
+    micropython.py        const(x) returns x
+    testing.py            shared fakes and firmware main.py AST helpers
+```
+
+Replacement module behavior:
+- `machine.py` records every `Pin(...)` construction in
+  `pin_constructions`, routes I2C reads and writes to devices registered
+  with `machine.register_device(addr, dev)`, and feeds `UART.readline()`
+  from byte lines queued with `machine.feed_uart(...)`.
+- `neopixel.py` records `NeoPixel` instances and appends the current LED 0
+  color to `writes` on each `write()`.
+- `ujson.py` and `ustruct.py` re-export CPython's `json` and `struct`
+  APIs used by firmware tests.
+- `utime.py` makes `sleep_ms()` a no-op and implements `ticks_ms()` /
+  `ticks_diff()` with host time.
+- `micropython.py` exposes `const(x)` as an identity function.
+- `testing.py` provides `FakeTime`, `FakeStatus`, and helpers that load
+  selected assignments/functions from a firmware `main.py` into a test
+  namespace.
+
+Reset mutable test-module state in autouse fixtures with `machine.reset()` and
+`neopixel.reset()`. Add new top-level replacements by creating the module under
+`micropython_stubs/micropython_stubs/` and adding it to
+`tool.hatch.build.targets.wheel.force-include` in
+[`micropython_stubs/pyproject.toml`](micropython_stubs/pyproject.toml).
 
 
 ## Notes
@@ -44,7 +87,7 @@ From the repo root:
 docker compose run --rm --build pytest /cpython-packages
 docker compose run --rm pytest /cpython-packages/serial_over_web/tests
 ```
-`micropython_stubs` has no standalone tests — every firmware package's
+`micropython_stubs` has no standalone tests; every firmware package's
 host pytest suite exercises it.
 
 `/cpython-packages/serial_over_web/` is a bind-mount inside the test container (mapped from the host by the root [docker-compose.yaml](../docker-compose.yaml) at runtime, read-only), so edits take effect without rebuilding the image.
