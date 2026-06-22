@@ -15,7 +15,16 @@ from fake_vl53l0x import FakeVL53L0X
 from vl53l0x import VL53L0X, DeviceNotFoundError
 
 
-def test_driver_inits_with_skip_spad_info(fake_tof):
+def _register_fake(**kwargs):
+    """Reset machine state and register a FakeVL53L0X at 0x29."""
+    machine.reset()
+    dev = FakeVL53L0X(**kwargs)
+    machine.register_device(0x29, dev)
+    return dev
+
+
+def test_driver_inits_with_skip_spad_info():
+    _register_fake()
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
 
     assert tof.address == 0x29
@@ -24,11 +33,13 @@ def test_driver_inits_with_skip_spad_info(fake_tof):
 
 def test_missing_device_raises_device_not_found():
     """Nothing registered on the bus → DeviceNotFoundError, not OSError."""
+    machine.reset()
     with pytest.raises(DeviceNotFoundError):
         VL53L0X(sda=0, scl=1)
 
 
-def test_read_returns_simulated_distance(fake_tof):
+def test_read_returns_simulated_distance():
+    fake_tof = _register_fake()
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     tof.start()
 
@@ -46,8 +57,7 @@ def test_esp32_wider_mask_is_honored():
     set. If the driver ignored its mask parameter, read() would
     TimeoutError.
     """
-    dev = FakeVL53L0X(interrupt_status_after_write=0x40)  # bit 6 only
-    machine.register_device(0x29, dev)
+    dev = _register_fake(interrupt_status_after_write=0x40)
 
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0xFF)
     tof.start()
@@ -57,10 +67,8 @@ def test_esp32_wider_mask_is_honored():
 
 def test_soft_reset_success():
     """Soft-reset completes when model ID is readable as 0xEE."""
-    dev = FakeVL53L0X(soft_reset_behavior="normal")
-    machine.register_device(0x29, dev)
+    _register_fake(soft_reset_behavior="normal")
 
-    # Successful init means soft-reset succeeded
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     assert tof.address == 0x29
 
@@ -72,10 +80,8 @@ def test_soft_reset_timeout_is_swallowed():
     swallowed — init() runs regardless, matching the chip's tolerance
     for a skipped reset."
     """
-    dev = FakeVL53L0X(soft_reset_behavior="timeout")
-    machine.register_device(0x29, dev)
+    _register_fake(soft_reset_behavior="timeout")
 
-    # Timeout during soft-reset doesn't prevent init
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     assert tof.address == 0x29
 
@@ -86,9 +92,7 @@ def test_soft_reset_oserror_is_swallowed():
     If an I²C error occurs while polling the model ID, the error is caught
     and init continues anyway.
     """
-    dev = FakeVL53L0X(soft_reset_behavior="error")
-    machine.register_device(0x29, dev)
+    _register_fake(soft_reset_behavior="error")
 
-    # OSError during soft-reset poll doesn't prevent init
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     assert tof.address == 0x29

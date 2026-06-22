@@ -28,12 +28,14 @@ def test_parse_line(raw, expected):
 
 def test_gps_probe_raises_device_not_found_on_quiet_line():
     """No bytes within the probe budget → DeviceNotFoundError (probe_ms=0 = one pass)."""
+    machine.reset()
     with pytest.raises(DeviceNotFoundError):
         GPS(bus_id=0, tx=0, rx=1, probe_ms=0)
 
 
 def test_gps_readline_streams_after_probe():
     """The probe consumes the first line; readline() yields the next parsed one."""
+    machine.reset()
     machine.feed_uart([_GPRMC, _GPGGA])
     gps = GPS(bus_id=0, tx=0, rx=1)
     assert gps.readline().startswith("$GPGGA")

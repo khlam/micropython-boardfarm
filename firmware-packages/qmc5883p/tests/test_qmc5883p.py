@@ -17,25 +17,36 @@ from qmc5883p import QMC5883P, DeviceNotFoundError
 ADDR = 0x2C
 
 
-def test_chip_id_accepted(fake_mag):
+def _register_fake(**kwargs):
+    """Reset machine state and register a FakeQMC5883P at 0x2C."""
+    machine.reset()
+    dev = FakeQMC5883P(**kwargs)
+    machine.register_device(ADDR, dev)
+    return dev
+
+
+def test_chip_id_accepted():
+    _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     assert mag.address == ADDR
 
 
 def test_missing_device_raises_device_not_found():
     """Nothing registered on the bus → DeviceNotFoundError, not OSError."""
+    machine.reset()
     with pytest.raises(DeviceNotFoundError):
         QMC5883P(sda=0, scl=1)
 
 
 def test_unknown_chip_id_raises():
-    machine.register_device(ADDR, FakeQMC5883P(chip_id=0xAA))
+    _register_fake(chip_id=0xAA)
     with pytest.raises(OSError):
         QMC5883P(sda=0, scl=1)
 
 
-def test_init_writes_config_sequence(fake_mag):
+def test_init_writes_config_sequence():
     """soft-reset (CTRL_2) → AXIS_SIGN → range (CTRL_2) → CTRL_1, in order."""
+    fake_mag = _register_fake()
     QMC5883P(sda=0, scl=1)
     assert fake_mag.writes == [
         (0x0B, bytes((0x80,))),  # CTRL_2 soft reset
@@ -45,29 +56,33 @@ def test_init_writes_config_sequence(fake_mag):
     ]
 
 
-def test_read_returns_signed_xyz(fake_mag):
+def test_read_returns_signed_xyz():
     """6-byte DATA block decodes as three signed little-endian shorts."""
+    fake_mag = _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     fake_mag.set_sample(100, -200, 300)
     assert mag.read() == (100, -200, 300)
 
 
-def test_read_polls_until_drdy(fake_mag):
+def test_read_polls_until_drdy():
     """read() spins on STATUS DRDY before fetching DATA."""
+    fake_mag = _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     fake_mag.set_sample(1, 2, 3)
     fake_mag.drdy_after(2)  # not-ready twice, then ready
     assert mag.read() == (1, 2, 3)
 
 
-def test_last_status_exposes_ovl(fake_mag):
+def test_last_status_exposes_ovl():
+    fake_mag = _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     fake_mag.set_overflow(True)
     mag.read()
     assert mag.last_status & 0x02
 
 
-def test_last_status_clear_without_ovl(fake_mag):
+def test_last_status_clear_without_ovl():
+    _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     mag.read()
     assert not (mag.last_status & 0x02)

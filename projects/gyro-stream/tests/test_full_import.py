@@ -13,6 +13,7 @@ import pathlib
 import sys
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -28,10 +29,18 @@ _CHIPS = [
 ]
 
 
+class _FakeStatus:
+    """Accept any method call without crashing."""
+
+    def __getattr__(self, name) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return lambda: None
+
+
 @pytest.mark.parametrize("machine_str,board_name", _CHIPS)
-def test_main_executes_init_then_streams_one_sample(
-    monkeypatch, fake_status, machine_str, board_name
-):
+def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
+    fake_status = _FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)

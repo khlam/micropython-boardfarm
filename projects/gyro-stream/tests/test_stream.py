@@ -4,31 +4,113 @@ Covers the happy path, saturation edge-trigger ({"diag": "sat"} only on
 rising edges of last_saturated), and read_err → streaming recovery.
 """
 
+import ast
 import io
 import json
+import os
+import pathlib
+from collections import namedtuple
 from contextlib import redirect_stdout
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
+
+from mpu6050 import DeviceNotFoundError
+
+_FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
+_KEEP_FUNCS = {"emit", "init_sensor", "stream"}
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
+_TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 _OK = (0.01, -0.02, 0.99, 0.1, -0.05, 0.0, 24.7)
 
 
-def test_one_sample_per_loop_with_full_8_keys(main_ns):
+class _FakeTime:
+    """Monotonic ticks_ms counter, ticks_diff, and no-op sleep_ms."""
+
+    def __init__(self) -> None:
+        self.ticks = 0
+
+    def ticks_ms(self):
+        self.ticks += 1
+        return self.ticks
+
+    def ticks_diff(self, a, b):
+        return a - b
+
+    def sleep_ms(self, _ms):
+        return
+
+
+class _FakeStatus:
+    """Record every transition call by name into self.calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        def _rec():
+            self.calls.append(name)
+
+        return _rec
+
+
+def _make_main_ns():
+    """Create a fresh AST-loaded main.py namespace with fakes."""
+    fake_time = _FakeTime()
+    fake_status = _FakeStatus()
+
+    src = _FIRMWARE.read_text()
+    tree = ast.parse(src)
+    kept = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        or (isinstance(node, ast.FunctionDef) and node.name in _KEEP_FUNCS)
+    ]
+    module = ast.Module(body=kept, type_ignores=[])
+    ast.fix_missing_locations(module)
+    code = compile(module, str(_FIRMWARE), "exec")
+
+    import ujson
+
+    ns: dict = {
+        "time": fake_time,
+        "status": fake_status,
+        "ujson": ujson,
+        "os": os,
+        "namedtuple": namedtuple,
+        "BOARD": _TEST_BOARD,
+        "MPU6050": object,
+        "DeviceNotFoundError": DeviceNotFoundError,
+    }
+    exec(code, ns)
+    return SimpleNamespace(ns=ns, time=fake_time, status=fake_status)
+
+
+def test_one_sample_per_loop_with_full_8_keys():
+    main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK])
     samples = _samples(_run_stream(main_ns, imu))
     assert len(samples) == 1
     assert set(samples[0]) == {"t", "ax", "ay", "az", "gx", "gy", "gz", "T"}
 
 
-def test_saturation_edge_triggers_once(main_ns):
+def test_saturation_edge_triggers_once():
     """Three sat-true reads emit exactly one {"diag": "sat"} (rising edge only)."""
+    main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK, _OK, _OK], sat_script=[True, True, True])
     lines = _run_stream(main_ns, imu)
     assert _diags(lines).count("sat") == 1
 
 
-def test_saturation_falling_edge_emits_nothing(main_ns):
+def test_saturation_falling_edge_emits_nothing():
     """sat: True → False → True emits two sat events (two rising edges)."""
+    main_ns = _make_main_ns()
     imu = _FakeIMU(
         script=[_OK, _OK, _OK, _OK],
         sat_script=[True, False, True, False],
@@ -37,7 +119,8 @@ def test_saturation_falling_edge_emits_nothing(main_ns):
     assert _diags(lines).count("sat") == 2
 
 
-def test_read_err_recovery_resumes_streaming(main_ns):
+def test_read_err_recovery_resumes_streaming():
+    main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK, OSError, _OK])
     lines = _run_stream(main_ns, imu)
     assert _samples(lines) and len(_samples(lines)) == 2
