@@ -117,7 +117,7 @@ class VL53L5CX:
                 grid = tof.read()  # list of 64 int | None
     """
 
-    def __init__(self, *, sda: int, scl: int, address: int = 0x29, lpn: int = None) -> None:
+    def __init__(self, *, sda: int, scl: int, address: int = 0x29, lpn: int | None = None) -> None:
         """Open the bus, confirm the device is present, and set up driver state.
 
         Bit-banged soft I²C tolerates the heavy clock-stretching during the
