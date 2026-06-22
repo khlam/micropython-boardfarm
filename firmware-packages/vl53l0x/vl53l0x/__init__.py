@@ -15,8 +15,8 @@ from i2c_bus import DeviceNotFoundError, soft_i2c
 from vl53l0x.vl53l0x import IDENTIFICATION_MODEL_ID, SOFT_RESET_GO2_SOFT_RESET_N
 from vl53l0x.vl53l0x import VL53L0X as _VendorVL53L0X  # noqa: N811
 
-_SOFT_RESET_PAUSE_MS = 2
-_SOFT_RESET_POLLS = 50
+_SOFT_RESET_PAUSE_MS = 10
+_SOFT_RESET_POLLS = 10
 _MODEL_ID_BOOTED = 0xEE
 
 
