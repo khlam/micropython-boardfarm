@@ -19,6 +19,8 @@ _SOFT_RESET_PAUSE_MS = 10
 _SOFT_RESET_POLLS = 10
 _MODEL_ID_BOOTED = 0xEE
 
+__all__ = ["VL53L0X", "DeviceNotFoundError"]
+
 
 class VL53L0X(_VendorVL53L0X):
     """VL53L0X with bus management, device scan, and soft-reset.
@@ -80,6 +82,3 @@ def _soft_reset(i2c: object, address: int) -> None:
             utime.sleep_ms(_SOFT_RESET_PAUSE_MS)
     except OSError:
         return
-
-
-__all__ = ["VL53L0X", "DeviceNotFoundError"]

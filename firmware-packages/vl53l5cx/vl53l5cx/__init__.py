@@ -12,6 +12,8 @@ exception from here, never from ``i2c_bus``.
 from i2c_bus import DeviceNotFoundError, soft_i2c
 from vl53l5cx.vl53l5cx import VL53L5CX as _VendorVL53L5CX  # noqa: N811
 
+__all__ = ["VL53L5CX", "DeviceNotFoundError"]
+
 
 class VL53L5CX(_VendorVL53L5CX):
     """VL53L5CX with bus management and device scan.
@@ -49,6 +51,3 @@ def _init_lpn(lpn: int | None) -> object:
     from machine import Pin  # noqa: PLC0415
 
     return Pin(lpn, Pin.OUT)
-
-
-__all__ = ["VL53L5CX", "DeviceNotFoundError"]
