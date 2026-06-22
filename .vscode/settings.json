@@ -2,10 +2,14 @@
   "chat.useAgentsMdFile": true,
   "chat.useNestedAgentsMdFiles": true,
   "python.analysis.extraPaths": [
+    "./firmware-packages/atgm336h",
     "./firmware-packages/boot_status_led",
     "./firmware-packages/i2c_bus",
     "./firmware-packages/mpu6050",
+    "./firmware-packages/qmc5883p",
+    "./firmware-packages/smoothing",
     "./firmware-packages/vl53l0x",
+    "./firmware-packages/vl53l5cx",
     "./cpython-packages/serial_over_web",
     "./cpython-packages/micropython_stubs/micropython_stubs"
   ]
