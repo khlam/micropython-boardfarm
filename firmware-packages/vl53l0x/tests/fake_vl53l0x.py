@@ -99,6 +99,7 @@ class FakeVL53L0X:
             # The driver writes 0 then polls until non-zero, mimicking the
             # SPAD-info status handshake.
             self.regs[0x83] = 0x01
+            return
 
         # Write data to register file
         for i, b in enumerate(data):
