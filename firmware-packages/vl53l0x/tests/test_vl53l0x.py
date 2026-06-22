@@ -53,3 +53,42 @@ def test_esp32_wider_mask_is_honored():
     tof.start()
     dev.set_distance(777)
     assert tof.read() == 777
+
+
+def test_soft_reset_success():
+    """Soft-reset completes when model ID is readable as 0xEE."""
+    dev = FakeVL53L0X(soft_reset_behavior="normal")
+    machine.register_device(0x29, dev)
+
+    # Successful init means soft-reset succeeded
+    tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
+    assert tof.address == 0x29
+
+
+def test_soft_reset_timeout_is_swallowed():
+    """Soft-reset timeout (model ID never becomes 0xEE) is swallowed.
+
+    Init continues anyway, matching the driver docstring: "A no-show is
+    swallowed — init() runs regardless, matching the chip's tolerance
+    for a skipped reset."
+    """
+    dev = FakeVL53L0X(soft_reset_behavior="timeout")
+    machine.register_device(0x29, dev)
+
+    # Timeout during soft-reset doesn't prevent init
+    tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
+    assert tof.address == 0x29
+
+
+def test_soft_reset_oserror_is_swallowed():
+    """Soft-reset OSError during poll is swallowed.
+
+    If an I²C error occurs while polling the model ID, the error is caught
+    and init continues anyway.
+    """
+    dev = FakeVL53L0X(soft_reset_behavior="error")
+    machine.register_device(0x29, dev)
+
+    # OSError during soft-reset poll doesn't prevent init
+    tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
+    assert tof.address == 0x29
