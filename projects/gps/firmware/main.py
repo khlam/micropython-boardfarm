@@ -80,26 +80,23 @@ def main() -> None:
     """Run boot → UART init → stream. MicroPython entry point.
 
     LED sequence: white → blue (UART opening) → green (streaming).
-    On UART failure: blue → magenta → white (retry).
+    On UART failure: magenta (no_device) or red (init_err), then retry.
     """
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
+    status.uart_init()
     while True:
-        status.uart_init()
         try:
             gps = GPS(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
         except DeviceNotFoundError:
-            # No NMEA bytes on the UART — unwired/unpowered module or TX/RX swap.
             status.no_device()
             emit({"diag": "no_device"})
             time.sleep_ms(_INIT_ERR_PAUSE_MS)
-            status.boot()
             continue
         except Exception:  # noqa: BLE001
             status.init_err()
             emit({"diag": "init_err"})
             time.sleep_ms(_INIT_ERR_PAUSE_MS)
-            status.boot()
             continue
         stream(gps)
 
