@@ -17,7 +17,7 @@ from boot_status_led import status
 from max7219 import MAX7219
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
 from pixel_display import Frame
-from tz_offset import local_from_gps, offset_hours_from_longitude
+from tz_offset import local_from_gps, offset_seconds_from_gps
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
 DisplayWiring = namedtuple(
@@ -188,19 +188,31 @@ def _sync_from_line(line: str | None, rtc: object, state: dict) -> None:
     utc_time, cached_date = apply_parsed(parsed, state.get("utc"), state.get("date"))
     state["utc"] = utc_time
     state["date"] = cached_date
+    lat = parsed.get("lat", position.get("lat"))
+    if lat is not None:
+        state["lat"] = lat
     lon = parsed.get("lon", position.get("lon"))
     if lon is not None:
         state["lon"] = lon
-    if parsed.get("utc") is None or cached_date is None or state.get("lon") is None:
+    if (
+        parsed.get("utc") is None
+        or cached_date is None
+        or state.get("lat") is None
+        or state.get("lon") is None
+    ):
         return
-    local = local_from_gps(cached_date, utc_time, state["lon"])
+    local = local_from_gps(cached_date, utc_time, state["lat"], state["lon"])
+    offset_s, tz_abbrev = offset_seconds_from_gps(cached_date, utc_time, state["lat"], state["lon"])
     rtc.datetime(_rtc_datetime(local))
     state["synced"] = True
     emit(
         {
             "fix": True,
+            "lat": state["lat"],
             "lon": state["lon"],
-            "offset_h": offset_hours_from_longitude(state["lon"]),
+            "offset_h": offset_s // 3600,
+            "offset_min": offset_s // 60,
+            "tz": tz_abbrev,
             "local": _iso_local(local),
             "day": _DAYS[local[3]],
             "t": time.ticks_ms(),

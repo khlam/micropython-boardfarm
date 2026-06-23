@@ -19,7 +19,7 @@ import pytest
 from micropython_stubs.testing import firmware_namespace
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
 from pixel_display import Frame
-from tz_offset import local_from_gps, offset_hours_from_longitude
+from tz_offset import local_from_gps, offset_seconds_from_gps
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
 DisplayWiring = namedtuple(
@@ -94,5 +94,5 @@ def main_ns() -> SimpleNamespace:
         parse_sentence=parse_sentence,
         Frame=Frame,
         local_from_gps=local_from_gps,
-        offset_hours_from_longitude=offset_hours_from_longitude,
+        offset_seconds_from_gps=offset_seconds_from_gps,
     )

@@ -50,3 +50,15 @@ services:
       - XDG_CACHE_HOME=/tmp/.cache
     volumes:
       - .:/workspace
+
+  # Host-only generator for the tz_offset timezone dataset. Regenerate the blob:
+  #   docker compose run --rm tzgen > firmware-packages/tz_offset/tz_offset/_tzdata.py
+  # Run its tests (shapely/tzdata live in this image, not the pytest one):
+  #   docker compose run --rm --entrypoint pytest tzgen /work/cpython-packages/tzgen/tests -v
+  tzgen:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+      target: tzgen
+    volumes:
+      - ./cpython-packages/tzgen:/work/cpython-packages/tzgen:ro

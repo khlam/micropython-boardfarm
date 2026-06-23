@@ -77,3 +77,29 @@ COPY --from=uv-bin /uv /usr/local/bin/uv
 COPY --from=wheels /wheels /wheels
 WORKDIR /workspace
 ENTRYPOINT ["uv"]
+
+
+# -----------------------------------------------------------------------------
+# Stage: tzgen — host-only generator of the tz_offset timezone dataset. Installs
+# shapely + tzdata here (never on the host, never in firmware); its committed
+# output `_tzdata.py` is regenerated deliberately, not on every build. Prints the
+# module text to stdout, which the operator redirects into the package:
+#   docker compose run --rm tzgen > firmware-packages/tz_offset/tz_offset/_tzdata.py
+# Its synthetic-fixture tests run here too (shapely/tzdata are present):
+#   docker compose run --rm --entrypoint pytest tzgen /work/cpython-packages/tzgen/tests
+# libgeos-dev is a fallback for Python versions lacking a prebuilt shapely wheel.
+# -----------------------------------------------------------------------------
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS tzgen
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/work/cpython-packages/tzgen \
+    UV_LINK_MODE=copy \
+    UV_SYSTEM_PYTHON=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgeos-dev ca-certificates \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=uv-bin /uv /usr/local/bin/uv
+RUN uv pip install --system shapely tzdata pytest
+WORKDIR /work
+COPY cpython-packages/tzgen /work/cpython-packages/tzgen
+ENTRYPOINT ["python", "-m", "tzgen"]
+CMD []

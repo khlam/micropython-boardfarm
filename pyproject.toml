@@ -138,6 +138,7 @@ omit = [
   "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
   "*/vl53l5cx/vl53l5cx.py",    # vendored upstream driver
   "*/vl53l5cx/_config_bytes.py",  # vendored firmware binary data
+  "*/tz_offset/_tzdata.py",    # generated timezone raster + POSIX table
   "*/tests/*",
   "*/__init__.py",
 ]
@@ -157,11 +158,15 @@ check-class-attributes = false
 # only pydoclint-clean return annotation (Generator/Iterator/Iterable) needs a
 # typing/collections.abc import absent on MicroPython, so it can't be satisfied
 # in frozen firmware — excluded like the vendored vl53l0x.py.
-exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|manifest\.py'
+exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|firmware-packages/tz_offset/tz_offset/_tzdata\.py|manifest\.py'
 
 [tool.vulture]
 min_confidence = 70
-exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
+exclude = [
+  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
+  "manifest.py",
+]
 
 [tool.ty.src]
 include = [
@@ -173,6 +178,7 @@ exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   "manifest.py",
   "**/outputs/**",
 ]
@@ -207,6 +213,12 @@ rules.unresolved-attribute = "ignore"
 rules.unresolved-import = "ignore"
 rules.invalid-return-type = "ignore"
 
+# tzgen is host-only tooling; shapely/tzdata live solely in its Docker stage, so
+# they are unresolved in the typecheck environment.
+[[tool.ty.overrides]]
+include = ["cpython-packages/tzgen/**"]
+rules.unresolved-import = "ignore"
+
 [tool.ruff]
 target-version = "py312"
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
@@ -217,6 +229,7 @@ extend-exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   ".vulture_allowlist.py",
   "manifest.py",
 ]

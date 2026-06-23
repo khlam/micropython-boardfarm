@@ -118,19 +118,49 @@ def test_utc_to_local_leap_day_borrow() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_local_from_gps_combines_offset_and_weekday() -> None:
-    # lon 11.5167 -> +1h. 2025-06-18 is Wednesday in UTC and stays Wednesday.
-    result = tz_offset.local_from_gps("2025-06-18", "10:30:15Z", 11.5167)
-    assert result == (2025, 6, 18, 2, 11, 30, 15)
+def test_local_from_gps_applies_dst_offset_and_weekday() -> None:
+    # Berlin (CEST = +2h in June). 10:30:15 UTC Wed stays Wed (weekday 2).
+    result = tz_offset.local_from_gps("2025-06-18", "10:30:15Z", 52.52, 13.405)
+    assert result == (2025, 6, 18, 2, 12, 30, 15)
 
 
 def test_local_from_gps_rolls_date_and_weekday_forward() -> None:
-    # lon 150 -> +10h. 23:30 UTC Wed -> 09:30 Thu (weekday 3).
-    result = tz_offset.local_from_gps("2025-06-18", "23:30:00Z", 150.0)
+    # Sydney (AEST = +10h, winter in June). 23:30 UTC Wed -> 09:30 Thu (weekday 3).
+    result = tz_offset.local_from_gps("2025-06-18", "23:30:00Z", -33.8688, 151.2093)
     assert result == (2025, 6, 19, 3, 9, 30, 0)
 
 
 def test_local_from_gps_rolls_date_and_weekday_backward() -> None:
-    # lon -120 -> -8h. 02:00 UTC Wed -> 18:00 Tue (weekday 1).
-    result = tz_offset.local_from_gps("2025-06-18", "02:00:30Z", -120.0)
-    assert result == (2025, 6, 17, 1, 18, 0, 30)
+    # San Jose (PDT = -7h in June). 02:00:30 UTC Wed -> 19:00:30 Tue (weekday 1).
+    result = tz_offset.local_from_gps("2025-06-18", "02:00:30Z", 37.3875, -121.9724)
+    assert result == (2025, 6, 17, 1, 19, 0, 30)
+
+
+# ---------------------------------------------------------------------------
+# offset_seconds_from_gps  — DST-aware offset + abbreviation, ocean fallback
+# ---------------------------------------------------------------------------
+
+
+def test_offset_seconds_from_gps_returns_dst_offset_and_abbrev() -> None:
+    # San Jose in June -> PDT, UTC-7.
+    result = tz_offset.offset_seconds_from_gps("2026-06-23", "23:59:58Z", 37.3875, -121.9724)
+    assert result == (-25200, "PDT")
+
+
+def test_offset_seconds_from_gps_winter_standard_time() -> None:
+    # San Jose in January -> PST, UTC-8.
+    result = tz_offset.offset_seconds_from_gps("2026-01-15", "12:00:00Z", 37.3875, -121.9724)
+    assert result == (-28800, "PST")
+
+
+def test_offset_seconds_from_gps_ocean_falls_back_to_longitude() -> None:
+    # Remote Pacific -> no raster coverage -> longitude offset, no abbreviation.
+    # lon -150 -> round(-150/15) = -10h.
+    result = tz_offset.offset_seconds_from_gps("2026-06-23", "12:00:00Z", 0.0, -150.0)
+    assert result == (-36000, None)
+
+
+def test_local_from_gps_ocean_uses_longitude_fallback() -> None:
+    # Same remote Pacific point: -10h applied, no DST. 2026-06-23 is a Tuesday.
+    result = tz_offset.local_from_gps("2026-06-23", "12:00:00Z", 0.0, -150.0)
+    assert result == (2026, 6, 23, 1, 2, 0, 0)

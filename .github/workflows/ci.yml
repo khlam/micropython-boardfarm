@@ -36,6 +36,7 @@ jobs:
             "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py"
             "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py"
             "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py"
+            "firmware-packages/tz_offset/tz_offset/_tzdata.py"
           )
           changed="$(git diff --name-only origin/main...HEAD)"
           fail=0

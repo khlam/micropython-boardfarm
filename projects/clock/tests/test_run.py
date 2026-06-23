@@ -115,13 +115,18 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     with pytest.raises(_StopLoop):
         main_ns.ns["run"](_FakeGPS([_RMC_FIX]), display, rtc)
 
-    assert rtc.value == (2026, 6, 23, 1, 15, 59, 58, 0)
-    assert _same_frame(display.shown[-1], Frame.text_lines(("15:59", "6/23")))
+    # California in June resolves to America/Los_Angeles -> PDT (UTC-7), so 23:59:58
+    # UTC is 16:59:58 local, not the longitude-only 15:59:58 (UTC-8).
+    assert rtc.value == (2026, 6, 23, 1, 16, 59, 58, 0)
+    assert _same_frame(display.shown[-1], Frame.text_lines(("16:59", "6/23")))
     assert len(emitted) == 1
     assert emitted[0]["fix"] is True
+    assert emitted[0]["lat"] == pytest.approx(37.387458, abs=1e-5)
     assert emitted[0]["lon"] == pytest.approx(-121.97236, abs=1e-5)
-    assert emitted[0]["offset_h"] == -8
-    assert emitted[0]["local"] == "2026-06-23T15:59:58"
+    assert emitted[0]["offset_h"] == -7
+    assert emitted[0]["offset_min"] == -420
+    assert emitted[0]["tz"] == "PDT"
+    assert emitted[0]["local"] == "2026-06-23T16:59:58"
     assert emitted[0]["day"] == "TUE"
     assert emitted[0]["t"] == 1
 
