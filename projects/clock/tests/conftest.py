@@ -2,7 +2,7 @@
 
 Uses the shared ``firmware_namespace`` helper to AST-load main.py with hardware
 fakes injected. The firmware reads GPS NMEA sentences, sets an RTC, and renders
-the current local time/date on the MAX7219 matrix.
+the selected clock face on the MAX7219 matrix.
 """
 
 from __future__ import annotations
@@ -57,9 +57,14 @@ _KEEP_FUNCS = {
     "emit",
     "_iso_local",
     "_rtc_datetime",
+    "_format_time",
+    "_format_date",
     "_display_lines",
-    "_text_width",
-    "_hide_first_colon",
+    "_compact_glyph",
+    "_compact_text_width",
+    "_draw_compact_glyph",
+    "_draw_compact_text",
+    "_clock_face_frame",
     "_display_frame",
     "_show",
     "_refresh_display",

@@ -105,7 +105,7 @@ def test_run_waits_for_gps_before_first_fix(main_ns: object) -> None:
 
 
 def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> None:
-    """A valid RMC fix sets the RTC and renders local time over date."""
+    """A valid RMC fix renders local time plus meridiem over the date."""
     main_ns.ns["time"] = _CountdownTime(stop_after=1)
     emitted: list[dict] = []
     main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
@@ -118,7 +118,15 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     # California in June resolves to America/Los_Angeles -> PDT (UTC-7), so 23:59:58
     # UTC is 16:59:58 local, not the longitude-only 15:59:58 (UTC-8).
     assert rtc.value == (2026, 6, 23, 1, 16, 59, 58, 0)
-    assert _same_frame(display.shown[-1], Frame.text_lines(("16:59", "6/23")))
+    assert main_ns.ns["_display_lines"](rtc, synced=True) == (
+        "04:59 PM",
+        "June 23",
+        True,
+    )
+    assert _same_frame(
+        display.shown[-1],
+        main_ns.ns["_display_frame"]("04:59 PM", "June 23", colon_visible=True),
+    )
     assert len(emitted) == 1
     assert emitted[0]["fix"] is True
     assert emitted[0]["lat"] == pytest.approx(37.387458, abs=1e-5)
@@ -144,12 +152,17 @@ def test_refresh_display_blinks_colon_without_reflow(main_ns: object) -> None:
 
     visible = display.shown[0]
     hidden = display.shown[1]
-    space_frame = Frame.text_lines(("15 59", "6/23"))
-    assert _same_frame(visible, Frame.text_lines(("15:59", "6/23")))
-    assert not _same_frame(hidden, space_frame)
+    assert _same_frame(
+        visible,
+        main_ns.ns["_display_frame"]("03:59 PM", "June 23", colon_visible=True),
+    )
+    assert _same_frame(
+        hidden,
+        main_ns.ns["_display_frame"]("03:59 PM", "June 23", colon_visible=False),
+    )
     assert (hidden.width, hidden.height, hidden.channels) == (
-        visible.width,
-        visible.height,
+        32,
+        16,
         visible.channels,
     )
     diffs = [
@@ -159,6 +172,83 @@ def test_refresh_display_blinks_colon_without_reflow(main_ns: object) -> None:
     ]
     assert diffs
     assert all(visible.data[index] > 0 and hidden.data[index] == 0 for index in diffs)
+
+
+def test_refresh_display_keeps_time_ampm_over_month_date(main_ns: object) -> None:
+    """The clock keeps time plus meridiem above a stable month-name date."""
+    display = _FakeDisplay()
+    rtc = _FakeRTC()
+    state = {"synced": True}
+
+    rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 0, 5, 59, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 0, 7, 0, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 0, 9, 0, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 0, 10, 0, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+
+    assert _same_frame(
+        display.shown[0],
+        main_ns.ns["_display_frame"]("12:05 AM", "June 23", colon_visible=True),
+    )
+    assert _same_frame(
+        display.shown[1],
+        main_ns.ns["_display_frame"]("12:05 AM", "June 23", colon_visible=False),
+    )
+    assert _same_frame(
+        display.shown[2],
+        main_ns.ns["_display_frame"]("12:06 AM", "June 23", colon_visible=True),
+    )
+    assert _same_frame(
+        display.shown[3],
+        main_ns.ns["_display_frame"]("12:07 AM", "June 23", colon_visible=True),
+    )
+    assert _same_frame(
+        display.shown[-1],
+        main_ns.ns["_display_frame"]("12:10 AM", "June 23", colon_visible=True),
+    )
+
+
+def test_format_date_uses_fitted_month_labels(main_ns: object) -> None:
+    """Month labels use the longest readable forms that fit with the day."""
+    labels = (
+        "Jan",
+        "Feb",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "Aug",
+        "Sept",
+        "Oct",
+        "Nov",
+        "Dec",
+    )
+
+    for month, label in enumerate(labels, start=1):
+        assert main_ns.ns["_format_date"](month, 23) == f"{label} 23"
+        assert main_ns.ns["_compact_text_width"](f"{label} 31") <= 32
+
+
+def test_clock_face_centers_compact_month_date(main_ns: object) -> None:
+    """The month row uses compact glyphs centered in the lower display band."""
+    frame = main_ns.ns["_display_frame"]("12:05 AM", "June 23", colon_visible=True)
+    month_width = main_ns.ns["_compact_text_width"]("June 23")
+    left, right, top, bottom = _lit_bounds(frame, 8, 16)
+
+    assert month_width < Frame.text("June 23").width
+    assert left == (frame.width - month_width) // 2
+    assert right == left + month_width - 1
+    assert (top, bottom) == (9, 15)
+    assert all(frame.value_at(x, 7) == 0 for x in range(frame.width))
+    assert all(frame.value_at(x, 8) == 0 for x in range(frame.width))
 
 
 def test_run_reports_read_errors_and_keeps_loop_alive(main_ns: object) -> None:
@@ -239,3 +329,15 @@ def _same_frame(left: object, right: object) -> bool:
         and left.channels == right.channels
         and bytes(left.data) == bytes(right.data)
     )
+
+
+def _lit_bounds(frame: object, y0: int, y1: int) -> tuple:
+    """Return inclusive lit-pixel bounds inside a vertical slice."""
+    xs = []
+    ys = []
+    for y in range(y0, y1):
+        for x in range(frame.width):
+            if frame.value_at(x, y):
+                xs.append(x)
+                ys.append(y)
+    return min(xs), max(xs), min(ys), max(ys)

@@ -11,10 +11,10 @@ time between GPS bursts — neither bus blocks the other. A host FastAPI service
 fans the per-fix JSON lines out over a WebSocket and serves a live clock
 dashboard.
 
-The display alternates:
+The display uses two fixed 8-pixel rows:
 
-- **Time** — 12-hour, bold font, blinking colon, AM/PM.
-- **Day of week** — the weekday name (wiggles if wider than 32 px).
+- **Time** — compact 12-hour `HH:MM AM/PM` with a blinking colon.
+- **Date** — month-name date, for example `June 23`.
 
 Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
 packages remain board-agnostic and the firmware builds for RP2040, RP2350, and ESP32-S3.
@@ -55,7 +55,7 @@ docker compose up --build viz
 ```
 Open `http://localhost:18501`. The connection pill turns green when the serial
 port is open, and a second pill shows `FIX` / `NO FIX`. Once the GPS has a fix the
-panel mirrors the matrix — the local time, AM/PM, day of week — alongside the
+panel mirrors the matrix — the local time and month-name date — alongside the
 detected longitude, derived UTC offset, and the age of the last fix. The
 dashboard auto-reconnects if you unplug and replug the board.
 
