@@ -19,8 +19,9 @@ each completed screen for three minutes:
 - **Time with seconds** — large centered `HH:MM:SS` plus `AM/PM`.
 - **Full date** — season plus `MMM DD YYYY`.
 
-Screen changes use one randomly selected transition per hop — wipe, scroll, or a
-low-intensity dithered fade — while the main loop keeps reading GPS sentences.
+Screen changes use one randomly selected transition per hop — instant, wipe,
+scroll, or a low-intensity dithered fade — while the main loop keeps reading GPS
+sentences.
 
 Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
 packages remain board-agnostic and the firmware builds for RP2040, RP2350, and ESP32-S3.

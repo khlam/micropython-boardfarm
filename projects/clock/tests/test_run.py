@@ -289,11 +289,12 @@ def test_random_screen_and_transition_choices(main_ns: object) -> None:
     assert main_ns.ns["_choose_transition"](_FakeRandom([0])) == main_ns.ns["_TRANSITION_WIPE"]
     assert main_ns.ns["_choose_transition"](_FakeRandom([1])) == main_ns.ns["_TRANSITION_FADE"]
     assert main_ns.ns["_choose_transition"](_FakeRandom([2])) == main_ns.ns["_TRANSITION_SCROLL"]
+    assert main_ns.ns["_choose_transition"](_FakeRandom([3])) == main_ns.ns["_TRANSITION_INSTANT"]
 
 
 def test_refresh_display_holds_each_screen_for_three_minutes(main_ns: object) -> None:
     """The manager waits 180 seconds before starting a random transition."""
-    main_ns.ns["random"] = _FakeRandom([0])
+    main_ns.ns["random"] = _FakeRandom([0, 0])
     display = _FakeDisplay()
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
@@ -317,20 +318,103 @@ def test_refresh_display_holds_each_screen_for_three_minutes(main_ns: object) ->
 
 def test_transition_completion_sets_target_and_restarts_hold(main_ns: object) -> None:
     """A transition advances one frame per call and lands exactly on target."""
-    main_ns.ns["random"] = _FakeRandom([0])
+    main_ns.ns["random"] = _FakeRandom([0, 0])
     display = _FakeDisplay()
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
     state = {"synced": True, "intensity_limit": 0.2}
 
     main_ns.ns["_start_screen_cycle"](display, rtc, state, main_ns.time.ticks_ms())
-    main_ns.ns["_start_transition"](rtc, state)
+    main_ns.ns["_start_transition"](state)
     while state["transition"] is not None:
-        main_ns.ns["_advance_transition"](display, state, main_ns.time.ticks_ms())
+        main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
 
     assert state["screen"] == main_ns.ns["_SCREEN_SEASON"]
     assert state["screen_started_ms"] == main_ns.time.ticks
     assert _same_frame(display.shown[-1], state["screen_frame"])
+
+
+def test_instant_transition_lands_on_target_in_one_render(main_ns: object) -> None:
+    """Instant transitions show the target and finish after one display update."""
+    main_ns.ns["random"] = _FakeRandom([0, 3])
+    display = _FakeDisplay()
+    rtc = _FakeRTC()
+    rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
+    state = {"synced": True, "intensity_limit": 0.2}
+
+    main_ns.ns["_start_screen_cycle"](display, rtc, state, main_ns.time.ticks_ms())
+    main_ns.ns["_start_transition"](state)
+    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+
+    assert state["transition"] is None
+    assert state["screen"] == main_ns.ns["_SCREEN_SEASON"]
+    assert state["shown"] == main_ns.ns["_screen_key"](main_ns.ns["_SCREEN_SEASON"], rtc)
+    assert _same_frame(
+        display.shown[-1],
+        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_SEASON"], rtc),
+    )
+
+
+def test_transition_renders_live_source_and_target(main_ns: object) -> None:
+    """Transitions re-render both endpoint screens from the current RTC value."""
+    display = _FakeDisplay()
+    rtc = _FakeRTC()
+    steps = main_ns.ns["_TRANSITION_STEPS"]
+
+    rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
+    main_ns.ns["random"] = _FakeRandom([0, 0])
+    state = {
+        "synced": True,
+        "screen": main_ns.ns["_SCREEN_TIME_SECONDS"],
+        "screen_frame": main_ns.ns["_screen_frame"](
+            main_ns.ns["_SCREEN_TIME_SECONDS"],
+            rtc,
+        ),
+        "intensity_limit": 0.2,
+    }
+    main_ns.ns["_start_transition"](state)
+    state["transition"]["step"] = 1
+    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
+    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+
+    expected_source = main_ns.ns["_screen_frame"](
+        main_ns.ns["_SCREEN_TIME_SECONDS"],
+        rtc,
+    )
+    expected_target = main_ns.ns["_screen_frame"](
+        main_ns.ns["_SCREEN_SEASON"],
+        rtc,
+    )
+    assert _same_frame(
+        display.shown[-1],
+        main_ns.ns["_wipe_frame"](expected_source, expected_target, 1, steps),
+    )
+
+    display = _FakeDisplay()
+    rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
+    main_ns.ns["random"] = _FakeRandom([0, 0])
+    state = {
+        "synced": True,
+        "screen": main_ns.ns["_SCREEN_SEASON"],
+        "prev_regular": main_ns.ns["_SCREEN_MAIN"],
+        "intensity_limit": 0.2,
+    }
+    main_ns.ns["_start_transition"](state)
+    state["transition"]["step"] = steps
+    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
+    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+
+    assert state["screen"] == main_ns.ns["_SCREEN_TIME_SECONDS"]
+    assert state["shown"] == (
+        main_ns.ns["_SCREEN_TIME_SECONDS"],
+        15,
+        59,
+        59,
+    )
+    assert _same_frame(
+        display.shown[-1],
+        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_TIME_SECONDS"], rtc),
+    )
 
 
 def test_low_intensity_fade_starts_at_minimum_visible_byte(main_ns: object) -> None:

@@ -464,10 +464,12 @@ _INTERSTITIALS = (
 _TRANSITION_WIPE = 0
 _TRANSITION_FADE = 1
 _TRANSITION_SCROLL = 2
+_TRANSITION_INSTANT = 3
 _TRANSITIONS = (
     _TRANSITION_WIPE,
     _TRANSITION_FADE,
     _TRANSITION_SCROLL,
+    _TRANSITION_INSTANT,
 )
 
 
@@ -771,9 +773,8 @@ def _full_date_screen_frame(parts: tuple) -> object:
     return frame
 
 
-def _screen_frame(screen: int, rtc: object) -> object:
-    """Render one display-cycle screen from the current RTC value."""
-    parts = _rtc_parts(rtc)
+def _screen_frame_from_parts(screen: int, parts: tuple) -> object:
+    """Render one display-cycle screen from an RTC parts snapshot."""
     if screen == _SCREEN_SEASON:
         return _season_screen_frame(parts)
     if screen == _SCREEN_TIME_SECONDS:
@@ -783,9 +784,14 @@ def _screen_frame(screen: int, rtc: object) -> object:
     return _main_screen_frame(parts)
 
 
-def _screen_key(screen: int, rtc: object) -> tuple:
-    """Return the visible-content key for one screen."""
-    year, month, day, weekday, hour, minute, second = _rtc_parts(rtc)
+def _screen_frame(screen: int, rtc: object) -> object:
+    """Render one display-cycle screen from the current RTC value."""
+    return _screen_frame_from_parts(screen, _rtc_parts(rtc))
+
+
+def _screen_key_from_parts(screen: int, parts: tuple) -> tuple:
+    """Return the visible-content key for one RTC parts snapshot."""
+    year, month, day, weekday, hour, minute, second = parts
     if screen == _SCREEN_SEASON:
         return screen, year, _season_name(month)
     if screen == _SCREEN_TIME_SECONDS:
@@ -793,6 +799,11 @@ def _screen_key(screen: int, rtc: object) -> tuple:
     if screen == _SCREEN_FULL_DATE:
         return screen, month, _DAYS[weekday]
     return screen, year, month, day, hour, minute
+
+
+def _screen_key(screen: int, rtc: object) -> tuple:
+    """Return the visible-content key for one screen."""
+    return _screen_key_from_parts(screen, _rtc_parts(rtc))
 
 
 def _copy_frame(frame: object) -> object:
@@ -980,11 +991,13 @@ def _fade_frame(
     return _masked_fade_frame(target, visible_steps, total_steps, value, min_visible)
 
 
-def _transition_frame(transition: dict) -> object:
-    """Render one transition frame from transition state."""
+def _transition_frame(transition: dict, parts: tuple) -> object:
+    """Render one transition frame from live transition endpoints."""
     effect = transition["effect"]
-    source = transition["source"]
-    target = transition["target"]
+    target = _screen_frame_from_parts(transition["target_screen"], parts)
+    if effect == _TRANSITION_INSTANT:
+        return _copy_frame(target)
+    source = _screen_frame_from_parts(transition["source_screen"], parts)
     step = transition["step"]
     steps = transition["steps"]
     if effect == _TRANSITION_FADE:
@@ -1034,9 +1047,10 @@ def _show_wait(display: object, state: dict) -> None:
 
 def _start_screen_cycle(display: object, rtc: object, state: dict, now: int) -> None:
     """Start the synced display cycle on the main screen."""
-    frame = _screen_frame(_SCREEN_MAIN, rtc)
+    parts = _rtc_parts(rtc)
+    frame = _screen_frame_from_parts(_SCREEN_MAIN, parts)
     display.show(frame)
-    state["shown"] = _screen_key(_SCREEN_MAIN, rtc)
+    state["shown"] = _screen_key_from_parts(_SCREEN_MAIN, parts)
     state["screen"] = _SCREEN_MAIN
     state["screen_frame"] = frame
     state["screen_started_ms"] = now
@@ -1054,7 +1068,7 @@ def _choose_interstitial(rng: object | None = None) -> int:
     return _INTERSTITIALS[_randbelow(len(_INTERSTITIALS), rng)]
 
 
-def _start_transition(rtc: object, state: dict) -> None:
+def _start_transition(state: dict) -> None:
     """Create transition state for the next screen and effect.
 
     Regular screens transition to a random interstitial; interstitial
@@ -1067,32 +1081,28 @@ def _start_transition(rtc: object, state: dict) -> None:
     else:
         state["prev_regular"] = current
         next_screen = _choose_interstitial()
-    target = _screen_frame(next_screen, rtc)
-    source = state.get("screen_frame")
-    if source is None:
-        source = _screen_frame(current, rtc)
+    effect = _choose_transition()
     state["transition"] = {
-        "effect": _choose_transition(),
-        "source": source,
-        "target": target,
+        "effect": effect,
+        "source_screen": current,
         "target_screen": next_screen,
-        "target_key": _screen_key(next_screen, rtc),
         "step": 1,
-        "steps": _TRANSITION_STEPS,
+        "steps": 1 if effect == _TRANSITION_INSTANT else _TRANSITION_STEPS,
         "intensity_limit": state.get("intensity_limit", BOARD.display.intensity_limit),
     }
 
 
-def _advance_transition(display: object, state: dict, now: int) -> None:
+def _advance_transition(display: object, rtc: object, state: dict, now: int) -> None:
     """Render at most one active transition frame."""
     transition = state["transition"]
-    frame = _transition_frame(transition)
+    parts = _rtc_parts(rtc)
+    frame = _transition_frame(transition, parts)
     display.show(frame)
     state["last_reassert_ms"] = now
     if transition["step"] >= transition["steps"]:
         state["screen"] = transition["target_screen"]
-        state["screen_frame"] = transition["target"]
-        state["shown"] = transition["target_key"]
+        state["screen_frame"] = frame
+        state["shown"] = _screen_key_from_parts(transition["target_screen"], parts)
         state["screen_started_ms"] = now
         state["transition"] = None
         return
@@ -1107,9 +1117,10 @@ def _refresh_current_screen(
 ) -> None:
     """Refresh the active screen for live RTC changes or periodic healing."""
     screen = state.get("screen", _SCREEN_MAIN)
-    key = _screen_key(screen, rtc)
+    parts = _rtc_parts(rtc)
+    key = _screen_key_from_parts(screen, parts)
     if state.get("shown") != key:
-        frame = _screen_frame(screen, rtc)
+        frame = _screen_frame_from_parts(screen, parts)
         display.show(frame)
         state["screen_frame"] = frame
         state["shown"] = key
@@ -1117,7 +1128,7 @@ def _refresh_current_screen(
         return
     last_reassert = state.get("last_reassert_ms")
     if last_reassert is None or time.ticks_diff(now, last_reassert) >= _REASSERT_MS:
-        frame = _screen_frame(screen, rtc)
+        frame = _screen_frame_from_parts(screen, parts)
         display.show(frame)
         state["screen_frame"] = frame
         state["last_reassert_ms"] = now
@@ -1133,15 +1144,15 @@ def _refresh_display(display: object, rtc: object, state: dict) -> None:
         _start_screen_cycle(display, rtc, state, now)
         return
     if state.get("transition") is not None:
-        _advance_transition(display, state, now)
+        _advance_transition(display, rtc, state, now)
         return
     started = state.get("screen_started_ms", now)
     hold_ms = (
         _SEASON_HOLD_MS if _is_interstitial(state.get("screen", _SCREEN_MAIN)) else _SCREEN_HOLD_MS
     )
     if time.ticks_diff(now, started) >= hold_ms:
-        _start_transition(rtc, state)
-        _advance_transition(display, state, now)
+        _start_transition(state)
+        _advance_transition(display, rtc, state, now)
         return
     _refresh_current_screen(display, rtc, state, now)
 
