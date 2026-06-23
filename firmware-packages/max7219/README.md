@@ -9,19 +9,16 @@ never address individual chips.
 
 ## Public API
 
-- `connect(*, spi_id, sck, mosi, cs)` — open the SPI bus on the given pins and
-  return a ready `MAX7219` (the only function that touches `machine`).
-  `sck`/`mosi` are the bus lines; `cs` is the chain's chip-select.
-- `MAX7219(spi, cs)` — framebuffer driver:
-  - `show_lines(top, bottom)` — center one string on each panel and refresh
-    (top → rows 0-7, bottom → rows 8-15).
-  - `draw_text(text, x, y)` — blit text at `(x, y)` without refreshing, so
-    several strings compose into one frame; returns the rendered width.
-  - `text_width(text)` — pixel width of `text` (for custom centering).
-  - `pixel(x, y, on=True)` / `fill(on=True)` — light individual pixels or every
-    LED (handy for wiring bring-up); `pixel` defers to `refresh`.
-  - `clear()`, `clear_buf()`, `refresh()`, `set_intensity(0..15)`, `width`,
-    `height`.
+- `MAX7219(*, spi_id, sck, mosi, cs, width_pixels=32, height_pixels=16,
+  intensity_min=0, intensity_max=15, intensity_limit=1.0, allow_lossy=False,
+  failure_mode="corner_xs")` — opens SPI from flat project pins and wraps the
+  hardware backend in `pixel_display.Display`.
+- `display.show(frame)` — the only public render method. Build frames with
+  `pixel_display.Frame`, e.g. `Frame.text_lines(("GPS", "WAIT"))`.
+
+The package backend owns the MAX7219 cascade, monochrome conversion, global
+brightness register, and flush behavior. `pixel_display` owns abstract frame
+geometry, fitting, intensity caps, and failure rendering.
 
 ## Pins
 

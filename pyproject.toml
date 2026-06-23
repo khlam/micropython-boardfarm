@@ -11,6 +11,7 @@ dependencies = [
     "atgm336h>=0.1.0",
     "nmea>=0.1.0",
     "tz_offset>=0.1.0",
+    "pixel_display>=0.1.0",
     "max7219>=0.1.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
@@ -26,6 +27,7 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/firmware-packages/atgm336h/tests",
+    "/firmware-packages/pixel_display/tests",
     "/firmware-packages/max7219/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/nmea/tests",
@@ -59,6 +61,7 @@ boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
 nmea = { index = "internal" }
 tz_offset = { index = "internal" }
+pixel_display = { index = "internal" }
 max7219 = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }
@@ -90,6 +93,7 @@ test = [
     "atgm336h",
     "nmea",
     "tz_offset",
+    "pixel_display",
     "max7219",
     "i2c_bus",
     "mpu6050",
@@ -120,6 +124,7 @@ source_pkgs = [
   "atgm336h",
   "nmea",
   "tz_offset",
+  "pixel_display",
   "max7219",
   "i2c_bus",
   "mpu6050",
@@ -298,6 +303,7 @@ known-first-party = [
   "atgm336h",
   "nmea",
   "tz_offset",
+  "pixel_display",
   "max7219",
   "i2c_bus",
   "mpu6050",

@@ -1,11 +1,12 @@
-"""Compact 5x7 font for the LED matrix.
+"""Compact 5x7 font for pixel-display text frames.
 
 Each character is up to 5 columns wide; each byte is one column with the LSB at
-the top row (bits 0-6 used). Used for day-of-week names and any non-time text.
+the top row (bits 0-6 used).
 """
 
 from micropython import const
 
+HEIGHT = const(7)
 _SPACE_WIDTH = const(2)
 
 # ASCII 32 (space) through 126 (~), 5 bytes per character.

@@ -6,6 +6,7 @@ from __future__ import annotations
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
+_spi_instances: list[object] = []
 
 
 def register_device(address: int, device: object) -> None:
@@ -23,6 +24,7 @@ def reset() -> None:
     pin_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
+    _spi_instances.clear()
 
 
 class Pin:
@@ -49,6 +51,47 @@ class Pin:
             return self._value
         self._value = int(bool(v))
         return None
+
+    def on(self) -> None:
+        """Set the pin high."""
+        self._value = 1
+
+    def off(self) -> None:
+        """Set the pin low."""
+        self._value = 0
+
+
+class SPI:
+    """Fake `machine.SPI` that records writes."""
+
+    instances = _spi_instances
+
+    def __init__(
+        self,
+        id: int | None = None,  # noqa: A002
+        *_args: object,
+        baudrate: int = 1_000_000,
+        polarity: int = 0,
+        phase: int = 0,
+        sck: object = None,
+        mosi: object = None,
+        miso: object = None,
+        **_kwargs: object,
+    ) -> None:
+        """Record SPI configuration and start with no writes."""
+        self.id = id
+        self.baudrate = baudrate
+        self.polarity = polarity
+        self.phase = phase
+        self.sck = sck
+        self.mosi = mosi
+        self.miso = miso
+        self.writes: list[bytes] = []
+        _spi_instances.append(self)
+
+    def write(self, buf: bytes) -> None:
+        """Record one SPI write payload."""
+        self.writes.append(bytes(buf))
 
 
 class _I2CBase:

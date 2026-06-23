@@ -1,38 +1,155 @@
-"""Host CPython tests for the max7219 driver and font packing."""
+"""Host CPython tests for the MAX7219 pixel-display backend."""
 
 from __future__ import annotations
 
+import machine
 import pytest
 from fakes import FakeCS, FakeSPI
 
+from max7219 import MAX7219
 from max7219.max7219 import (
     _FLIP_Y,
     _MIRROR_X,
+    _PANEL_H,
     _REG_DISPLAY_TEST,
     _REG_INTENSITY,
     _REG_SHUTDOWN,
-    MAX7219,
-    _text_columns,
+    _WIDTH,
+    _MAX7219Backend,
 )
+from pixel_display import Frame
 
 _NUM_CHIPS = 8
-_PANEL_H = 8
-_WIDTH = 32
 
 
-def _make_display() -> tuple[MAX7219, FakeSPI, FakeCS]:
+def test_public_facade_exposes_only_show_for_rendering() -> None:
+    """Public MAX7219 has no model-specific drawing helpers."""
+    assert hasattr(MAX7219, "show")
+    assert not hasattr(MAX7219, "show_lines")
+    assert not hasattr(MAX7219, "draw_text")
+    assert not hasattr(MAX7219, "set_intensity")
+    assert not hasattr(MAX7219, "reassert")
+
+
+def test_public_show_writes_fitted_frame_to_spi() -> None:
+    """The public facade routes abstract frames through Display to SPI."""
+    display = MAX7219(
+        spi_id=1,
+        sck=26,
+        mosi=27,
+        cs=28,
+        width_pixels=32,
+        height_pixels=16,
+        intensity_limit=0.2,
+    )
+    spi = machine.SPI.instances[-1]
+    spi.writes.clear()
+
+    display.show(Frame.text_lines(("GPS", "WAIT")))
+
+    lit = _decode(spi.writes)
+    assert lit
+    assert any(y < _PANEL_H for _x, y in lit)
+    assert any(y >= _PANEL_H for _x, y in lit)
+    assert [frame[1] for frame in spi.writes if frame[0] == _REG_INTENSITY][-1] == 3
+
+
+def test_init_writes_registers_and_toggles_cs() -> None:
+    """Backend init flashes, configures, clears, and brackets every SPI frame."""
+    _backend, spi, cs = _make_backend()
+
+    assert spi.writes
+    assert cs.toggles.count("off") == cs.toggles.count("on") == len(spi.writes)
+
+
+def test_write_frame_roundtrips_corner_pixels() -> None:
+    """A one-channel physical frame lands on the expected visual pixels."""
+    backend, spi, _cs = _make_backend()
+    frame = Frame.blank(32, 16)
+    corners = {(0, 0), (31, 0), (0, 15), (31, 15), (5, 9)}
+    for x, y in corners:
+        frame.data[y * frame.width + x] = 15
+    spi.writes.clear()
+
+    assert backend.write_frame(frame, allow_lossy=False) is True
+
+    assert _decode(spi.writes) == corners
+
+
+def test_write_frame_applies_physical_intensity_and_recovery_config() -> None:
+    """Every accepted frame reapplies config and uses the frame intensity."""
+    backend, spi, _cs = _make_backend()
+    frame = Frame.blank(32, 16)
+    frame.data[0] = 7
+    spi.writes.clear()
+
+    assert backend.write_frame(frame, allow_lossy=False) is True
+
+    regs = [write[0] for write in spi.writes]
+    assert _REG_DISPLAY_TEST in regs
+    assert _REG_SHUTDOWN in regs
+    assert [write[1] for write in spi.writes if write[0] == _REG_INTENSITY][-1] == 7
+
+
+def test_varying_grayscale_requires_lossy_override() -> None:
+    """MAX7219 can show one global brightness, not per-pixel grayscale."""
+    backend, spi, _cs = _make_backend()
+    frame = Frame.blank(32, 16)
+    frame.data[0] = 3
+    frame.data[1] = 7
+    spi.writes.clear()
+
+    assert backend.write_frame(frame, allow_lossy=False) is False
+    assert not spi.writes
+
+    assert backend.write_frame(frame, allow_lossy=True) is True
+    assert {write[1] for write in spi.writes if write[0] == _REG_INTENSITY} == {7}
+
+
+def test_rgb_requires_lossy_override_for_monochrome_conversion() -> None:
+    """RGB frames are converted to monochrome only when lossy conversion is allowed."""
+    backend, spi, _cs = _make_backend()
+    frame = Frame.blank(32, 16, channels=3)
+    frame.data[0:3] = bytearray((0, 5, 0))
+    spi.writes.clear()
+
+    assert backend.write_frame(frame, allow_lossy=False) is False
+    assert not spi.writes
+
+    assert backend.write_frame(frame, allow_lossy=True) is True
+    assert (0, 0) in _decode(spi.writes)
+
+
+def test_wrong_geometry_is_not_represented() -> None:
+    """The backend refuses frames not fitted to its hardware geometry."""
+    backend, spi, _cs = _make_backend()
+    spi.writes.clear()
+
+    assert backend.write_frame(Frame.blank(16, 16), allow_lossy=True) is False
+    assert not spi.writes
+
+
+def test_clear_blanks_framebuffer_and_refreshes() -> None:
+    """Clear sends an all-off frame after applying recovery config."""
+    backend, spi, _cs = _make_backend()
+    frame = Frame.blank(32, 16)
+    frame.data[0] = 15
+    backend.write_frame(frame, allow_lossy=False)
+    spi.writes.clear()
+
+    backend.clear()
+
+    assert not _decode(spi.writes)
+
+
+def _make_backend() -> tuple[_MAX7219Backend, FakeSPI, FakeCS]:
+    """Build a backend with local fakes."""
     spi, cs = FakeSPI(), FakeCS()
-    return MAX7219(spi, cs), spi, cs
+    return _MAX7219Backend(spi, cs), spi, cs
 
 
 def _decode(writes: list[bytes]) -> set[tuple[int, int]]:
-    """Reconstruct the lit visual pixels from refresh's SPI frames.
-
-    Inverts ``refresh``'s mapping using the documented hardware model — chips
-    emitted in reverse chain order, chips 0-3 the top panel and 4-7 the bottom,
-    with the ``_MIRROR_X`` / ``_FLIP_Y`` orientation. Non-row register writes
-    (init/intensity) are skipped.
-    """
+    """Reconstruct lit visual pixels from MAX7219 SPI frames."""
     lit: set[tuple[int, int]] = set()
     for frame in writes:
         reg = frame[0]
@@ -53,185 +170,7 @@ def _decode(writes: list[bytes]) -> set[tuple[int, int]]:
     return lit
 
 
-# ---------------------------------------------------------------------------
-# init / SPI framing
-# ---------------------------------------------------------------------------
-
-
-def test_init_writes_registers_and_toggles_cs() -> None:
-    _, spi, cs = _make_display()
-    # Init flashes the test register, sets 4 control regs, then clears 8 rows.
-    assert len(spi.writes) > 0
-    # Each SPI write is bracketed by exactly one CS off/on pair.
-    assert cs.toggles.count("off") == cs.toggles.count("on") == len(spi.writes)
-
-
-def test_refresh_writes_eight_frames() -> None:
-    disp, spi, _ = _make_display()
-    spi.writes.clear()
-    disp.refresh()
-    # One frame per chip-row; all eight chips ride in each frame.
-    assert len(spi.writes) == _PANEL_H
-    assert all(len(frame) == 2 * _NUM_CHIPS for frame in spi.writes)
-
-
-def test_set_intensity_clamps_to_four_bits() -> None:
-    disp, spi, _ = _make_display()
-    spi.writes.clear()
-    disp.set_intensity(0xFF)
-    # One _write_all -> one SPI write of num_chips register/data pairs.
-    assert len(spi.writes) == 1
-    assert spi.writes[0][1] == 0x0F  # 0xFF & 0x0F
-
-
-def test_reassert_reapplies_config_and_refreshes_without_flash() -> None:
-    disp, spi, cs = _make_display()
-    spi.writes.clear()
-    cs.toggles.clear()
-    disp.reassert()
-    regs = [frame[0] for frame in spi.writes]
-    # Control registers are re-asserted, including display-test off and the
-    # exit-shutdown that recover a glitched chip.
-    assert _REG_DISPLAY_TEST in regs
-    assert _REG_SHUTDOWN in regs
-    # The all-LEDs test flash is never replayed: display-test is only written 0.
-    assert [f[1] for f in spi.writes if f[0] == _REG_DISPLAY_TEST] == [0x00]
-    # The framebuffer is re-pushed: eight digit-row frames after the config.
-    assert sum(1 for r in regs if 1 <= r <= _PANEL_H) == _PANEL_H
-    # Every SPI write is bracketed by exactly one CS off/on pair.
-    assert cs.toggles.count("off") == cs.toggles.count("on") == len(spi.writes)
-
-
-def test_set_intensity_persists_across_reassert() -> None:
-    disp, spi, _ = _make_display()
-    disp.set_intensity(0x0B)
-    spi.writes.clear()
-    disp.reassert()
-    # reassert re-emits the brightness last set, not the power-on default.
-    assert [f[1] for f in spi.writes if f[0] == _REG_INTENSITY] == [0x0B]
-
-
-def test_dimensions_are_16x32() -> None:
-    disp, _, _ = _make_display()
-    assert (disp.width, disp.height) == (32, 16)
-
-
-# ---------------------------------------------------------------------------
-# framebuffer
-# ---------------------------------------------------------------------------
-
-
-def test_pixel_sets_and_clears_one_bit() -> None:
-    disp, _, _ = _make_display()
-    disp.pixel(0, 0)
-    assert sum(b.bit_count() for b in disp._fb) == 1
-    disp.pixel(0, 0, on=False)
-    assert not any(disp._fb)
-
-
-def test_pixel_out_of_range_is_noop() -> None:
-    disp, _, _ = _make_display()
-    for x, y in ((-1, 0), (32, 0), (0, -1), (0, 16)):
-        disp.pixel(x, y)
-    assert not any(disp._fb)
-
-
-def test_pixel_accepts_full_16_row_height() -> None:
-    disp, _, _ = _make_display()
-    disp.pixel(0, 15)  # bottom panel is in range now
-    assert any(disp._fb)
-
-
-def test_fill_sets_then_clears_every_pixel() -> None:
-    disp, _, _ = _make_display()
-    disp.fill(on=True)
-    assert all(b == 0xFF for b in disp._fb)
-    disp.fill(on=False)
-    assert not any(disp._fb)
-
-
-def test_clear_zeros_framebuffer() -> None:
-    disp, _, _ = _make_display()
-    disp.draw_text("8", 0, 0)
-    disp.clear()
-    assert not any(disp._fb)
-
-
-# ---------------------------------------------------------------------------
-# geometry — refresh maps the framebuffer onto the chain correctly
-# ---------------------------------------------------------------------------
-
-
-def test_refresh_roundtrips_corner_pixels() -> None:
-    disp, spi, _ = _make_display()
-    corners = {(0, 0), (31, 0), (0, 15), (31, 15), (5, 9)}
-    for x, y in corners:
-        disp.pixel(x, y)
-    spi.writes.clear()
-    disp.refresh()
-    assert _decode(spi.writes) == corners
-
-
-def test_top_text_lands_on_top_panel_bottom_on_bottom() -> None:
-    disp, spi, _ = _make_display()
-    spi.writes.clear()
-    disp.show_lines("TOP", "bot")
-    lit = _decode(spi.writes)
-    assert lit, "expected some pixels lit"
-    # Each word stays inside its own 8-row panel band.
-    tops = {(x, y) for x, y in lit if y < _PANEL_H}
-    bots = {(x, y) for x, y in lit if y >= _PANEL_H}
-    assert tops and bots
-    assert all(0 <= y < _PANEL_H for _, y in tops)
-    assert all(_PANEL_H <= y < 16 for _, y in bots)
-
-
-# ---------------------------------------------------------------------------
-# text rendering
-# ---------------------------------------------------------------------------
-
-
-def test_draw_text_lights_some_pixels() -> None:
-    disp, _, _ = _make_display()
-    disp.draw_text("8", 0, 0)
-    assert any(disp._fb)
-
-
-def test_show_lines_blank_renders_empty_framebuffer() -> None:
-    disp, _, _ = _make_display()
-    disp.show_lines(" ", " ")
-    assert not any(disp._fb)
-
-
-def test_draw_text_clips_overflow_without_error() -> None:
-    disp, _, _ = _make_display()
-    disp.draw_text("456 bottom", 0, 0)  # wider than 32px -> clips at right edge
-    assert any(disp._fb)
-
-
-def test_center_x_centers_narrow_and_clamps_wide() -> None:
-    disp, _, _ = _make_display()
-    # A narrow glyph is pushed in from the left edge to centre it.
-    assert disp._center_x("T") == (_WIDTH - disp.text_width("T")) // 2 > 0
-    # Text wider than the panel clamps to the left edge instead of going negative.
-    assert disp._center_x("WIDE TEXT THAT OVERFLOWS") == 0
-
-
-@pytest.mark.parametrize(
-    "text,expected_width",
-    [
-        ("", 0),
-        (" ", 2),  # blank glyph keeps a 2-col gap
-        ("8", 5),  # full-width digit, no blank edges
-    ],
-)
-def test_text_width(text: str, expected_width: int) -> None:
-    disp, _, _ = _make_display()
-    assert disp.text_width(text) == expected_width
-
-
-def test_text_columns_inserts_gap_only_when_edges_collide() -> None:
-    # "11": digit 1 is a single solid bar, so adjacent bars must be separated.
-    _, two_ones = _text_columns("11")
-    one_width = _text_columns("1")[1]
-    assert two_ones == one_width * 2 + 1  # one separator column inserted
+@pytest.fixture(autouse=True)
+def _reset_machine() -> None:
+    """Clear machine stub state around each case."""
+    machine.reset()

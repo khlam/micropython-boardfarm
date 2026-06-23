@@ -6,6 +6,8 @@ import json
 
 import pytest
 
+from pixel_display import Frame
+
 _RMC_FIX = "$GPRMC,235958,A,3723.2475,N,12158.3416,W,0.0,0.0,230626,0.0,E*69"
 
 
@@ -39,20 +41,15 @@ class _CountdownTime:
 
 
 class _FakeDisplay:
-    """Display stand-in recording show_lines and reassert calls."""
+    """Display stand-in recording abstract frame renders."""
 
     def __init__(self) -> None:
         """Initialise an empty call log."""
-        self.shown: list[tuple[str, str]] = []
-        self.reasserts = 0
+        self.shown: list[object] = []
 
-    def show_lines(self, top: str, bottom: str) -> None:
-        """Record the requested display text."""
-        self.shown.append((top, bottom))
-
-    def reassert(self) -> None:
-        """Record a display heal call."""
-        self.reasserts += 1
+    def show(self, frame: object) -> None:
+        """Record the requested frame."""
+        self.shown.append(frame)
 
 
 class _FakeGPS:
@@ -102,7 +99,8 @@ def test_run_waits_for_gps_before_first_fix(main_ns: object) -> None:
     with pytest.raises(_StopLoop):
         main_ns.ns["run"](_FakeGPS([None]), display, _FakeRTC())
 
-    assert display.shown == [("GPS", "WAIT")]
+    assert len(display.shown) == 1
+    assert _same_frame(display.shown[0], Frame.text_lines(("GPS", "WAIT")))
     assert "streaming" in main_ns.status.calls
 
 
@@ -118,7 +116,7 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
         main_ns.ns["run"](_FakeGPS([_RMC_FIX]), display, rtc)
 
     assert rtc.value == (2026, 6, 23, 1, 15, 59, 58, 0)
-    assert display.shown[-1] == ("15:59", "6/23")
+    assert _same_frame(display.shown[-1], Frame.text_lines(("15:59", "6/23")))
     assert len(emitted) == 1
     assert emitted[0]["fix"] is True
     assert emitted[0]["lon"] == pytest.approx(-121.97236, abs=1e-5)
@@ -185,6 +183,26 @@ def test_main_runs_after_successful_init(main_ns: object) -> None:
     with pytest.raises(_StopLoop):
         main_ns.ns["main"]()
 
-    assert created["display"] == {"spi_id": 1, "sck": 26, "mosi": 27, "cs": 28}
+    assert created["display"] == {
+        "spi_id": 1,
+        "sck": 26,
+        "mosi": 27,
+        "cs": 28,
+        "width_pixels": 32,
+        "height_pixels": 16,
+        "intensity_min": 0,
+        "intensity_max": 15,
+        "intensity_limit": 0.2,
+    }
     assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}
     assert isinstance(created["run"][2], _FakeRTC)
+
+
+def _same_frame(left: object, right: object) -> bool:
+    """Return whether two frame-like objects hold identical pixels."""
+    return (
+        left.width == right.width
+        and left.height == right.height
+        and left.channels == right.channels
+        and bytes(left.data) == bytes(right.data)
+    )

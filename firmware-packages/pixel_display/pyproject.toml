@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pixel_display"
+version = "0.1.0"
+description = "MicroPython frame and display facade for hardware-specific pixel backends."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pixel_display"]

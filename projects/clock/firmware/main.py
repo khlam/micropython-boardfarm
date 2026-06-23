@@ -16,30 +16,80 @@ from atgm336h import GPS
 from boot_status_led import status
 from max7219 import MAX7219
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
+from pixel_display import Frame
 from tz_offset import local_from_gps, offset_hours_from_longitude
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-DisplayWiring = namedtuple("DisplayWiring", ("spi_id", "sck", "mosi", "cs"))
+DisplayWiring = namedtuple(
+    "DisplayWiring",
+    (
+        "spi_id",
+        "sck",
+        "mosi",
+        "cs",
+        "width_pixels",
+        "height_pixels",
+        "intensity_min",
+        "intensity_max",
+        "intensity_limit",
+    ),
+)
 Board = namedtuple("Board", ("name", "uart", "display"))
+
+_DISPLAY_WIDTH_PIXELS = 32
+_DISPLAY_HEIGHT_PIXELS = 16
+_DISPLAY_INTENSITY_MIN = 0
+_DISPLAY_INTENSITY_MAX = 15
+_DISPLAY_INTENSITY_LIMIT = 0.2
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
     BOARD = Board(
         name="ESP32-S3-Zero",
         uart=UartWiring(bus_id=1, tx=13, rx=12),
-        display=DisplayWiring(spi_id=1, sck=5, mosi=6, cs=7),
+        display=DisplayWiring(
+            spi_id=1,
+            sck=5,
+            mosi=6,
+            cs=7,
+            width_pixels=_DISPLAY_WIDTH_PIXELS,
+            height_pixels=_DISPLAY_HEIGHT_PIXELS,
+            intensity_min=_DISPLAY_INTENSITY_MIN,
+            intensity_max=_DISPLAY_INTENSITY_MAX,
+            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+        ),
     )
 elif "RP2350" in _machine:
     BOARD = Board(
         name="RP2350",
         uart=UartWiring(bus_id=1, tx=4, rx=5),
-        display=DisplayWiring(spi_id=1, sck=10, mosi=11, cs=9),
+        display=DisplayWiring(
+            spi_id=1,
+            sck=10,
+            mosi=11,
+            cs=9,
+            width_pixels=_DISPLAY_WIDTH_PIXELS,
+            height_pixels=_DISPLAY_HEIGHT_PIXELS,
+            intensity_min=_DISPLAY_INTENSITY_MIN,
+            intensity_max=_DISPLAY_INTENSITY_MAX,
+            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+        ),
     )
 else:
     BOARD = Board(
         name="RP2040-Zero",
         uart=UartWiring(bus_id=0, tx=0, rx=1),
-        display=DisplayWiring(spi_id=1, sck=26, mosi=27, cs=28),
+        display=DisplayWiring(
+            spi_id=1,
+            sck=26,
+            mosi=27,
+            cs=28,
+            width_pixels=_DISPLAY_WIDTH_PIXELS,
+            height_pixels=_DISPLAY_HEIGHT_PIXELS,
+            intensity_min=_DISPLAY_INTENSITY_MIN,
+            intensity_max=_DISPLAY_INTENSITY_MAX,
+            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+        ),
     )
 
 _BOOT_PAUSE_MS = 300
@@ -86,13 +136,13 @@ def _show(display: object, state: dict, top: str, bottom: str) -> None:
     lines = (top, bottom)
     now = time.ticks_ms()
     if state.get("shown") != lines:
-        display.show_lines(top, bottom)
+        display.show(Frame.text_lines(lines))
         state["shown"] = lines
         state["last_reassert_ms"] = now
         return
     last_reassert = state.get("last_reassert_ms")
     if last_reassert is None or time.ticks_diff(now, last_reassert) >= _REASSERT_MS:
-        display.reassert()
+        display.show(Frame.text_lines(lines))
         state["last_reassert_ms"] = now
 
 
@@ -135,7 +185,7 @@ def run(gps: object, display: object, rtc: object) -> None:
 
     Args:
         gps: Object with ``readline() -> str | None``.
-        display: MAX7219 instance driving the 16x32 matrix.
+        display: Object exposing ``show(frame)``.
         rtc: ``machine.RTC`` instance used as the clock source between fixes.
     """
     status.streaming()
@@ -168,6 +218,11 @@ def main() -> None:
                 sck=BOARD.display.sck,
                 mosi=BOARD.display.mosi,
                 cs=BOARD.display.cs,
+                width_pixels=BOARD.display.width_pixels,
+                height_pixels=BOARD.display.height_pixels,
+                intensity_min=BOARD.display.intensity_min,
+                intensity_max=BOARD.display.intensity_max,
+                intensity_limit=BOARD.display.intensity_limit,
             )
             gps = GPS(bus_id=BOARD.uart.bus_id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
             rtc = RTC()

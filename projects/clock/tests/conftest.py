@@ -16,18 +16,42 @@ import machine
 import neopixel
 import pytest
 
-from micropython_stubs.testing import FakeStatus, FakeTime, firmware_namespace
+from micropython_stubs.testing import firmware_namespace
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
+from pixel_display import Frame
 from tz_offset import local_from_gps, offset_hours_from_longitude
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-DisplayWiring = namedtuple("DisplayWiring", ("spi_id", "sck", "mosi", "cs"))
+DisplayWiring = namedtuple(
+    "DisplayWiring",
+    (
+        "spi_id",
+        "sck",
+        "mosi",
+        "cs",
+        "width_pixels",
+        "height_pixels",
+        "intensity_min",
+        "intensity_max",
+        "intensity_limit",
+    ),
+)
 Board = namedtuple("Board", ("name", "uart", "display"))
 
 _TEST_BOARD = Board(
     name="RP2040-Zero",
     uart=UartWiring(bus_id=0, tx=0, rx=1),
-    display=DisplayWiring(spi_id=1, sck=26, mosi=27, cs=28),
+    display=DisplayWiring(
+        spi_id=1,
+        sck=26,
+        mosi=27,
+        cs=28,
+        width_pixels=32,
+        height_pixels=16,
+        intensity_min=0,
+        intensity_max=15,
+        intensity_limit=0.2,
+    ),
 )
 
 _HERE = pathlib.Path(__file__).parent.resolve()
@@ -54,24 +78,8 @@ def _reset_devices() -> None:
 
 
 @pytest.fixture
-def fake_time() -> FakeTime:
-    """Provide a fresh FakeTime instance."""
-    return FakeTime()
-
-
-@pytest.fixture
-def fake_status() -> FakeStatus:
-    """Provide a fresh FakeStatus instance."""
-    return FakeStatus()
-
-
-@pytest.fixture
-def main_ns(fake_time: FakeTime, fake_status: FakeStatus) -> SimpleNamespace:
+def main_ns() -> SimpleNamespace:
     """Fresh AST-loaded main.py namespace with fakes injected.
-
-    Args:
-        fake_time: Fake time module injected into the firmware namespace.
-        fake_status: Fake status LED module injected into the firmware namespace.
 
     Returns:
         SimpleNamespace with ``ns``, ``time``, and ``status`` attributes.
@@ -85,6 +93,7 @@ def main_ns(fake_time: FakeTime, fake_status: FakeStatus) -> SimpleNamespace:
         apply_parsed=apply_parsed,
         nmea_checksum_valid=nmea_checksum_valid,
         parse_sentence=parse_sentence,
+        Frame=Frame,
         local_from_gps=local_from_gps,
         offset_hours_from_longitude=offset_hours_from_longitude,
     )
