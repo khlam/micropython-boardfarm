@@ -5,22 +5,33 @@ magnetometer at its fixed address 0x2C, then streams raw X/Y/Z field counts,
 their smoothed counterparts (xs/ys/zs), and a computed heading as
 one-JSON-per-line on the serial port at ~50 Hz.
 
-Chip-agnostic: all hardware-specific behaviour lives in the package backends
-(boot_status_led, i2c_bus, qmc5883p).
+Pin assignments live in this module's BOARD table (dispatched per chip by
+os.uname().machine); chip-specific *behaviour* — including which I²C bus the
+sensor opens — stays in the packages (boot_status_led, qmc5883p).
 """
 
 import math
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
-from i2c_bus import hard_i2c as i2c
-from qmc5883p import QMC5883P
+from qmc5883p import QMC5883P, DeviceNotFoundError
 from smoothing import simple_moving_average
 
-# QMC5883P fixed I²C address (not configurable on this part).
-MAG_ADDRESS = 0x2C
+# Per-chip pin map — the authoritative wiring for this project, plain GPIO
+# numbers. i2c_id selects the hardware I²C peripheral the driver opens. Filled
+# per chip by os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", i2c_id=0, sda=1, scl=2)
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", i2c_id=0, sda=0, scl=1)
+else:
+    BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 
 # Per-axis simple moving average; each smoothed value equals the raw reading
 # until its window fills with SMOOTH_WINDOW samples.
@@ -46,26 +57,27 @@ def emit(obj: dict) -> None:
 
 
 def init_sensor() -> QMC5883P:
-    """Scan the bus and initialise the QMC5883P, retrying until it comes up.
+    """Open the bus and initialise the QMC5883P, retrying until it comes up.
 
-    Parks at status.no_device() when nothing responds at 0x2C, and at
+    The driver opens its own bus from BOARD pins and scans. Parks at
+    status.no_device() when nothing responds at 0x2C (DeviceNotFoundError), and at
     status.init_err() when the device ACKs but the chip-ID check or a config
     write raises. Both states retry every _RETRY_PAUSE_MS.
+
+    Returns:
+        An initialised QMC5883P driver bound to the bus it opened.
     """
     status.i2c_init()
     while True:
         try:
-            devices = i2c.scan()
-            emit({"diag": "scan", "devices": devices})
-            if MAG_ADDRESS not in devices:
-                # Bus reachable but no device responded.
-                # Check SDA/SCL wiring, 3V3 power, GND, pull-ups.
-                status.no_device()
-                emit({"diag": "no_device", "devices": devices})
-                time.sleep_ms(_RETRY_PAUSE_MS)
-                continue
-            mag = QMC5883P(i2c)
+            mag = QMC5883P(bus_id=BOARD.i2c_id, sda=BOARD.sda, scl=BOARD.scl)
             emit({"diag": "mag_ok", "addr": mag.address})
+        except DeviceNotFoundError as e:
+            # Bus reachable but no device responded at 0x2C.
+            # Check SDA/SCL wiring, 3V3 power, GND, pull-ups.
+            status.no_device()
+            emit({"diag": "no_device", "err": str(e)})
+            time.sleep_ms(_RETRY_PAUSE_MS)
         except OSError as e:
             # Device ACKed at 0x2C but the chip-ID check or a config write
             # failed. Likely a wrong sensor on the bus or a bus glitch.

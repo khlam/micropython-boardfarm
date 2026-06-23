@@ -36,6 +36,10 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
   rather than `b'\x..'`); the payload bytes themselves are unchanged.
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and
   file-based firmware loader are not needed in this repo).
+- Project-specific concerns — soft I²C bus creation, device scan,
+  ``DeviceNotFoundError``, LPN pin setup — live in ``__init__.py`` as a
+  thin subclass. The vendored file takes a pre-built ``i2c`` object and
+  has no dependency on ``i2c_bus``.
 
 ### Local correctness fixes and cleanup
 

@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "micropython_stubs"
-version = "0.2.0"
-description = "Host CPython shims for MicroPython runtime modules (machine, neopixel, micropython, ustruct, utime, ujson). Tests only — never copied to the device."
+version = "0.3.0"
+description = "Host CPython replacements for MicroPython runtime modules (machine, neopixel, micropython, ustruct, utime, ujson). Tests only; never copied to the device."
 requires-python = ">=3.12"
 
-# force-include re-ships each stub at the wheel root so host tests can `import machine` exactly as on-device firmware does.
+# Host tests import these replacements by their MicroPython top-level names.
 [tool.hatch.build.targets.wheel]
 packages = ["micropython_stubs"]
 

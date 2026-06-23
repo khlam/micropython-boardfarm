@@ -1,29 +1,59 @@
-"""MCU-micropython ATGM336H package — UART NMEA reader.
+"""MCU-micropython ATGM336H package — a UART NMEA reader.
 
-The caller supplies the UART id and tx/rx pins (from the project's ``BOARD``
-wiring table), so the project owns the wiring and this package claims no pins at
-import time.
+Takes flat pin numbers and opens its own UART. Since UART has no address scan,
+the constructor probes the line: a wired ATGM336H streams NMEA continuously, so
+if no bytes arrive within ``probe_ms`` it raises ``DeviceNotFoundError``.
 
 Example:
-    from atgm336h import connect
-    gps = connect(uart_id=BOARD.uart.id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
-    line = gps.readline()    # "$GPRMC,..." or None on timeout
+    from atgm336h import GPS, DeviceNotFoundError
+    gps = GPS(bus_id=0, tx=0, rx=1)   # UART opened + probed here
+    line = gps.readline()          # "$GPRMC,..." or None on timeout
 """
 
-__all__ = ["GPS", "connect"]
+import utime
+
+__all__ = ["GPS", "DeviceNotFoundError"]
+
+# Default probe budget. The ATGM336H emits at least one sentence per second, so
+# ~2 s reliably catches a wired module while staying short on a dead line.
+_PROBE_MS = 2_000
+_PROBE_POLL_MS = 10
+
+
+class DeviceNotFoundError(Exception):
+    """No NMEA bytes arrived on the UART within the probe budget.
+
+    Raised (instead of a generic exception) so a project's retry loop can tell
+    "nothing connected" — bad wiring, power, or TX/RX swap — apart from a
+    transient read error once streaming.
+    """
 
 
 class GPS:
-    """NMEA sentence reader that wraps a chip-specific UART instance."""
+    """NMEA sentence reader over a UART the driver opens from flat pins."""
 
-    def __init__(self, uart: object) -> None:
-        """Store the UART instance for later reads.
+    def __init__(self, *, bus_id: int, tx: int, rx: int, probe_ms: int = _PROBE_MS) -> None:
+        """Open the wired UART at 9600 baud and confirm the module is alive.
 
         Args:
-            uart: A ``machine.UART`` instance configured at 9600 baud with a
-                short timeout so readline() returns without blocking the loop.
+            bus_id: Selects the UART peripheral.
+            tx: GPIO number driving the GPS RX line.
+            rx: GPIO number carrying the NMEA stream back.
+            probe_ms: How long to wait for the first bytes before giving up.
         """
-        self._uart = uart
+        from machine import UART, Pin  # noqa: PLC0415
+
+        self._uart = UART(bus_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=100)
+        self._probe(probe_ms)
+
+    def _probe(self, probe_ms: int) -> None:
+        """Wait for the first byte line; raise DeviceNotFoundError if none arrives."""
+        t_start = utime.ticks_ms()
+        while utime.ticks_diff(utime.ticks_ms(), t_start) < probe_ms:
+            if self._uart.readline() is not None:
+                return
+            utime.sleep_ms(_PROBE_POLL_MS)
+        raise DeviceNotFoundError(f"no NMEA bytes within {probe_ms} ms")
 
     def readline(self) -> str | None:
         """Read one NMEA sentence from UART.
@@ -41,22 +71,3 @@ class GPS:
         except (ValueError, UnicodeError):
             return None
         return line if line.startswith("$") else None
-
-
-def connect(*, uart_id: int, tx: int, rx: int) -> "GPS":
-    """Open the UART on the given pins and return a ready-to-use GPS instance.
-
-    Args:
-        uart_id: The UART peripheral instance (e.g. ``BOARD.uart.id``).
-        tx: GPIO for MCU TX → GPS RX (optional on the wire, required by the
-            constructor).
-        rx: GPIO for MCU RX ← GPS TX (carries the NMEA stream).
-
-    Returns:
-        A GPS instance wrapping a UART configured at 9600 baud with a short
-        timeout so readline() returns without blocking the loop.
-    """
-    from machine import UART, Pin  # noqa: PLC0415
-
-    uart = UART(uart_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=100)
-    return GPS(uart)

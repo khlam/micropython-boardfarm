@@ -1,4 +1,4 @@
-"""Host CPython stub of the `neopixel` module that records every (r, g, b) written to each LED."""
+"""Host CPython stub of MicroPython's `neopixel` module."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import ClassVar
 
 
 class NeoPixel:
-    """Fake `neopixel.NeoPixel` strip that records every writeout for assertions."""
+    """Fake `neopixel.NeoPixel` strip with recorded writes."""
 
     instances: ClassVar[list[NeoPixel]] = []
 
