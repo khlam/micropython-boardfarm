@@ -10,8 +10,8 @@ never address individual chips.
 ## Public API
 
 - `MAX7219(*, spi_id, sck, mosi, cs, width_pixels=32, height_pixels=16,
-  intensity_min=0, intensity_max=15, intensity_limit=1.0, allow_lossy=False,
-  failure_mode="corner_xs")` — opens SPI from flat project pins and wraps the
+  intensity_limit=1.0, allow_lossy=False, failure_mode="corner_xs")` — opens
+  SPI from flat project pins and wraps the
   hardware backend in `pixel_display.Display`.
 - `display.show(frame)` — the only public render method. Build frames with
   `pixel_display.Frame`, e.g. `Frame.text_lines(("GPS", "WAIT"))`.

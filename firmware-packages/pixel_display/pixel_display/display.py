@@ -4,8 +4,6 @@ from pixel_display.frame import Frame
 
 _FAILURE_BLANK = "blank"
 _FAILURE_CORNER_XS = "corner_xs"
-_PHYSICAL_MIN = 0
-_PHYSICAL_MAX = 255
 
 
 class Display:
@@ -17,8 +15,6 @@ class Display:
         *,
         width_pixels: int,
         height_pixels: int,
-        intensity_min: int = _PHYSICAL_MIN,
-        intensity_max: int = _PHYSICAL_MAX,
         intensity_limit: float = 1.0,
         allow_lossy: bool = False,
         failure_mode: str = _FAILURE_CORNER_XS,
@@ -30,27 +26,21 @@ class Display:
                 ``clear()``.
             width_pixels: Declared visual width in pixels.
             height_pixels: Declared visual height in pixels.
-            intensity_min: Dimmest non-zero physical intensity.
-            intensity_max: Brightest physical intensity.
-            intensity_limit: Normalized cap applied linearly to ``intensity_max``.
+            intensity_limit: Normalized cap applied linearly to frame bytes.
             allow_lossy: Whether geometry downscaling and backend conversion may
                 discard detail.
             failure_mode: ``"corner_xs"`` or ``"blank"``.
 
         Raises:
-            ValueError: If geometry, intensity range, or failure mode is invalid.
+            ValueError: If geometry or failure mode is invalid.
         """
         if width_pixels <= 0 or height_pixels <= 0:
             raise ValueError("display geometry must be positive")
-        if intensity_min < 0 or intensity_max > 255 or intensity_min > intensity_max:
-            raise ValueError("physical intensity bounds must be 0..255 and ordered")
         if failure_mode not in (_FAILURE_CORNER_XS, _FAILURE_BLANK):
             raise ValueError("failure_mode must be 'corner_xs' or 'blank'")
         self._backend = backend
         self.width_pixels = width_pixels
         self.height_pixels = height_pixels
-        self._intensity_min = intensity_min
-        self._intensity_max = intensity_max
         self._intensity_limit = _clamp(intensity_limit)
         self._allow_lossy = allow_lossy
         self._failure_mode = failure_mode
@@ -68,8 +58,8 @@ class Display:
             self.height_pixels,
             allow_downscale=self._allow_lossy,
         )
-        physical = self._scale_intensity(fitted)
-        if not self._backend.write_frame(physical, allow_lossy=self._allow_lossy):
+        capped = self._scale_intensity(fitted)
+        if not self._backend.write_frame(capped, allow_lossy=self._allow_lossy):
             self._show_failure()
 
     def _show_failure(self) -> None:
@@ -81,23 +71,19 @@ class Display:
         if frame is None:
             self._backend.clear()
             return
-        physical = self._scale_intensity(frame)
-        if not self._backend.write_frame(physical, allow_lossy=True):
+        capped = self._scale_intensity(frame)
+        if not self._backend.write_frame(capped, allow_lossy=True):
             self._backend.clear()
 
     def _scale_intensity(self, frame: Frame) -> Frame:
-        """Map normalized byte channels into the configured physical range."""
+        """Apply the configured cap to normalized byte channels."""
         data = bytearray(len(frame.data))
-        capped_max = self._intensity_min + int(
-            (self._intensity_max - self._intensity_min) * self._intensity_limit + 0.5
-        )
+        capped_max = int(255 * self._intensity_limit + 0.5)
         for i, value in enumerate(frame.data):
             if value <= 0:
                 data[i] = 0
             else:
-                data[i] = self._intensity_min + int(
-                    (capped_max - self._intensity_min) * value / 255 + 0.5
-                )
+                data[i] = int(capped_max * value / 255 + 0.5)
         return Frame(frame.width, frame.height, frame.channels, data)
 
 

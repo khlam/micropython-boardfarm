@@ -122,21 +122,19 @@ def test_allow_lossy_downscales_oversized_frames() -> None:
     assert (frame.width, frame.height) == (2, 2)
 
 
-def test_intensity_limit_maps_linearly_to_physical_range() -> None:
+def test_intensity_limit_caps_normalized_bytes() -> None:
     backend = _Backend()
     display = Display(
         backend,
         width_pixels=2,
         height_pixels=1,
-        intensity_min=1,
-        intensity_max=15,
         intensity_limit=0.5,
     )
 
     display.show(Frame.from_matrix([[0.0, 1.0]]))
 
     frame, _allow_lossy = backend.writes[-1]
-    assert list(frame.data) == [0, 8]
+    assert list(frame.data) == [0, 128]
 
 
 def test_backend_failure_renders_configured_failure_frame() -> None:

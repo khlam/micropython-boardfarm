@@ -17,6 +17,7 @@ _HEIGHT = const(_PANEL_H * _PANELS)
 _BYTES_PER_ROW = const(_WIDTH // 8)
 _FLASH_MS = const(250)
 _DEFAULT_INTENSITY = const(0x00)
+_MAX_INTENSITY = const(0x0F)
 
 _MIRROR_X = False
 _FLIP_Y = True
@@ -56,7 +57,7 @@ class _MAX7219Backend:
 
         Args:
             frame: A ``pixel_display.Frame`` already fitted to the backend size
-                and scaled into MAX7219 physical intensity values.
+                and capped to normalized byte intensity values.
             allow_lossy: Whether RGB/grayscale collapse may discard information.
 
         Returns:
@@ -67,8 +68,7 @@ class _MAX7219Backend:
         if max_intensity is None:
             return False
         self._fb, self._next_fb = self._next_fb, self._fb
-        if max_intensity > 0:
-            self._intensity = max_intensity & 0x0F
+        self._intensity = max_intensity
         self._apply_config()
         self._refresh()
         return True
@@ -134,7 +134,7 @@ class _MAX7219Backend:
 
 
 def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | None:
-    """Return one monochrome physical intensity, or ``None`` on unsupported data."""
+    """Return one monochrome normalized byte, or ``None`` on unsupported data."""
     index = (y * frame.width + x) * frame.channels
     if frame.channels == 1:
         return frame.data[index]
@@ -148,7 +148,7 @@ def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | N
 
 
 def _convert_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int | None:
-    """Convert one frame into a framebuffer and return its global intensity."""
+    """Convert one frame into a framebuffer and return its MAX7219 intensity."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
         return None
     _clear_buffer(buf)
@@ -158,7 +158,7 @@ def _convert_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int |
             value = _pixel_value(frame, x, y, allow_lossy=allow_lossy)
             if value is None or not _add_pixel(buf, x, y, value, state, allow_lossy=allow_lossy):
                 return None
-    return state[1]
+    return _max7219_intensity(state[1])
 
 
 def _add_pixel(
@@ -170,7 +170,7 @@ def _add_pixel(
     *,
     allow_lossy: bool,
 ) -> bool:
-    """Apply one physical pixel value to a monochrome framebuffer."""
+    """Apply one normalized pixel value to a monochrome framebuffer."""
     if value <= 0:
         return True
     if state[0] is None:
@@ -180,6 +180,11 @@ def _add_pixel(
     state[1] = max(state[1], value)
     _set_pixel(buf, x, y)
     return True
+
+
+def _max7219_intensity(value: int) -> int:
+    """Map a normalized byte intensity to the MAX7219 brightness register."""
+    return (value * _MAX_INTENSITY + 127) // 255
 
 
 def _clear_buffer(buf: bytearray) -> None:

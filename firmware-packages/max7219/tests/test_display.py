@@ -63,7 +63,7 @@ def test_init_writes_registers_and_toggles_cs() -> None:
 
 
 def test_write_frame_roundtrips_corner_pixels() -> None:
-    """A one-channel physical frame lands on the expected visual pixels."""
+    """A one-channel normalized frame lands on the expected visual pixels."""
     backend, spi, _cs = _make_backend()
     frame = Frame.blank(32, 16)
     corners = {(0, 0), (31, 0), (0, 15), (31, 15), (5, 9)}
@@ -76,11 +76,11 @@ def test_write_frame_roundtrips_corner_pixels() -> None:
     assert _decode(spi.writes) == corners
 
 
-def test_write_frame_applies_physical_intensity_and_recovery_config() -> None:
+def test_write_frame_applies_normalized_intensity_and_recovery_config() -> None:
     """Every accepted frame reapplies config and uses the frame intensity."""
     backend, spi, _cs = _make_backend()
     frame = Frame.blank(32, 16)
-    frame.data[0] = 7
+    frame.data[0] = 128
     spi.writes.clear()
 
     assert backend.write_frame(frame, allow_lossy=False) is True
@@ -88,22 +88,38 @@ def test_write_frame_applies_physical_intensity_and_recovery_config() -> None:
     regs = [write[0] for write in spi.writes]
     assert _REG_DISPLAY_TEST in regs
     assert _REG_SHUTDOWN in regs
-    assert [write[1] for write in spi.writes if write[0] == _REG_INTENSITY][-1] == 7
+    assert [write[1] for write in spi.writes if write[0] == _REG_INTENSITY][-1] == 8
+
+
+def test_low_nonzero_intensity_uses_dimmest_register_after_bright_frame() -> None:
+    """A very dim lit frame does not inherit the previous brightness register."""
+    backend, spi, _cs = _make_backend()
+    bright = Frame.blank(32, 16)
+    bright.data[0] = 255
+    assert backend.write_frame(bright, allow_lossy=False) is True
+
+    dim = Frame.blank(32, 16)
+    dim.data[0] = 1
+    spi.writes.clear()
+
+    assert backend.write_frame(dim, allow_lossy=False) is True
+    assert [write[1] for write in spi.writes if write[0] == _REG_INTENSITY][-1] == 0
+    assert (0, 0) in _decode(spi.writes)
 
 
 def test_varying_grayscale_requires_lossy_override() -> None:
     """MAX7219 can show one global brightness, not per-pixel grayscale."""
     backend, spi, _cs = _make_backend()
     frame = Frame.blank(32, 16)
-    frame.data[0] = 3
-    frame.data[1] = 7
+    frame.data[0] = 64
+    frame.data[1] = 128
     spi.writes.clear()
 
     assert backend.write_frame(frame, allow_lossy=False) is False
     assert not spi.writes
 
     assert backend.write_frame(frame, allow_lossy=True) is True
-    assert {write[1] for write in spi.writes if write[0] == _REG_INTENSITY} == {7}
+    assert {write[1] for write in spi.writes if write[0] == _REG_INTENSITY} == {8}
 
 
 def test_rgb_requires_lossy_override_for_monochrome_conversion() -> None:

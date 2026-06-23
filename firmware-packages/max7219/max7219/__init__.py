@@ -7,8 +7,6 @@ __all__ = ["MAX7219"]
 
 _WIDTH_PIXELS = 32
 _HEIGHT_PIXELS = 16
-_INTENSITY_MIN = 0
-_INTENSITY_MAX = 15
 
 
 class MAX7219:
@@ -23,8 +21,6 @@ class MAX7219:
         cs: int,
         width_pixels: int = _WIDTH_PIXELS,
         height_pixels: int = _HEIGHT_PIXELS,
-        intensity_min: int = _INTENSITY_MIN,
-        intensity_max: int = _INTENSITY_MAX,
         intensity_limit: float = 1.0,
         allow_lossy: bool = False,
         failure_mode: str = "corner_xs",
@@ -38,8 +34,6 @@ class MAX7219:
             cs: Chain chip-select GPIO.
             width_pixels: Declared project display width.
             height_pixels: Declared project display height.
-            intensity_min: Dimmest non-zero MAX7219 intensity.
-            intensity_max: Brightest MAX7219 intensity.
             intensity_limit: Normalized cap for maximum brightness.
             allow_lossy: Whether backend conversion may discard detail.
             failure_mode: ``"corner_xs"`` or ``"blank"``.
@@ -52,8 +46,6 @@ class MAX7219:
             backend,
             width_pixels=width_pixels,
             height_pixels=height_pixels,
-            intensity_min=intensity_min,
-            intensity_max=intensity_max,
             intensity_limit=intensity_limit,
             allow_lossy=allow_lossy,
             failure_mode=failure_mode,

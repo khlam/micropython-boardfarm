@@ -29,8 +29,6 @@ DisplayWiring = namedtuple(
         "cs",
         "width_pixels",
         "height_pixels",
-        "intensity_min",
-        "intensity_max",
         "intensity_limit",
     ),
 )
@@ -38,9 +36,7 @@ Board = namedtuple("Board", ("name", "uart", "display"))
 
 _DISPLAY_WIDTH_PIXELS = 32
 _DISPLAY_HEIGHT_PIXELS = 16
-_DISPLAY_INTENSITY_MIN = 0
-_DISPLAY_INTENSITY_MAX = 15
-_DISPLAY_INTENSITY_LIMIT = 0.2
+_DISPLAY_INTENSITY_LIMIT = 0.01
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -54,8 +50,6 @@ if "ESP32S3" in _machine:
             cs=7,
             width_pixels=_DISPLAY_WIDTH_PIXELS,
             height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_min=_DISPLAY_INTENSITY_MIN,
-            intensity_max=_DISPLAY_INTENSITY_MAX,
             intensity_limit=_DISPLAY_INTENSITY_LIMIT,
         ),
     )
@@ -70,8 +64,6 @@ elif "RP2350" in _machine:
             cs=9,
             width_pixels=_DISPLAY_WIDTH_PIXELS,
             height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_min=_DISPLAY_INTENSITY_MIN,
-            intensity_max=_DISPLAY_INTENSITY_MAX,
             intensity_limit=_DISPLAY_INTENSITY_LIMIT,
         ),
     )
@@ -86,8 +78,6 @@ else:
             cs=28,
             width_pixels=_DISPLAY_WIDTH_PIXELS,
             height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_min=_DISPLAY_INTENSITY_MIN,
-            intensity_max=_DISPLAY_INTENSITY_MAX,
             intensity_limit=_DISPLAY_INTENSITY_LIMIT,
         ),
     )
@@ -258,8 +248,6 @@ def main() -> None:
                 cs=BOARD.display.cs,
                 width_pixels=BOARD.display.width_pixels,
                 height_pixels=BOARD.display.height_pixels,
-                intensity_min=BOARD.display.intensity_min,
-                intensity_max=BOARD.display.intensity_max,
                 intensity_limit=BOARD.display.intensity_limit,
             )
             gps = GPS(bus_id=BOARD.uart.bus_id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)

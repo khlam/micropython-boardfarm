@@ -31,8 +31,6 @@ DisplayWiring = namedtuple(
         "cs",
         "width_pixels",
         "height_pixels",
-        "intensity_min",
-        "intensity_max",
         "intensity_limit",
     ),
 )
@@ -48,8 +46,6 @@ _TEST_BOARD = Board(
         cs=28,
         width_pixels=32,
         height_pixels=16,
-        intensity_min=0,
-        intensity_max=15,
         intensity_limit=0.2,
     ),
 )

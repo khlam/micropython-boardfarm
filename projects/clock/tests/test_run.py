@@ -220,8 +220,6 @@ def test_main_runs_after_successful_init(main_ns: object) -> None:
         "cs": 28,
         "width_pixels": 32,
         "height_pixels": 16,
-        "intensity_min": 0,
-        "intensity_max": 15,
         "intensity_limit": 0.2,
     }
     assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}

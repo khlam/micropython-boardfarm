@@ -19,8 +19,8 @@ from `0.0` to `1.0` and quantize them to bytes:
 - `Frame.blank(width, height, channels=1)`.
 
 `Display` owns geometry fit, normalized brightness caps, and failure rendering.
-It scales and centers frames into `width_pixels` × `height_pixels`, maps non-zero
-pixel values into the configured physical intensity range, then calls a backend:
+It scales and centers frames into `width_pixels` × `height_pixels`, applies the
+configured intensity cap, then calls a backend:
 
 ```python
 backend.write_frame(frame, allow_lossy=False)
