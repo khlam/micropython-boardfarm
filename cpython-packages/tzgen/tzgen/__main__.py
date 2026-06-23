@@ -19,6 +19,7 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+from importlib.metadata import version
 from pathlib import Path
 
 from tzgen import geo, posix, rasterize
@@ -39,8 +40,6 @@ def _log(message: str) -> None:
 def _tzdata_version() -> str:
     """Return the installed IANA tzdata version for the provenance header."""
     try:
-        from importlib.metadata import version
-
         return version("tzdata")
     except Exception:  # noqa: BLE001 - provenance label only; never fail generation
         return "unknown"
@@ -50,7 +49,7 @@ def _fetch_geojson(ref: str, dest_dir: Path) -> Path:
     """Download and unzip the timezone-boundary-builder GeoJSON, returning its path."""
     url = _RELEASE_URL.format(ref=ref)
     zip_path = dest_dir / "timezones.geojson.zip"
-    _log("downloading %s" % url)
+    _log(f"downloading {url}")
     urllib.request.urlretrieve(url, zip_path)  # noqa: S310 - fixed https GitHub release
     with zipfile.ZipFile(zip_path) as archive:
         name = next(n for n in archive.namelist() if n.endswith(".json"))
@@ -66,7 +65,7 @@ def _build_tables(tzid_to_index: dict) -> tuple:
         try:
             posix_list.append(posix.posix_for_tzid(tzid, _FALLBACK_POSIX))
         except Exception:  # noqa: BLE001 - missing zone falls back, never aborts
-            _log("warning: no POSIX footer for %s, using %s" % (tzid, _FALLBACK_POSIX))
+            _log(f"warning: no POSIX footer for {tzid}, using {_FALLBACK_POSIX}")
             posix_list.append(_FALLBACK_POSIX)
     return posix_list, ordered
 
@@ -86,20 +85,20 @@ def main(argv: list | None = None) -> int:
     """Generate the module text and write it to stdout. Returns a process exit code."""
     args = _parse_args(argv)
     rows, cols = rasterize.grid_dims(args.resolution_deg)
-    _log("grid %dx%d (%g deg)" % (rows, cols, args.resolution_deg))
+    _log(f"grid {rows}x{cols} ({args.resolution_deg:g} deg)")
 
     with tempfile.TemporaryDirectory() as tmp:
         geojson = Path(args.geojson) if args.geojson else _fetch_geojson(args.tzbb_ref, Path(tmp))
-        _log("loading zones from %s" % geojson)
+        _log(f"loading zones from {geojson}")
         zones = geo.load_zones(str(geojson))
         tzid_to_index = geo.assign_indices(zones)
-        _log("%d zones, %d distinct ids" % (len(zones), len(tzid_to_index)))
+        _log(f"{len(zones)} zones, {len(tzid_to_index)} distinct ids")
         classify = geo.build_classifier(zones, tzid_to_index)
-        _log("rasterizing %d cells..." % (rows * cols))
+        _log(f"rasterizing {rows * cols} cells...")
         grid = rasterize.rasterize(rows, cols, classify)
 
     grid_bytes = rasterize.rle_encode(grid)
-    _log("RLE: %d cells -> %d bytes" % (len(grid), len(grid_bytes)))
+    _log(f"RLE: {len(grid)} cells -> {len(grid_bytes)} bytes")
     posix_list, tzid_list = _build_tables(tzid_to_index)
 
     module = rasterize.emit_module(

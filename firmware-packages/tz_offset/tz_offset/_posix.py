@@ -89,7 +89,7 @@ def _read_rule(s: str, i: int) -> tuple:
     time_s = _DEFAULT_TRANSITION_S
     if i < len(s) and s[i] == "/":
         time_s, i = _read_offset(s, i + 1)
-    return head + (time_s,), i
+    return (*head, time_s), i
 
 
 def parse(tz: str) -> dict:

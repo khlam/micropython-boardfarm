@@ -10,7 +10,12 @@ global grid stays tractable.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+
+from shapely import STRtree
+from shapely.geometry import Point, shape
+from shapely.prepared import prep
 
 
 def load_zones(geojson_path: str) -> list:
@@ -23,8 +28,6 @@ def load_zones(geojson_path: str) -> list:
     Returns:
         A list of ``(tzid, shapely_geometry)`` tuples in file order.
     """
-    from shapely.geometry import shape
-
     data = json.loads(Path(geojson_path).read_text())
     zones = []
     for feature in data["features"]:
@@ -42,7 +45,7 @@ def assign_indices(zones: list) -> dict:
     return {tzid: i for i, tzid in enumerate(sorted({t for t, _ in zones}))}
 
 
-def build_classifier(zones: list, tzid_to_index: dict) -> object:
+def build_classifier(zones: list, tzid_to_index: dict) -> Callable[[float, float], int | None]:
     """Build a point-in-polygon classifier over the zone polygons.
 
     Args:
@@ -53,10 +56,6 @@ def build_classifier(zones: list, tzid_to_index: dict) -> object:
         A callable ``classify(lat, lon) -> int | None`` returning the zone index
         covering the point, or ``None`` when no polygon contains it (open water).
     """
-    from shapely import STRtree
-    from shapely.geometry import Point
-    from shapely.prepared import prep
-
     geoms = [g for _, g in zones]
     indices = [tzid_to_index[t] for t, _ in zones]
     tree = STRtree(geoms)

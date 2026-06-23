@@ -1,4 +1,4 @@
-"""Extract the POSIX TZ string for an IANA zone id from its TZif data.
+r"""Extract the POSIX TZ string for an IANA zone id from its TZif data.
 
 A version 2+ TZif file (RFC 8536) ends with a newline-enclosed POSIX TZ string
 describing the zone's *current* DST rules, e.g. ``\\nCST6CDT,M3.2.0,M11.1.0\\n``.
@@ -11,6 +11,8 @@ during real generation, where that dependency is present.
 """
 
 from __future__ import annotations
+
+from importlib.resources import files
 
 
 def posix_from_tzif_bytes(data: bytes) -> str | None:
@@ -49,10 +51,8 @@ def posix_for_tzid(tzid: str, fallback: str) -> str:
     Returns:
         The extracted footer, or ``fallback`` when none is present.
     """
-    from importlib.resources import files
-
     resource = files("tzdata.zoneinfo")
     for part in tzid.split("/"):
         resource = resource / part
     extracted = posix_from_tzif_bytes(resource.read_bytes())
-    return extracted if extracted else fallback
+    return extracted or fallback

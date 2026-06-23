@@ -15,6 +15,8 @@ latitude; the rasterizer samples each cell's centre. The reserved index
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 OCEAN = 0xFFFF
 _MAX_RUN = 0xFFFF  # 2-byte run length cap in the RLE stream
 
@@ -36,7 +38,7 @@ def cell_center(row: int, col: int, rows: int, cols: int) -> tuple:
     return lat, lon
 
 
-def rasterize(rows: int, cols: int, classify: object) -> list:
+def rasterize(rows: int, cols: int, classify: Callable[[float, float], int | None]) -> list:
     """Sample every cell centre, returning a row-major list of tz indices.
 
     Args:
@@ -90,7 +92,7 @@ def rle_decode(data: bytes) -> list:
 
 
 def _bytes_literal(data: bytes, per_line: int = 24) -> str:
-    """Render ``data`` as wrapped, implicitly-concatenated ``b"\\xHH"`` literals.
+    r"""Render ``data`` as wrapped, implicitly-concatenated ``b"\\xHH"`` literals.
 
     Adjacent string literals fold into a single flash-resident constant when frozen,
     so the grid never costs RAM at import — unlike ``bytes.fromhex`` which would
@@ -99,7 +101,7 @@ def _bytes_literal(data: bytes, per_line: int = 24) -> str:
     lines = []
     for i in range(0, len(data), per_line):
         chunk = data[i : i + per_line]
-        lines.append('    b"' + "".join("\\x%02x" % b for b in chunk) + '"')
+        lines.append('    b"' + "".join(f"\\x{b:02x}" for b in chunk) + '"')
     return "(\n" + "\n".join(lines) + "\n)"
 
 
@@ -107,7 +109,7 @@ def _tuple_literal(items: list, indent: str = "    ") -> str:
     """Render a list of strings as a Python tuple literal, one entry per line."""
     if not items:
         return "()"
-    body = "\n".join('%s"%s",' % (indent, s) for s in items)
+    body = "\n".join(f'{indent}"{s}",' for s in items)
     return "(\n" + body + "\n)"
 
 
@@ -137,16 +139,17 @@ def emit_module(
     header = (
         '"""Generated global timezone raster + POSIX TZ table for tz_offset.\n\n'
         "DO NOT EDIT BY HAND. Produced by ``python -m tzgen`` from\n"
-        "timezone-boundary-builder %s and IANA tzdata %s at %g deg resolution.\n"
+        f"timezone-boundary-builder {tzbb_ref} and IANA tzdata {tzdata_ref} "
+        f"at {resolution_deg:g} deg resolution.\n"
         "Regenerate via the tzgen Docker service; see\n"
         "firmware-packages/tz_offset/VENDOR.md.\n"
         '"""\n\n'
         "from micropython import const\n\n"
-        "R_UDEG = const(%d)\n"
-        "ROWS = const(%d)\n"
-        "COLS = const(%d)\n"
-        "OCEAN = const(%d)\n\n"
-    ) % (tzbb_ref, tzdata_ref, resolution_deg, r_udeg(resolution_deg), rows, cols, OCEAN)
+        f"R_UDEG = const({r_udeg(resolution_deg)})\n"
+        f"ROWS = const({rows})\n"
+        f"COLS = const({cols})\n"
+        f"OCEAN = const({OCEAN})\n\n"
+    )
     return (
         header
         + "GRID = "

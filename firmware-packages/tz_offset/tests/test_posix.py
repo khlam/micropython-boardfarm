@@ -10,8 +10,10 @@ import pytest
 
 from tz_offset import _posix
 
-# (posix_string, year, month, day, hour, minute, second, expected_offset_s, expected_abbrev)
-_OFFSET_CASES = [
+# Each case stores a POSIX string, UTC date/time fields, expected offset, and abbreviation.
+_OffsetCase = tuple[str, int, int, int, int, int, int, int, str]
+
+_OFFSET_CASES: list[_OffsetCase] = [
     # US Central — DST off in winter, on in summer.
     ("CST6CDT,M3.2.0,M11.1.0", 2026, 1, 15, 12, 0, 0, -21600, "CST"),
     ("CST6CDT,M3.2.0,M11.1.0", 2026, 7, 15, 12, 0, 0, -18000, "CDT"),
@@ -51,10 +53,9 @@ _OFFSET_CASES = [
 ]
 
 
-@pytest.mark.parametrize("tz,y,mo,d,h,mi,s,off,abbrev", _OFFSET_CASES)
-def test_offset_seconds(
-    tz: str, y: int, mo: int, d: int, h: int, mi: int, s: int, off: int, abbrev: str
-) -> None:
+@pytest.mark.parametrize("case", _OFFSET_CASES)
+def test_offset_seconds(case: _OffsetCase) -> None:
+    tz, y, mo, d, h, mi, s, off, abbrev = case
     assert _posix.offset_seconds(tz, y, mo, d, h, mi, s) == (off, abbrev)
 
 

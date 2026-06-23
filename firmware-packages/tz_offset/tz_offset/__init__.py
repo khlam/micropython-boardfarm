@@ -15,12 +15,12 @@ from tz_offset import _grid, _posix, _tzdata
 from tz_offset._calendar import utc_to_local, utc_to_local_seconds, weekday
 
 __all__ = (
+    "local_from_gps",
     "offset_hours_from_longitude",
     "offset_seconds_from_gps",
-    "local_from_gps",
-    "weekday",
     "utc_to_local",
     "utc_to_local_seconds",
+    "weekday",
 )
 
 # round(lon/15) can reach ±13 near the date line; clamp to the real UTC range.

@@ -30,8 +30,8 @@ def tz_index_for(lat: float, lon: float) -> int:
         zone, or ``None`` for ocean / out-of-coverage cells.
     """
     lon = ((lon + 180.0) % 360.0) - 180.0
-    row = (int(round(lat * 1_000_000)) + _LAT_ORIGIN_UDEG) // _tzdata.R_UDEG
-    col = (int(round(lon * 1_000_000)) + _LON_ORIGIN_UDEG) // _tzdata.R_UDEG
+    row = (round(lat * 1_000_000) + _LAT_ORIGIN_UDEG) // _tzdata.R_UDEG
+    col = (round(lon * 1_000_000) + _LON_ORIGIN_UDEG) // _tzdata.R_UDEG
     if row < 0:
         row = 0
     elif row >= _tzdata.ROWS:

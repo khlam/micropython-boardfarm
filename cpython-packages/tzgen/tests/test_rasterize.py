@@ -12,7 +12,6 @@ import sys
 import types
 
 import pytest
-
 from tzgen import geo, rasterize
 
 _FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini.geojson"
@@ -55,7 +54,7 @@ def test_emit_module_is_importable() -> None:
             tzdata_ref="test",
         )
         namespace: dict = {}
-        exec(compile(text, "_tzdata.py", "exec"), namespace)  # noqa: S102
+        exec(compile(text, "_tzdata.py", "exec"), namespace)
     finally:
         del sys.modules["micropython"]
     assert namespace["ROWS"] == 720
