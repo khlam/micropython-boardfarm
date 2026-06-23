@@ -2,5 +2,6 @@
 
 from pixel_display.display import Display
 from pixel_display.frame import Frame
+from pixel_display.packed import Canvas, PackedFrame
 
-__all__ = ["Display", "Frame"]
+__all__ = ["Canvas", "Display", "Frame", "PackedFrame"]

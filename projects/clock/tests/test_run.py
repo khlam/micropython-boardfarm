@@ -433,7 +433,12 @@ def test_low_intensity_fade_starts_at_minimum_visible_byte(main_ns: object) -> N
         main_ns.ns["_TRANSITION_STEPS"],
         intensity_limit,
     )
-    values = [value for value in first_visible.data if value]
+    values = [
+        first_visible.value_at(x, y)
+        for y in range(first_visible.height)
+        for x in range(first_visible.width)
+        if first_visible.value_at(x, y)
+    ]
 
     assert values
     assert set(values) == {min_visible}
@@ -521,12 +526,14 @@ def test_main_runs_after_successful_init(main_ns: object) -> None:
 
 def _same_frame(left: object, right: object) -> bool:
     """Return whether two frame-like objects hold identical pixels."""
-    return (
-        left.width == right.width
-        and left.height == right.height
-        and left.channels == right.channels
-        and bytes(left.data) == bytes(right.data)
-    )
+    if left.width != right.width or left.height != right.height or left.channels != right.channels:
+        return False
+    for y in range(left.height):
+        for x in range(left.width):
+            for channel in range(left.channels):
+                if left.value_at(x, y, channel) != right.value_at(x, y, channel):
+                    return False
+    return True
 
 
 def _lit_bounds(frame: object, y0: int, y1: int) -> tuple:

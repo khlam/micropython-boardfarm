@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pixel_display import Display, Frame
+from pixel_display import Canvas, Display, Frame, PackedFrame
 
 
 class _Backend:
@@ -13,10 +13,10 @@ class _Backend:
     def __init__(self, *, result: bool = True) -> None:
         """Initialise the call log."""
         self.result = result
-        self.writes: list[tuple[Frame, bool]] = []
+        self.writes: list[tuple[object, bool]] = []
         self.clears = 0
 
-    def write_frame(self, frame: Frame, *, allow_lossy: bool) -> bool:
+    def write_frame(self, frame: object, *, allow_lossy: bool) -> bool:
         """Record one frame write and return the configured result."""
         self.writes.append((frame, allow_lossy))
         return self.result
@@ -61,6 +61,43 @@ def test_text_helpers_render_non_empty_frames() -> None:
     assert lines.width >= Frame.text("WAIT").width
 
 
+def test_canvas_builds_packed_frames() -> None:
+    canvas = Canvas(9, 2, intensity=17)
+    canvas.pixel(0, 0)
+    canvas.pixel(8, 1)
+    canvas.pixel(-1, 0)
+
+    frame = canvas.frame()
+
+    assert isinstance(frame, PackedFrame)
+    assert (frame.width, frame.height, frame.channels, frame.stride) == (9, 2, 1, 2)
+    assert frame.intensity == 17
+    assert list(frame.data) == [1, 0, 0, 1]
+    assert frame.value_at(0, 0) == 17
+    assert frame.value_at(8, 1) == 17
+    assert frame.value_at(1, 0) == 0
+    assert list(frame.unpack().data) == [
+        17,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        17,
+    ]
+
+
 def test_display_scales_small_frames_by_integer_blocks() -> None:
     backend = _Backend()
     display = Display(backend, width_pixels=6, height_pixels=6)
@@ -75,6 +112,39 @@ def test_display_scales_small_frames_by_integer_blocks() -> None:
     assert frame.value_at(3, 3) == 255
     assert frame.value_at(5, 5) == 255
     assert frame.value_at(3, 0) == 0
+
+
+def test_display_fast_paths_exact_packed_frames() -> None:
+    backend = _Backend()
+    display = Display(backend, width_pixels=4, height_pixels=2, intensity_limit=0.5)
+    canvas = Canvas(4, 2, intensity=255)
+    canvas.pixel(0, 0)
+
+    display.show(canvas.frame())
+
+    frame, allow_lossy = backend.writes[-1]
+    assert allow_lossy is False
+    assert isinstance(frame, PackedFrame)
+    assert (frame.width, frame.height, frame.stride) == (4, 2, 1)
+    assert frame.intensity == 128
+    assert frame.value_at(0, 0) == 128
+    assert frame.value_at(1, 0) == 0
+
+
+def test_display_unpacks_non_exact_packed_frames_for_fitting() -> None:
+    backend = _Backend()
+    display = Display(backend, width_pixels=4, height_pixels=2)
+    canvas = Canvas(2, 1)
+    canvas.pixel(0, 0)
+
+    display.show(canvas.frame())
+
+    frame, _allow_lossy = backend.writes[-1]
+    assert not isinstance(frame, PackedFrame)
+    assert (frame.width, frame.height) == (4, 2)
+    assert frame.value_at(0, 0) == 255
+    assert frame.value_at(1, 1) == 255
+    assert frame.value_at(2, 0) == 0
 
 
 def test_display_centers_aspect_mismatched_frames() -> None:

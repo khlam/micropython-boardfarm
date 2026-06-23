@@ -1,6 +1,7 @@
 """Display facade that fits frames and delegates hardware conversion."""
 
 from pixel_display.frame import Frame
+from pixel_display.packed import PackedFrame
 
 _FAILURE_BLANK = "blank"
 _FAILURE_CORNER_XS = "corner_xs"
@@ -45,8 +46,20 @@ class Display:
         self._allow_lossy = allow_lossy
         self._failure_mode = failure_mode
 
-    def show(self, frame: Frame) -> None:
+    def show(self, frame: object) -> None:
         """Fit, scale, and render one frame."""
+        if isinstance(frame, PackedFrame):
+            if frame.width == self.width_pixels and frame.height == self.height_pixels:
+                capped = self._scale_packed_intensity(frame)
+                if not self._backend.write_frame(capped, allow_lossy=self._allow_lossy):
+                    self._show_failure()
+                return
+            if not self._allow_lossy and (
+                frame.width > self.width_pixels or frame.height > self.height_pixels
+            ):
+                self._show_failure()
+                return
+            frame = frame.unpack()
         if not self._allow_lossy and (
             frame.width > self.width_pixels or frame.height > self.height_pixels
         ):
@@ -85,6 +98,13 @@ class Display:
             else:
                 data[i] = int(capped_max * value / 255 + 0.5)
         return Frame(frame.width, frame.height, frame.channels, data)
+
+    def _scale_packed_intensity(self, frame: PackedFrame) -> PackedFrame:
+        """Apply the configured cap to a packed frame's shared intensity."""
+        intensity = _scale_byte(frame.intensity, self._intensity_limit)
+        if intensity == frame.intensity:
+            return frame
+        return PackedFrame(frame.width, frame.height, frame.stride, frame.data, intensity)
 
 
 def _fit_frame(frame: Frame, width: int, height: int, *, allow_downscale: bool) -> Frame:
@@ -154,3 +174,13 @@ def _clamp(value: float) -> float:
     if value >= 1:
         return 1.0
     return value
+
+
+def _scale_byte(value: int, limit: float) -> int:
+    """Scale one normalized byte by a normalized cap."""
+    if value <= 0 or limit <= 0:
+        return 0
+    capped_max = int(255 * limit + 0.5)
+    if value >= 255:
+        return capped_max
+    return int(capped_max * value / 255 + 0.5)

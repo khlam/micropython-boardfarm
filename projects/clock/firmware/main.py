@@ -17,7 +17,7 @@ from atgm336h import GPS
 from boot_status_led import status
 from max7219 import MAX7219
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
-from pixel_display import Frame
+from pixel_display import Canvas, Frame, PackedFrame
 from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
@@ -579,25 +579,27 @@ def _compact_text_width(text: str, gap_pixels: int = _COMPACT_GAP_PIXELS) -> int
 
 
 def _draw_compact_glyph(
-    frame: object,
+    canvas: object,
     pattern: tuple,
     x0: int,
     y0: int,
     intensity: int = _COMPACT_ON,
 ) -> None:
-    """Draw one compact display glyph into ``frame``."""
+    """Draw one compact display glyph into ``canvas``."""
+    if intensity <= 0:
+        return
     for y, row in enumerate(pattern):
         dy = y0 + y
-        if dy < 0 or dy >= frame.height:
+        if dy < 0 or dy >= canvas.height:
             continue
         for x, bit in enumerate(row):
             dx = x0 + x
-            if bit == "1" and 0 <= dx < frame.width:
-                frame.data[(dy * frame.width + dx) * frame.channels] = intensity
+            if bit == "1":
+                canvas.pixel(dx, dy)
 
 
 def _draw_compact_text_at(
-    frame: object,
+    canvas: object,
     text: str,
     x0: int,
     y0: int,
@@ -610,12 +612,12 @@ def _draw_compact_text_at(
     for char in text:
         pattern = _compact_glyph(char)
         if char != ":" or colon_visible:
-            _draw_compact_glyph(frame, pattern, x0, y0, intensity)
+            _draw_compact_glyph(canvas, pattern, x0, y0, intensity)
         x0 += len(pattern[0]) + gap_pixels
 
 
 def _draw_compact_text_in_box(
-    frame: object,
+    canvas: object,
     text: str,
     x0: int,
     y0: int,
@@ -629,11 +631,11 @@ def _draw_compact_text_in_box(
     text_width = _compact_text_width(text, gap_pixels)
     tx = x0 + (width - text_width) // 2
     ty = y0 + (height - _COMPACT_GLYPH_HEIGHT) // 2 + y_offset
-    _draw_compact_text_at(frame, text, tx, ty, gap_pixels=gap_pixels)
+    _draw_compact_text_at(canvas, text, tx, ty, gap_pixels=gap_pixels)
 
 
 def _draw_compact_text(
-    frame: object,
+    canvas: object,
     text: str,
     row_index: int,
     *,
@@ -641,20 +643,20 @@ def _draw_compact_text(
     y_offset: int = 0,
 ) -> None:
     """Draw compact text centered inside one matrix row band."""
-    width = frame.width
+    width = canvas.width
     height = _CLOCK_ROW_HEIGHT
     text_width = _compact_text_width(text, _COMPACT_GAP_PIXELS)
     tx = (width - text_width) // 2
     ty = row_index * height + (height - _COMPACT_GLYPH_HEIGHT) // 2 + y_offset
-    _draw_compact_text_at(frame, text, tx, ty, colon_visible=colon_visible)
+    _draw_compact_text_at(canvas, text, tx, ty, colon_visible=colon_visible)
 
 
 def _clock_face_frame(top: str, bottom: str, *, colon_visible: bool) -> object:
     """Render compact clock time above a compact month-name date."""
-    frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
-    _draw_compact_text(frame, top, 0, colon_visible=colon_visible)
-    _draw_compact_text(frame, bottom, 1, y_offset=_CLOCK_BOTTOM_Y_OFFSET)
-    return frame
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
+    _draw_compact_text(canvas, top, 0, colon_visible=colon_visible)
+    _draw_compact_text(canvas, bottom, 1, y_offset=_CLOCK_BOTTOM_Y_OFFSET)
+    return canvas.frame()
 
 
 def _display_frame(top: str, bottom: str, *, colon_visible: bool) -> object:
@@ -679,9 +681,9 @@ def _main_screen_frame(parts: tuple) -> object:
     """Render time with meridiem above month and day, both centered."""
     _year, month, day, _weekday, hour, minute, _second = parts
     clock, meridiem = _format_time_parts(hour, minute)
-    frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         f"{clock} {meridiem}",
         0,
         0,
@@ -689,7 +691,7 @@ def _main_screen_frame(parts: tuple) -> object:
         8,
     )
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         f"{_format_month_abbr(month)} {day}",
         0,
         8,
@@ -697,15 +699,15 @@ def _main_screen_frame(parts: tuple) -> object:
         8,
         y_offset=1,
     )
-    return frame
+    return canvas.frame()
 
 
 def _season_screen_frame(parts: tuple) -> object:
     """Render the current meteorological season above the four-digit year."""
     year, month, _day, _weekday, _hour, _minute, _second = parts
-    frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         _season_name(month),
         0,
         0,
@@ -713,7 +715,7 @@ def _season_screen_frame(parts: tuple) -> object:
         8,
     )
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         f"{year:04d}",
         0,
         8,
@@ -721,16 +723,16 @@ def _season_screen_frame(parts: tuple) -> object:
         8,
         y_offset=1,
     )
-    return frame
+    return canvas.frame()
 
 
 def _time_seconds_screen_frame(parts: tuple) -> object:
     """Render large 12-hour time with seconds and meridiem."""
     _year, _month, _day, _weekday, hour, minute, second = parts
     _clock, meridiem = _format_time_parts(hour, minute)
-    frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         _format_time_seconds(hour, minute, second),
         0,
         0,
@@ -738,7 +740,7 @@ def _time_seconds_screen_frame(parts: tuple) -> object:
         8,
     )
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         meridiem,
         0,
         8,
@@ -746,15 +748,15 @@ def _time_seconds_screen_frame(parts: tuple) -> object:
         8,
         y_offset=1,
     )
-    return frame
+    return canvas.frame()
 
 
 def _full_date_screen_frame(parts: tuple) -> object:
     """Render the day of the week above the full month name."""
     _year, month, _day, weekday, _hour, _minute, _second = parts
-    frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         _DAYS[weekday],
         0,
         0,
@@ -762,7 +764,7 @@ def _full_date_screen_frame(parts: tuple) -> object:
         8,
     )
     _draw_compact_text_in_box(
-        frame,
+        canvas,
         _MONTH_NAMES[month - 1],
         0,
         8,
@@ -770,7 +772,7 @@ def _full_date_screen_frame(parts: tuple) -> object:
         8,
         y_offset=1,
     )
-    return frame
+    return canvas.frame()
 
 
 def _screen_frame_from_parts(screen: int, parts: tuple) -> object:
@@ -808,6 +810,8 @@ def _screen_key(screen: int, rtc: object) -> tuple:
 
 def _copy_frame(frame: object) -> object:
     """Return a byte-for-byte copy of ``frame``."""
+    if isinstance(frame, PackedFrame):
+        return frame.copy()
     return Frame(frame.width, frame.height, frame.channels, bytearray(frame.data))
 
 
@@ -815,27 +819,53 @@ def _frame_value(frame: object, x: int, y: int, channel: int = 0) -> int:
     """Return one frame byte, clipping out-of-bounds reads to zero."""
     if x < 0 or y < 0 or x >= frame.width or y >= frame.height:
         return 0
+    if isinstance(frame, PackedFrame):
+        if channel != 0:
+            return 0
+        return frame.value_at(x, y)
     return frame.data[(y * frame.width + x) * frame.channels + channel]
-
-
-def _set_frame_value(
-    frame: object,
-    x: int,
-    y: int,
-    value: int,
-    channel: int = 0,
-) -> None:
-    """Set one frame byte when the coordinate is in bounds."""
-    if 0 <= x < frame.width and 0 <= y < frame.height:
-        frame.data[(y * frame.width + x) * frame.channels + channel] = value
 
 
 def _max_frame_value(frame: object) -> int:
     """Return the maximum byte value present in ``frame``."""
+    if isinstance(frame, PackedFrame):
+        if any(frame.data):
+            return frame.intensity
+        return 0
     value = 0
     for item in frame.data:
         value = max(value, item)
     return value
+
+
+def _as_packed_frame(frame: object) -> object:
+    """Return a packed monochrome view of ``frame``."""
+    if isinstance(frame, PackedFrame):
+        return frame
+    stride = (frame.width + 7) // 8
+    data = bytearray(frame.height * stride)
+    intensity = _max_frame_value(frame)
+    if intensity <= 0:
+        return PackedFrame(frame.width, frame.height, stride, data, 0)
+    for y in range(frame.height):
+        row_base = y * stride
+        for x in range(frame.width):
+            for channel in range(frame.channels):
+                if _frame_value(frame, x, y, channel) > 0:
+                    data[row_base + (x >> 3)] |= 1 << (x & 7)
+                    break
+    return PackedFrame(frame.width, frame.height, stride, data, intensity)
+
+
+def _blank_packed_like(frame: object, intensity: int = 0) -> object:
+    """Return a blank packed frame with matching geometry."""
+    return PackedFrame(
+        frame.width,
+        frame.height,
+        frame.stride,
+        bytearray(frame.height * frame.stride),
+        intensity,
+    )
 
 
 def _min_visible_source_byte(intensity_limit: float) -> int:
@@ -892,6 +922,40 @@ def _dither_rank(x: int, y: int, total: int) -> int:
     return ((x * 5) + (y * 3)) % total
 
 
+def _build_dither_masks(width: int, height: int, total: int) -> tuple:
+    """Build packed masks for every visible-step count."""
+    stride = (width + 7) // 8
+    masks = []
+    for visible_steps in range(total + 1):
+        data = bytearray(height * stride)
+        for y in range(height):
+            row_base = y * stride
+            for x in range(width):
+                if _dither_rank(x, y, total) < visible_steps:
+                    data[row_base + (x >> 3)] |= 1 << (x & 7)
+        masks.append(data)
+    return tuple(masks)
+
+
+_DISPLAY_DITHER_MASKS = _build_dither_masks(
+    _DISPLAY_WIDTH_PIXELS,
+    _DISPLAY_HEIGHT_PIXELS,
+    _TRANSITION_STEPS // 2,
+)
+
+
+def _dither_mask(frame: object, total: int, visible_steps: int) -> bytearray:
+    """Return a packed dither mask for one frame geometry."""
+    visible_steps = min(total, max(0, visible_steps))
+    if (
+        frame.width == _DISPLAY_WIDTH_PIXELS
+        and frame.height == _DISPLAY_HEIGHT_PIXELS
+        and total == _TRANSITION_STEPS // 2
+    ):
+        return _DISPLAY_DITHER_MASKS[visible_steps]
+    return _build_dither_masks(frame.width, frame.height, total)[visible_steps]
+
+
 def _masked_fade_frame(
     source: object,
     visible_steps: int,
@@ -900,61 +964,97 @@ def _masked_fade_frame(
     min_visible: int,
 ) -> object:
     """Render a dither-masked view of ``source`` at one fade intensity."""
-    frame = Frame.blank(source.width, source.height, source.channels)
+    source = _as_packed_frame(source)
     if visible_steps <= 0 or step_value <= 0:
-        return frame
+        return _blank_packed_like(source)
     visible_steps = min(total_steps, visible_steps)
-    for y in range(source.height):
-        for x in range(source.width):
-            if _dither_rank(x, y, total_steps) >= visible_steps:
-                continue
-            for channel in range(source.channels):
-                value = _frame_value(source, x, y, channel)
-                value = _transition_pixel_value(value, step_value, min_visible)
-                _set_frame_value(frame, x, y, value, channel)
-    return frame
+    value = _transition_pixel_value(_max_frame_value(source), step_value, min_visible)
+    if value <= 0:
+        return _blank_packed_like(source)
+    mask = _dither_mask(source, total_steps, visible_steps)
+    data = bytearray(len(source.data))
+    for i, item in enumerate(source.data):
+        data[i] = item & mask[i]
+    return PackedFrame(source.width, source.height, source.stride, data, value)
 
 
 def _wipe_frame(source: object, target: object, step: int, steps: int) -> object:
     """Reveal ``target`` left-to-right over ``source``."""
+    source = _as_packed_frame(source)
+    target = _as_packed_frame(target)
     if step <= 0:
         return _copy_frame(source)
     if step >= steps:
         return _copy_frame(target)
     split = source.width * step // steps
-    frame = Frame.blank(source.width, source.height, source.channels)
+    full_bytes = split >> 3
+    partial_bits = split & 7
+    partial_mask = (1 << partial_bits) - 1
+    data = bytearray(len(source.data))
     for y in range(source.height):
-        for x in range(source.width):
-            active = target if x < split else source
-            for channel in range(source.channels):
-                _set_frame_value(
-                    frame,
-                    x,
-                    y,
-                    _frame_value(active, x, y, channel),
-                    channel,
-                )
-    return frame
+        row_base = y * source.stride
+        for byte_index in range(source.stride):
+            idx = row_base + byte_index
+            if byte_index < full_bytes:
+                data[idx] = target.data[idx]
+            elif byte_index == full_bytes and partial_bits:
+                source_mask = 0xFF ^ partial_mask
+                data[idx] = (target.data[idx] & partial_mask) | (source.data[idx] & source_mask)
+            else:
+                data[idx] = source.data[idx]
+    return PackedFrame(
+        source.width,
+        source.height,
+        source.stride,
+        data,
+        max(source.intensity, target.intensity),
+    )
+
+
+def _packed_row_bits(frame: object, y: int) -> int:
+    """Return one packed row as a little-endian integer."""
+    bits = 0
+    row_base = y * frame.stride
+    for byte_index in range(frame.stride):
+        bits |= frame.data[row_base + byte_index] << (byte_index * 8)
+    return bits
+
+
+def _write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -> None:
+    """Write a little-endian row integer into packed row bytes."""
+    for byte_index in range(stride):
+        data[base + byte_index] = bits & 0xFF
+        bits >>= 8
 
 
 def _scroll_frame(source: object, target: object, step: int, steps: int) -> object:
     """Slide ``source`` left while ``target`` enters from the right."""
+    source = _as_packed_frame(source)
+    target = _as_packed_frame(target)
     if step <= 0:
         return _copy_frame(source)
     if step >= steps:
         return _copy_frame(target)
     offset = source.width * step // steps
-    frame = Frame.blank(source.width, source.height, source.channels)
+    data = bytearray(len(source.data))
+    mask = (1 << source.width) - 1
+    target_shift = source.width - offset
     for y in range(source.height):
-        for x in range(source.width):
-            src_x = x + offset
-            dst_x = x - (source.width - offset)
-            for channel in range(source.channels):
-                value = _frame_value(source, src_x, y, channel)
-                if value <= 0:
-                    value = _frame_value(target, dst_x, y, channel)
-                _set_frame_value(frame, x, y, value, channel)
-    return frame
+        source_bits = _packed_row_bits(source, y) >> offset
+        target_bits = (_packed_row_bits(target, y) << target_shift) & mask
+        _write_packed_row_bits(
+            data,
+            y * source.stride,
+            source.stride,
+            source_bits | target_bits,
+        )
+    return PackedFrame(
+        source.width,
+        source.height,
+        source.stride,
+        data,
+        max(source.intensity, target.intensity),
+    )
 
 
 def _fade_frame(

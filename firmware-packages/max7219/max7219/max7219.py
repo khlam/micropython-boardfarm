@@ -7,6 +7,8 @@ the eight per-chip-row SPI frames required by the cascaded MAX7219 chain.
 import utime
 from micropython import const
 
+from pixel_display.packed import PackedFrame
+
 _PANEL_W = const(32)
 _PANEL_H = const(8)
 _CHIPS_PER_PANEL = const(4)
@@ -36,8 +38,8 @@ class _MAX7219Backend:
         """Initialise the SPI chain and allocate reusable buffers."""
         self._spi = spi
         self._cs = cs
-        self._fb = bytearray(_HEIGHT * _BYTES_PER_ROW)
-        self._next_fb = bytearray(_HEIGHT * _BYTES_PER_ROW)
+        self._rows = bytearray(_PANEL_H * _NUM_CHIPS)
+        self._next_rows = bytearray(_PANEL_H * _NUM_CHIPS)
         self._cmd = bytearray(2 * _NUM_CHIPS)
         self._intensity = _DEFAULT_INTENSITY
         self._init_display()
@@ -64,38 +66,48 @@ class _MAX7219Backend:
             ``True`` when the frame was represented, ``False`` when the display
             facade should render its failure indicator instead.
         """
-        max_intensity = _convert_frame(frame, self._next_fb, allow_lossy=allow_lossy)
+        max_intensity = _convert_frame(frame, self._next_rows, allow_lossy=allow_lossy)
         if max_intensity is None:
             return False
-        self._fb, self._next_fb = self._next_fb, self._fb
-        self._intensity = max_intensity
-        self._apply_config()
-        self._refresh()
+        rows_changed = _buffers_differ(self._rows, self._next_rows)
+        intensity_changed = max_intensity != self._intensity
+        if intensity_changed:
+            self._intensity = max_intensity
+            self._write_intensity()
+        if rows_changed:
+            self._refresh_dirty()
+            _copy_buffer(self._next_rows, self._rows)
+        elif not intensity_changed:
+            self._reassert()
         return True
 
     def clear(self) -> None:
         """Blank the matrix and flush the cleared framebuffer."""
-        _clear_buffer(self._fb)
-        self._apply_config()
-        self._refresh()
+        _clear_buffer(self._next_rows)
+        self._write_static_config()
+        self._write_intensity()
+        self._write_all_rows(self._next_rows)
+        _copy_buffer(self._next_rows, self._rows)
 
     def _init_display(self) -> None:
         """Run the power-on register sequence, flash all LEDs, and clear."""
         self._write_all(_REG_DISPLAY_TEST, 0x01)
         utime.sleep_ms(_FLASH_MS)
-        self._apply_config()
         self.clear()
 
-    def _apply_config(self) -> None:
-        """Write steady-state control registers to every chip."""
+    def _write_static_config(self) -> None:
+        """Write steady-state control registers that rarely change."""
         for reg, val in (
             (_REG_DISPLAY_TEST, 0x00),
             (_REG_SCAN_LIMIT, 0x07),
             (_REG_DECODE, 0x00),
-            (_REG_INTENSITY, self._intensity),
             (_REG_SHUTDOWN, 0x01),
         ):
             self._write_all(reg, val)
+
+    def _write_intensity(self) -> None:
+        """Write the current global intensity register to every chip."""
+        self._write_all(_REG_INTENSITY, self._intensity)
 
     def _write_all(self, register: int, data: int) -> None:
         """Send the same register+data word to every chip in one CS frame."""
@@ -107,30 +119,40 @@ class _MAX7219Backend:
         self._spi.write(cmd)
         self._cs.on()
 
-    def _refresh(self) -> None:
-        """Translate the visual framebuffer to the chain and push it out."""
-        fb = self._fb
+    def _write_row(self, chip_row: int, rows: bytearray) -> None:
+        """Write one digit register row across the whole chip chain."""
+        base = chip_row * _NUM_CHIPS
         cmd = self._cmd
+        reg = chip_row + 1
+        for pos in range(_NUM_CHIPS):
+            cmd[pos * 2] = reg
+            cmd[pos * 2 + 1] = rows[base + pos]
+        self._cs.off()
+        self._spi.write(cmd)
+        self._cs.on()
+
+    def _write_all_rows(self, rows: bytearray) -> None:
+        """Write all digit register rows."""
         for chip_row in range(_PANEL_H):
-            reg = chip_row + 1
-            for chip in range(_NUM_CHIPS):
-                panel = chip // _CHIPS_PER_PANEL
-                col_chip = chip % _CHIPS_PER_PANEL
-                src_row = (_PANEL_H - 1 - chip_row) if _FLIP_Y else chip_row
-                vy = panel * _PANEL_H + src_row
-                row_base = vy * _BYTES_PER_ROW
-                byte = 0
-                for bit in range(8):
-                    nat_x = col_chip * 8 + bit
-                    vx = (_WIDTH - 1 - nat_x) if _MIRROR_X else nat_x
-                    if fb[row_base + (vx >> 3)] & (1 << (vx & 7)):
-                        byte |= 1 << bit
-                pos = _NUM_CHIPS - 1 - chip
-                cmd[pos * 2] = reg
-                cmd[pos * 2 + 1] = byte
-            self._cs.off()
-            self._spi.write(cmd)
-            self._cs.on()
+            self._write_row(chip_row, rows)
+
+    def _refresh_dirty(self) -> None:
+        """Write only digit rows whose chain bytes changed."""
+        for chip_row in range(_PANEL_H):
+            base = chip_row * _NUM_CHIPS
+            dirty = False
+            for pos in range(_NUM_CHIPS):
+                if self._rows[base + pos] != self._next_rows[base + pos]:
+                    dirty = True
+                    break
+            if dirty:
+                self._write_row(chip_row, self._next_rows)
+
+    def _reassert(self) -> None:
+        """Heal the chip configuration and current matrix state."""
+        self._write_static_config()
+        self._write_intensity()
+        self._write_all_rows(self._rows)
 
 
 def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | None:
@@ -148,7 +170,36 @@ def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | N
 
 
 def _convert_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int | None:
-    """Convert one frame into a framebuffer and return its MAX7219 intensity."""
+    """Convert one frame into chain rows and return its MAX7219 intensity."""
+    if isinstance(frame, PackedFrame):
+        return _convert_packed_frame(frame, buf)
+    return _convert_byte_frame(frame, buf, allow_lossy=allow_lossy)
+
+
+def _convert_packed_frame(frame: PackedFrame, buf: bytearray) -> int | None:
+    """Convert one packed frame directly into MAX7219 chain rows."""
+    if frame.width != _WIDTH or frame.height != _HEIGHT:
+        return None
+    if frame.intensity <= 0:
+        _clear_buffer(buf)
+        return _DEFAULT_INTENSITY
+    for chip_row in range(_PANEL_H):
+        base = chip_row * _NUM_CHIPS
+        for chip in range(_NUM_CHIPS):
+            panel = chip // _CHIPS_PER_PANEL
+            col_chip = chip % _CHIPS_PER_PANEL
+            src_row = (_PANEL_H - 1 - chip_row) if _FLIP_Y else chip_row
+            vy = panel * _PANEL_H + src_row
+            pos = _NUM_CHIPS - 1 - chip
+            if _MIRROR_X:
+                buf[base + pos] = _packed_mirrored_chip_byte(frame, col_chip, vy)
+            else:
+                buf[base + pos] = frame.data[(vy * frame.stride) + col_chip]
+    return _max7219_intensity(frame.intensity)
+
+
+def _convert_byte_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int | None:
+    """Convert one byte-per-pixel frame into MAX7219 chain rows."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
         return None
     _clear_buffer(buf)
@@ -178,7 +229,7 @@ def _add_pixel(
     elif value != state[0] and not allow_lossy:
         return False
     state[1] = max(state[1], value)
-    _set_pixel(buf, x, y)
+    _set_visual_pixel(buf, x, y)
     return True
 
 
@@ -193,7 +244,36 @@ def _clear_buffer(buf: bytearray) -> None:
         buf[i] = 0
 
 
-def _set_pixel(buf: bytearray, x: int, y: int) -> None:
-    """Set one visual pixel in a framebuffer buffer."""
-    idx = y * _BYTES_PER_ROW + (x >> 3)
-    buf[idx] |= 1 << (x & 7)
+def _copy_buffer(src: bytearray, dst: bytearray) -> None:
+    """Copy one same-sized buffer into another."""
+    for i, value in enumerate(src):
+        dst[i] = value
+
+
+def _buffers_differ(left: bytearray, right: bytearray) -> bool:
+    """Return whether two same-sized buffers contain different bytes."""
+    return any(value != right[i] for i, value in enumerate(left))
+
+
+def _packed_mirrored_chip_byte(frame: PackedFrame, col_chip: int, y: int) -> int:
+    """Return one chip byte from a packed frame with horizontal mirroring."""
+    byte = 0
+    for bit in range(8):
+        nat_x = col_chip * 8 + bit
+        vx = _WIDTH - 1 - nat_x
+        if frame.data[(y * frame.stride) + (vx >> 3)] & (1 << (vx & 7)):
+            byte |= 1 << bit
+    return byte
+
+
+def _set_visual_pixel(buf: bytearray, x: int, y: int) -> None:
+    """Set one visual pixel in a chain-row buffer."""
+    panel = y // _PANEL_H
+    src_row = y % _PANEL_H
+    chip_row = (_PANEL_H - 1 - src_row) if _FLIP_Y else src_row
+    nat_x = (_WIDTH - 1 - x) if _MIRROR_X else x
+    col_chip = nat_x >> 3
+    chip = (panel * _CHIPS_PER_PANEL) + col_chip
+    pos = _NUM_CHIPS - 1 - chip
+    idx = (chip_row * _NUM_CHIPS) + pos
+    buf[idx] |= 1 << (nat_x & 7)
