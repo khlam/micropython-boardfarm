@@ -11,10 +11,16 @@ time between GPS bursts — neither bus blocks the other. A host FastAPI service
 fans the per-fix JSON lines out over a WebSocket and serves a live clock
 dashboard.
 
-The display uses two fixed 8-pixel rows:
+After the first GPS fix, the display cycles through four 16×32 screens, holding
+each completed screen for three minutes:
 
-- **Time** — compact 12-hour `HH:MM AM/PM` with a blinking colon.
-- **Date** — month-name date, for example `June 23`.
+- **Compact time/date** — `HH:MM` plus `AM/PM` alongside abbreviated month and day.
+- **Season** — the current meteorological season name.
+- **Time with seconds** — large centered `HH:MM:SS` plus `AM/PM`.
+- **Full date** — season plus `MMM DD YYYY`.
+
+Screen changes use one randomly selected transition per hop — wipe, scroll, or a
+low-intensity dithered fade — while the main loop keeps reading GPS sentences.
 
 Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
 packages remain board-agnostic and the firmware builds for RP2040, RP2350, and ESP32-S3.
@@ -55,18 +61,18 @@ docker compose up --build viz
 ```
 Open `http://localhost:18501`. The connection pill turns green when the serial
 port is open, and a second pill shows `FIX` / `NO FIX`. Once the GPS has a fix the
-panel mirrors the matrix — the local time and month-name date — alongside the
-detected longitude, derived UTC offset, and the age of the last fix. The
-dashboard auto-reconnects if you unplug and replug the board.
+panel shows the local timestamp alongside the detected longitude, derived UTC
+offset, and the age of the last fix. The dashboard auto-reconnects if you unplug
+and replug the board.
 
 ## Notes
 - The firmware skips any I²C scan — it opens the UART (GPS) and SPI (display)
   buses directly. The LED goes white (boot) → cyan (opening buses) → green
   (running); an init failure flashes magenta and retries from white.
-- The display shows `WAITING FOR GPS` (wiggled so the panel proves it is alive)
-  until the first checksum-valid RMC sentence carrying UTC time, date, and
-  longitude arrives. The longitude sets a fixed whole-hour offset
-  (`round(lon/15)`); there is no DST or timezone-boundary handling.
+- The display shows `GPS` / `WAIT` until the first checksum-valid RMC sentence
+  carrying UTC time, date, and longitude arrives. The longitude sets a fixed
+  whole-hour offset (`round(lon/15)`); there is no DST or timezone-boundary
+  handling.
 - Each fix emits one JSON line:
   `{"fix": true, "lon": <deg>, "offset_h": <int>, "local": "<ISO local time>", "day": "<weekday>", "t": <ms>}`.
   UART/parse faults emit `{"diag": "read_err"}` and briefly turn the LED red

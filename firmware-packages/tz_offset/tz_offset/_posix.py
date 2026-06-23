@@ -79,17 +79,19 @@ def _read_rule(s: str, i: int) -> tuple:
         month, i = _read_int(s, i + 1)
         week, i = _read_int(s, i + 1)  # i sits on '.', so i+1 skips it
         dow, i = _read_int(s, i + 1)
-        head = ("M", month, week, dow)
-    elif kind == "J":
+        time_s = _DEFAULT_TRANSITION_S
+        if i < len(s) and s[i] == "/":
+            time_s, i = _read_offset(s, i + 1)
+        return ("M", month, week, dow, time_s), i
+    if kind == "J":
         n, i = _read_int(s, i + 1)
-        head = ("J", n)
     else:
         n, i = _read_int(s, i)
-        head = ("O", n)
+        kind = "O"
     time_s = _DEFAULT_TRANSITION_S
     if i < len(s) and s[i] == "/":
         time_s, i = _read_offset(s, i + 1)
-    return (*head, time_s), i
+    return (kind, n, time_s), i
 
 
 def parse(tz: str) -> dict:
