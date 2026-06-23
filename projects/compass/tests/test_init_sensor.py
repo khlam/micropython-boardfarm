@@ -12,7 +12,7 @@ import pathlib
 from collections import namedtuple
 from typing import ClassVar
 
-from micropython_stubs.testing import firmware_namespace
+from micropython_stubs.testing import ScriptedFake, firmware_namespace
 from qmc5883p import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
@@ -22,16 +22,13 @@ _TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 ADDR = 0x2C
 
 
-class _FakeMag:
-    """QMC5883P stand-in: pops `script` per construction to raise or succeed."""
+class _FakeMag(ScriptedFake):
+    """QMC5883P stand-in (see ScriptedFake): records address + status on success."""
 
     script: ClassVar[list] = []
 
     def __init__(self, *, sda, scl, bus_id=0, address=ADDR) -> None:
-        if type(self).script:
-            outcome = type(self).script.pop(0)
-            if isinstance(outcome, Exception):
-                raise outcome
+        super().__init__()
         self.address = address
         self.last_status = 0
 

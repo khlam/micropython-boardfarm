@@ -57,7 +57,7 @@ docker compose up --build esp32-compile      # ESP32-S3 → ./outputs/app.esp32-
 docker compose run --rm --build esp32-flash  # ESP32-S3 → compiles then flashes $SERIAL_PORT (default /dev/ttyACM0)
 ```
 
-#### Run tests
+#### Run tests (run from the repo root — the `pytest` service lives in the root `docker-compose.yaml`, not the per-project ones)
 ```
 docker compose up pytest --build --exit-code-from pytest                                     # everything
 docker compose up pytest --build --exit-code-from pytest -- /projects/distance-stream/tests  # one project

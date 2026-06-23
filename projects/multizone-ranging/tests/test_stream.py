@@ -8,16 +8,11 @@ Drives stream() with a scripted fake VL53L5CX and asserts:
   5. The loop survives a double-fault in the inner stop/start recovery.
 """
 
-import io
-import json
 import os
 import pathlib
 from collections import namedtuple
-from contextlib import redirect_stdout
 
-import pytest
-
-from micropython_stubs.testing import firmware_namespace
+from micropython_stubs.testing import StopLoopError, firmware_namespace, run_stream
 from vl53l5cx import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
@@ -42,7 +37,7 @@ def _make_main_ns():
 def test_stream_no_emit_when_data_not_ready():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[False])
-    lines = _run_stream(main_ns, tof)
+    lines = run_stream(main_ns, tof)
     data_lines = [ln for ln in lines if "grid" in ln]
     assert data_lines == []
 
@@ -51,7 +46,7 @@ def test_stream_emits_grid_when_data_ready():
     main_ns = _make_main_ns()
     grid = list(range(64))
     tof = _FakeTof(script=[True], grids=[grid])
-    lines = _run_stream(main_ns, tof)
+    lines = run_stream(main_ns, tof)
     data_lines = [ln for ln in lines if "grid" in ln]
     assert len(data_lines) == 1
     assert data_lines[0]["grid"] == grid
@@ -60,7 +55,7 @@ def test_stream_emits_grid_when_data_ready():
 def test_stream_grid_has_t_field():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True], grids=[[0] * 64])
-    lines = _run_stream(main_ns, tof)
+    lines = run_stream(main_ns, tof)
     grid_lines = [ln for ln in lines if "grid" in ln]
     assert "t" in grid_lines[0]
 
@@ -68,28 +63,28 @@ def test_stream_grid_has_t_field():
 def test_stream_read_err_calls_status_read_err():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True], read_raises=OSError)
-    _run_stream(main_ns, tof)
+    run_stream(main_ns, tof)
     assert "read_err" in main_ns.status.calls
 
 
 def test_stream_runtime_err_calls_status_read_err():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True], read_raises=RuntimeError)
-    _run_stream(main_ns, tof)
+    run_stream(main_ns, tof)
     assert "read_err" in main_ns.status.calls
 
 
 def test_stream_read_err_calls_stop_then_start():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True], read_raises=OSError)
-    _run_stream(main_ns, tof)
+    run_stream(main_ns, tof)
     assert tof.calls == ["stop", "start"]
 
 
 def test_stream_inner_stop_raises_is_swallowed():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True, True], read_raises=OSError, stop_raises=OSError)
-    _run_stream(main_ns, tof)
+    run_stream(main_ns, tof)
     assert "read_err" in main_ns.status.calls
     assert tof.calls == ["stop", "stop"]
 
@@ -98,7 +93,7 @@ def test_stream_recovers_and_emits_after_error():
     main_ns = _make_main_ns()
     grid = [50] * 64
     tof = _FakeTof(script=[True, True], grids=[grid], read_raises_once=True)
-    lines = _run_stream(main_ns, tof)
+    lines = run_stream(main_ns, tof)
     grid_lines = [ln for ln in lines if "grid" in ln]
     assert len(grid_lines) == 1
     assert grid_lines[0]["grid"] == grid
@@ -107,21 +102,8 @@ def test_stream_recovers_and_emits_after_error():
 def test_stream_status_transitions():
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[True], read_raises=OSError)
-    _run_stream(main_ns, tof)
+    run_stream(main_ns, tof)
     assert main_ns.status.calls == ["streaming", "read_err", "streaming"]
-
-
-def _run_stream(main_ns, fake_tof):
-    """Drive stream() until the fake's script is exhausted; return parsed JSON lines."""
-    stream = main_ns.ns["stream"]
-    buf = io.StringIO()
-    with redirect_stdout(buf), pytest.raises(_StopLoopError):
-        stream(fake_tof)
-    return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
-
-
-class _StopLoopError(Exception):
-    """Sentinel: propagates out of stream() to end the test."""
 
 
 class _FakeTof:
@@ -146,7 +128,7 @@ class _FakeTof:
 
     def check_data_ready(self) -> bool:
         if not self._script:
-            raise _StopLoopError
+            raise StopLoopError
         return self._script.pop(0)
 
     def read(self) -> list:
@@ -156,7 +138,7 @@ class _FakeTof:
             self._first_read = False
             raise OSError("scripted first-read error")
         if not self._grids:
-            raise _StopLoopError
+            raise StopLoopError
         return self._grids.pop(0)
 
     def stop(self) -> None:

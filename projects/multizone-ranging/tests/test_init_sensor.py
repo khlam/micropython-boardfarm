@@ -12,7 +12,7 @@ import pathlib
 from collections import namedtuple
 from typing import ClassVar
 
-from micropython_stubs.testing import firmware_namespace
+from micropython_stubs.testing import ScriptedFake, firmware_namespace
 from vl53l5cx import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
@@ -21,16 +21,13 @@ Board = namedtuple("Board", ("name", "sda", "scl"))
 _TEST_BOARD = Board(name="RP2040-Zero", sda=0, scl=1)
 
 
-class _FakeVL53L5CX:
-    """VL53L5CX stand-in: pops `script` per construction, records init()/start()."""
+class _FakeVL53L5CX(ScriptedFake):
+    """VL53L5CX stand-in (see ScriptedFake): records init()/start() on success."""
 
     script: ClassVar[list] = []
 
     def __init__(self, *, sda, scl) -> None:
-        if type(self).script:
-            outcome = type(self).script.pop(0)
-            if isinstance(outcome, Exception):
-                raise outcome
+        super().__init__()
         self.addr = 0x29
         self._inited = False
         self._started = False

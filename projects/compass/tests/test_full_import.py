@@ -16,21 +16,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from micropython_stubs.testing import FakeStatus, FakeTime
+from micropython_stubs.testing import (
+    BOARD_CHIPS,
+    DeviceNotFoundError,
+    FakeStatus,
+    build_full_import_stubs,
+)
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 ADDR = 0x2C
 
-# (os.uname().machine string, expected BOARD.name) — exercises every per-chip
-# branch of main.py's BOARD table on a real import.
-_CHIPS = [
-    ("RP2040 with RP2040", "RP2040-Zero"),
-    ("RP2350 with RP2350", "RP2350"),
-    ("Generic ESP32S3 module with ESP32S3", "ESP32-S3-Zero"),
-]
 
-
-@pytest.mark.parametrize("machine_str,board_name", _CHIPS)
+@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
 def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
     fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
@@ -56,10 +53,6 @@ class _StopMainError(Exception):
     """Raised by the fake mag on the second read() to escape stream()."""
 
 
-class _DeviceNotFoundError(Exception):
-    """Stand-in for the driver's DeviceNotFoundError (never raised on the happy path)."""
-
-
 class _FakeMag:
     """Stub QMC5883P that opens its own bus; second read() raises to escape stream()."""
 
@@ -76,17 +69,8 @@ class _FakeMag:
 
 
 def _build_stubs(status_stub):
-    time_stub = FakeTime()
-    boot_status_led_stub = SimpleNamespace(status=status_stub)
     # main() now builds QMC5883P(id=, sda=, scl=) directly — the driver owns the
     # bus — so the project no longer imports i2c_bus; the qmc5883p stub exposes
     # the driver class and its DeviceNotFoundError.
-    qmc5883p_stub = SimpleNamespace(QMC5883P=_FakeMag, DeviceNotFoundError=_DeviceNotFoundError)
-
-    return {
-        "time": time_stub,
-        "ujson": __import__("json"),
-        "boot_status_led": boot_status_led_stub,
-        "boot_status_led.status": status_stub,
-        "qmc5883p": qmc5883p_stub,
-    }
+    qmc5883p_stub = SimpleNamespace(QMC5883P=_FakeMag, DeviceNotFoundError=DeviceNotFoundError)
+    return build_full_import_stubs("qmc5883p", qmc5883p_stub, status_stub)

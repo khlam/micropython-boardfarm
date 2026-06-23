@@ -18,21 +18,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from micropython_stubs.testing import FakeStatus, FakeTime
+from micropython_stubs.testing import (
+    BOARD_CHIPS,
+    DeviceNotFoundError,
+    FakeStatus,
+    build_full_import_stubs,
+)
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _TOF_ADDRESS = 0x29
 
-# (os.uname().machine string, expected BOARD.name) — exercises every per-chip
-# branch of main.py's BOARD table on a real import.
-_CHIPS = [
-    ("RP2040 with RP2040", "RP2040-Zero"),
-    ("RP2350 with RP2350", "RP2350"),
-    ("Generic ESP32S3 module with ESP32S3", "ESP32-S3-Zero"),
-]
 
-
-@pytest.mark.parametrize("machine_str,board_name", _CHIPS)
+@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
 def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, board_name):
     fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
@@ -56,10 +53,6 @@ def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, boa
 
 class _StopMainError(Exception):
     """Raised by the fake sensor on the second read() to escape stream()."""
-
-
-class _DeviceNotFoundError(Exception):
-    """Stand-in for the driver's DeviceNotFoundError (never raised on the happy path)."""
 
 
 class _FakeVL53L5CX:
@@ -87,19 +80,8 @@ class _FakeVL53L5CX:
 
 def _build_stubs(status_stub):
     """Build SimpleNamespace stubs matching main.py's module-level imports."""
-    time_stub = FakeTime()
-    boot_status_led_stub = SimpleNamespace(status=status_stub)
     # main() builds VL53L5CX(sda=, scl=) directly — the driver owns the bus and
     # scan — so the project no longer imports i2c_bus; the vl53l5cx stub exposes
     # the driver class and its DeviceNotFoundError.
-    vl53l5cx_stub = SimpleNamespace(
-        VL53L5CX=_FakeVL53L5CX, DeviceNotFoundError=_DeviceNotFoundError
-    )
-
-    return {
-        "time": time_stub,
-        "ujson": __import__("json"),
-        "boot_status_led": boot_status_led_stub,
-        "boot_status_led.status": status_stub,
-        "vl53l5cx": vl53l5cx_stub,
-    }
+    vl53l5cx_stub = SimpleNamespace(VL53L5CX=_FakeVL53L5CX, DeviceNotFoundError=DeviceNotFoundError)
+    return build_full_import_stubs("vl53l5cx", vl53l5cx_stub, status_stub)
