@@ -162,14 +162,16 @@ class UART:
         tx: object = None,
         rx: object = None,
         timeout: int = 0,
+        timeout_char: int = 0,
         **_kwargs: object,
     ) -> None:
-        """Record the positional bus id and the tx/rx/baudrate/timeout kwargs."""
+        """Record the positional bus id and UART timing kwargs."""
         self.id = id
         self.baudrate = baudrate
         self.tx = tx
         self.rx = rx
         self.timeout = timeout
+        self.timeout_char = timeout_char
 
     def readline(self) -> bytes | None:
         """Return the next queued byte line, or None when the queue is empty."""

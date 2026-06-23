@@ -49,3 +49,10 @@ def test_gps_readline_streams_after_probe():
     gps = _make_gps([_GPRMC, _GPGGA])
     assert gps.readline().startswith("$GPGGA")
     assert gps.readline() is None
+
+
+def test_gps_uses_nonblocking_uart_reads():
+    """GPS reads do not stall cooperative display refresh loops."""
+    gps = _make_gps([_GPRMC])
+    assert gps._uart.timeout == 0
+    assert gps._uart.timeout_char == 10

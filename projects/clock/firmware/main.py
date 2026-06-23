@@ -18,7 +18,7 @@ from boot_status_led import status
 from max7219 import MAX7219
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
 from pixel_display import Frame
-from tz_offset import local_from_gps, offset_seconds_from_gps
+from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
 DisplayWiring = namedtuple(
@@ -488,8 +488,51 @@ def _iso_local(local: tuple) -> str:
 
 
 def _rtc_datetime(local: tuple) -> tuple:
-    """Convert ``tz_offset.local_from_gps`` output into an RTC datetime tuple."""
+    """Convert local clock fields into an RTC datetime tuple."""
     return local[:4] + local[4:7] + (0,)
+
+
+def _parse_utc_parts(date_str: str, utc_str: str) -> tuple:
+    """Split GPS date and UTC strings into integer date/time fields."""
+    return (
+        int(date_str[0:4]),
+        int(date_str[5:7]),
+        int(date_str[8:10]),
+        int(utc_str[0:2]),
+        int(utc_str[3:5]),
+        int(utc_str[6:8]),
+    )
+
+
+def _local_from_offset(date_str: str, utc_str: str, offset_s: int) -> tuple:
+    """Convert a GPS UTC timestamp to an RTC-ready local tuple with a cached offset."""
+    year, month, day, hour, minute, second = _parse_utc_parts(date_str, utc_str)
+    local_year, local_month, local_day, local_hour, local_minute, local_second = (
+        utc_to_local_seconds(year, month, day, hour, minute, second, offset_s)
+    )
+    return (
+        local_year,
+        local_month,
+        local_day,
+        weekday(local_year, local_month, local_day),
+        local_hour,
+        local_minute,
+        local_second,
+    )
+
+
+def _gps_offset(date_str: str, utc_str: str, state: dict) -> tuple:
+    """Return the startup timezone offset, computing it from the first fix."""
+    if state.get("offset_s") is None:
+        offset_s, tz_abbrev = offset_seconds_from_gps(
+            date_str,
+            utc_str,
+            state["lat"],
+            state["lon"],
+        )
+        state["offset_s"] = offset_s
+        state["tz_abbrev"] = tz_abbrev
+    return state["offset_s"], state.get("tz_abbrev")
 
 
 def _format_time_parts(hour: int, minute: int) -> tuple:
@@ -1124,13 +1167,9 @@ def _sync_from_line(line: str | None, rtc: object, state: dict) -> None:
         or state.get("lon") is None
     ):
         return
-    local = local_from_gps(cached_date, utc_time, state["lat"], state["lon"])
-    offset_s, tz_abbrev = offset_seconds_from_gps(
-        cached_date,
-        utc_time,
-        state["lat"],
-        state["lon"],
-    )
+    now = time.ticks_ms()
+    offset_s, tz_abbrev = _gps_offset(cached_date, utc_time, state)
+    local = _local_from_offset(cached_date, utc_time, offset_s)
     rtc.datetime(_rtc_datetime(local))
     state["synced"] = True
     emit(
@@ -1143,7 +1182,7 @@ def _sync_from_line(line: str | None, rtc: object, state: dict) -> None:
             "tz": tz_abbrev,
             "local": _iso_local(local),
             "day": _DAYS[local[3]],
-            "t": time.ticks_ms(),
+            "t": now,
         }
     )
 

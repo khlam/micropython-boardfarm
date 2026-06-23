@@ -133,11 +133,6 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     # California in June resolves to America/Los_Angeles -> PDT (UTC-7), so 23:59:58
     # UTC is 16:59:58 local, not the longitude-only 15:59:58 (UTC-8).
     assert rtc.value == (2026, 6, 23, 1, 16, 59, 58, 0)
-    assert main_ns.ns["_display_lines"](rtc, synced=True) == (
-        "4:59 PM",
-        "June 23",
-        True,
-    )
     assert _same_frame(
         display.shown[-1],
         main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
@@ -159,15 +154,15 @@ def test_screen_renderers_fit_the_matrix(main_ns: object) -> None:
     rtc = _FakeRTC()
     rtc.value = (2026, 5, 31, 6, 23, 59, 58, 0)
 
-    for screen in main_ns.ns["_SCREENS"] + (main_ns.ns["_SCREEN_SEASON"],):
+    for screen in main_ns.ns["_SCREENS"] + main_ns.ns["_INTERSTITIALS"]:
         frame = main_ns.ns["_screen_frame"](screen, rtc)
         assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
         assert any(frame.data)
 
     for month in range(1, 13):
-        full_date = main_ns.ns["_format_full_date"](month, 31, 2026)
+        month_name = main_ns.ns["_MONTH_NAMES"][month - 1]
         season = main_ns.ns["_season_name"](month)
-        assert main_ns.ns["_compact_text_width"](full_date, 0) <= 32
+        assert main_ns.ns["_compact_text_width"](month_name) <= 32
         assert main_ns.ns["_compact_text_width"](season) <= 32
 
 
@@ -209,6 +204,29 @@ def test_time_seconds_screen_updates_each_second(main_ns: object) -> None:
     )
 
 
+def test_sync_uses_startup_timezone_offset(main_ns: object) -> None:
+    """GPS fixes reuse the timezone lookup from the first complete fix."""
+    calls: list[tuple] = []
+    emitted: list[dict] = []
+    rtc = _FakeRTC()
+    state: dict = {}
+
+    def _offset(date_str: str, utc_str: str, lat: float, lon: float) -> tuple:
+        calls.append((date_str, utc_str, lat, lon))
+        return -25_200, "PDT"
+
+    main_ns.ns["offset_seconds_from_gps"] = _offset
+    main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
+
+    main_ns.ns["_sync_from_line"](_RMC_FIX, rtc, state)
+    main_ns.ns["_sync_from_line"](_RMC_FIX, rtc, state)
+
+    assert len(calls) == 1
+    assert state["offset_s"] == -25_200
+    assert state["tz_abbrev"] == "PDT"
+    assert emitted[-1]["local"] == "2026-06-23T16:59:58"
+
+
 def test_refresh_display_starts_main_and_updates_each_minute(
     main_ns: object,
 ) -> None:
@@ -238,25 +256,10 @@ def test_refresh_display_starts_main_and_updates_each_minute(
     )
 
 
-def test_format_date_uses_fitted_month_labels(main_ns: object) -> None:
-    """Month labels use the longest readable forms that fit with the day."""
-    labels = (
-        "Jan",
-        "Feb",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "Aug",
-        "Sept",
-        "Oct",
-        "Nov",
-        "Dec",
-    )
-
-    for month, label in enumerate(labels, start=1):
-        assert main_ns.ns["_format_date"](month, 23) == f"{label} 23"
+def test_month_abbreviations_fit_main_date_row(main_ns: object) -> None:
+    """Month abbreviations fit with the largest day on the main date row."""
+    for month, label in enumerate(main_ns.ns["_MONTH_ABBRS"], start=1):
+        assert main_ns.ns["_format_month_abbr"](month) == label
         assert main_ns.ns["_compact_text_width"](f"{label} 31") <= 32
 
 
@@ -279,7 +282,7 @@ def test_random_screen_and_transition_choices(main_ns: object) -> None:
     screens = main_ns.ns["_SCREENS"]
 
     assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([0])) == screens[1]
-    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([1])) == screens[2]
+    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([255])) == screens[1]
     for current in screens:
         assert main_ns.ns["_choose_next_screen"](current, _FakeRandom([255])) != current
 

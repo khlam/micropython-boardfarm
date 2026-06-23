@@ -20,7 +20,7 @@ import pytest
 from micropython_stubs.testing import firmware_namespace
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
 from pixel_display import Frame
-from tz_offset import local_from_gps, offset_seconds_from_gps
+from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
 DisplayWiring = namedtuple(
@@ -58,14 +58,13 @@ _KEEP_FUNCS = {
     "emit",
     "_iso_local",
     "_rtc_datetime",
-    "_format_time",
+    "_parse_utc_parts",
+    "_local_from_offset",
+    "_gps_offset",
     "_format_time_parts",
     "_format_time_seconds",
-    "_format_date",
     "_format_month_abbr",
-    "_format_full_date",
     "_season_name",
-    "_display_lines",
     "_compact_glyph",
     "_compact_text_width",
     "_draw_compact_glyph",
@@ -135,6 +134,7 @@ def main_ns() -> SimpleNamespace:
         parse_sentence=parse_sentence,
         Frame=Frame,
         random=random,
-        local_from_gps=local_from_gps,
         offset_seconds_from_gps=offset_seconds_from_gps,
+        utc_to_local_seconds=utc_to_local_seconds,
+        weekday=weekday,
     )

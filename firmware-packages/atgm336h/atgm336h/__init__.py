@@ -7,7 +7,7 @@ if no bytes arrive within ``probe_ms`` it raises ``DeviceNotFoundError``.
 Example:
     from atgm336h import GPS, DeviceNotFoundError
     gps = GPS(bus_id=0, tx=0, rx=1)   # UART opened + probed here
-    line = gps.readline()          # "$GPRMC,..." or None on timeout
+    line = gps.readline()          # "$GPRMC,..." or None when no line is ready
 """
 
 import utime
@@ -18,6 +18,7 @@ __all__ = ["GPS", "DeviceNotFoundError"]
 # ~2 s reliably catches a wired module while staying short on a dead line.
 _PROBE_MS = 2_000
 _PROBE_POLL_MS = 10
+_LINE_CHAR_TIMEOUT_MS = 10
 
 
 class DeviceNotFoundError(Exception):
@@ -43,7 +44,14 @@ class GPS:
         """
         from machine import UART, Pin  # noqa: PLC0415
 
-        self._uart = UART(bus_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=100)
+        self._uart = UART(
+            bus_id,
+            baudrate=9600,
+            tx=Pin(tx),
+            rx=Pin(rx),
+            timeout=0,
+            timeout_char=_LINE_CHAR_TIMEOUT_MS,
+        )
         self._probe(probe_ms)
 
     def _probe(self, probe_ms: int) -> None:
@@ -59,9 +67,9 @@ class GPS:
         """Read one NMEA sentence from UART.
 
         Returns:
-            The decoded sentence string (e.g. ``"$GPRMC,..."``), or ``None``
-            when the UART timeout fires before a newline arrives or when the
-            bytes cannot be decoded as ASCII or do not start with ``$``.
+            The decoded sentence string (e.g. ``"$GPRMC,..."``), or ``None`` when
+            no complete line is ready, the bytes cannot be decoded as ASCII, or
+            the decoded line does not start with ``$``.
         """
         raw = self._uart.readline()
         if raw is None:
