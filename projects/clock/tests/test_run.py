@@ -126,6 +126,36 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     assert emitted[0]["t"] == 1
 
 
+def test_refresh_display_blinks_colon_without_reflow(main_ns: object) -> None:
+    """Blinking blanks colon pixels in place instead of changing text width."""
+    display = _FakeDisplay()
+    rtc = _FakeRTC()
+    state = {"synced": True}
+    rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
+
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
+    main_ns.ns["_refresh_display"](display, rtc, state)
+
+    visible = display.shown[0]
+    hidden = display.shown[1]
+    space_frame = Frame.text_lines(("15 59", "6/23"))
+    assert _same_frame(visible, Frame.text_lines(("15:59", "6/23")))
+    assert not _same_frame(hidden, space_frame)
+    assert (hidden.width, hidden.height, hidden.channels) == (
+        visible.width,
+        visible.height,
+        visible.channels,
+    )
+    diffs = [
+        index
+        for index, (shown, blanked) in enumerate(zip(visible.data, hidden.data, strict=True))
+        if shown != blanked
+    ]
+    assert diffs
+    assert all(visible.data[index] > 0 and hidden.data[index] == 0 for index in diffs)
+
+
 def test_run_reports_read_errors_and_keeps_loop_alive(main_ns: object) -> None:
     """UART/parser exceptions emit a diagnostic and use the read-error LED state."""
     main_ns.ns["time"] = _CountdownTime(stop_after=1)

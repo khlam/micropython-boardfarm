@@ -123,33 +123,71 @@ def _rtc_datetime(local: tuple) -> tuple:
 
 
 def _display_lines(rtc: object, *, synced: bool) -> tuple:
-    """Return the two matrix lines for the current clock state."""
+    """Return matrix text and colon visibility for the current clock state."""
     if not synced:
-        return _WAIT_TOP, _WAIT_BOT
+        return _WAIT_TOP, _WAIT_BOT, True
     _year, month, day, _weekday, hour, minute, second, _subsecond = rtc.datetime()
-    separator = ":" if second % 2 == 0 else " "
-    return f"{hour:02d}{separator}{minute:02d}", f"{month}/{day}"
+    return f"{hour:02d}:{minute:02d}", f"{month}/{day}", second % 2 == 0
 
 
-def _show(display: object, state: dict, top: str, bottom: str) -> None:
+def _text_width(text: str) -> int:
+    """Return compact text width without treating empty text as one blank column."""
+    if not text:
+        return 0
+    return Frame.text(text).width
+
+
+def _hide_first_colon(frame: object, top: str) -> None:
+    """Blank the first colon in the top line while preserving frame geometry."""
+    colon = top.find(":")
+    if colon < 0:
+        return
+    top_width = _text_width(top)
+    x0 = (frame.width - top_width) // 2
+    start = x0 + _text_width(top[:colon])
+    end = x0 + _text_width(top[: colon + 1])
+    height = Frame.text(":").height
+    for y in range(height):
+        for x in range(start, end):
+            pos = (y * frame.width + x) * frame.channels
+            for channel in range(frame.channels):
+                frame.data[pos + channel] = 0
+
+
+def _display_frame(top: str, bottom: str, *, colon_visible: bool) -> object:
+    """Render display text, optionally hiding the clock colon in place."""
+    frame = Frame.text_lines((top, bottom))
+    if not colon_visible:
+        _hide_first_colon(frame, top)
+    return frame
+
+
+def _show(
+    display: object,
+    state: dict,
+    top: str,
+    bottom: str,
+    *,
+    colon_visible: bool,
+) -> None:
     """Refresh the display only when text changes; otherwise periodically heal it."""
-    lines = (top, bottom)
+    lines = (top, bottom, colon_visible)
     now = time.ticks_ms()
     if state.get("shown") != lines:
-        display.show(Frame.text_lines(lines))
+        display.show(_display_frame(top, bottom, colon_visible=colon_visible))
         state["shown"] = lines
         state["last_reassert_ms"] = now
         return
     last_reassert = state.get("last_reassert_ms")
     if last_reassert is None or time.ticks_diff(now, last_reassert) >= _REASSERT_MS:
-        display.show(Frame.text_lines(lines))
+        display.show(_display_frame(top, bottom, colon_visible=colon_visible))
         state["last_reassert_ms"] = now
 
 
 def _refresh_display(display: object, rtc: object, state: dict) -> None:
     """Render waiting text or the current RTC-backed local time/date."""
-    top, bottom = _display_lines(rtc, synced=bool(state.get("synced")))
-    _show(display, state, top, bottom)
+    top, bottom, colon_visible = _display_lines(rtc, synced=bool(state.get("synced")))
+    _show(display, state, top, bottom, colon_visible=colon_visible)
 
 
 def _sync_from_line(line: str | None, rtc: object, state: dict) -> None:
