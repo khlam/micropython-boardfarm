@@ -433,6 +433,20 @@ _MONTH_ABBRS = (
     "NOV",
     "DEC",
 )
+_MONTH_NAMES = (
+    "JANUARY",
+    "FEBRUARY",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUGUST",
+    "SEPTEMBER",
+    "OCTOBER",
+    "NOVEMBER",
+    "DECEMBER",
+)
 _DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 _SEASON_WINTER = "WINTER"
 _SEASONS = (
@@ -456,6 +470,9 @@ _SCREEN_FULL_DATE = 3
 _SCREENS = (
     _SCREEN_COMPRESSED,
     _SCREEN_TIME_SECONDS,
+)
+_INTERSTITIALS = (
+    _SCREEN_SEASON,
     _SCREEN_FULL_DATE,
 )
 _TRANSITION_WIPE = 0
@@ -520,9 +537,9 @@ def _format_month_abbr(month: int) -> str:
     return _MONTH_ABBRS[month - 1]
 
 
-def _format_full_date(month: int, day: int, year: int) -> str:
-    """Format the compact full-date screen's lower row."""
-    return f"{_format_month_abbr(month)} {day:02d} {year:04d}"
+def _format_month_name(month: int) -> str:
+    """Return the full month name for the date interstitial."""
+    return _MONTH_NAMES[month - 1]
 
 
 def _season_name(month: int) -> str:
@@ -657,15 +674,23 @@ def _compressed_screen_frame(parts: tuple) -> object:
     clock, meridiem = _format_time_parts(hour, minute)
     frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
     _draw_compact_text_in_box(frame, clock, 0, 0, 18, 8, gap_pixels=0)
-    _draw_compact_text_in_box(frame, meridiem, 0, 8, 18, 8, y_offset=1)
     _draw_compact_text_in_box(
         frame,
-        _format_month_abbr(month),
+        meridiem,
         20,
         0,
         12,
         8,
+    )
+    _draw_compact_text_in_box(
+        frame,
+        _format_month_abbr(month),
+        0,
+        8,
+        18,
+        8,
         gap_pixels=0,
+        y_offset=1,
     )
     _draw_compact_text_in_box(frame, f"{day:02d}", 20, 8, 12, 8, y_offset=1)
     return frame
@@ -712,25 +737,25 @@ def _time_seconds_screen_frame(parts: tuple) -> object:
 
 
 def _full_date_screen_frame(parts: tuple) -> object:
-    """Render season plus compact month, day, and year."""
-    year, month, day, _weekday, _hour, _minute, _second = parts
+    """Render full month name above the four-digit year."""
+    year, month, _day, _weekday, _hour, _minute, _second = parts
     frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
     _draw_compact_text_in_box(
         frame,
-        _season_name(month),
+        _format_month_name(month),
         0,
         0,
-        _DISPLAY_WIDTH_PIXELS,
-        8,
-    )
-    _draw_compact_text_in_box(
-        frame,
-        _format_full_date(month, day, year),
-        0,
-        8,
         _DISPLAY_WIDTH_PIXELS,
         8,
         gap_pixels=0,
+    )
+    _draw_compact_text_in_box(
+        frame,
+        f"{year:04d}",
+        0,
+        8,
+        _DISPLAY_WIDTH_PIXELS,
+        8,
         y_offset=1,
     )
     return frame
@@ -756,7 +781,7 @@ def _screen_key(screen: int, rtc: object) -> tuple:
     if screen == _SCREEN_TIME_SECONDS:
         return screen, hour, minute, second
     if screen == _SCREEN_FULL_DATE:
-        return screen, year, month, day
+        return screen, year, month
     return screen, year, month, day, hour, minute
 
 
@@ -1009,19 +1034,29 @@ def _start_screen_cycle(display: object, rtc: object, state: dict, now: int) -> 
     state["transition"] = None
 
 
+def _is_interstitial(screen: int) -> bool:
+    """Return whether ``screen`` is a brief interstitial rather than a regular screen."""
+    return screen in (_SCREEN_SEASON, _SCREEN_FULL_DATE)
+
+
+def _choose_interstitial(rng: object | None = None) -> int:
+    """Choose one interstitial screen at random."""
+    return _INTERSTITIALS[_randbelow(len(_INTERSTITIALS), rng)]
+
+
 def _start_transition(rtc: object, state: dict) -> None:
     """Create transition state for the next screen and effect.
 
-    Regular screens transition to the season interstitial; the season
-    screen transitions to a random regular screen.
+    Regular screens transition to a random interstitial; interstitial
+    screens transition to a random regular screen.
     """
     current = state.get("screen", _SCREEN_COMPRESSED)
-    if current == _SCREEN_SEASON:
+    if _is_interstitial(current):
         prev_regular = state.get("prev_regular", _SCREEN_COMPRESSED)
         next_screen = _choose_next_screen(prev_regular)
     else:
         state["prev_regular"] = current
-        next_screen = _SCREEN_SEASON
+        next_screen = _choose_interstitial()
     target = _screen_frame(next_screen, rtc)
     source = state.get("screen_frame")
     if source is None:
@@ -1091,7 +1126,11 @@ def _refresh_display(display: object, rtc: object, state: dict) -> None:
         _advance_transition(display, state, now)
         return
     started = state.get("screen_started_ms", now)
-    hold_ms = _SEASON_HOLD_MS if state.get("screen") == _SCREEN_SEASON else _SCREEN_HOLD_MS
+    hold_ms = (
+        _SEASON_HOLD_MS
+        if _is_interstitial(state.get("screen", _SCREEN_COMPRESSED))
+        else _SCREEN_HOLD_MS
+    )
     if time.ticks_diff(now, started) >= hold_ms:
         _start_transition(rtc, state)
         _advance_transition(display, state, now)
