@@ -5,9 +5,7 @@ Used by the pre-commit hook as an additional argument to vulture.
 
 # pytest fixtures: pytest discovers and applies these by name; the test
 # function parameter is how it requests the fixture.
-chip  # noqa: F821
 monkeypatch  # noqa: F821
-fake_tof  # noqa: F821
 
 # machine.Pin mirrors MicroPython's real signature so client code that
 # passes extra positional/keyword args works under the stub too.

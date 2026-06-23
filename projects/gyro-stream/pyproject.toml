@@ -1,6 +1,6 @@
 [project]
 name = "gyro-stream"
-version = "0.3.0"
+version = "0.4.0"
 description = "MPU6050 accel/gyro/temp → JSON-over-USB-CDC → FastAPI/WebSocket → Plotly + 3D orientation dashboard."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,6 +14,4 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-boot_status_led = { index = "internal" }
-i2c_bus = { index = "internal" }
-mpu6050 = { index = "internal" }
+micropython-boardfarm = { workspace = true }

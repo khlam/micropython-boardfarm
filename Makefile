@@ -1,7 +1,13 @@
 SHELL := /bin/bash
 
-.PHONY: init precommit remove-ci
-init:
+LINT_IMAGES := local/ruff:latest local/pydoclint:latest local/typecheck:latest
+
+.PHONY: init build-linters precommit remove-ci
+
+build-linters:
+	@docker buildx bake -f docker-bake.hcl ruff pydoclint typecheck
+
+init: build-linters
 	@set -euo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel 2>/dev/null || true)"; \
 	if [[ -z "$$repo_root" ]]; then \
@@ -20,24 +26,31 @@ init:
 	touch "$$initialized_marker"; \
 	echo "pre-commit hook ready (core.hooksPath=$$hooks_dir)."
 
-# Self-contained pre-commit: the full local check, depending only on docker and
-# git. It does not source any project script. Two phases, mirroring the old
-# hook: (1) auto-fix staged Python in place (ruff format, ruff check --fix) and
+# Self-contained pre-commit: depends only on docker and git. Two phases:
+# (1) auto-fix staged Python in place (ruff format, ruff check --fix) and
 # re-stage; (2) verify ruff + pydoclint + ty on staged Python. Heavier global
 # gates (the version-bump guard, vendored-file enforcement, vulture, and the
-# repo-wide hadolint / yamllint sweep) stay in CI. Linter images
-# reuse the same tags CI builds, so a clean checkout pays the build once.
+# repo-wide hadolint / yamllint sweep) stay in CI.
+#
+# Images must already exist (built by `make init` or `make build-linters`).
+# No builds happen in this path — it is pure docker-run.
 precommit:
 	@set -uo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel)"; \
 	cd "$$repo_root"; \
-	bake_file="docker-bake.hcl"; \
 	image_ruff="local/ruff:latest"; \
 	image_pydoclint="local/pydoclint:latest"; \
 	image_typecheck="local/typecheck:latest"; \
+	missing=0; \
+	for img in $$image_ruff $$image_pydoclint $$image_typecheck; do \
+		if ! docker image inspect "$$img" >/dev/null 2>&1; then \
+			echo "error: image $$img not found. Run 'make init' first." >&2; \
+			missing=1; \
+		fi; \
+	done; \
+	if (( missing )); then exit 1; fi; \
 	mapfile -d '' -t py_files < <(git diff --cached --name-only --diff-filter=ACMR -z | grep -zE '[.]py$$' || true); \
 	if (( $${#py_files[@]} > 0 )); then \
-		docker buildx bake -f "$$bake_file" ruff pydoclint typecheck; \
 		echo "[pre-commit] ruff format (auto-fix) on staged files"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_ruff" format -- "$${py_files[@]}" || exit 1; \
 		git add -- "$${py_files[@]}"; \

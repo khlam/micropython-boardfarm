@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "atgm336h"
-version = "0.1.0"
+version = "0.2.0"
 description = "MicroPython UART NMEA reader for the ATGM336H GPS module, with chip-specific backends."
 requires-python = ">=3.12"
 

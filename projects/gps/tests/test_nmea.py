@@ -5,8 +5,15 @@ All tests import nmea directly — no AST loading, no fake hardware.
 
 from __future__ import annotations
 
-import nmea
-import pytest
+import pathlib
+import sys
+
+_FIRMWARE_DIR = str(pathlib.Path(__file__).parent.parent / "firmware")
+if _FIRMWARE_DIR not in sys.path:
+    sys.path.insert(0, _FIRMWARE_DIR)
+
+import nmea  # noqa: E402
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Shared sentence fixtures

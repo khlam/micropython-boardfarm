@@ -5,6 +5,7 @@ Sets LED colour for different firmware states.
 Public API:
     status.boot()       # white  — firmware running, before I/O
     status.i2c_init()   # cyan   — I²C bus configured, scanning for device(s)
+    status.uart_init()  # blue   — UART bus configured, scanning for device(s)
     status.no_device()  # orange — bus reachable, device(s) not present
     status.init_err()   # magenta — device(s) ACKed but driver init raised
     status.streaming()  # green  — device(s) live, samples flowing
@@ -30,6 +31,7 @@ else:
 # RP2350 backend treats anything that isn't pure green as "off"
 BOOT = (255, 255, 255)
 I2C_INIT = (0, 255, 255)
+UART_INIT = (0, 0, 255)
 NO_DEVICE = (255, 128, 0)
 INIT_ERR = (255, 0, 255)
 STREAMING = (0, 255, 0)
@@ -44,6 +46,11 @@ def boot() -> None:
 def i2c_init() -> None:
     """Signal I²C bus configured, scanning for sensor (cyan)."""
     _show(I2C_INIT)
+
+
+def uart_init() -> None:
+    """Signal UART bus configured, scanning for sensor (blue)."""
+    _show(UART_INIT)
 
 
 def no_device() -> None:

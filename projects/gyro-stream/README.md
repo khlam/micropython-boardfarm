@@ -65,6 +65,9 @@ auto-reconnects if you unplug and replug the board.
 
 ## Wiring
 
+> The authoritative pin map is the `BOARD` table in [firmware/main.py](firmware/main.py);
+> the per-board diagrams below mirror it.
+
 ### MPU6050 IMU
 
 ```

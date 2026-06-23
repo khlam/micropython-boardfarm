@@ -1,19 +1,11 @@
-"""Host CPython stub of the `machine` module used by host pytest.
-
-Records Pin construction and routes I2C / SoftI2C reads + writes to fake
-devices registered at the matching address. Union of the per-package stubs
-previously kept under each `packages/<pkg>/stubs/` directory — exactly one
-copy now lives here so every test in the session sees the same module.
-
-Test state (`pin_constructions`, `_devices`) is module-level; tests reset
-it between cases by calling `reset()` from an autouse fixture.
-"""
+"""Host CPython stub of MicroPython's `machine` module."""
 
 from __future__ import annotations
 
-# Test state. Cleared by tests' autouse fixtures via reset().
+# Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
+_uart_lines: list[bytes] = []
 
 
 def register_device(address: int, device: object) -> None:
@@ -21,10 +13,16 @@ def register_device(address: int, device: object) -> None:
     _devices[address] = device
 
 
+def feed_uart(lines: list[bytes]) -> None:
+    """Queue byte lines for UART.readline() to return in order (FIFO)."""
+    _uart_lines.extend(lines)
+
+
 def reset() -> None:
-    """Clear recorded pin constructions and the device registry."""
+    """Clear recorded pin constructions, the device registry, and UART queue."""
     pin_constructions.clear()
     _devices.clear()
+    _uart_lines.clear()
 
 
 class Pin:
@@ -54,12 +52,7 @@ class Pin:
 
 
 class _I2CBase:
-    """Common fake I2C / SoftI2C — records bus id (positional) + sda/scl + freq.
-
-    `I2C(0, sda=..., scl=...)` (hardware peripheral style, used by i2c_bus)
-    and `I2C(sda=..., scl=...)` (kwarg-only style, used by other packages)
-    both work.
-    """
+    """Common fake I2C / SoftI2C implementation."""
 
     def __init__(
         self,
@@ -69,7 +62,7 @@ class _I2CBase:
         freq: int = 100_000,
         **_kwargs: object,
     ) -> None:
-        """Record positional bus id (if any) and sda/scl/freq."""
+        """Record bus id, pins, and frequency."""
         self.id = args[0] if args else None
         self.sda = sda
         self.scl = scl
@@ -79,14 +72,18 @@ class _I2CBase:
         """Return registered device addresses in ascending order."""
         return sorted(_devices.keys())
 
-    def readfrom_mem(self, addr: int, reg: int, nbytes: int) -> bytes:
-        """Read `nbytes` from `addr`/`reg`; raises OSError when unregistered."""
+    def readfrom_mem(self, addr: int, reg: int, nbytes: int, **_kwargs: object) -> bytes:
+        """Read `nbytes` from `addr`/`reg`; raises OSError when unregistered.
+
+        `addrsize` is accepted and ignored; the fake register file is keyed by
+        `reg` as-is.
+        """
         dev = _devices.get(addr)
         if dev is None:
             raise OSError("ENODEV")
         return dev.read(reg, nbytes)
 
-    def readfrom_mem_into(self, addr: int, reg: int, buf: bytearray) -> None:
+    def readfrom_mem_into(self, addr: int, reg: int, buf: bytearray, **_kwargs: object) -> None:
         """Read `len(buf)` from `addr`/`reg` into `buf` in place."""
         dev = _devices.get(addr)
         if dev is None:
@@ -95,7 +92,7 @@ class _I2CBase:
         for i, b in enumerate(data):
             buf[i] = b
 
-    def writeto_mem(self, addr: int, reg: int, buf: bytes) -> None:
+    def writeto_mem(self, addr: int, reg: int, buf: bytes, **_kwargs: object) -> None:
         """Write `buf` to `addr`/`reg`; raises OSError when unregistered."""
         dev = _devices.get(addr)
         if dev is None:
@@ -109,3 +106,28 @@ class I2C(_I2CBase):
 
 class SoftI2C(_I2CBase):
     """Fake `machine.SoftI2C` (bit-banged)."""
+
+
+class UART:
+    """Fake `machine.UART` backed by a queued byte-line reader."""
+
+    def __init__(
+        self,
+        id: int | None = None,  # noqa: A002
+        *_args: object,
+        baudrate: int = 9600,
+        tx: object = None,
+        rx: object = None,
+        timeout: int = 0,
+        **_kwargs: object,
+    ) -> None:
+        """Record the positional bus id and the tx/rx/baudrate/timeout kwargs."""
+        self.id = id
+        self.baudrate = baudrate
+        self.tx = tx
+        self.rx = rx
+        self.timeout = timeout
+
+    def readline(self) -> bytes | None:
+        """Return the next queued byte line, or None when the queue is empty."""
+        return _uart_lines.pop(0) if _uart_lines else None
