@@ -37,7 +37,7 @@ Board = namedtuple("Board", ("name", "uart", "display"))
 
 _DISPLAY_WIDTH_PIXELS = 32
 _DISPLAY_HEIGHT_PIXELS = 16
-_DISPLAY_INTENSITY_LIMIT = 0.2
+_DISPLAY_INTENSITY_LIMIT = 0.1
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -405,30 +405,16 @@ _COMPACT_GLYPHS = {
         "010",
     ),
 }
-_MONTHS = (
-    "Jan",
-    "Feb",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "Aug",
-    "Sept",
-    "Oct",
-    "Nov",
-    "Dec",
-)
 _MONTH_ABBRS = (
     "JAN",
     "FEB",
-    "MAR",
-    "APR",
+    "MARCH",
+    "APRIL",
     "MAY",
-    "JUN",
-    "JUL",
+    "JUNE",
+    "JULY",
     "AUG",
-    "SEP",
+    "SEPT",
     "OCT",
     "NOV",
     "DEC",
@@ -463,12 +449,12 @@ _SEASONS = (
     "AUTUMN",
     _SEASON_WINTER,
 )
-_SCREEN_COMPRESSED = 0
+_SCREEN_MAIN = 0
 _SCREEN_SEASON = 1
 _SCREEN_TIME_SECONDS = 2
 _SCREEN_FULL_DATE = 3
 _SCREENS = (
-    _SCREEN_COMPRESSED,
+    _SCREEN_MAIN,
     _SCREEN_TIME_SECONDS,
 )
 _INTERSTITIALS = (
@@ -506,19 +492,13 @@ def _rtc_datetime(local: tuple) -> tuple:
     return local[:4] + local[4:7] + (0,)
 
 
-def _format_time(hour: int, minute: int) -> str:
-    """Format a 24-hour clock value as compact 12-hour time plus meridiem."""
-    clock, meridiem = _format_time_parts(hour, minute)
-    return f"{clock} {meridiem}"
-
-
 def _format_time_parts(hour: int, minute: int) -> tuple:
     """Return a 12-hour clock string and meridiem label."""
     display_hour = hour % 12
     if display_hour == 0:
         display_hour = 12
     meridiem = "AM" if hour < 12 else "PM"
-    return f"{display_hour:02d}:{minute:02d}", meridiem
+    return f"{display_hour}:{minute:02d}", meridiem
 
 
 def _format_time_seconds(hour: int, minute: int, second: int) -> str:
@@ -527,32 +507,14 @@ def _format_time_seconds(hour: int, minute: int, second: int) -> str:
     return f"{clock}:{second:02d}"
 
 
-def _format_date(month: int, day: int) -> str:
-    """Format the date with a month name instead of a numeric month."""
-    return f"{_MONTHS[month - 1]} {day}"
-
-
 def _format_month_abbr(month: int) -> str:
     """Return the fixed-width month abbreviation for the display cycle."""
     return _MONTH_ABBRS[month - 1]
 
 
-def _format_month_name(month: int) -> str:
-    """Return the full month name for the date interstitial."""
-    return _MONTH_NAMES[month - 1]
-
-
 def _season_name(month: int) -> str:
     """Return the meteorological season name for ``month``."""
     return _SEASONS[month - 1]
-
-
-def _display_lines(rtc: object, *, synced: bool) -> tuple:
-    """Return matrix text and colon visibility for the current clock state."""
-    if not synced:
-        return _WAIT_TOP, _WAIT_BOT, True
-    _year, month, day, _weekday, hour, minute, second, _subsecond = rtc.datetime()
-    return _format_time(hour, minute), _format_date(month, day), second % 2 == 0
 
 
 def _compact_glyph(char: str) -> tuple:
@@ -668,37 +630,34 @@ def _rtc_parts(rtc: object) -> tuple:
     return year, month, day, weekday, hour, minute, second
 
 
-def _compressed_screen_frame(parts: tuple) -> object:
-    """Render time, meridiem, month, and day in four compact quadrants."""
+def _main_screen_frame(parts: tuple) -> object:
+    """Render time with meridiem above month and day, both centered."""
     _year, month, day, _weekday, hour, minute, _second = parts
     clock, meridiem = _format_time_parts(hour, minute)
     frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
-    _draw_compact_text_in_box(frame, clock, 0, 0, 18, 8, gap_pixels=0)
     _draw_compact_text_in_box(
         frame,
-        meridiem,
-        20,
+        f"{clock} {meridiem}",
         0,
-        12,
+        0,
+        _DISPLAY_WIDTH_PIXELS,
         8,
     )
     _draw_compact_text_in_box(
         frame,
-        _format_month_abbr(month),
+        f"{_format_month_abbr(month)} {day}",
         0,
         8,
-        18,
+        _DISPLAY_WIDTH_PIXELS,
         8,
-        gap_pixels=0,
         y_offset=1,
     )
-    _draw_compact_text_in_box(frame, f"{day:02d}", 20, 8, 12, 8, y_offset=1)
     return frame
 
 
 def _season_screen_frame(parts: tuple) -> object:
-    """Render the current meteorological season as a centered label."""
-    _year, month, _day, _weekday, _hour, _minute, _second = parts
+    """Render the current meteorological season above the four-digit year."""
+    year, month, _day, _weekday, _hour, _minute, _second = parts
     frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
     _draw_compact_text_in_box(
         frame,
@@ -706,7 +665,16 @@ def _season_screen_frame(parts: tuple) -> object:
         0,
         0,
         _DISPLAY_WIDTH_PIXELS,
-        _DISPLAY_HEIGHT_PIXELS,
+        8,
+    )
+    _draw_compact_text_in_box(
+        frame,
+        f"{year:04d}",
+        0,
+        8,
+        _DISPLAY_WIDTH_PIXELS,
+        8,
+        y_offset=1,
     )
     return frame
 
@@ -737,21 +705,20 @@ def _time_seconds_screen_frame(parts: tuple) -> object:
 
 
 def _full_date_screen_frame(parts: tuple) -> object:
-    """Render full month name above the four-digit year."""
-    year, month, _day, _weekday, _hour, _minute, _second = parts
+    """Render the day of the week above the full month name."""
+    _year, month, _day, weekday, _hour, _minute, _second = parts
     frame = Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
     _draw_compact_text_in_box(
         frame,
-        _format_month_name(month),
+        _DAYS[weekday],
         0,
         0,
         _DISPLAY_WIDTH_PIXELS,
         8,
-        gap_pixels=0,
     )
     _draw_compact_text_in_box(
         frame,
-        f"{year:04d}",
+        _MONTH_NAMES[month - 1],
         0,
         8,
         _DISPLAY_WIDTH_PIXELS,
@@ -770,18 +737,18 @@ def _screen_frame(screen: int, rtc: object) -> object:
         return _time_seconds_screen_frame(parts)
     if screen == _SCREEN_FULL_DATE:
         return _full_date_screen_frame(parts)
-    return _compressed_screen_frame(parts)
+    return _main_screen_frame(parts)
 
 
 def _screen_key(screen: int, rtc: object) -> tuple:
     """Return the visible-content key for one screen."""
-    year, month, day, _weekday, hour, minute, second = _rtc_parts(rtc)
+    year, month, day, weekday, hour, minute, second = _rtc_parts(rtc)
     if screen == _SCREEN_SEASON:
-        return screen, _season_name(month)
+        return screen, year, _season_name(month)
     if screen == _SCREEN_TIME_SECONDS:
         return screen, hour, minute, second
     if screen == _SCREEN_FULL_DATE:
-        return screen, year, month
+        return screen, month, _DAYS[weekday]
     return screen, year, month, day, hour, minute
 
 
@@ -1023,11 +990,11 @@ def _show_wait(display: object, state: dict) -> None:
 
 
 def _start_screen_cycle(display: object, rtc: object, state: dict, now: int) -> None:
-    """Start the synced display cycle on the compressed screen."""
-    frame = _screen_frame(_SCREEN_COMPRESSED, rtc)
+    """Start the synced display cycle on the main screen."""
+    frame = _screen_frame(_SCREEN_MAIN, rtc)
     display.show(frame)
-    state["shown"] = _screen_key(_SCREEN_COMPRESSED, rtc)
-    state["screen"] = _SCREEN_COMPRESSED
+    state["shown"] = _screen_key(_SCREEN_MAIN, rtc)
+    state["screen"] = _SCREEN_MAIN
     state["screen_frame"] = frame
     state["screen_started_ms"] = now
     state["last_reassert_ms"] = now
@@ -1050,9 +1017,9 @@ def _start_transition(rtc: object, state: dict) -> None:
     Regular screens transition to a random interstitial; interstitial
     screens transition to a random regular screen.
     """
-    current = state.get("screen", _SCREEN_COMPRESSED)
+    current = state.get("screen", _SCREEN_MAIN)
     if _is_interstitial(current):
-        prev_regular = state.get("prev_regular", _SCREEN_COMPRESSED)
+        prev_regular = state.get("prev_regular", _SCREEN_MAIN)
         next_screen = _choose_next_screen(prev_regular)
     else:
         state["prev_regular"] = current
@@ -1096,7 +1063,7 @@ def _refresh_current_screen(
     now: int,
 ) -> None:
     """Refresh the active screen for live RTC changes or periodic healing."""
-    screen = state.get("screen", _SCREEN_COMPRESSED)
+    screen = state.get("screen", _SCREEN_MAIN)
     key = _screen_key(screen, rtc)
     if state.get("shown") != key:
         frame = _screen_frame(screen, rtc)
@@ -1127,9 +1094,7 @@ def _refresh_display(display: object, rtc: object, state: dict) -> None:
         return
     started = state.get("screen_started_ms", now)
     hold_ms = (
-        _SEASON_HOLD_MS
-        if _is_interstitial(state.get("screen", _SCREEN_COMPRESSED))
-        else _SCREEN_HOLD_MS
+        _SEASON_HOLD_MS if _is_interstitial(state.get("screen", _SCREEN_MAIN)) else _SCREEN_HOLD_MS
     )
     if time.ticks_diff(now, started) >= hold_ms:
         _start_transition(rtc, state)

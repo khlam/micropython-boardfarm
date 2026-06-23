@@ -76,7 +76,7 @@ _KEEP_FUNCS = {
     "_display_frame",
     "_wait_frame",
     "_rtc_parts",
-    "_compressed_screen_frame",
+    "_main_screen_frame",
     "_season_screen_frame",
     "_time_seconds_screen_frame",
     "_full_date_screen_frame",

@@ -120,7 +120,7 @@ def test_run_waits_for_gps_before_first_fix(main_ns: object) -> None:
 
 
 def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> None:
-    """A valid RMC fix starts the synced display cycle on the compressed screen."""
+    """A valid RMC fix starts the synced display cycle on the main screen."""
     main_ns.ns["time"] = _CountdownTime(stop_after=1)
     emitted: list[dict] = []
     main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
@@ -134,13 +134,13 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     # UTC is 16:59:58 local, not the longitude-only 15:59:58 (UTC-8).
     assert rtc.value == (2026, 6, 23, 1, 16, 59, 58, 0)
     assert main_ns.ns["_display_lines"](rtc, synced=True) == (
-        "04:59 PM",
+        "4:59 PM",
         "June 23",
         True,
     )
     assert _same_frame(
         display.shown[-1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_COMPRESSED"], rtc),
+        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
     )
     assert len(emitted) == 1
     assert emitted[0]["fix"] is True
@@ -209,10 +209,10 @@ def test_time_seconds_screen_updates_each_second(main_ns: object) -> None:
     )
 
 
-def test_refresh_display_starts_compressed_and_updates_each_minute(
+def test_refresh_display_starts_main_and_updates_each_minute(
     main_ns: object,
 ) -> None:
-    """The synced display starts compressed and refreshes when visible time changes."""
+    """The synced display starts on the main screen and refreshes when visible time changes."""
     display = _FakeDisplay()
     rtc = _FakeRTC()
     state = {"synced": True, "intensity_limit": 0.2}
@@ -224,17 +224,17 @@ def test_refresh_display_starts_compressed_and_updates_each_minute(
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
     main_ns.ns["_refresh_display"](display, rtc, state)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_COMPRESSED"]
+    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
     assert len(display.shown) == 2
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
     assert _same_frame(
         display.shown[0],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_COMPRESSED"], rtc),
+        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
     )
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
     assert _same_frame(
         display.shown[1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_COMPRESSED"], rtc),
+        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
     )
 
 
@@ -301,13 +301,13 @@ def test_refresh_display_holds_each_screen_for_three_minutes(main_ns: object) ->
     main_ns.time.ticks = start + main_ns.ns["_SCREEN_HOLD_MS"] - 2
     main_ns.ns["_refresh_display"](display, rtc, state)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_COMPRESSED"]
+    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
     assert state["transition"] is None
 
     main_ns.time.ticks = start + main_ns.ns["_SCREEN_HOLD_MS"] - 1
     main_ns.ns["_refresh_display"](display, rtc, state)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_COMPRESSED"]
+    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
     assert state["transition"]["target_screen"] == main_ns.ns["_SCREEN_SEASON"]
     assert state["transition"]["effect"] == main_ns.ns["_TRANSITION_WIPE"]
 
