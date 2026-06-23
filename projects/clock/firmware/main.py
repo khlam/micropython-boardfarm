@@ -87,6 +87,8 @@ _BOOT_PAUSE_MS = 300
 _INIT_ERR_PAUSE_MS = 1_000
 _POLL_SLEEP_MS = 50
 _REASSERT_MS = 5_000
+_WAIT_ROTATE_MS = 1_000
+_WAIT_TRANSITION_STEPS = max(1, _WAIT_ROTATE_MS // _POLL_SLEEP_MS)
 _SCREEN_HOLD_MS = 180_000
 _SEASON_HOLD_MS = 3_000
 _TRANSITION_STEPS = 20
@@ -97,6 +99,12 @@ _CLOCK_BOTTOM_Y_OFFSET = 1
 _COMPACT_GLYPH_HEIGHT = 7
 _COMPACT_GAP_PIXELS = 1
 _COMPACT_ON = 255
+_COMPACT_SCALE_1X = (1, 1)
+_CLOCK_MERIDIEM_TIME_X_SCALE = 2
+_CLOCK_MERIDIEM_TIME_Y_SCALE = 2
+_CLOCK_MERIDIEM_TIME_GAP_PIXELS = 0
+_CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
+_CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS = 1
 _COMPACT_GLYPHS = {
     " ": (
         "0",
@@ -453,8 +461,10 @@ _SCREEN_MAIN = 0
 _SCREEN_SEASON = 1
 _SCREEN_TIME_SECONDS = 2
 _SCREEN_FULL_DATE = 3
+_SCREEN_CLOCK_MERIDIEM = 4
 _SCREENS = (
     _SCREEN_MAIN,
+    _SCREEN_CLOCK_MERIDIEM,
     _SCREEN_TIME_SECONDS,
 )
 _INTERSTITIALS = (
@@ -567,14 +577,18 @@ def _compact_glyph(char: str) -> tuple:
     return _COMPACT_GLYPHS.get(char.upper(), _COMPACT_GLYPHS[" "])
 
 
-def _compact_text_width(text: str, gap_pixels: int = _COMPACT_GAP_PIXELS) -> int:
+def _compact_text_width(
+    text: str,
+    gap_pixels: int = _COMPACT_GAP_PIXELS,
+    x_scale: int = 1,
+) -> int:
     """Return the compact display glyph width for ``text``."""
     width = 0
     for char in text:
         if width:
             width += gap_pixels
         pattern = _compact_glyph(char)
-        width += len(pattern[0])
+        width += len(pattern[0]) * x_scale
     return width
 
 
@@ -583,19 +597,22 @@ def _draw_compact_glyph(
     pattern: tuple,
     x0: int,
     y0: int,
+    *,
     intensity: int = _COMPACT_ON,
+    x_scale: int = 1,
+    y_scale: int = 1,
 ) -> None:
     """Draw one compact display glyph into ``canvas``."""
     if intensity <= 0:
         return
     for y, row in enumerate(pattern):
-        dy = y0 + y
-        if dy < 0 or dy >= canvas.height:
-            continue
+        dy = y0 + (y * y_scale)
         for x, bit in enumerate(row):
-            dx = x0 + x
             if bit == "1":
-                canvas.pixel(dx, dy)
+                dx = x0 + (x * x_scale)
+                for sy in range(y_scale):
+                    for sx in range(x_scale):
+                        canvas.pixel(dx + sx, dy + sy)
 
 
 def _draw_compact_text_at(
@@ -607,13 +624,23 @@ def _draw_compact_text_at(
     gap_pixels: int = _COMPACT_GAP_PIXELS,
     colon_visible: bool = True,
     intensity: int = _COMPACT_ON,
+    scale: tuple = _COMPACT_SCALE_1X,
 ) -> None:
     """Draw compact text at an exact origin."""
+    x_scale, y_scale = scale
     for char in text:
         pattern = _compact_glyph(char)
         if char != ":" or colon_visible:
-            _draw_compact_glyph(canvas, pattern, x0, y0, intensity)
-        x0 += len(pattern[0]) + gap_pixels
+            _draw_compact_glyph(
+                canvas,
+                pattern,
+                x0,
+                y0,
+                intensity=intensity,
+                x_scale=x_scale,
+                y_scale=y_scale,
+            )
+        x0 += (len(pattern[0]) * x_scale) + gap_pixels
 
 
 def _draw_compact_text_in_box(
@@ -631,7 +658,13 @@ def _draw_compact_text_in_box(
     text_width = _compact_text_width(text, gap_pixels)
     tx = x0 + (width - text_width) // 2
     ty = y0 + (height - _COMPACT_GLYPH_HEIGHT) // 2 + y_offset
-    _draw_compact_text_at(canvas, text, tx, ty, gap_pixels=gap_pixels)
+    _draw_compact_text_at(
+        canvas,
+        text,
+        tx,
+        ty,
+        gap_pixels=gap_pixels,
+    )
 
 
 def _draw_compact_text(
@@ -671,6 +704,18 @@ def _wait_frame() -> object:
     return _display_frame(_WAIT_TOP, _WAIT_BOT, colon_visible=True)
 
 
+def _blank_wait_frame() -> object:
+    """Render the blank endpoint for the GPS wait animation."""
+    return Frame.blank(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS)
+
+
+def _wait_endpoint_frame(*, visible: bool) -> object:
+    """Render one stable GPS wait animation endpoint."""
+    if visible:
+        return _wait_frame()
+    return _blank_wait_frame()
+
+
 def _rtc_parts(rtc: object) -> tuple:
     """Return the RTC tuple fields used by the display manager."""
     year, month, day, weekday, hour, minute, second, _subsecond = rtc.datetime()
@@ -678,8 +723,8 @@ def _rtc_parts(rtc: object) -> tuple:
 
 
 def _main_screen_frame(parts: tuple) -> object:
-    """Render time with meridiem above month and day, both centered."""
-    _year, month, day, _weekday, hour, minute, _second = parts
+    """Render time with meridiem above day name and day number, both centered."""
+    _year, _month, day, weekday, hour, minute, _second = parts
     clock, meridiem = _format_time_parts(hour, minute)
     canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
@@ -692,7 +737,7 @@ def _main_screen_frame(parts: tuple) -> object:
     )
     _draw_compact_text_in_box(
         canvas,
-        f"{_format_month_abbr(month)} {day}",
+        f"{_DAYS[weekday]} {day}",
         0,
         8,
         _DISPLAY_WIDTH_PIXELS,
@@ -751,13 +796,55 @@ def _time_seconds_screen_frame(parts: tuple) -> object:
     return canvas.frame()
 
 
+def _clock_meridiem_screen_frame(parts: tuple) -> object:
+    """Render a centered time-only face with meridiem."""
+    _year, _month, _day, _weekday, hour, minute, _second = parts
+    clock, meridiem = _format_time_parts(hour, minute)
+    canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
+    clock_width = _compact_text_width(
+        clock,
+        _CLOCK_MERIDIEM_TIME_GAP_PIXELS,
+        _CLOCK_MERIDIEM_TIME_X_SCALE,
+    )
+    meridiem_width = 0
+    for char in meridiem:
+        meridiem_width = max(meridiem_width, _compact_text_width(char, 0))
+    meridiem_height = (len(meridiem) * _COMPACT_GLYPH_HEIGHT) + (
+        (len(meridiem) - 1) * _CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
+    )
+    group_width = clock_width + _CLOCK_MERIDIEM_LABEL_GAP_PIXELS + meridiem_width
+    clock_x = (_DISPLAY_WIDTH_PIXELS - group_width) // 2
+    clock_y = (_DISPLAY_HEIGHT_PIXELS - (_COMPACT_GLYPH_HEIGHT * _CLOCK_MERIDIEM_TIME_Y_SCALE)) // 2
+    meridiem_x = clock_x + clock_width + _CLOCK_MERIDIEM_LABEL_GAP_PIXELS
+    meridiem_y = (_DISPLAY_HEIGHT_PIXELS - meridiem_height) // 2
+    _draw_compact_text_at(
+        canvas,
+        clock,
+        clock_x,
+        clock_y,
+        gap_pixels=_CLOCK_MERIDIEM_TIME_GAP_PIXELS,
+        scale=(_CLOCK_MERIDIEM_TIME_X_SCALE, _CLOCK_MERIDIEM_TIME_Y_SCALE),
+    )
+    for char in meridiem:
+        char_width = _compact_text_width(char, 0)
+        _draw_compact_text_at(
+            canvas,
+            char,
+            meridiem_x + ((meridiem_width - char_width) // 2),
+            meridiem_y,
+            gap_pixels=0,
+        )
+        meridiem_y += _COMPACT_GLYPH_HEIGHT + _CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
+    return canvas.frame()
+
+
 def _full_date_screen_frame(parts: tuple) -> object:
-    """Render the day of the week above the full month name."""
-    _year, month, _day, weekday, _hour, _minute, _second = parts
+    """Render the full month name with day number above the four-digit year."""
+    year, month, day, _weekday, _hour, _minute, _second = parts
     canvas = Canvas(_DISPLAY_WIDTH_PIXELS, _DISPLAY_HEIGHT_PIXELS, _COMPACT_ON)
     _draw_compact_text_in_box(
         canvas,
-        _DAYS[weekday],
+        f"{_MONTH_NAMES[month - 1]} {day}",
         0,
         0,
         _DISPLAY_WIDTH_PIXELS,
@@ -765,7 +852,7 @@ def _full_date_screen_frame(parts: tuple) -> object:
     )
     _draw_compact_text_in_box(
         canvas,
-        _MONTH_NAMES[month - 1],
+        f"{year:04d}",
         0,
         8,
         _DISPLAY_WIDTH_PIXELS,
@@ -779,6 +866,8 @@ def _screen_frame_from_parts(screen: int, parts: tuple) -> object:
     """Render one display-cycle screen from an RTC parts snapshot."""
     if screen == _SCREEN_SEASON:
         return _season_screen_frame(parts)
+    if screen == _SCREEN_CLOCK_MERIDIEM:
+        return _clock_meridiem_screen_frame(parts)
     if screen == _SCREEN_TIME_SECONDS:
         return _time_seconds_screen_frame(parts)
     if screen == _SCREEN_FULL_DATE:
@@ -796,11 +885,13 @@ def _screen_key_from_parts(screen: int, parts: tuple) -> tuple:
     year, month, day, weekday, hour, minute, second = parts
     if screen == _SCREEN_SEASON:
         return screen, year, _season_name(month)
+    if screen == _SCREEN_CLOCK_MERIDIEM:
+        return screen, hour, minute
     if screen == _SCREEN_TIME_SECONDS:
         return screen, hour, minute, second
     if screen == _SCREEN_FULL_DATE:
-        return screen, month, _DAYS[weekday]
-    return screen, year, month, day, hour, minute
+        return screen, year, month, day
+    return screen, weekday, day, hour, minute
 
 
 def _screen_key(screen: int, rtc: object) -> tuple:
@@ -1095,13 +1186,31 @@ def _transition_frame(transition: dict, parts: tuple) -> object:
     """Render one transition frame from live transition endpoints."""
     effect = transition["effect"]
     target = _screen_frame_from_parts(transition["target_screen"], parts)
+    source = _screen_frame_from_parts(transition["source_screen"], parts)
+    return _frame_transition_frame(
+        effect,
+        source,
+        target,
+        step=transition["step"],
+        steps=transition["steps"],
+        intensity_limit=transition["intensity_limit"],
+    )
+
+
+def _frame_transition_frame(
+    effect: int,
+    source: object,
+    target: object,
+    *,
+    step: int,
+    steps: int,
+    intensity_limit: float,
+) -> object:
+    """Render one transition frame between two concrete frame endpoints."""
     if effect == _TRANSITION_INSTANT:
         return _copy_frame(target)
-    source = _screen_frame_from_parts(transition["source_screen"], parts)
-    step = transition["step"]
-    steps = transition["steps"]
     if effect == _TRANSITION_FADE:
-        return _fade_frame(source, target, step, steps, transition["intensity_limit"])
+        return _fade_frame(source, target, step, steps, intensity_limit)
     if effect == _TRANSITION_SCROLL:
         return _scroll_frame(source, target, step, steps)
     return _wipe_frame(source, target, step, steps)
@@ -1131,18 +1240,67 @@ def _choose_transition(rng: object | None = None) -> int:
 
 
 def _show_wait(display: object, state: dict) -> None:
-    """Refresh the unsynced wait screen only when needed."""
-    key = ("wait",)
+    """Animate the unsynced GPS wait screen on and off once per second."""
     now = time.ticks_ms()
-    if state.get("shown") != key:
-        display.show(_wait_frame())
-        state["shown"] = key
-        state["last_reassert_ms"] = now
+    if state.get("wait_transition") is not None:
+        _advance_wait_transition(display, state, now)
         return
+    phase_started = state.get("wait_phase_started_ms")
+    if (
+        "wait_visible" not in state
+        or phase_started is None
+        or time.ticks_diff(now, phase_started) >= _WAIT_ROTATE_MS
+    ):
+        _start_wait_transition(state)
+        _advance_wait_transition(display, state, now)
+        return
+    key = ("wait", state["wait_visible"])
     last_reassert = state.get("last_reassert_ms")
     if last_reassert is None or time.ticks_diff(now, last_reassert) >= _REASSERT_MS:
-        display.show(_wait_frame())
+        display.show(_wait_endpoint_frame(visible=state["wait_visible"]))
+        state["shown"] = key
         state["last_reassert_ms"] = now
+
+
+def _start_wait_transition(state: dict) -> None:
+    """Create transition state for the next GPS wait on/off flip."""
+    source_visible = state.get("wait_visible", False)
+    effect = _choose_transition()
+    state["wait_transition"] = {
+        "effect": effect,
+        "source_visible": source_visible,
+        "target_visible": not source_visible,
+        "step": 1,
+        "steps": 1 if effect == _TRANSITION_INSTANT else _WAIT_TRANSITION_STEPS,
+        "intensity_limit": state.get("intensity_limit", BOARD.display.intensity_limit),
+    }
+
+
+def _wait_transition_frame(transition: dict) -> object:
+    """Render one GPS wait transition frame."""
+    return _frame_transition_frame(
+        transition["effect"],
+        _wait_endpoint_frame(visible=transition["source_visible"]),
+        _wait_endpoint_frame(visible=transition["target_visible"]),
+        step=transition["step"],
+        steps=transition["steps"],
+        intensity_limit=transition["intensity_limit"],
+    )
+
+
+def _advance_wait_transition(display: object, state: dict, now: int) -> None:
+    """Render at most one GPS wait transition frame."""
+    transition = state["wait_transition"]
+    frame = _wait_transition_frame(transition)
+    display.show(frame)
+    state["last_reassert_ms"] = now
+    if transition["step"] >= transition["steps"]:
+        state["wait_visible"] = transition["target_visible"]
+        state["shown"] = ("wait", state["wait_visible"])
+        state["wait_transition"] = None
+        state["wait_phase_started_ms"] = now
+        return
+    transition["step"] += 1
 
 
 def _start_screen_cycle(display: object, rtc: object, state: dict, now: int) -> None:
@@ -1156,6 +1314,7 @@ def _start_screen_cycle(display: object, rtc: object, state: dict, now: int) -> 
     state["screen_started_ms"] = now
     state["last_reassert_ms"] = now
     state["transition"] = None
+    state["wait_transition"] = None
 
 
 def _is_interstitial(screen: int) -> bool:

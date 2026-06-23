@@ -107,16 +107,70 @@ def test_emit_writes_one_json_line(
 
 
 def test_run_waits_for_gps_before_first_fix(main_ns: object) -> None:
-    """The matrix shows a GPS wait state until a complete fix arrives."""
+    """The matrix transitions onto GPS WAIT until a complete fix arrives."""
     main_ns.ns["time"] = _CountdownTime(stop_after=1)
+    main_ns.ns["random"] = _FakeRandom([0])
     display = _FakeDisplay()
 
     with pytest.raises(_StopLoop):
         main_ns.ns["run"](_FakeGPS([None]), display, _FakeRTC())
 
     assert len(display.shown) == 1
-    assert _same_frame(display.shown[0], main_ns.ns["_wait_frame"]())
+    assert _same_frame(
+        display.shown[0],
+        main_ns.ns["_wipe_frame"](
+            main_ns.ns["_blank_wait_frame"](),
+            main_ns.ns["_wait_frame"](),
+            1,
+            main_ns.ns["_WAIT_TRANSITION_STEPS"],
+        ),
+    )
     assert "streaming" in main_ns.status.calls
+
+
+def test_wait_screen_transitions_off_after_one_second(main_ns: object) -> None:
+    """The unsynced wait display flips between visible and blank endpoints."""
+    main_ns.ns["random"] = _FakeRandom([3, 3])
+    display = _FakeDisplay()
+    rtc = _FakeRTC()
+    state = {"synced": False, "intensity_limit": 0.2}
+
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    assert state["wait_visible"] is True
+    assert _same_frame(display.shown[-1], main_ns.ns["_wait_frame"]())
+
+    phase_started = state["wait_phase_started_ms"]
+    main_ns.time.ticks = phase_started + main_ns.ns["_WAIT_ROTATE_MS"] - 2
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    assert len(display.shown) == 1
+
+    main_ns.time.ticks = phase_started + main_ns.ns["_WAIT_ROTATE_MS"] - 1
+    main_ns.ns["_refresh_display"](display, rtc, state)
+    assert state["wait_visible"] is False
+    assert _same_frame(display.shown[-1], main_ns.ns["_blank_wait_frame"]())
+
+
+def test_wait_screen_holds_after_slow_transition_lands(main_ns: object) -> None:
+    """A long GPS wait transition starts its hold timer when it lands."""
+    main_ns.ns["random"] = _FakeRandom([0])
+    display = _FakeDisplay()
+    state: dict = {"intensity_limit": 0.2}
+    started = 100
+    landed = started + main_ns.ns["_WAIT_ROTATE_MS"]
+
+    main_ns.ns["_start_wait_transition"](state)
+    state["wait_transition"]["step"] = state["wait_transition"]["steps"]
+    main_ns.ns["_advance_wait_transition"](display, state, landed)
+
+    assert state["wait_visible"] is True
+    assert state["wait_phase_started_ms"] == landed
+    shown_count = len(display.shown)
+    main_ns.ns["random"] = _FakeRandom([])
+    main_ns.time.ticks = landed + main_ns.ns["_WAIT_ROTATE_MS"] - 2
+    main_ns.ns["_refresh_display"](display, _FakeRTC(), state)
+
+    assert state["wait_transition"] is None
+    assert len(display.shown) == shown_count
 
 
 def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> None:
@@ -204,6 +258,39 @@ def test_time_seconds_screen_updates_each_second(main_ns: object) -> None:
     )
 
 
+def test_clock_meridiem_screen_centers_tall_time(main_ns: object) -> None:
+    """The clock-only screen centers large time next to a smaller meridiem."""
+    rtc = _FakeRTC()
+    rtc.value = (2026, 6, 23, 1, 12, 59, 0, 0)
+
+    frame = main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_CLOCK_MERIDIEM"], rtc)
+    unscaled_clock_width = main_ns.ns["_compact_text_width"]("12:59")
+    clock_width = main_ns.ns["_compact_text_width"](
+        "12:59",
+        main_ns.ns["_CLOCK_MERIDIEM_TIME_GAP_PIXELS"],
+        main_ns.ns["_CLOCK_MERIDIEM_TIME_X_SCALE"],
+    )
+    meridiem_width = main_ns.ns["_compact_text_width"]("M", 0)
+    side_by_side_meridiem_width = main_ns.ns["_compact_text_width"]("PM")
+    group_width = clock_width + main_ns.ns["_CLOCK_MERIDIEM_LABEL_GAP_PIXELS"] + meridiem_width
+    left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
+
+    assert clock_width > unscaled_clock_width
+    assert meridiem_width < side_by_side_meridiem_width
+    assert left == (frame.width - group_width) // 2
+    assert right == left + group_width - 1
+    assert (top, bottom) == (0, 14)
+    assert bottom - top + 1 == (
+        (2 * main_ns.ns["_COMPACT_GLYPH_HEIGHT"])
+        + main_ns.ns["_CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS"]
+    )
+    assert main_ns.ns["_screen_key"](main_ns.ns["_SCREEN_CLOCK_MERIDIEM"], rtc) == (
+        main_ns.ns["_SCREEN_CLOCK_MERIDIEM"],
+        12,
+        59,
+    )
+
+
 def test_sync_uses_startup_timezone_offset(main_ns: object) -> None:
     """GPS fixes reuse the timezone lookup from the first complete fix."""
     calls: list[tuple] = []
@@ -282,7 +369,8 @@ def test_random_screen_and_transition_choices(main_ns: object) -> None:
     screens = main_ns.ns["_SCREENS"]
 
     assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([0])) == screens[1]
-    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([255])) == screens[1]
+    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([1])) == screens[2]
+    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([255])) == screens[2]
     for current in screens:
         assert main_ns.ns["_choose_next_screen"](current, _FakeRandom([255])) != current
 
@@ -392,7 +480,7 @@ def test_transition_renders_live_source_and_target(main_ns: object) -> None:
 
     display = _FakeDisplay()
     rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
-    main_ns.ns["random"] = _FakeRandom([0, 0])
+    main_ns.ns["random"] = _FakeRandom([1, 0])
     state = {
         "synced": True,
         "screen": main_ns.ns["_SCREEN_SEASON"],
