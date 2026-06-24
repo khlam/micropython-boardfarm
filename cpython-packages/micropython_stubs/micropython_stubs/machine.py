@@ -7,6 +7,7 @@ pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
 _spi_instances: list[object] = []
+_timer_instances: list[object] = []
 
 
 def register_device(address: int, device: object) -> None:
@@ -20,17 +21,23 @@ def feed_uart(lines: list[bytes]) -> None:
 
 
 def reset() -> None:
-    """Clear recorded pin constructions, the device registry, and UART queue."""
+    """Clear recorded pin constructions, the device registry, UART/SPI/Timer state."""
     pin_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
     _spi_instances.clear()
+    _timer_instances.clear()
 
 
 class Pin:
-    """Fake `machine.Pin`. Records id + mode, supports value() get/set."""
+    """Fake `machine.Pin`. Records id + mode, supports value() get/set and irq()."""
 
     OUT = "OUT"
+    IN = "IN"
+    PULL_UP = "PULL_UP"
+    PULL_DOWN = "PULL_DOWN"
+    IRQ_FALLING = "IRQ_FALLING"
+    IRQ_RISING = "IRQ_RISING"
 
     def __init__(
         self,
@@ -43,6 +50,8 @@ class Pin:
         self.id = id
         self.mode = mode
         self._value = 0
+        self._irq_handler = None
+        self._irq_trigger = None
         pin_constructions.append((id, mode))
 
     def value(self, v: int | None = None) -> int | None:
@@ -59,6 +68,22 @@ class Pin:
     def off(self) -> None:
         """Set the pin low."""
         self._value = 0
+
+    def irq(
+        self,
+        handler: object = None,
+        trigger: str | None = None,
+        **_kwargs: object,
+    ) -> Pin:
+        """Record an interrupt handler/trigger; return self as the irq object."""
+        self._irq_handler = handler
+        self._irq_trigger = trigger
+        return self
+
+    def trigger_irq(self) -> None:
+        """Test helper: fire the registered IRQ handler as the hardware would."""
+        if self._irq_handler is not None:
+            self._irq_handler(self)
 
 
 class SPI:
@@ -176,3 +201,40 @@ class UART:
     def readline(self) -> bytes | None:
         """Return the next queued byte line, or None when the queue is empty."""
         return _uart_lines.pop(0) if _uart_lines else None
+
+
+class Timer:
+    """Fake `machine.Timer` recording its periodic callback for tests to fire."""
+
+    PERIODIC = "PERIODIC"
+    ONE_SHOT = "ONE_SHOT"
+    instances = _timer_instances
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        """Register the instance with no callback until init() runs."""
+        self.period = None
+        self.mode = None
+        self.callback = None
+        _timer_instances.append(self)
+
+    def init(
+        self,
+        *,
+        period: int = -1,
+        mode: str = PERIODIC,
+        callback: object = None,
+        **_kwargs: object,
+    ) -> None:
+        """Record the timer configuration and periodic callback."""
+        self.period = period
+        self.mode = mode
+        self.callback = callback
+
+    def deinit(self) -> None:
+        """Stop the timer by dropping its callback."""
+        self.callback = None
+
+    def tick(self) -> None:
+        """Test helper: invoke the periodic callback as the hardware timer would."""
+        if self.callback is not None:
+            self.callback(self)

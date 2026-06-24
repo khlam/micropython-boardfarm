@@ -82,6 +82,7 @@ def main_ns() -> SimpleNamespace:
         namedtuple=namedtuple,
         BOARD=_TEST_BOARD,
         random=random,
+        button=SimpleNamespace(on_press=lambda _cb: None),
         DisplayCycle=clock_cycle.DisplayCycle,
         POLL_SLEEP_MS=clock_cycle.POLL_SLEEP_MS,
         emit=clock_sync.emit,

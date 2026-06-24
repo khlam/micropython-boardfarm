@@ -10,6 +10,7 @@ import random
 import time
 from collections import namedtuple
 
+from boot_button import button
 from machine import RTC
 
 from atgm336h import GPS
@@ -112,6 +113,11 @@ def main() -> None:
     """
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
+
+    def _on_button_press() -> None:
+        pass  # TODO: define BOOT-button press behavior
+
+    button.on_press(_on_button_press)
     while True:
         status.i2c_init()
         try:

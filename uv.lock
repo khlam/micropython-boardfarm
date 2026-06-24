@@ -54,6 +54,15 @@ wheels = [
 ]
 
 [[package]]
+name = "boot-button"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/boot_button-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/boot_button-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "boot-status-led"
 version = "0.3.0"
 source = { registry = "/wheels" }
@@ -85,7 +94,7 @@ wheels = [
 
 [[package]]
 name = "clock"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/clock" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -452,10 +461,11 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.8.0"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
+    { name = "boot-button" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "max7219" },
@@ -510,6 +520,7 @@ viz = [
 [package.metadata]
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "boot-button", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -559,11 +570,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.3.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.4.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.3.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.4.0-py3-none-any.whl" },
 ]
 
 [[package]]

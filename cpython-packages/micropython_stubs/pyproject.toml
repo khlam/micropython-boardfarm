@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "micropython_stubs"
-version = "0.3.0"
-description = "Host CPython replacements for MicroPython runtime modules (machine, neopixel, micropython, ustruct, utime, ujson). Tests only; never copied to the device."
+version = "0.4.0"
+description = "Host CPython replacements for MicroPython runtime modules (machine, neopixel, micropython, rp2, ustruct, utime, ujson). Tests only; never copied to the device."
 requires-python = ">=3.12"
 
 # Host tests import these replacements by their MicroPython top-level names.
@@ -16,6 +16,7 @@ packages = ["micropython_stubs"]
 "micropython_stubs/machine.py"     = "machine.py"
 "micropython_stubs/neopixel.py"    = "neopixel.py"
 "micropython_stubs/micropython.py" = "micropython.py"
+"micropython_stubs/rp2.py"         = "rp2.py"
 "micropython_stubs/ustruct.py"     = "ustruct.py"
 "micropython_stubs/utime.py"       = "utime.py"
 "micropython_stubs/ujson.py"       = "ujson.py"
