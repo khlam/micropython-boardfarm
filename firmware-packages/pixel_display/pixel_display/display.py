@@ -46,6 +46,12 @@ class Display:
         self._allow_lossy = allow_lossy
         self._failure_mode = failure_mode
 
+    def flip(self) -> None:
+        """Rotate the display 180 degrees if the backend supports it."""
+        backend_flip = getattr(self._backend, "flip", None)
+        if backend_flip is not None:
+            backend_flip()
+
     def show(self, frame: object) -> None:
         """Fit, scale, and render one frame."""
         if isinstance(frame, PackedFrame):

@@ -54,3 +54,7 @@ class MAX7219:
     def show(self, frame: object) -> None:
         """Render one abstract pixel frame."""
         self._display.show(frame)
+
+    def flip(self) -> None:
+        """Rotate the display 180 degrees, re-rendering the current frame."""
+        self._display.flip()

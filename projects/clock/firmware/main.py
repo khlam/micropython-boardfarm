@@ -114,8 +114,13 @@ def main() -> None:
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
 
+    active = {"display": None}
+
     def _on_button_press() -> None:
-        pass  # TODO: define BOOT-button press behavior
+        """Flip the live display 180 degrees on each BOOT-button press."""
+        display = active["display"]
+        if display is not None:
+            display.flip()
 
     button.on_press(_on_button_press)
     while True:
@@ -139,6 +144,7 @@ def main() -> None:
             time.sleep_ms(_INIT_ERR_PAUSE_MS)
             status.boot()
             continue
+        active["display"] = display
         run(gps, display, rtc)
 
 

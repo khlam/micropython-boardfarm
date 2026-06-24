@@ -42,6 +42,9 @@ class _MAX7219Backend:
         self._next_rows = bytearray(_PANEL_H * _NUM_CHIPS)
         self._cmd = bytearray(2 * _NUM_CHIPS)
         self._intensity = _DEFAULT_INTENSITY
+        self._rotated = False
+        self._last_frame = None
+        self._last_allow_lossy = False
         self._init_display()
 
     @property
@@ -66,9 +69,16 @@ class _MAX7219Backend:
             ``True`` when the frame was represented, ``False`` when the display
             facade should render its failure indicator instead.
         """
-        max_intensity = _convert_frame(frame, self._next_rows, allow_lossy=allow_lossy)
+        max_intensity = _convert_frame(
+            frame,
+            self._next_rows,
+            allow_lossy=allow_lossy,
+            rotate=self._rotated,
+        )
         if max_intensity is None:
             return False
+        self._last_frame = frame
+        self._last_allow_lossy = allow_lossy
         rows_changed = _buffers_differ(self._rows, self._next_rows)
         intensity_changed = max_intensity != self._intensity
         if intensity_changed:
@@ -80,6 +90,19 @@ class _MAX7219Backend:
         elif not intensity_changed:
             self._reassert()
         return True
+
+    def flip(self) -> None:
+        """Rotate the whole 16x32 surface 180 degrees and re-render now.
+
+        The rotation is applied in visual space across the full display
+        (``(x, y) -> (W-1-x, H-1-y)``), so the two stacked 8x32 panels swap
+        places rather than each flipping internally. The last shown frame is
+        re-converted under the new orientation and pushed immediately, rather
+        than waiting for the next caller refresh.
+        """
+        self._rotated = not self._rotated
+        if self._last_frame is not None:
+            self.write_frame(self._last_frame, allow_lossy=self._last_allow_lossy)
 
     def clear(self) -> None:
         """Blank the matrix and flush the cleared framebuffer."""
@@ -169,14 +192,20 @@ def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | N
     return value
 
 
-def _convert_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int | None:
+def _convert_frame(
+    frame: object,
+    buf: bytearray,
+    *,
+    allow_lossy: bool,
+    rotate: bool,
+) -> int | None:
     """Convert one frame into chain rows and return its MAX7219 intensity."""
     if isinstance(frame, PackedFrame):
-        return _convert_packed_frame(frame, buf)
-    return _convert_byte_frame(frame, buf, allow_lossy=allow_lossy)
+        return _convert_packed_frame(frame, buf, rotate=rotate)
+    return _convert_byte_frame(frame, buf, allow_lossy=allow_lossy, rotate=rotate)
 
 
-def _convert_packed_frame(frame: PackedFrame, buf: bytearray) -> int | None:
+def _convert_packed_frame(frame: PackedFrame, buf: bytearray, *, rotate: bool) -> int | None:
     """Convert one packed frame directly into MAX7219 chain rows."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
         return None
@@ -191,14 +220,17 @@ def _convert_packed_frame(frame: PackedFrame, buf: bytearray) -> int | None:
             src_row = (_PANEL_H - 1 - chip_row) if _FLIP_Y else chip_row
             vy = panel * _PANEL_H + src_row
             pos = _NUM_CHIPS - 1 - chip
-            if _MIRROR_X:
-                buf[base + pos] = _packed_mirrored_chip_byte(frame, col_chip, vy)
-            else:
-                buf[base + pos] = frame.data[(vy * frame.stride) + col_chip]
+            buf[base + pos] = _packed_chip_byte(frame, col_chip, vy, rotate=rotate)
     return _max7219_intensity(frame.intensity)
 
 
-def _convert_byte_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> int | None:
+def _convert_byte_frame(
+    frame: object,
+    buf: bytearray,
+    *,
+    allow_lossy: bool,
+    rotate: bool,
+) -> int | None:
     """Convert one byte-per-pixel frame into MAX7219 chain rows."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
         return None
@@ -207,7 +239,9 @@ def _convert_byte_frame(frame: object, buf: bytearray, *, allow_lossy: bool) -> 
     for y in range(_HEIGHT):
         for x in range(_WIDTH):
             value = _pixel_value(frame, x, y, allow_lossy=allow_lossy)
-            if value is None or not _add_pixel(buf, x, y, value, state, allow_lossy=allow_lossy):
+            if value is None or not _add_pixel(
+                buf, x, y, value, state, allow_lossy=allow_lossy, rotate=rotate
+            ):
                 return None
     return _max7219_intensity(state[1])
 
@@ -220,6 +254,7 @@ def _add_pixel(
     state: list,
     *,
     allow_lossy: bool,
+    rotate: bool,
 ) -> bool:
     """Apply one normalized pixel value to a monochrome framebuffer."""
     if value <= 0:
@@ -229,6 +264,9 @@ def _add_pixel(
     elif value != state[0] and not allow_lossy:
         return False
     state[1] = max(state[1], value)
+    if rotate:
+        x = _WIDTH - 1 - x
+        y = _HEIGHT - 1 - y
     _set_visual_pixel(buf, x, y)
     return True
 
@@ -255,13 +293,22 @@ def _buffers_differ(left: bytearray, right: bytearray) -> bool:
     return any(value != right[i] for i, value in enumerate(left))
 
 
-def _packed_mirrored_chip_byte(frame: PackedFrame, col_chip: int, y: int) -> int:
-    """Return one chip byte from a packed frame with horizontal mirroring."""
+def _packed_chip_byte(frame: PackedFrame, col_chip: int, vy: int, *, rotate: bool) -> int:
+    """Return one chip byte for hardware visual row ``vy`` and column block.
+
+    Folds the fixed ``_MIRROR_X`` hardware mapping and the optional 180-degree
+    visual rotation into the source read. When neither applies the packed byte
+    can be copied straight through, which keeps the common path cheap.
+    """
+    if not _MIRROR_X and not rotate:
+        return frame.data[(vy * frame.stride) + col_chip]
     byte = 0
+    src_y = (_HEIGHT - 1 - vy) if rotate else vy
     for bit in range(8):
         nat_x = col_chip * 8 + bit
-        vx = _WIDTH - 1 - nat_x
-        if frame.data[(y * frame.stride) + (vx >> 3)] & (1 << (vx & 7)):
+        vx = (_WIDTH - 1 - nat_x) if _MIRROR_X else nat_x
+        src_x = (_WIDTH - 1 - vx) if rotate else vx
+        if frame.data[(src_y * frame.stride) + (src_x >> 3)] & (1 << (src_x & 7)):
             byte |= 1 << bit
     return byte
 

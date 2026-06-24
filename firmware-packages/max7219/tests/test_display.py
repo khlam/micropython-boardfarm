@@ -9,6 +9,7 @@ from fakes import FakeCS, FakeSPI
 from max7219 import MAX7219
 from max7219.max7219 import (
     _FLIP_Y,
+    _HEIGHT,
     _MIRROR_X,
     _PANEL_H,
     _REG_DISPLAY_TEST,
@@ -222,6 +223,64 @@ def test_clear_blanks_framebuffer_and_refreshes() -> None:
     assert _REG_SHUTDOWN in regs
     assert len(_row_writes(spi.writes)) == _PANEL_H
     assert not state.lit()
+
+
+def test_flip_rotates_whole_surface_180_swapping_panels() -> None:
+    """A byte-frame flip rotates the full 16x32 surface, not each panel alone."""
+    backend, spi, _cs = _make_backend()
+    state = _MatrixState()
+    frame = Frame.blank(32, 16)
+    lit_in = {(0, 0), (31, 0), (5, 2), (10, 9)}
+    for x, y in lit_in:
+        frame.data[y * frame.width + x] = 15
+    assert backend.write_frame(frame, allow_lossy=False) is True
+    state.apply(spi.writes)
+    assert state.lit() == lit_in
+
+    backend.flip()
+    state.apply(spi.writes)
+
+    rotated = {(_WIDTH - 1 - x, _HEIGHT - 1 - y) for x, y in lit_in}
+    assert state.lit() == rotated
+    # A pixel that began in the top panel must land in the bottom panel.
+    assert (_WIDTH - 1 - 5, _HEIGHT - 1 - 2) in state.lit()
+
+
+def test_flip_rotates_packed_frame_180() -> None:
+    """A packed-frame flip rotates the full surface through the fast path."""
+    backend, spi, _cs = _make_backend()
+    state = _MatrixState()
+    canvas = Canvas(32, 16, intensity=255)
+    lit_in = {(0, 0), (3, 1), (20, 10), (31, 15)}
+    for x, y in lit_in:
+        canvas.pixel(x, y)
+    assert backend.write_frame(canvas.frame(), allow_lossy=False) is True
+    state.apply(spi.writes)
+    assert state.lit() == lit_in
+
+    backend.flip()
+    state.apply(spi.writes)
+
+    assert state.lit() == {(_WIDTH - 1 - x, _HEIGHT - 1 - y) for x, y in lit_in}
+
+
+def test_flip_is_reversible() -> None:
+    """Two flips restore the original orientation."""
+    backend, spi, _cs = _make_backend()
+    state = _MatrixState()
+    frame = Frame.blank(32, 16)
+    lit_in = {(1, 0), (7, 12)}
+    for x, y in lit_in:
+        frame.data[y * frame.width + x] = 15
+    assert backend.write_frame(frame, allow_lossy=False) is True
+    state.apply(spi.writes)
+
+    backend.flip()
+    state.apply(spi.writes)
+    backend.flip()
+    state.apply(spi.writes)
+
+    assert state.lit() == lit_in
 
 
 def _make_backend() -> tuple[_MAX7219Backend, FakeSPI, FakeCS]:
