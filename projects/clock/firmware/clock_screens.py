@@ -3,8 +3,6 @@
 import random
 from collections import namedtuple
 
-from pixel_display import Canvas
-
 from clock_text import (
     COMPACT_GLYPH_HEIGHT,
     COMPACT_ON,
@@ -15,6 +13,7 @@ from clock_text import (
     draw_compact_text_at,
     two_row_frame,
 )
+from pixel_display import Canvas
 
 ScreenSpec = namedtuple("ScreenSpec", ("id", "name", "kind", "hold_ms", "render", "key"))
 

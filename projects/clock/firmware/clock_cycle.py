@@ -38,7 +38,7 @@ class DisplayCycle:
         self.screen_frame = None
         self.transition = None
 
-    def tick(self, synced: bool) -> None:
+    def tick(self, *, synced: bool) -> None:
         """Render at most one display update for the current loop tick."""
         now = self._clock.ticks_ms()
         if not synced:
@@ -154,6 +154,8 @@ class DisplayCycle:
     def _advance_transition(self, now: int) -> None:
         """Render at most one active transition frame."""
         transition = self.transition
+        if transition is None:
+            return
         frame = clock_transitions.frame_transition_frame(
             transition["effect"],
             transition["source_frame"],

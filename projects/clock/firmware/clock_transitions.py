@@ -2,9 +2,8 @@
 
 import random
 
-from pixel_display import Frame, PackedFrame
-
 from clock_text import HEIGHT_PIXELS, WIDTH_PIXELS
+from pixel_display import Frame, PackedFrame
 
 TRANSITION_WIPE = 0
 TRANSITION_FADE = 1

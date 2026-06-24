@@ -105,7 +105,7 @@ def run(gps: object, display: object, rtc: object) -> None:
     while True:
         try:
             sync_from_line(gps.readline(), rtc, sync_state, emit, time)
-            display_cycle.tick(sync_state.get("synced", False))
+            display_cycle.tick(synced=sync_state.get("synced", False))
             time.sleep_ms(POLL_SLEEP_MS)
         except Exception:  # noqa: BLE001
             status.read_err()

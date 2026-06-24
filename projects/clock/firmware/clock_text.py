@@ -394,16 +394,14 @@ def draw_compact_text_at(
 def draw_compact_text_in_box(
     canvas: object,
     text: str,
-    x0: int,
-    y0: int,
-    width: int,
-    height: int,
+    box: tuple,
     *,
     gap_pixels: int = COMPACT_GAP_PIXELS,
     y_offset: int = 0,
     colon_visible: bool = True,
 ) -> None:
     """Draw compact text centered in a clipped rectangular display area."""
+    x0, y0, width, height = box
     text_width = compact_text_width(text, gap_pixels)
     tx = x0 + (width - text_width) // 2
     ty = y0 + (height - COMPACT_GLYPH_HEIGHT) // 2 + y_offset
@@ -430,20 +428,14 @@ def two_row_frame(
     draw_compact_text_in_box(
         canvas,
         top,
-        0,
-        0,
-        WIDTH_PIXELS,
-        ROW_HEIGHT,
+        (0, 0, WIDTH_PIXELS, ROW_HEIGHT),
         y_offset=top_y_offset,
         colon_visible=top_colon_visible,
     )
     draw_compact_text_in_box(
         canvas,
         bottom,
-        0,
-        ROW_HEIGHT,
-        WIDTH_PIXELS,
-        ROW_HEIGHT,
+        (0, ROW_HEIGHT, WIDTH_PIXELS, ROW_HEIGHT),
         y_offset=bottom_y_offset,
     )
     return canvas.frame()

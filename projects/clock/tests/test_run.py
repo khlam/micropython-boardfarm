@@ -159,17 +159,17 @@ def test_wait_screen_transitions_off_after_one_second() -> None:
         rng=_FakeRandom([3, 3]),
     )
 
-    cycle.tick(False)
+    cycle.tick(synced=False)
     assert cycle.current_screen == clock_screens.WAIT_ON
     assert _same_frame(display.shown[-1], clock_screens.render_screen(clock_screens.WAIT_ON, None))
 
     phase_started = cycle.screen_started_ms
     clock.ticks = phase_started + clock_screens.WAIT_ROTATE_MS - 2
-    cycle.tick(False)
+    cycle.tick(synced=False)
     assert len(display.shown) == 1
 
     clock.ticks = phase_started + clock_screens.WAIT_ROTATE_MS - 1
-    cycle.tick(False)
+    cycle.tick(synced=False)
     assert cycle.current_screen == clock_screens.WAIT_OFF
     assert _same_frame(display.shown[-1], clock_screens.render_screen(clock_screens.WAIT_OFF, None))
 
@@ -186,13 +186,13 @@ def test_wait_screen_holds_after_slow_transition_lands() -> None:
         rng=_FakeRandom([0]),
     )
 
-    cycle.tick(False)
+    cycle.tick(synced=False)
     while cycle.transition is not None:
-        cycle.tick(False)
+        cycle.tick(synced=False)
     landed = cycle.screen_started_ms
     shown_count = len(display.shown)
     clock.ticks = landed + clock_screens.WAIT_ROTATE_MS - 2
-    cycle.tick(False)
+    cycle.tick(synced=False)
 
     assert cycle.current_screen == clock_screens.WAIT_ON
     assert cycle.transition is None
@@ -360,11 +360,11 @@ def test_display_cycle_starts_main_and_updates_each_minute() -> None:
     cycle = clock_cycle.DisplayCycle(display, rtc, 0.2, clock=clock)
 
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
-    cycle.tick(True)
+    cycle.tick(synced=True)
     rtc.value = (2026, 6, 23, 1, 0, 5, 59, 0)
-    cycle.tick(True)
+    cycle.tick(synced=True)
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
-    cycle.tick(True)
+    cycle.tick(synced=True)
 
     assert cycle.current_screen == clock_screens.SCREEN_MAIN
     assert len(display.shown) == 2
@@ -434,16 +434,16 @@ def test_display_cycle_holds_regular_screens_for_three_minutes() -> None:
         rng=_FakeRandom([0, 0]),
     )
 
-    cycle.tick(True)
+    cycle.tick(synced=True)
     start = cycle.screen_started_ms
     clock.ticks = start + clock_screens.SCREEN_HOLD_MS - 2
-    cycle.tick(True)
+    cycle.tick(synced=True)
 
     assert cycle.current_screen == clock_screens.SCREEN_MAIN
     assert cycle.transition is None
 
     clock.ticks = start + clock_screens.SCREEN_HOLD_MS - 1
-    cycle.tick(True)
+    cycle.tick(synced=True)
 
     assert cycle.current_screen == clock_screens.SCREEN_MAIN
     assert cycle.transition["target_screen"] == clock_screens.SCREEN_SEASON
@@ -464,7 +464,7 @@ def test_transition_completion_sets_target_and_restarts_hold() -> None:
         rng=_FakeRandom([0, 0]),
     )
 
-    cycle.tick(True)
+    cycle.tick(synced=True)
     cycle._start_next_screen_transition()
     while cycle.transition is not None:
         cycle._advance_transition(clock.ticks_ms())
@@ -488,7 +488,7 @@ def test_instant_transition_lands_on_target_in_one_render() -> None:
         rng=_FakeRandom([0, 3]),
     )
 
-    cycle.tick(True)
+    cycle.tick(synced=True)
     cycle._start_next_screen_transition()
     cycle._advance_transition(clock.ticks_ms())
 
