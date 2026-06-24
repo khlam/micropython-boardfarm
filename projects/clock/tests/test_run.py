@@ -154,7 +154,6 @@ def test_wait_screen_transitions_off_after_one_second() -> None:
     cycle = clock_cycle.DisplayCycle(
         display,
         _FakeRTC(),
-        0.2,
         clock=clock,
         rng=_FakeRandom([3, 3]),
     )
@@ -181,7 +180,6 @@ def test_wait_screen_holds_after_slow_transition_lands() -> None:
     cycle = clock_cycle.DisplayCycle(
         display,
         _FakeRTC(),
-        0.2,
         clock=clock,
         rng=_FakeRandom([0]),
     )
@@ -357,7 +355,7 @@ def test_display_cycle_starts_main_and_updates_each_minute() -> None:
     clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
-    cycle = clock_cycle.DisplayCycle(display, rtc, 0.2, clock=clock)
+    cycle = clock_cycle.DisplayCycle(display, rtc, clock=clock)
 
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
     cycle.tick(synced=True)
@@ -429,7 +427,6 @@ def test_display_cycle_holds_regular_screens_for_three_minutes() -> None:
     cycle = clock_cycle.DisplayCycle(
         display,
         rtc,
-        0.2,
         clock=clock,
         rng=_FakeRandom([0, 0]),
     )
@@ -459,7 +456,6 @@ def test_transition_completion_sets_target_and_restarts_hold() -> None:
     cycle = clock_cycle.DisplayCycle(
         display,
         rtc,
-        0.2,
         clock=clock,
         rng=_FakeRandom([0, 0]),
     )
@@ -483,7 +479,6 @@ def test_instant_transition_lands_on_target_in_one_render() -> None:
     cycle = clock_cycle.DisplayCycle(
         display,
         rtc,
-        0.2,
         clock=clock,
         rng=_FakeRandom([0, 3]),
     )
@@ -510,7 +505,6 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
     cycle = clock_cycle.DisplayCycle(
         display,
         rtc,
-        0.2,
         clock=clock,
         rng=_FakeRandom([0, 0]),
     )
@@ -541,7 +535,7 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
     display = _FakeDisplay()
     clock = _ManualTime()
     rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
-    cycle = clock_cycle.DisplayCycle(display, rtc, 0.2, clock=clock, rng=_FakeRandom([0]))
+    cycle = clock_cycle.DisplayCycle(display, rtc, clock=clock, rng=_FakeRandom([0]))
     cycle._show_screen(clock_screens.SCREEN_SEASON, clock.ticks_ms())
     cycle._start_transition(
         clock_screens.SCREEN_SEASON,
@@ -562,38 +556,19 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
     )
 
 
-def test_low_intensity_fade_starts_at_minimum_visible_byte() -> None:
-    """Fade-in starts at the lowest byte expected to survive display capping."""
+def test_fade_frame_lands_on_target() -> None:
+    """Fade transitions land exactly on the target endpoint."""
     source = Frame.blank(4, 2)
     target = Frame.blank(4, 2)
     for index in range(len(target.data)):
         target.data[index] = 255
-    intensity_limit = 0.01
-    min_visible = clock_transitions.min_visible_source_byte(intensity_limit)
 
-    first_visible = clock_transitions.fade_frame(
-        source,
-        target,
-        (clock_transitions.TRANSITION_STEPS // 2) + 1,
-        clock_transitions.TRANSITION_STEPS,
-        intensity_limit,
-    )
-    values = [
-        first_visible.value_at(x, y)
-        for y in range(first_visible.height)
-        for x in range(first_visible.width)
-        if first_visible.value_at(x, y)
-    ]
-
-    assert values
-    assert set(values) == {min_visible}
     assert _same_frame(
         clock_transitions.fade_frame(
             source,
             target,
             clock_transitions.TRANSITION_STEPS,
             clock_transitions.TRANSITION_STEPS,
-            intensity_limit,
         ),
         target,
     )
@@ -663,7 +638,7 @@ def test_main_runs_after_successful_init(main_ns: object) -> None:
         "cs": 28,
         "width_pixels": 32,
         "height_pixels": 16,
-        "intensity_limit": 0.2,
+        "brightness": 0.2,
     }
     assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}
     assert isinstance(created["run"][2], _FakeRTC)

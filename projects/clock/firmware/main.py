@@ -19,6 +19,7 @@ from clock_sync import emit, sync_from_line
 from max7219 import MAX7219
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
+PixelSurface = namedtuple("PixelSurface", ("width_pixels", "height_pixels", "brightness"))
 DisplayWiring = namedtuple(
     "DisplayWiring",
     (
@@ -26,16 +27,12 @@ DisplayWiring = namedtuple(
         "sck",
         "mosi",
         "cs",
-        "width_pixels",
-        "height_pixels",
-        "intensity_limit",
+        "surface",
     ),
 )
 Board = namedtuple("Board", ("name", "uart", "display"))
 
-_DISPLAY_WIDTH_PIXELS = 32
-_DISPLAY_HEIGHT_PIXELS = 16
-_DISPLAY_INTENSITY_LIMIT = 0.1
+_DISPLAY_SURFACE = PixelSurface(width_pixels=32, height_pixels=16, brightness=0.1)
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -47,9 +44,7 @@ if "ESP32S3" in _machine:
             sck=5,
             mosi=6,
             cs=7,
-            width_pixels=_DISPLAY_WIDTH_PIXELS,
-            height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+            surface=_DISPLAY_SURFACE,
         ),
     )
 elif "RP2350" in _machine:
@@ -61,9 +56,7 @@ elif "RP2350" in _machine:
             sck=10,
             mosi=11,
             cs=9,
-            width_pixels=_DISPLAY_WIDTH_PIXELS,
-            height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+            surface=_DISPLAY_SURFACE,
         ),
     )
 else:
@@ -75,9 +68,7 @@ else:
             sck=26,
             mosi=27,
             cs=28,
-            width_pixels=_DISPLAY_WIDTH_PIXELS,
-            height_pixels=_DISPLAY_HEIGHT_PIXELS,
-            intensity_limit=_DISPLAY_INTENSITY_LIMIT,
+            surface=_DISPLAY_SURFACE,
         ),
     )
 
@@ -98,7 +89,6 @@ def run(gps: object, display: object, rtc: object) -> None:
     display_cycle = DisplayCycle(
         display,
         rtc,
-        BOARD.display.intensity_limit,
         clock=time,
         rng=random,
     )
@@ -125,14 +115,15 @@ def main() -> None:
     while True:
         status.i2c_init()
         try:
+            surface = BOARD.display.surface
             display = MAX7219(
                 spi_id=BOARD.display.spi_id,
                 sck=BOARD.display.sck,
                 mosi=BOARD.display.mosi,
                 cs=BOARD.display.cs,
-                width_pixels=BOARD.display.width_pixels,
-                height_pixels=BOARD.display.height_pixels,
-                intensity_limit=BOARD.display.intensity_limit,
+                width_pixels=surface.width_pixels,
+                height_pixels=surface.height_pixels,
+                brightness=surface.brightness,
             )
             gps = GPS(bus_id=BOARD.uart.bus_id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
             rtc = RTC()

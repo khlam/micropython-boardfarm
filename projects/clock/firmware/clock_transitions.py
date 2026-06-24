@@ -78,44 +78,15 @@ def blank_packed_like(frame: object, intensity: int = 0) -> object:
     )
 
 
-def min_visible_source_byte(intensity_limit: float) -> int:
-    """Return the lowest source byte expected to survive display capping."""
-    if intensity_limit <= 0:
-        return 255
-    capped_max = int(255 * intensity_limit + 0.5)
-    if capped_max <= 0:
-        return 255
-    value = (255 + (2 * capped_max) - 1) // (2 * capped_max)
-    if value < 1:
-        return 1
-    if value > 255:
-        return 255
-    return value
-
-
-def transition_pixel_value(source_value: int, step_value: int, min_visible: int) -> int:
-    """Scale one lit transition pixel without dropping below visible range."""
-    if source_value <= 0:
-        return 0
-    if source_value <= min_visible:
-        return source_value
-    step_value = max(step_value, min_visible)
-    if step_value > source_value:
-        return source_value
-    return step_value
-
-
-def fade_step_value(max_value: int, progress: int, total: int, min_visible: int) -> int:
-    """Return one global fade intensity between visible minimum and max."""
+def fade_step_value(max_value: int, progress: int, total: int) -> int:
+    """Return one global fade intensity between off and max."""
     if max_value <= 0:
         return 0
-    if max_value <= min_visible:
-        return max_value
     if progress <= 0:
-        return min_visible
+        return 0
     if total <= 0 or progress >= total:
         return max_value
-    return min_visible + ((max_value - min_visible) * progress // total)
+    return max_value * progress // total
 
 
 def dither_rank(x: int, y: int, total: int) -> int:
@@ -162,14 +133,27 @@ def masked_fade_frame(
     visible_steps: int,
     total_steps: int,
     step_value: int,
-    min_visible: int,
 ) -> object:
     """Render a dither-masked view of ``source`` at one fade intensity."""
-    source = as_packed_frame(source)
+    return _packed_masked_fade_frame(
+        as_packed_frame(source),
+        visible_steps,
+        total_steps,
+        step_value,
+    )
+
+
+def _packed_masked_fade_frame(
+    source: object,
+    visible_steps: int,
+    total_steps: int,
+    step_value: int,
+) -> object:
+    """Render a dither-masked view of a packed ``source``."""
     if visible_steps <= 0 or step_value <= 0:
         return blank_packed_like(source)
     visible_steps = min(total_steps, visible_steps)
-    value = transition_pixel_value(max_frame_value(source), step_value, min_visible)
+    value = min(step_value, max_frame_value(source))
     if value <= 0:
         return blank_packed_like(source)
     mask = dither_mask(source, total_steps, visible_steps)
@@ -181,8 +165,11 @@ def masked_fade_frame(
 
 def wipe_frame(source: object, target: object, step: int, steps: int) -> object:
     """Reveal ``target`` left-to-right over ``source``."""
-    source = as_packed_frame(source)
-    target = as_packed_frame(target)
+    return _packed_wipe_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
+
+
+def _packed_wipe_frame(source: object, target: object, step: int, steps: int) -> object:
+    """Reveal a packed ``target`` left-to-right over a packed ``source``."""
     if step <= 0:
         return copy_frame(source)
     if step >= steps:
@@ -230,8 +217,11 @@ def write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) ->
 
 def scroll_frame(source: object, target: object, step: int, steps: int) -> object:
     """Slide ``source`` left while ``target`` enters from the right."""
-    source = as_packed_frame(source)
-    target = as_packed_frame(target)
+    return _packed_scroll_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
+
+
+def _packed_scroll_frame(source: object, target: object, step: int, steps: int) -> object:
+    """Slide packed ``source`` left while packed ``target`` enters from the right."""
     if step <= 0:
         return copy_frame(source)
     if step >= steps:
@@ -263,14 +253,22 @@ def fade_frame(
     target: object,
     step: int,
     steps: int,
-    intensity_limit: float,
 ) -> object:
     """Fade through masked low-intensity frames into ``target``."""
+    return _packed_fade_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
+
+
+def _packed_fade_frame(
+    source: object,
+    target: object,
+    step: int,
+    steps: int,
+) -> object:
+    """Fade through masked low-intensity frames between packed endpoints."""
     if step <= 0:
         return copy_frame(source)
     if step >= steps:
         return copy_frame(target)
-    min_visible = min_visible_source_byte(intensity_limit)
     half = steps // 2
     if step <= half:
         visible_steps = half - step
@@ -278,18 +276,16 @@ def fade_frame(
             max_frame_value(source),
             visible_steps - 1,
             half - 1,
-            min_visible,
         )
-        return masked_fade_frame(source, visible_steps, half, value, min_visible)
+        return _packed_masked_fade_frame(source, visible_steps, half, value)
     visible_steps = step - half
     total_steps = steps - half
     value = fade_step_value(
         max_frame_value(target),
         visible_steps - 1,
         total_steps - 1,
-        min_visible,
     )
-    return masked_fade_frame(target, visible_steps, total_steps, value, min_visible)
+    return _packed_masked_fade_frame(target, visible_steps, total_steps, value)
 
 
 def frame_transition_frame(
@@ -299,16 +295,15 @@ def frame_transition_frame(
     *,
     step: int,
     steps: int,
-    intensity_limit: float,
 ) -> object:
-    """Render one transition frame between two concrete frame endpoints."""
+    """Render one transition frame between two packed frame endpoints."""
     if effect == TRANSITION_INSTANT:
         return copy_frame(target)
     if effect == TRANSITION_FADE:
-        return fade_frame(source, target, step, steps, intensity_limit)
+        return _packed_fade_frame(source, target, step, steps)
     if effect == TRANSITION_SCROLL:
-        return scroll_frame(source, target, step, steps)
-    return wipe_frame(source, target, step, steps)
+        return _packed_scroll_frame(source, target, step, steps)
+    return _packed_wipe_frame(source, target, step, steps)
 
 
 def randbelow(limit: int, rng: object | None = None) -> int:

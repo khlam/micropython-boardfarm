@@ -40,7 +40,7 @@ def test_public_show_writes_fitted_frame_to_spi() -> None:
         cs=28,
         width_pixels=32,
         height_pixels=16,
-        intensity_limit=0.2,
+        brightness=0.2,
     )
     spi = machine.SPI.instances[-1]
     spi.writes.clear()

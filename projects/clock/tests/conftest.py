@@ -21,6 +21,7 @@ import pytest
 from micropython_stubs.testing import firmware_namespace
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
+PixelSurface = namedtuple("PixelSurface", ("width_pixels", "height_pixels", "brightness"))
 DisplayWiring = namedtuple(
     "DisplayWiring",
     (
@@ -28,9 +29,7 @@ DisplayWiring = namedtuple(
         "sck",
         "mosi",
         "cs",
-        "width_pixels",
-        "height_pixels",
-        "intensity_limit",
+        "surface",
     ),
 )
 Board = namedtuple("Board", ("name", "uart", "display"))
@@ -43,9 +42,7 @@ _TEST_BOARD = Board(
         sck=26,
         mosi=27,
         cs=28,
-        width_pixels=32,
-        height_pixels=16,
-        intensity_limit=0.2,
+        surface=PixelSurface(width_pixels=32, height_pixels=16, brightness=0.2),
     ),
 )
 

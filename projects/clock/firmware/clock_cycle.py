@@ -18,7 +18,6 @@ class DisplayCycle:
         self,
         display: object,
         rtc: object,
-        intensity_limit: float,
         *,
         clock: object | None = None,
         rng: object | None = None,
@@ -26,7 +25,6 @@ class DisplayCycle:
         """Bind the cycle manager to a display, RTC, clock source, and RNG."""
         self._display = display
         self._rtc = rtc
-        self._intensity_limit = intensity_limit
         self._clock = time if clock is None else clock
         self._rng = random if rng is None else rng
         self._frame_cache = {}
@@ -99,11 +97,15 @@ class DisplayCycle:
         """Render a stable screen and start its hold timer."""
         parts = self._parts_for_screen(screen)
         frame, key = self._frame_and_key(screen, parts)
-        self._display.show(frame)
         self.current_screen = screen
+        self.screen_started_ms = now
+        self._show_frame(frame, key, now)
+
+    def _show_frame(self, frame: object, key: tuple, now: int) -> None:
+        """Render ``frame`` and store the visible-content state."""
+        self._display.show(frame)
         self.screen_frame = frame
         self.shown_key = key
-        self.screen_started_ms = now
         self.last_reassert_ms = now
 
     def _hold_expired(self, now: int) -> bool:
@@ -138,14 +140,15 @@ class DisplayCycle:
         effect = clock_transitions.choose_transition(self._rng)
         source_parts = self._parts_for_screen(source_screen)
         target_parts = self._parts_for_screen(target_screen)
-        source_frame = self._frame_and_key(source_screen, source_parts)[0]
+        source_frame = clock_transitions.as_packed_frame(
+            self._frame_and_key(source_screen, source_parts)[0],
+        )
         target_frame, target_key = self._frame_and_key(target_screen, target_parts)
         self.transition = {
             "effect": effect,
-            "source_screen": source_screen,
             "target_screen": target_screen,
             "source_frame": source_frame,
-            "target_frame": target_frame,
+            "target_frame": clock_transitions.as_packed_frame(target_frame),
             "target_key": target_key,
             "step": 1,
             "steps": 1 if effect == clock_transitions.TRANSITION_INSTANT else steps,
@@ -162,7 +165,6 @@ class DisplayCycle:
             transition["target_frame"],
             step=transition["step"],
             steps=transition["steps"],
-            intensity_limit=self._intensity_limit,
         )
         self._display.show(frame)
         self.last_reassert_ms = now
@@ -188,10 +190,7 @@ class DisplayCycle:
         if key == self.shown_key:
             return
         frame, key = self._frame_and_key(self.current_screen, parts)
-        self._display.show(frame)
-        self.screen_frame = frame
-        self.shown_key = key
-        self.last_reassert_ms = now
+        self._show_frame(frame, key, now)
 
     def _show_current_or_reassert(self, now: int) -> None:
         """Refresh live content changes or periodically heal display state."""
@@ -201,16 +200,11 @@ class DisplayCycle:
         key = clock_screens.screen_key(self.current_screen, parts)
         if self.shown_key != key:
             frame, key = self._frame_and_key(self.current_screen, parts)
-            self._display.show(frame)
-            self.screen_frame = frame
-            self.shown_key = key
-            self.last_reassert_ms = now
+            self._show_frame(frame, key, now)
             return
         if self.last_reassert_ms is None:
             self.last_reassert_ms = now
             return
         if self._clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS:
             frame, _key = self._frame_and_key(self.current_screen, parts)
-            self._display.show(frame)
-            self.screen_frame = frame
-            self.last_reassert_ms = now
+            self._show_frame(frame, key, now)

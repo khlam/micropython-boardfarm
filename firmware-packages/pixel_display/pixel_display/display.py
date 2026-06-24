@@ -16,18 +16,18 @@ class Display:
         *,
         width_pixels: int,
         height_pixels: int,
-        intensity_limit: float = 1.0,
+        brightness: float = 1.0,
         allow_lossy: bool = False,
         failure_mode: str = _FAILURE_CORNER_XS,
     ) -> None:
-        """Bind a display backend to geometry and intensity policy.
+        """Bind a display backend to geometry and brightness policy.
 
         Args:
             backend: Object exposing ``write_frame(frame, *, allow_lossy)`` and
                 ``clear()``.
             width_pixels: Declared visual width in pixels.
             height_pixels: Declared visual height in pixels.
-            intensity_limit: Normalized cap applied linearly to frame bytes.
+            brightness: Normalized output brightness applied to frame bytes.
             allow_lossy: Whether geometry downscaling and backend conversion may
                 discard detail.
             failure_mode: ``"corner_xs"`` or ``"blank"``.
@@ -42,7 +42,7 @@ class Display:
         self._backend = backend
         self.width_pixels = width_pixels
         self.height_pixels = height_pixels
-        self._intensity_limit = _clamp(intensity_limit)
+        self._brightness = _clamp(brightness)
         self._allow_lossy = allow_lossy
         self._failure_mode = failure_mode
 
@@ -50,19 +50,20 @@ class Display:
         """Fit, scale, and render one frame."""
         if isinstance(frame, PackedFrame):
             if frame.width == self.width_pixels and frame.height == self.height_pixels:
-                capped = self._scale_packed_intensity(frame)
-                if not self._backend.write_frame(capped, allow_lossy=self._allow_lossy):
-                    self._show_failure()
+                self._write_or_fail(self._scale_packed_intensity(frame))
                 return
-            if not self._allow_lossy and (
-                frame.width > self.width_pixels or frame.height > self.height_pixels
-            ):
+            if self._exceeds_geometry(frame):
                 self._show_failure()
                 return
             frame = frame.unpack()
-        if not self._allow_lossy and (
-            frame.width > self.width_pixels or frame.height > self.height_pixels
-        ):
+        self._show_unpacked(frame)
+
+    def _show_unpacked(self, frame: Frame) -> None:
+        """Render a normalized frame, fitting it to geometry when needed."""
+        if frame.width == self.width_pixels and frame.height == self.height_pixels:
+            self._write_or_fail(self._scale_intensity(frame))
+            return
+        if self._exceeds_geometry(frame):
             self._show_failure()
             return
         fitted = _fit_frame(
@@ -71,8 +72,17 @@ class Display:
             self.height_pixels,
             allow_downscale=self._allow_lossy,
         )
-        capped = self._scale_intensity(fitted)
-        if not self._backend.write_frame(capped, allow_lossy=self._allow_lossy):
+        self._write_or_fail(self._scale_intensity(fitted))
+
+    def _exceeds_geometry(self, frame: object) -> bool:
+        """Report whether a frame is larger than geometry and may not downscale."""
+        return not self._allow_lossy and (
+            frame.width > self.width_pixels or frame.height > self.height_pixels
+        )
+
+    def _write_or_fail(self, frame: object) -> None:
+        """Write a capped frame to the backend, rendering failure if rejected."""
+        if not self._backend.write_frame(frame, allow_lossy=self._allow_lossy):
             self._show_failure()
 
     def _show_failure(self) -> None:
@@ -89,19 +99,17 @@ class Display:
             self._backend.clear()
 
     def _scale_intensity(self, frame: Frame) -> Frame:
-        """Apply the configured cap to normalized byte channels."""
+        """Apply the configured brightness to normalized byte channels."""
+        if self._brightness >= 1:
+            return frame
         data = bytearray(len(frame.data))
-        capped_max = int(255 * self._intensity_limit + 0.5)
         for i, value in enumerate(frame.data):
-            if value <= 0:
-                data[i] = 0
-            else:
-                data[i] = int(capped_max * value / 255 + 0.5)
+            data[i] = _scale_byte(value, self._brightness)
         return Frame(frame.width, frame.height, frame.channels, data)
 
     def _scale_packed_intensity(self, frame: PackedFrame) -> PackedFrame:
-        """Apply the configured cap to a packed frame's shared intensity."""
-        intensity = _scale_byte(frame.intensity, self._intensity_limit)
+        """Apply the configured brightness to a packed frame's shared intensity."""
+        intensity = _scale_byte(frame.intensity, self._brightness)
         if intensity == frame.intensity:
             return frame
         return PackedFrame(frame.width, frame.height, frame.stride, frame.data, intensity)
@@ -176,11 +184,11 @@ def _clamp(value: float) -> float:
     return value
 
 
-def _scale_byte(value: int, limit: float) -> int:
-    """Scale one normalized byte by a normalized cap."""
-    if value <= 0 or limit <= 0:
+def _scale_byte(value: int, brightness: float) -> int:
+    """Scale one normalized byte by normalized brightness."""
+    if value <= 0 or brightness <= 0:
         return 0
-    capped_max = int(255 * limit + 0.5)
-    if value >= 255:
-        return capped_max
-    return int(capped_max * value / 255 + 0.5)
+    scaled = int(value * brightness + 0.5)
+    if scaled <= 0:
+        return 1
+    return scaled

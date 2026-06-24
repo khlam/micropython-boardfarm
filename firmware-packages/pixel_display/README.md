@@ -27,9 +27,10 @@ stores one bit per pixel plus one shared byte intensity, so exact-size
 monochrome animations can avoid allocating and scaling a full byte per pixel on
 every refresh.
 
-`Display` owns geometry fit, normalized brightness caps, and failure rendering.
-It scales and centers frames into `width_pixels` × `height_pixels`, applies the
-configured intensity cap, then calls a backend:
+`Display` owns geometry fit, normalized brightness, and failure rendering. It
+scales and centers frames into `width_pixels` × `height_pixels`, applies the
+configured brightness, then calls a backend. When brightness is above zero,
+nonzero frame bytes stay nonzero after scaling; `brightness=0.0` blanks them.
 
 ```python
 backend.write_frame(frame, allow_lossy=False)

@@ -116,7 +116,7 @@ def test_display_scales_small_frames_by_integer_blocks() -> None:
 
 def test_display_fast_paths_exact_packed_frames() -> None:
     backend = _Backend()
-    display = Display(backend, width_pixels=4, height_pixels=2, intensity_limit=0.5)
+    display = Display(backend, width_pixels=4, height_pixels=2, brightness=0.5)
     canvas = Canvas(4, 2, intensity=255)
     canvas.pixel(0, 0)
 
@@ -192,13 +192,13 @@ def test_allow_lossy_downscales_oversized_frames() -> None:
     assert (frame.width, frame.height) == (2, 2)
 
 
-def test_intensity_limit_caps_normalized_bytes() -> None:
+def test_brightness_caps_normalized_bytes() -> None:
     backend = _Backend()
     display = Display(
         backend,
         width_pixels=2,
         height_pixels=1,
-        intensity_limit=0.5,
+        brightness=0.5,
     )
 
     display.show(Frame.from_matrix([[0.0, 1.0]]))
