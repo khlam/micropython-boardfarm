@@ -700,8 +700,8 @@ def _display_frame(top: str, bottom: str, *, colon_visible: bool) -> object:
 
 
 def _wait_frame() -> object:
-    """Render the unsynced GPS wait screen."""
-    return _display_frame(_WAIT_TOP, _WAIT_BOT, colon_visible=True)
+    """Render the unsynced GPS wait screen as a full display-sized frame."""
+    return _clock_face_frame(_WAIT_TOP, _WAIT_BOT, colon_visible=True)
 
 
 def _blank_wait_frame() -> object:
