@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import pathlib
 import random
+import sys
 from collections import namedtuple
 from types import SimpleNamespace
 
@@ -18,9 +19,6 @@ import neopixel
 import pytest
 
 from micropython_stubs.testing import firmware_namespace
-from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
-from pixel_display import Canvas, Frame, PackedFrame
-from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
 DisplayWiring = namedtuple(
@@ -52,74 +50,12 @@ _TEST_BOARD = Board(
 )
 
 _HERE = pathlib.Path(__file__).parent.resolve()
-_FIRMWARE = _HERE.parent / "firmware" / "main.py"
+_FIRMWARE_DIR = _HERE.parent / "firmware"
+_FIRMWARE = _FIRMWARE_DIR / "main.py"
+if str(_FIRMWARE_DIR) not in sys.path:
+    sys.path.insert(0, str(_FIRMWARE_DIR))
 
 _KEEP_FUNCS = {
-    "emit",
-    "_iso_local",
-    "_rtc_datetime",
-    "_parse_utc_parts",
-    "_local_from_offset",
-    "_gps_offset",
-    "_format_time_parts",
-    "_format_time_seconds",
-    "_format_month_abbr",
-    "_season_name",
-    "_compact_glyph",
-    "_compact_text_width",
-    "_draw_compact_glyph",
-    "_draw_compact_text_at",
-    "_draw_compact_text_in_box",
-    "_draw_compact_text",
-    "_clock_face_frame",
-    "_display_frame",
-    "_wait_frame",
-    "_blank_wait_frame",
-    "_wait_endpoint_frame",
-    "_rtc_parts",
-    "_main_screen_frame",
-    "_season_screen_frame",
-    "_time_seconds_screen_frame",
-    "_clock_meridiem_screen_frame",
-    "_full_date_screen_frame",
-    "_screen_frame_from_parts",
-    "_screen_frame",
-    "_screen_key_from_parts",
-    "_screen_key",
-    "_copy_frame",
-    "_frame_value",
-    "_max_frame_value",
-    "_as_packed_frame",
-    "_blank_packed_like",
-    "_min_visible_source_byte",
-    "_transition_pixel_value",
-    "_fade_step_value",
-    "_dither_rank",
-    "_build_dither_masks",
-    "_dither_mask",
-    "_masked_fade_frame",
-    "_wipe_frame",
-    "_packed_row_bits",
-    "_write_packed_row_bits",
-    "_scroll_frame",
-    "_fade_frame",
-    "_transition_frame",
-    "_frame_transition_frame",
-    "_randbelow",
-    "_choose_next_screen",
-    "_choose_transition",
-    "_is_interstitial",
-    "_choose_interstitial",
-    "_show_wait",
-    "_start_wait_transition",
-    "_wait_transition_frame",
-    "_advance_wait_transition",
-    "_start_screen_cycle",
-    "_start_transition",
-    "_advance_transition",
-    "_refresh_current_screen",
-    "_refresh_display",
-    "_sync_from_line",
     "run",
     "main",
 }
@@ -139,20 +75,18 @@ def main_ns() -> SimpleNamespace:
     Returns:
         SimpleNamespace with ``ns``, ``time``, and ``status`` attributes.
     """
+    import clock_cycle
+    import clock_sync
+
     return firmware_namespace(
         _FIRMWARE,
         _KEEP_FUNCS,
         os=os,
         namedtuple=namedtuple,
         BOARD=_TEST_BOARD,
-        apply_parsed=apply_parsed,
-        nmea_checksum_valid=nmea_checksum_valid,
-        parse_sentence=parse_sentence,
-        Canvas=Canvas,
-        Frame=Frame,
-        PackedFrame=PackedFrame,
         random=random,
-        offset_seconds_from_gps=offset_seconds_from_gps,
-        utc_to_local_seconds=utc_to_local_seconds,
-        weekday=weekday,
+        DisplayCycle=clock_cycle.DisplayCycle,
+        POLL_SLEEP_MS=clock_cycle.POLL_SLEEP_MS,
+        emit=clock_sync.emit,
+        sync_from_line=clock_sync.sync_from_line,
     )

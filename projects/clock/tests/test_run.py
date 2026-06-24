@@ -6,7 +6,12 @@ import json
 
 import pytest
 
-from pixel_display import Frame
+import clock_cycle
+import clock_screens
+import clock_sync
+import clock_text
+import clock_transitions
+from pixel_display import Frame, PackedFrame
 
 _RMC_FIX = "$GPRMC,235958,A,3723.2475,N,12158.3416,W,0.0,0.0,230626,0.0,E*69"
 
@@ -38,6 +43,23 @@ class _CountdownTime:
         self._sleeps += 1
         if self._sleeps >= self._stop:
             raise _StopLoop
+
+
+class _ManualTime:
+    """time stub whose tick counter can be moved by tests."""
+
+    def __init__(self) -> None:
+        """Initialise the tick counter."""
+        self.ticks = 0
+
+    def ticks_ms(self) -> int:
+        """Advance and return the monotonic tick counter."""
+        self.ticks += 1
+        return self.ticks
+
+    def ticks_diff(self, a: int, b: int) -> int:
+        """Return the difference between two tick values."""
+        return a - b
 
 
 class _FakeDisplay:
@@ -96,12 +118,9 @@ class _FakeRandom:
         return self._values.pop(0)
 
 
-def test_emit_writes_one_json_line(
-    main_ns: object,
-    capsys: pytest.CaptureFixture,
-) -> None:
+def test_emit_writes_one_json_line(capsys: pytest.CaptureFixture) -> None:
     """emit() writes exactly one compact JSON object per line."""
-    main_ns.ns["emit"]({"fix": True, "day": "TUE"})
+    clock_sync.emit({"fix": True, "day": "TUE"})
     out = capsys.readouterr().out.strip()
     assert json.loads(out) == {"fix": True, "day": "TUE"}
 
@@ -118,58 +137,65 @@ def test_run_waits_for_gps_before_first_fix(main_ns: object) -> None:
     assert len(display.shown) == 1
     assert _same_frame(
         display.shown[0],
-        main_ns.ns["_wipe_frame"](
-            main_ns.ns["_blank_wait_frame"](),
-            main_ns.ns["_wait_frame"](),
+        clock_transitions.wipe_frame(
+            clock_screens.render_screen(clock_screens.WAIT_OFF, None),
+            clock_screens.render_screen(clock_screens.WAIT_ON, None),
             1,
-            main_ns.ns["_WAIT_TRANSITION_STEPS"],
+            clock_cycle.WAIT_TRANSITION_STEPS,
         ),
     )
     assert "streaming" in main_ns.status.calls
 
 
-def test_wait_screen_transitions_off_after_one_second(main_ns: object) -> None:
+def test_wait_screen_transitions_off_after_one_second() -> None:
     """The unsynced wait display flips between visible and blank endpoints."""
-    main_ns.ns["random"] = _FakeRandom([3, 3])
+    clock = _ManualTime()
     display = _FakeDisplay()
-    rtc = _FakeRTC()
-    state = {"synced": False, "intensity_limit": 0.2}
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        _FakeRTC(),
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([3, 3]),
+    )
 
-    main_ns.ns["_refresh_display"](display, rtc, state)
-    assert state["wait_visible"] is True
-    assert _same_frame(display.shown[-1], main_ns.ns["_wait_frame"]())
+    cycle.tick(False)
+    assert cycle.current_screen == clock_screens.WAIT_ON
+    assert _same_frame(display.shown[-1], clock_screens.render_screen(clock_screens.WAIT_ON, None))
 
-    phase_started = state["wait_phase_started_ms"]
-    main_ns.time.ticks = phase_started + main_ns.ns["_WAIT_ROTATE_MS"] - 2
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    phase_started = cycle.screen_started_ms
+    clock.ticks = phase_started + clock_screens.WAIT_ROTATE_MS - 2
+    cycle.tick(False)
     assert len(display.shown) == 1
 
-    main_ns.time.ticks = phase_started + main_ns.ns["_WAIT_ROTATE_MS"] - 1
-    main_ns.ns["_refresh_display"](display, rtc, state)
-    assert state["wait_visible"] is False
-    assert _same_frame(display.shown[-1], main_ns.ns["_blank_wait_frame"]())
+    clock.ticks = phase_started + clock_screens.WAIT_ROTATE_MS - 1
+    cycle.tick(False)
+    assert cycle.current_screen == clock_screens.WAIT_OFF
+    assert _same_frame(display.shown[-1], clock_screens.render_screen(clock_screens.WAIT_OFF, None))
 
 
-def test_wait_screen_holds_after_slow_transition_lands(main_ns: object) -> None:
+def test_wait_screen_holds_after_slow_transition_lands() -> None:
     """A long GPS wait transition starts its hold timer when it lands."""
-    main_ns.ns["random"] = _FakeRandom([0])
+    clock = _ManualTime()
     display = _FakeDisplay()
-    state: dict = {"intensity_limit": 0.2}
-    started = 100
-    landed = started + main_ns.ns["_WAIT_ROTATE_MS"]
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        _FakeRTC(),
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([0]),
+    )
 
-    main_ns.ns["_start_wait_transition"](state)
-    state["wait_transition"]["step"] = state["wait_transition"]["steps"]
-    main_ns.ns["_advance_wait_transition"](display, state, landed)
-
-    assert state["wait_visible"] is True
-    assert state["wait_phase_started_ms"] == landed
+    cycle.tick(False)
+    while cycle.transition is not None:
+        cycle.tick(False)
+    landed = cycle.screen_started_ms
     shown_count = len(display.shown)
-    main_ns.ns["random"] = _FakeRandom([])
-    main_ns.time.ticks = landed + main_ns.ns["_WAIT_ROTATE_MS"] - 2
-    main_ns.ns["_refresh_display"](display, _FakeRTC(), state)
+    clock.ticks = landed + clock_screens.WAIT_ROTATE_MS - 2
+    cycle.tick(False)
 
-    assert state["wait_transition"] is None
+    assert cycle.current_screen == clock_screens.WAIT_ON
+    assert cycle.transition is None
     assert len(display.shown) == shown_count
 
 
@@ -189,7 +215,7 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     assert rtc.value == (2026, 6, 23, 1, 16, 59, 58, 0)
     assert _same_frame(
         display.shown[-1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
+        clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc),
     )
     assert len(emitted) == 1
     assert emitted[0]["fix"] is True
@@ -203,24 +229,37 @@ def test_run_syncs_rtc_and_displays_current_time_and_date(main_ns: object) -> No
     assert emitted[0]["t"] == 1
 
 
-def test_screen_renderers_fit_the_matrix(main_ns: object) -> None:
-    """Every display-cycle screen renders to the fixed 32x16 frame surface."""
+def test_screen_specs_and_renderers_fit_the_matrix() -> None:
+    """Every display-cycle screen renders to the fixed 32x16 packed surface."""
     rtc = _FakeRTC()
     rtc.value = (2026, 5, 31, 6, 23, 59, 58, 0)
+    parts = clock_screens.rtc_parts(rtc)
+    ids = [spec.id for spec in clock_screens.SCREEN_SPECS]
 
-    for screen in main_ns.ns["_SCREENS"] + main_ns.ns["_INTERSTITIALS"]:
-        frame = main_ns.ns["_screen_frame"](screen, rtc)
+    assert len(ids) == len(set(ids))
+    assert set(clock_screens.REGULAR_SCREENS) == {
+        clock_screens.SCREEN_MAIN,
+        clock_screens.SCREEN_CLOCK_MERIDIEM,
+        clock_screens.SCREEN_TIME_SECONDS,
+    }
+    assert set(clock_screens.INTERSTITIAL_SCREENS) == {
+        clock_screens.SCREEN_SEASON,
+        clock_screens.SCREEN_FULL_DATE,
+    }
+
+    for screen in clock_screens.REGULAR_SCREENS + clock_screens.INTERSTITIAL_SCREENS:
+        frame = clock_screens.render_screen(screen, parts)
+        assert isinstance(frame, PackedFrame)
         assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
         assert any(frame.data)
 
-    for month in range(1, 13):
-        month_name = main_ns.ns["_MONTH_NAMES"][month - 1]
-        season = main_ns.ns["_season_name"](month)
-        assert main_ns.ns["_compact_text_width"](month_name) <= 32
-        assert main_ns.ns["_compact_text_width"](season) <= 32
+    for screen in clock_screens.WAIT_SCREENS:
+        frame = clock_screens.render_screen(screen, None)
+        assert isinstance(frame, PackedFrame)
+        assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
 
 
-def test_season_name_uses_meteorological_boundaries(main_ns: object) -> None:
+def test_season_name_uses_meteorological_boundaries() -> None:
     """Seasons follow month-based meteorological boundaries."""
     expected = (
         "WINTER",
@@ -238,41 +277,41 @@ def test_season_name_uses_meteorological_boundaries(main_ns: object) -> None:
     )
 
     for month, season in enumerate(expected, start=1):
-        assert main_ns.ns["_season_name"](month) == season
+        assert clock_screens.season_name(month) == season
 
 
-def test_time_seconds_screen_updates_each_second(main_ns: object) -> None:
+def test_time_seconds_screen_updates_each_second() -> None:
     """The large time screen includes seconds as visible content."""
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
-    first = main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_TIME_SECONDS"], rtc)
+    first = clock_screens.screen_frame(clock_screens.SCREEN_TIME_SECONDS, rtc)
     rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
-    second = main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_TIME_SECONDS"], rtc)
+    second = clock_screens.screen_frame(clock_screens.SCREEN_TIME_SECONDS, rtc)
 
     assert not _same_frame(first, second)
-    assert main_ns.ns["_screen_key"](main_ns.ns["_SCREEN_TIME_SECONDS"], rtc) == (
-        main_ns.ns["_SCREEN_TIME_SECONDS"],
+    assert clock_screens.key_from_rtc(clock_screens.SCREEN_TIME_SECONDS, rtc) == (
+        clock_screens.SCREEN_TIME_SECONDS,
         15,
         59,
         59,
     )
 
 
-def test_clock_meridiem_screen_centers_tall_time(main_ns: object) -> None:
+def test_clock_meridiem_screen_centers_tall_time() -> None:
     """The clock-only screen centers large time next to a smaller meridiem."""
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 12, 59, 0, 0)
 
-    frame = main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_CLOCK_MERIDIEM"], rtc)
-    unscaled_clock_width = main_ns.ns["_compact_text_width"]("12:59")
-    clock_width = main_ns.ns["_compact_text_width"](
+    frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
+    unscaled_clock_width = clock_text.compact_text_width("12:59")
+    clock_width = clock_text.compact_text_width(
         "12:59",
-        main_ns.ns["_CLOCK_MERIDIEM_TIME_GAP_PIXELS"],
-        main_ns.ns["_CLOCK_MERIDIEM_TIME_X_SCALE"],
+        clock_screens.CLOCK_MERIDIEM_TIME_GAP_PIXELS,
+        clock_screens.CLOCK_MERIDIEM_TIME_X_SCALE,
     )
-    meridiem_width = main_ns.ns["_compact_text_width"]("M", 0)
-    side_by_side_meridiem_width = main_ns.ns["_compact_text_width"]("PM")
-    group_width = clock_width + main_ns.ns["_CLOCK_MERIDIEM_LABEL_GAP_PIXELS"] + meridiem_width
+    meridiem_width = clock_text.compact_text_width("M", 0)
+    side_by_side_meridiem_width = clock_text.compact_text_width("PM")
+    group_width = clock_width + clock_screens.CLOCK_MERIDIEM_LABEL_GAP_PIXELS + meridiem_width
     left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
 
     assert clock_width > unscaled_clock_width
@@ -281,32 +320,31 @@ def test_clock_meridiem_screen_centers_tall_time(main_ns: object) -> None:
     assert right == left + group_width - 1
     assert (top, bottom) == (0, 14)
     assert bottom - top + 1 == (
-        (2 * main_ns.ns["_COMPACT_GLYPH_HEIGHT"])
-        + main_ns.ns["_CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS"]
+        (2 * clock_text.COMPACT_GLYPH_HEIGHT) + clock_screens.CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
     )
-    assert main_ns.ns["_screen_key"](main_ns.ns["_SCREEN_CLOCK_MERIDIEM"], rtc) == (
-        main_ns.ns["_SCREEN_CLOCK_MERIDIEM"],
+    assert clock_screens.key_from_rtc(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc) == (
+        clock_screens.SCREEN_CLOCK_MERIDIEM,
         12,
         59,
     )
 
 
-def test_sync_uses_startup_timezone_offset(main_ns: object) -> None:
+def test_sync_uses_startup_timezone_offset(monkeypatch: pytest.MonkeyPatch) -> None:
     """GPS fixes reuse the timezone lookup from the first complete fix."""
     calls: list[tuple] = []
     emitted: list[dict] = []
     rtc = _FakeRTC()
     state: dict = {}
+    clock = _ManualTime()
 
     def _offset(date_str: str, utc_str: str, lat: float, lon: float) -> tuple:
         calls.append((date_str, utc_str, lat, lon))
         return -25_200, "PDT"
 
-    main_ns.ns["offset_seconds_from_gps"] = _offset
-    main_ns.ns["emit"] = lambda obj: emitted.append(dict(obj))
+    monkeypatch.setattr(clock_sync, "offset_seconds_from_gps", _offset)
 
-    main_ns.ns["_sync_from_line"](_RMC_FIX, rtc, state)
-    main_ns.ns["_sync_from_line"](_RMC_FIX, rtc, state)
+    clock_sync.sync_from_line(_RMC_FIX, rtc, state, lambda obj: emitted.append(dict(obj)), clock)
+    clock_sync.sync_from_line(_RMC_FIX, rtc, state, lambda obj: emitted.append(dict(obj)), clock)
 
     assert len(calls) == 1
     assert state["offset_s"] == -25_200
@@ -314,46 +352,39 @@ def test_sync_uses_startup_timezone_offset(main_ns: object) -> None:
     assert emitted[-1]["local"] == "2026-06-23T16:59:58"
 
 
-def test_refresh_display_starts_main_and_updates_each_minute(
-    main_ns: object,
-) -> None:
+def test_display_cycle_starts_main_and_updates_each_minute() -> None:
     """The synced display starts on the main screen and refreshes when visible time changes."""
+    clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
-    state = {"synced": True, "intensity_limit": 0.2}
+    cycle = clock_cycle.DisplayCycle(display, rtc, 0.2, clock=clock)
 
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    cycle.tick(True)
     rtc.value = (2026, 6, 23, 1, 0, 5, 59, 0)
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    cycle.tick(True)
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    cycle.tick(True)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
+    assert cycle.current_screen == clock_screens.SCREEN_MAIN
     assert len(display.shown) == 2
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
-    assert _same_frame(
-        display.shown[0],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
-    )
+    assert _same_frame(display.shown[0], clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc))
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
-    assert _same_frame(
-        display.shown[1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_MAIN"], rtc),
-    )
+    assert _same_frame(display.shown[1], clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc))
 
 
-def test_month_abbreviations_fit_main_date_row(main_ns: object) -> None:
+def test_month_abbreviations_fit_main_date_row() -> None:
     """Month abbreviations fit with the largest day on the main date row."""
-    for month, label in enumerate(main_ns.ns["_MONTH_ABBRS"], start=1):
-        assert main_ns.ns["_format_month_abbr"](month) == label
-        assert main_ns.ns["_compact_text_width"](f"{label} 31") <= 32
+    for month, label in enumerate(clock_screens.MONTH_ABBRS, start=1):
+        assert clock_screens.format_month_abbr(month) == label
+        assert clock_text.compact_text_width(f"{label} 31") <= 32
 
 
-def test_clock_face_centers_compact_month_date(main_ns: object) -> None:
+def test_two_row_frame_centers_compact_month_date() -> None:
     """The month row uses compact glyphs centered in the lower display band."""
-    frame = main_ns.ns["_display_frame"]("12:05 AM", "June 23", colon_visible=True)
-    month_width = main_ns.ns["_compact_text_width"]("June 23")
+    frame = clock_text.two_row_frame("12:05 AM", "June 23")
+    month_width = clock_text.compact_text_width("June 23")
     left, right, top, bottom = _lit_bounds(frame, 8, 16)
 
     assert month_width < Frame.text("June 23").width
@@ -364,161 +395,187 @@ def test_clock_face_centers_compact_month_date(main_ns: object) -> None:
     assert all(frame.value_at(x, 8) == 0 for x in range(frame.width))
 
 
-def test_random_screen_and_transition_choices(main_ns: object) -> None:
+def test_random_screen_and_transition_choices() -> None:
     """Random helpers choose a non-current screen and a valid effect."""
-    screens = main_ns.ns["_SCREENS"]
+    screens = clock_screens.REGULAR_SCREENS
 
-    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([0])) == screens[1]
-    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([1])) == screens[2]
-    assert main_ns.ns["_choose_next_screen"](screens[0], _FakeRandom([255])) == screens[2]
+    assert clock_screens.choose_next_regular(screens[0], _FakeRandom([0])) == screens[1]
+    assert clock_screens.choose_next_regular(screens[0], _FakeRandom([1])) == screens[2]
+    assert clock_screens.choose_next_regular(screens[0], _FakeRandom([255])) == screens[2]
     for current in screens:
-        assert main_ns.ns["_choose_next_screen"](current, _FakeRandom([255])) != current
+        assert clock_screens.choose_next_regular(current, _FakeRandom([255])) != current
 
-    assert main_ns.ns["_choose_transition"](_FakeRandom([0])) == main_ns.ns["_TRANSITION_WIPE"]
-    assert main_ns.ns["_choose_transition"](_FakeRandom([1])) == main_ns.ns["_TRANSITION_FADE"]
-    assert main_ns.ns["_choose_transition"](_FakeRandom([2])) == main_ns.ns["_TRANSITION_SCROLL"]
-    assert main_ns.ns["_choose_transition"](_FakeRandom([3])) == main_ns.ns["_TRANSITION_INSTANT"]
+    assert (
+        clock_transitions.choose_transition(_FakeRandom([0])) == clock_transitions.TRANSITION_WIPE
+    )
+    assert (
+        clock_transitions.choose_transition(_FakeRandom([1])) == clock_transitions.TRANSITION_FADE
+    )
+    assert (
+        clock_transitions.choose_transition(_FakeRandom([2])) == clock_transitions.TRANSITION_SCROLL
+    )
+    assert (
+        clock_transitions.choose_transition(_FakeRandom([3]))
+        == clock_transitions.TRANSITION_INSTANT
+    )
 
 
-def test_refresh_display_holds_each_screen_for_three_minutes(main_ns: object) -> None:
+def test_display_cycle_holds_regular_screens_for_three_minutes() -> None:
     """The manager waits 180 seconds before starting a random transition."""
-    main_ns.ns["random"] = _FakeRandom([0, 0])
+    clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
-    state = {"synced": True, "intensity_limit": 0.2}
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        rtc,
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([0, 0]),
+    )
 
-    main_ns.ns["_refresh_display"](display, rtc, state)
-    start = state["screen_started_ms"]
-    main_ns.time.ticks = start + main_ns.ns["_SCREEN_HOLD_MS"] - 2
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    cycle.tick(True)
+    start = cycle.screen_started_ms
+    clock.ticks = start + clock_screens.SCREEN_HOLD_MS - 2
+    cycle.tick(True)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
-    assert state["transition"] is None
+    assert cycle.current_screen == clock_screens.SCREEN_MAIN
+    assert cycle.transition is None
 
-    main_ns.time.ticks = start + main_ns.ns["_SCREEN_HOLD_MS"] - 1
-    main_ns.ns["_refresh_display"](display, rtc, state)
+    clock.ticks = start + clock_screens.SCREEN_HOLD_MS - 1
+    cycle.tick(True)
 
-    assert state["screen"] == main_ns.ns["_SCREEN_MAIN"]
-    assert state["transition"]["target_screen"] == main_ns.ns["_SCREEN_SEASON"]
-    assert state["transition"]["effect"] == main_ns.ns["_TRANSITION_WIPE"]
+    assert cycle.current_screen == clock_screens.SCREEN_MAIN
+    assert cycle.transition["target_screen"] == clock_screens.SCREEN_SEASON
+    assert cycle.transition["effect"] == clock_transitions.TRANSITION_WIPE
 
 
-def test_transition_completion_sets_target_and_restarts_hold(main_ns: object) -> None:
+def test_transition_completion_sets_target_and_restarts_hold() -> None:
     """A transition advances one frame per call and lands exactly on target."""
-    main_ns.ns["random"] = _FakeRandom([0, 0])
+    clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
-    state = {"synced": True, "intensity_limit": 0.2}
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        rtc,
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([0, 0]),
+    )
 
-    main_ns.ns["_start_screen_cycle"](display, rtc, state, main_ns.time.ticks_ms())
-    main_ns.ns["_start_transition"](state)
-    while state["transition"] is not None:
-        main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+    cycle.tick(True)
+    cycle._start_next_screen_transition()
+    while cycle.transition is not None:
+        cycle._advance_transition(clock.ticks_ms())
 
-    assert state["screen"] == main_ns.ns["_SCREEN_SEASON"]
-    assert state["screen_started_ms"] == main_ns.time.ticks
-    assert _same_frame(display.shown[-1], state["screen_frame"])
+    assert cycle.current_screen == clock_screens.SCREEN_SEASON
+    assert cycle.screen_started_ms == clock.ticks
+    assert _same_frame(display.shown[-1], cycle.screen_frame)
 
 
-def test_instant_transition_lands_on_target_in_one_render(main_ns: object) -> None:
+def test_instant_transition_lands_on_target_in_one_render() -> None:
     """Instant transitions show the target and finish after one display update."""
-    main_ns.ns["random"] = _FakeRandom([0, 3])
+    clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 16, 59, 58, 0)
-    state = {"synced": True, "intensity_limit": 0.2}
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        rtc,
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([0, 3]),
+    )
 
-    main_ns.ns["_start_screen_cycle"](display, rtc, state, main_ns.time.ticks_ms())
-    main_ns.ns["_start_transition"](state)
-    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+    cycle.tick(True)
+    cycle._start_next_screen_transition()
+    cycle._advance_transition(clock.ticks_ms())
 
-    assert state["transition"] is None
-    assert state["screen"] == main_ns.ns["_SCREEN_SEASON"]
-    assert state["shown"] == main_ns.ns["_screen_key"](main_ns.ns["_SCREEN_SEASON"], rtc)
+    assert cycle.transition is None
+    assert cycle.current_screen == clock_screens.SCREEN_SEASON
+    assert cycle.shown_key == clock_screens.key_from_rtc(clock_screens.SCREEN_SEASON, rtc)
     assert _same_frame(
         display.shown[-1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_SEASON"], rtc),
+        clock_screens.screen_frame(clock_screens.SCREEN_SEASON, rtc),
     )
 
 
-def test_transition_renders_live_source_and_target(main_ns: object) -> None:
-    """Transitions re-render both endpoint screens from the current RTC value."""
+def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> None:
+    """Transitions use snapshotted endpoints and refresh changed target content after landing."""
+    clock = _ManualTime()
     display = _FakeDisplay()
     rtc = _FakeRTC()
-    steps = main_ns.ns["_TRANSITION_STEPS"]
-
     rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
-    main_ns.ns["random"] = _FakeRandom([0, 0])
-    state = {
-        "synced": True,
-        "screen": main_ns.ns["_SCREEN_TIME_SECONDS"],
-        "screen_frame": main_ns.ns["_screen_frame"](
-            main_ns.ns["_SCREEN_TIME_SECONDS"],
-            rtc,
-        ),
-        "intensity_limit": 0.2,
-    }
-    main_ns.ns["_start_transition"](state)
-    state["transition"]["step"] = 1
-    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
-    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
+    cycle = clock_cycle.DisplayCycle(
+        display,
+        rtc,
+        0.2,
+        clock=clock,
+        rng=_FakeRandom([0, 0]),
+    )
+    old_parts = clock_screens.rtc_parts(rtc)
 
-    expected_source = main_ns.ns["_screen_frame"](
-        main_ns.ns["_SCREEN_TIME_SECONDS"],
-        rtc,
+    cycle._show_screen(clock_screens.SCREEN_TIME_SECONDS, clock.ticks_ms())
+    cycle._start_transition(
+        clock_screens.SCREEN_TIME_SECONDS,
+        clock_screens.SCREEN_SEASON,
+        clock_transitions.TRANSITION_STEPS,
     )
-    expected_target = main_ns.ns["_screen_frame"](
-        main_ns.ns["_SCREEN_SEASON"],
-        rtc,
-    )
+    cycle.transition["step"] = 1
+    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
+    cycle._advance_transition(clock.ticks_ms())
+
+    expected_source = clock_screens.render_screen(clock_screens.SCREEN_TIME_SECONDS, old_parts)
+    expected_target = clock_screens.render_screen(clock_screens.SCREEN_SEASON, old_parts)
     assert _same_frame(
         display.shown[-1],
-        main_ns.ns["_wipe_frame"](expected_source, expected_target, 1, steps),
+        clock_transitions.wipe_frame(
+            expected_source,
+            expected_target,
+            1,
+            clock_transitions.TRANSITION_STEPS,
+        ),
     )
 
     display = _FakeDisplay()
+    clock = _ManualTime()
     rtc.value = (2026, 6, 23, 1, 15, 59, 58, 0)
-    main_ns.ns["random"] = _FakeRandom([1, 0])
-    state = {
-        "synced": True,
-        "screen": main_ns.ns["_SCREEN_SEASON"],
-        "prev_regular": main_ns.ns["_SCREEN_MAIN"],
-        "intensity_limit": 0.2,
-    }
-    main_ns.ns["_start_transition"](state)
-    state["transition"]["step"] = steps
-    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
-    main_ns.ns["_advance_transition"](display, rtc, state, main_ns.time.ticks_ms())
-
-    assert state["screen"] == main_ns.ns["_SCREEN_TIME_SECONDS"]
-    assert state["shown"] == (
-        main_ns.ns["_SCREEN_TIME_SECONDS"],
-        15,
-        59,
-        59,
+    cycle = clock_cycle.DisplayCycle(display, rtc, 0.2, clock=clock, rng=_FakeRandom([0]))
+    cycle._show_screen(clock_screens.SCREEN_SEASON, clock.ticks_ms())
+    cycle._start_transition(
+        clock_screens.SCREEN_SEASON,
+        clock_screens.SCREEN_TIME_SECONDS,
+        clock_transitions.TRANSITION_STEPS,
     )
+    cycle.transition["step"] = cycle.transition["steps"]
+    shown_before_landing = len(display.shown)
+    rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
+    cycle._advance_transition(clock.ticks_ms())
+
+    assert cycle.current_screen == clock_screens.SCREEN_TIME_SECONDS
+    assert cycle.shown_key == (clock_screens.SCREEN_TIME_SECONDS, 15, 59, 59)
+    assert len(display.shown) == shown_before_landing + 2
     assert _same_frame(
         display.shown[-1],
-        main_ns.ns["_screen_frame"](main_ns.ns["_SCREEN_TIME_SECONDS"], rtc),
+        clock_screens.screen_frame(clock_screens.SCREEN_TIME_SECONDS, rtc),
     )
 
 
-def test_low_intensity_fade_starts_at_minimum_visible_byte(main_ns: object) -> None:
+def test_low_intensity_fade_starts_at_minimum_visible_byte() -> None:
     """Fade-in starts at the lowest byte expected to survive display capping."""
     source = Frame.blank(4, 2)
     target = Frame.blank(4, 2)
     for index in range(len(target.data)):
         target.data[index] = 255
     intensity_limit = 0.01
-    min_visible = main_ns.ns["_min_visible_source_byte"](intensity_limit)
+    min_visible = clock_transitions.min_visible_source_byte(intensity_limit)
 
-    first_visible = main_ns.ns["_fade_frame"](
+    first_visible = clock_transitions.fade_frame(
         source,
         target,
-        (main_ns.ns["_TRANSITION_STEPS"] // 2) + 1,
-        main_ns.ns["_TRANSITION_STEPS"],
+        (clock_transitions.TRANSITION_STEPS // 2) + 1,
+        clock_transitions.TRANSITION_STEPS,
         intensity_limit,
     )
     values = [
@@ -531,11 +588,11 @@ def test_low_intensity_fade_starts_at_minimum_visible_byte(main_ns: object) -> N
     assert values
     assert set(values) == {min_visible}
     assert _same_frame(
-        main_ns.ns["_fade_frame"](
+        clock_transitions.fade_frame(
             source,
             target,
-            main_ns.ns["_TRANSITION_STEPS"],
-            main_ns.ns["_TRANSITION_STEPS"],
+            clock_transitions.TRANSITION_STEPS,
+            clock_transitions.TRANSITION_STEPS,
             intensity_limit,
         ),
         target,

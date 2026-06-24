@@ -313,6 +313,11 @@ ban-relative-imports = "all"
 [tool.ruff.lint.isort]
 known-first-party = [
   "boot_status_led",
+  "clock_cycle",
+  "clock_screens",
+  "clock_sync",
+  "clock_text",
+  "clock_transitions",
   "atgm336h",
   "nmea",
   "tz_offset",

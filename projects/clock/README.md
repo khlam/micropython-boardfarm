@@ -11,13 +11,16 @@ time between GPS bursts — neither bus blocks the other. A host FastAPI service
 fans the per-fix JSON lines out over a WebSocket and serves a live clock
 dashboard.
 
-After the first GPS fix, the display cycles through four 16×32 screens, holding
-each completed screen for three minutes:
+After the first GPS fix, the display cycles through three regular 16×32
+screens, holding each completed regular screen for three minutes:
 
 - **Compact time/date** — `HH:MM` plus `AM/PM` alongside abbreviated month and day.
-- **Season** — the current meteorological season name.
+- **Clock with meridiem** — large centered `HH:MM` with stacked `AM` / `PM`.
 - **Time with seconds** — large centered `HH:MM:SS` plus `AM/PM`.
-- **Full date** — season plus `MMM DD YYYY`.
+
+Between regular screens, the display briefly shows one interstitial screen:
+either the current meteorological season with the year, or the full month name
+and day with the year.
 
 Screen changes use one randomly selected transition per hop — instant, wipe,
 scroll, or a low-intensity dithered fade — while the main loop keeps reading GPS
@@ -29,7 +32,8 @@ packages remain board-agnostic and the firmware builds for RP2040, RP2350, and E
 ## Layout
 ```
 clock/
-  firmware/main.py            chip-agnostic GPS→RTC→display loop, calls emit()
+  firmware/main.py            board wiring, hardware init, cooperative loop
+  firmware/clock_*.py         GPS sync, screen specs, text drawing, transitions
   viz/static/index.html       live clock panel (time, day, longitude, UTC offset)
   tests/                      host pytest for the run() behaviour
   outputs/                    build artifacts (UF2 + ESP32 bin)
