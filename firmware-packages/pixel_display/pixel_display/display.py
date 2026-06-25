@@ -1,14 +1,13 @@
 """Display facade that fits frames and delegates hardware conversion."""
 
-from pixel_display.frame import Frame
-from pixel_display.packed import PackedFrame
+from pixel_frame import Frame, MatrixFrame
 
 _FAILURE_BLANK = "blank"
 _FAILURE_CORNER_XS = "corner_xs"
 
 
 class Display:
-    """Fit normalized frames to a declared pixel surface and write a backend."""
+    """Fit normalized frames to declared display geometry and write a backend."""
 
     def __init__(
         self,
@@ -54,31 +53,33 @@ class Display:
 
     def show(self, frame: object) -> None:
         """Fit, scale, and render one frame."""
-        if isinstance(frame, PackedFrame):
+        if isinstance(frame, Frame):
             if frame.width == self.width_pixels and frame.height == self.height_pixels:
-                self._write_or_fail(self._scale_packed_intensity(frame))
+                self._write_or_fail(self._scale_frame_intensity(frame))
                 return
             if self._exceeds_geometry(frame):
                 self._show_failure()
                 return
             frame = frame.unpack()
-        self._show_unpacked(frame)
+        self._show_matrix(frame)
 
-    def _show_unpacked(self, frame: Frame) -> None:
-        """Render a normalized frame, fitting it to geometry when needed."""
+    def _show_matrix(self, frame: object) -> None:
+        """Render a matrix frame, fitting it to geometry when needed."""
+        if not isinstance(frame, MatrixFrame):
+            raise TypeError("display.show expects a pixel_frame Frame or MatrixFrame")
         if frame.width == self.width_pixels and frame.height == self.height_pixels:
-            self._write_or_fail(self._scale_intensity(frame))
+            self._write_or_fail(self._scale_matrix_intensity(frame))
             return
         if self._exceeds_geometry(frame):
             self._show_failure()
             return
-        fitted = _fit_frame(
+        fitted = _fit_matrix_frame(
             frame,
             self.width_pixels,
             self.height_pixels,
             allow_downscale=self._allow_lossy,
         )
-        self._write_or_fail(self._scale_intensity(fitted))
+        self._write_or_fail(self._scale_matrix_intensity(fitted))
 
     def _exceeds_geometry(self, frame: object) -> bool:
         """Report whether a frame is larger than geometry and may not downscale."""
@@ -100,32 +101,38 @@ class Display:
         if frame is None:
             self._backend.clear()
             return
-        capped = self._scale_intensity(frame)
+        capped = self._scale_frame_intensity(frame)
         if not self._backend.write_frame(capped, allow_lossy=True):
             self._backend.clear()
 
-    def _scale_intensity(self, frame: Frame) -> Frame:
-        """Apply the configured brightness to normalized byte channels."""
+    def _scale_matrix_intensity(self, frame: MatrixFrame) -> MatrixFrame:
+        """Apply the configured brightness to normalized matrix channels."""
         if self._brightness >= 1:
             return frame
         data = bytearray(len(frame.data))
         for i, value in enumerate(frame.data):
             data[i] = _scale_byte(value, self._brightness)
-        return Frame(frame.width, frame.height, frame.channels, data)
+        return MatrixFrame(frame.width, frame.height, frame.channels, data)
 
-    def _scale_packed_intensity(self, frame: PackedFrame) -> PackedFrame:
+    def _scale_frame_intensity(self, frame: Frame) -> Frame:
         """Apply the configured brightness to a packed frame's shared intensity."""
         intensity = _scale_byte(frame.intensity, self._brightness)
         if intensity == frame.intensity:
             return frame
-        return PackedFrame(frame.width, frame.height, frame.stride, frame.data, intensity)
+        return Frame.from_packed(frame.width, frame.height, frame.stride, frame.data, intensity)
 
 
-def _fit_frame(frame: Frame, width: int, height: int, *, allow_downscale: bool) -> Frame:
-    """Scale a frame to fit inside target geometry and center it."""
+def _fit_matrix_frame(
+    frame: MatrixFrame,
+    width: int,
+    height: int,
+    *,
+    allow_downscale: bool,
+) -> MatrixFrame:
+    """Scale a matrix frame to fit inside target geometry and center it."""
     if frame.width > width or frame.height > height:
         if not allow_downscale:
-            return Frame.blank(width, height, frame.channels)
+            return MatrixFrame.blank(width, height, frame.channels)
         out_width, out_height = _downscaled_size(frame.width, frame.height, width, height)
     else:
         scale = min(width // frame.width, height // frame.height)
@@ -142,23 +149,15 @@ def _fit_frame(frame: Frame, width: int, height: int, *, allow_downscale: bool) 
             src = (src_y * frame.width + src_x) * frame.channels
             dst = ((y0 + y) * width + x0 + x) * frame.channels
             data[dst : dst + frame.channels] = frame.data[src : src + frame.channels]
-    return Frame(width, height, frame.channels, data)
+    return MatrixFrame(width, height, frame.channels, data)
 
 
 def _corner_failure(width: int, height: int) -> Frame | None:
     """Build a visible four-corner failure frame when geometry permits."""
-    if width >= 5 and height >= 7:
-        frame = Frame.blank(width, height)
-        glyph = Frame.text("x")
-        _blit(glyph, frame, 0, 0)
-        _blit(glyph, frame, width - glyph.width, 0)
-        _blit(glyph, frame, 0, height - glyph.height)
-        _blit(glyph, frame, width - glyph.width, height - glyph.height)
-        return frame
     if width >= 2 and height >= 2:
-        frame = Frame.blank(width, height)
+        frame = Frame(width, height)
         for x, y in ((0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1)):
-            frame.data[y * width + x] = 255
+            frame.pixel(x, y)
         return frame
     return None
 
@@ -172,13 +171,6 @@ def _downscaled_size(src_width: int, src_height: int, dst_width: int, dst_height
         out_height = dst_height
         out_width = max(1, src_width * dst_height // src_height)
     return out_width, out_height
-
-
-def _blit(src: Frame, dst: Frame, x0: int, y0: int) -> None:
-    """Copy one one-channel frame into another without clipping."""
-    for y in range(src.height):
-        for x in range(src.width):
-            dst.data[(y0 + y) * dst.width + x0 + x] = src.data[y * src.width + x]
 
 
 def _clamp(value: float) -> float:

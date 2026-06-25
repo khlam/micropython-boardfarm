@@ -20,7 +20,7 @@ from clock_sync import emit, sync_from_line
 from max7219 import MAX7219
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-PixelSurface = namedtuple("PixelSurface", ("width_pixels", "height_pixels", "brightness"))
+DisplaySpec = namedtuple("DisplaySpec", ("width_pixels", "height_pixels", "brightness"))
 DisplayWiring = namedtuple(
     "DisplayWiring",
     (
@@ -28,12 +28,12 @@ DisplayWiring = namedtuple(
         "sck",
         "mosi",
         "cs",
-        "surface",
+        "spec",
     ),
 )
 Board = namedtuple("Board", ("name", "uart", "display"))
 
-_DISPLAY_SURFACE = PixelSurface(width_pixels=32, height_pixels=16, brightness=0.1)
+_DISPLAY_SPEC = DisplaySpec(width_pixels=32, height_pixels=16, brightness=0.1)
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -45,7 +45,7 @@ if "ESP32S3" in _machine:
             sck=5,
             mosi=6,
             cs=7,
-            surface=_DISPLAY_SURFACE,
+            spec=_DISPLAY_SPEC,
         ),
     )
 elif "RP2350" in _machine:
@@ -57,7 +57,7 @@ elif "RP2350" in _machine:
             sck=10,
             mosi=11,
             cs=9,
-            surface=_DISPLAY_SURFACE,
+            spec=_DISPLAY_SPEC,
         ),
     )
 else:
@@ -69,7 +69,7 @@ else:
             sck=26,
             mosi=27,
             cs=28,
-            surface=_DISPLAY_SURFACE,
+            spec=_DISPLAY_SPEC,
         ),
     )
 
@@ -126,15 +126,15 @@ def main() -> None:
     while True:
         status.i2c_init()
         try:
-            surface = BOARD.display.surface
+            spec = BOARD.display.spec
             display = MAX7219(
                 spi_id=BOARD.display.spi_id,
                 sck=BOARD.display.sck,
                 mosi=BOARD.display.mosi,
                 cs=BOARD.display.cs,
-                width_pixels=surface.width_pixels,
-                height_pixels=surface.height_pixels,
-                brightness=surface.brightness,
+                width_pixels=spec.width_pixels,
+                height_pixels=spec.height_pixels,
+                brightness=spec.brightness,
             )
             gps = GPS(bus_id=BOARD.uart.bus_id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
             rtc = RTC()

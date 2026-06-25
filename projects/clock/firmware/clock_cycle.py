@@ -27,6 +27,8 @@ class DisplayCycle:
         self._rtc = rtc
         self._clock = time if clock is None else clock
         self._rng = random if rng is None else rng
+        self._width_pixels = getattr(display, "width_pixels", clock_screens.WIDTH_PIXELS)
+        self._height_pixels = getattr(display, "height_pixels", clock_screens.HEIGHT_PIXELS)
         self._frame_cache = {}
         self.current_screen = None
         self.previous_regular = clock_screens.SCREEN_MAIN
@@ -89,7 +91,12 @@ class DisplayCycle:
         cached = self._frame_cache.get(screen)
         if cached is not None and cached[0] == key:
             return cached[1], key
-        frame = clock_screens.render_screen(screen, parts)
+        frame = clock_screens.render_screen(
+            screen,
+            parts,
+            self._width_pixels,
+            self._height_pixels,
+        )
         self._frame_cache[screen] = (key, frame)
         return frame, key
 

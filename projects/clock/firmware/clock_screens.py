@@ -3,17 +3,7 @@
 import random
 from collections import namedtuple
 
-from clock_text import (
-    COMPACT_GLYPH_HEIGHT,
-    COMPACT_ON,
-    HEIGHT_PIXELS,
-    WIDTH_PIXELS,
-    blank_frame,
-    compact_text_width,
-    draw_compact_text_at,
-    two_row_frame,
-)
-from pixel_display import Canvas
+from pixel_frame import Frame, Text
 
 ScreenSpec = namedtuple("ScreenSpec", ("id", "name", "kind", "hold_ms", "render", "key"))
 
@@ -33,11 +23,12 @@ SCREEN_HOLD_MS = 180_000
 INTERSTITIAL_HOLD_MS = 3_000
 WAIT_ROTATE_MS = 1_000
 
-CLOCK_MERIDIEM_TIME_X_SCALE = 2
+CLOCK_MERIDIEM_TIME_X_SCALE = 1
 CLOCK_MERIDIEM_TIME_Y_SCALE = 2
-CLOCK_MERIDIEM_TIME_GAP_PIXELS = 0
 CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
-CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS = 1
+
+WIDTH_PIXELS = 32
+HEIGHT_PIXELS = 16
 
 MONTH_ABBRS = (
     "JAN",
@@ -117,82 +108,129 @@ def season_name(month: int) -> str:
     return _SEASONS[month - 1]
 
 
-def main_screen_frame(parts: tuple) -> object:
+def main_screen_frame(
+    parts: tuple,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render time with meridiem above day name and day number, both centered."""
     _year, _month, day, weekday, hour, minute, _second = parts
     clock, meridiem = format_time_parts(hour, minute)
-    return two_row_frame(f"{clock} {meridiem}", f"{DAYS[weekday]} {day}")
+    return _two_row_frame(
+        f"{clock} {meridiem}",
+        f"{DAYS[weekday]} {day}",
+        width_pixels,
+        height_pixels,
+    )
 
 
-def season_screen_frame(parts: tuple) -> object:
+def season_screen_frame(
+    parts: tuple,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render the current meteorological season above the four-digit year."""
     year, month, _day, _weekday, _hour, _minute, _second = parts
-    return two_row_frame(season_name(month), f"{year:04d}")
+    return _two_row_frame(season_name(month), f"{year:04d}", width_pixels, height_pixels)
 
 
-def time_seconds_screen_frame(parts: tuple) -> object:
+def time_seconds_screen_frame(
+    parts: tuple,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render large 12-hour time with seconds and meridiem."""
     _year, _month, _day, _weekday, hour, minute, second = parts
     _clock, meridiem = format_time_parts(hour, minute)
-    return two_row_frame(format_time_seconds(hour, minute, second), meridiem)
+    return _two_row_frame(
+        format_time_seconds(hour, minute, second),
+        meridiem,
+        width_pixels,
+        height_pixels,
+    )
 
 
-def clock_meridiem_screen_frame(parts: tuple) -> object:
+def clock_meridiem_screen_frame(
+    parts: tuple,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render a centered time-only face with meridiem."""
     _year, _month, _day, _weekday, hour, minute, _second = parts
     clock, meridiem = format_time_parts(hour, minute)
-    canvas = Canvas(WIDTH_PIXELS, HEIGHT_PIXELS, COMPACT_ON)
-    clock_width = compact_text_width(
+    frame = Frame(width_pixels, height_pixels)
+    time_text = Text(
         clock,
-        CLOCK_MERIDIEM_TIME_GAP_PIXELS,
-        CLOCK_MERIDIEM_TIME_X_SCALE,
-    )
-    meridiem_width = 0
-    for char in meridiem:
-        meridiem_width = max(meridiem_width, compact_text_width(char, 0))
-    meridiem_height = (len(meridiem) * COMPACT_GLYPH_HEIGHT) + (
-        (len(meridiem) - 1) * CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
-    )
-    group_width = clock_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + meridiem_width
-    clock_x = (WIDTH_PIXELS - group_width) // 2
-    clock_y = (HEIGHT_PIXELS - (COMPACT_GLYPH_HEIGHT * CLOCK_MERIDIEM_TIME_Y_SCALE)) // 2
-    meridiem_x = clock_x + clock_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS
-    meridiem_y = (HEIGHT_PIXELS - meridiem_height) // 2
-    draw_compact_text_at(
-        canvas,
-        clock,
-        clock_x,
-        clock_y,
-        gap_pixels=CLOCK_MERIDIEM_TIME_GAP_PIXELS,
         scale=(CLOCK_MERIDIEM_TIME_X_SCALE, CLOCK_MERIDIEM_TIME_Y_SCALE),
     )
-    for char in meridiem:
-        char_width = compact_text_width(char, 0)
-        draw_compact_text_at(
-            canvas,
-            char,
-            meridiem_x + ((meridiem_width - char_width) // 2),
-            meridiem_y,
-            gap_pixels=0,
-        )
-        meridiem_y += COMPACT_GLYPH_HEIGHT + CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
-    return canvas.frame()
+    label_text = Text(meridiem, flow="vertical")
+    time_width, time_height = time_text.measure()
+    label_width, label_height = label_text.measure()
+    group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + label_width
+    group_height = max(time_height, label_height)
+    if group_width > width_pixels or group_height > height_pixels:
+        frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
+        return frame
+    x0 = (width_pixels - group_width) // 2
+    time_x1 = x0 + time_width
+    label_x0 = time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS
+    frame[0:height_pixels, x0:time_x1] = time_text
+    frame[0:height_pixels, label_x0 : label_x0 + label_width] = label_text
+    return frame
 
 
-def full_date_screen_frame(parts: tuple) -> object:
+def full_date_screen_frame(
+    parts: tuple,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render the full month name with day number above the four-digit year."""
     year, month, day, _weekday, _hour, _minute, _second = parts
-    return two_row_frame(f"{MONTH_NAMES[month - 1]} {day}", f"{year:04d}")
+    row_height = max(1, height_pixels // 2)
+    return _two_row_frame(
+        _month_day_label(month, day, width_pixels, row_height),
+        f"{year:04d}",
+        width_pixels,
+        height_pixels,
+    )
 
 
-def wait_on_frame(_parts: tuple | None) -> object:
+def wait_on_frame(
+    _parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render the visible GPS wait screen endpoint."""
-    return two_row_frame("GPS", "WAIT")
+    return _two_row_frame("GPS", "WAIT", width_pixels, height_pixels)
 
 
-def wait_off_frame(_parts: tuple | None) -> object:
+def wait_off_frame(
+    _parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render the blank GPS wait screen endpoint."""
-    return blank_frame()
+    return Frame(width_pixels, height_pixels, intensity=0)
+
+
+def _two_row_frame(top: str, bottom: str, width_pixels: int, height_pixels: int) -> object:
+    """Render two centered text rows into an exact-size frame."""
+    frame = Frame(width_pixels, height_pixels)
+    split = height_pixels // 2
+    if split <= 0:
+        frame[0:height_pixels, 0:width_pixels] = Text(top)
+        return frame
+    frame[0:split, 0:width_pixels] = Text(top)
+    frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
+    return frame
+
+
+def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int) -> str:
+    """Return the longest month/day label that fits the display width."""
+    full = f"{MONTH_NAMES[month - 1]} {day}"
+    if Text(full).fits(width_pixels, height_pixels):
+        return full
+    return f"{format_month_abbr(month)} {day}"
 
 
 def main_screen_key(parts: tuple) -> tuple:
@@ -291,9 +329,14 @@ def screen_spec(screen: int) -> object:
     return SCREEN_BY_ID[screen]
 
 
-def render_screen(screen: int, parts: tuple | None) -> object:
+def render_screen(
+    screen: int,
+    parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render one screen from an RTC parts snapshot."""
-    return screen_spec(screen).render(parts)
+    return screen_spec(screen).render(parts, width_pixels, height_pixels)
 
 
 def screen_key(screen: int, parts: tuple | None) -> tuple:
@@ -301,9 +344,14 @@ def screen_key(screen: int, parts: tuple | None) -> tuple:
     return screen_spec(screen).key(parts)
 
 
-def screen_frame(screen: int, rtc: object) -> object:
+def screen_frame(
+    screen: int,
+    rtc: object,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
     """Render one display-cycle screen from the current RTC value."""
-    return render_screen(screen, rtc_parts(rtc))
+    return render_screen(screen, rtc_parts(rtc), width_pixels, height_pixels)
 
 
 def key_from_rtc(screen: int, rtc: object) -> tuple:

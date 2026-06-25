@@ -2,8 +2,10 @@
 
 import random
 
-from clock_text import HEIGHT_PIXELS, WIDTH_PIXELS
-from pixel_display import Frame, PackedFrame
+from pixel_frame import Frame, MatrixFrame
+
+WIDTH_PIXELS = 32
+HEIGHT_PIXELS = 16
 
 TRANSITION_WIPE = 0
 TRANSITION_FADE = 1
@@ -20,16 +22,16 @@ TRANSITION_STEPS = 20
 
 def copy_frame(frame: object) -> object:
     """Return a byte-for-byte copy of ``frame``."""
-    if isinstance(frame, PackedFrame):
+    if isinstance(frame, Frame):
         return frame.copy()
-    return Frame(frame.width, frame.height, frame.channels, bytearray(frame.data))
+    return MatrixFrame(frame.width, frame.height, frame.channels, bytearray(frame.data))
 
 
 def frame_value(frame: object, x: int, y: int, channel: int = 0) -> int:
     """Return one frame byte, clipping out-of-bounds reads to zero."""
     if x < 0 or y < 0 or x >= frame.width or y >= frame.height:
         return 0
-    if isinstance(frame, PackedFrame):
+    if isinstance(frame, Frame):
         if channel != 0:
             return 0
         return frame.value_at(x, y)
@@ -38,7 +40,7 @@ def frame_value(frame: object, x: int, y: int, channel: int = 0) -> int:
 
 def max_frame_value(frame: object) -> int:
     """Return the maximum byte value present in ``frame``."""
-    if isinstance(frame, PackedFrame):
+    if isinstance(frame, Frame):
         if any(frame.data):
             return frame.intensity
         return 0
@@ -50,13 +52,13 @@ def max_frame_value(frame: object) -> int:
 
 def as_packed_frame(frame: object) -> object:
     """Return a packed monochrome view of ``frame``."""
-    if isinstance(frame, PackedFrame):
+    if isinstance(frame, Frame):
         return frame
     stride = (frame.width + 7) // 8
     data = bytearray(frame.height * stride)
     intensity = max_frame_value(frame)
     if intensity <= 0:
-        return PackedFrame(frame.width, frame.height, stride, data, 0)
+        return Frame.from_packed(frame.width, frame.height, stride, data, 0)
     for y in range(frame.height):
         row_base = y * stride
         for x in range(frame.width):
@@ -64,12 +66,12 @@ def as_packed_frame(frame: object) -> object:
                 if frame_value(frame, x, y, channel) > 0:
                     data[row_base + (x >> 3)] |= 1 << (x & 7)
                     break
-    return PackedFrame(frame.width, frame.height, stride, data, intensity)
+    return Frame.from_packed(frame.width, frame.height, stride, data, intensity)
 
 
 def blank_packed_like(frame: object, intensity: int = 0) -> object:
     """Return a blank packed frame with matching geometry."""
-    return PackedFrame(
+    return Frame.from_packed(
         frame.width,
         frame.height,
         frame.stride,
@@ -160,7 +162,7 @@ def _packed_masked_fade_frame(
     data = bytearray(len(source.data))
     for i, item in enumerate(source.data):
         data[i] = item & mask[i]
-    return PackedFrame(source.width, source.height, source.stride, data, value)
+    return Frame.from_packed(source.width, source.height, source.stride, data, value)
 
 
 def wipe_frame(source: object, target: object, step: int, steps: int) -> object:
@@ -190,7 +192,7 @@ def _packed_wipe_frame(source: object, target: object, step: int, steps: int) ->
                 data[idx] = (target.data[idx] & partial_mask) | (source.data[idx] & source_mask)
             else:
                 data[idx] = source.data[idx]
-    return PackedFrame(
+    return Frame.from_packed(
         source.width,
         source.height,
         source.stride,
@@ -239,7 +241,7 @@ def _packed_scroll_frame(source: object, target: object, step: int, steps: int) 
             source.stride,
             source_bits | target_bits,
         )
-    return PackedFrame(
+    return Frame.from_packed(
         source.width,
         source.height,
         source.stride,

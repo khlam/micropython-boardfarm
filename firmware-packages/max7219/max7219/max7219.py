@@ -7,7 +7,7 @@ the eight per-chip-row SPI frames required by the cascaded MAX7219 chain.
 import utime
 from micropython import const
 
-from pixel_display.packed import PackedFrame
+from pixel_frame import Frame
 
 _PANEL_W = const(32)
 _PANEL_H = const(8)
@@ -61,8 +61,8 @@ class _MAX7219Backend:
         """Convert a fitted frame into the binary matrix and refresh.
 
         Args:
-            frame: A ``pixel_display.Frame`` already fitted to the backend size
-                and capped to normalized byte intensity values.
+            frame: A fitted ``pixel_frame.Frame`` or ``MatrixFrame`` capped to
+                normalized byte intensity values.
             allow_lossy: Whether RGB/grayscale collapse may discard information.
 
         Returns:
@@ -200,12 +200,12 @@ def _convert_frame(
     rotate: bool,
 ) -> int | None:
     """Convert one frame into chain rows and return its MAX7219 intensity."""
-    if isinstance(frame, PackedFrame):
+    if isinstance(frame, Frame):
         return _convert_packed_frame(frame, buf, rotate=rotate)
     return _convert_byte_frame(frame, buf, allow_lossy=allow_lossy, rotate=rotate)
 
 
-def _convert_packed_frame(frame: PackedFrame, buf: bytearray, *, rotate: bool) -> int | None:
+def _convert_packed_frame(frame: Frame, buf: bytearray, *, rotate: bool) -> int | None:
     """Convert one packed frame directly into MAX7219 chain rows."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
         return None
@@ -293,7 +293,7 @@ def _buffers_differ(left: bytearray, right: bytearray) -> bool:
     return any(value != right[i] for i, value in enumerate(left))
 
 
-def _packed_chip_byte(frame: PackedFrame, col_chip: int, vy: int, *, rotate: bool) -> int:
+def _packed_chip_byte(frame: Frame, col_chip: int, vy: int, *, rotate: bool) -> int:
     """Return one chip byte for hardware visual row ``vy`` and column block.
 
     Folds the fixed ``_MIRROR_X`` hardware mapping and the optional 180-degree

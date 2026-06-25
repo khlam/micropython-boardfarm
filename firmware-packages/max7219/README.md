@@ -14,15 +14,15 @@ never address individual chips.
   SPI from flat project pins and wraps the
   hardware backend in `pixel_display.Display`.
 - `display.show(frame)` — the only public render method. Build frames with
-  `pixel_display.Frame`, e.g. `Frame.text_lines(("GPS", "WAIT"))`, or
-  `pixel_display.Canvas` for exact-size monochrome animation frames.
+  `pixel_frame.Frame` and text content with `pixel_frame.Text`.
 
 The package backend owns the MAX7219 cascade, monochrome conversion, global
 brightness register, and flush behavior. It writes only changed digit rows for
 ordinary animation frames, writes the brightness register only when the mapped
 intensity changes, and uses unchanged repeated frames to reassert chip config and
-the current matrix state. `pixel_display` owns abstract frame geometry, fitting,
-brightness scaling, and failure rendering.
+the current matrix state. `pixel_frame` owns frame construction and text
+rendering; `pixel_display` owns display geometry, fitting, brightness scaling,
+and failure rendering.
 
 ## Pins
 

@@ -1,36 +1,24 @@
 # pixel_display
 
-Hardware-agnostic frame and display facade for MicroPython pixel outputs.
+Hardware-agnostic display facade for MicroPython pixel outputs.
 
-Public API:
+`pixel_display` owns display policy only: declared geometry, normalized
+brightness, failure rendering, frame fitting, and the backend write contract.
+Frame construction and text rendering live in [`pixel_frame`](../pixel_frame/).
 
 ```python
-from pixel_display import Canvas, Display, Frame
+from pixel_display import Display
+from pixel_frame import Frame, Text
 
-display.show(Frame.text_lines(("GPS", "WAIT")))
+frame = Frame(width=32, height=16)
+frame[0:8, 0:32] = Text("GPS")
+frame[8:16, 0:32] = Text("WAIT")
 
-canvas = Canvas(32, 16)
-canvas.pixel(0, 0)
-display.show(canvas.frame())
+display.show(frame)
 ```
 
-`Frame` stores row-major pixel data as `bytearray` plus explicit
-`width`/`height`/`channels`. Helper constructors accept normalized intensities
-from `0.0` to `1.0` and quantize them to bytes:
-
-- `Frame.from_matrix(matrix)` for 2D intensity or channel matrices.
-- `Frame.text(text)`, `Frame.number(value)`, `Frame.text_lines(lines)`.
-- `Frame.blank(width, height, channels=1)`.
-
-`Canvas` builds `PackedFrame` objects for monochrome displays. A packed frame
-stores one bit per pixel plus one shared byte intensity, so exact-size
-monochrome animations can avoid allocating and scaling a full byte per pixel on
-every refresh.
-
-`Display` owns geometry fit, normalized brightness, and failure rendering. It
-scales and centers frames into `width_pixels` × `height_pixels`, applies the
-configured brightness, then calls a backend. When brightness is above zero,
-nonzero frame bytes stay nonzero after scaling; `brightness=0.0` blanks them.
+`Display` scales and centers frames into `width_pixels` × `height_pixels`,
+applies normalized brightness, then calls a backend:
 
 ```python
 backend.write_frame(frame, allow_lossy=False)

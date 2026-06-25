@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 
+import clock_text
 import pytest
 
 import clock_cycle
 import clock_screens
 import clock_sync
-import clock_text
 import clock_transitions
 from pixel_display import Frame, PackedFrame
 

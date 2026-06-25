@@ -51,6 +51,16 @@ class MAX7219:
             failure_mode=failure_mode,
         )
 
+    @property
+    def width_pixels(self) -> int:
+        """Return the declared visual display width."""
+        return self._display.width_pixels
+
+    @property
+    def height_pixels(self) -> int:
+        """Return the declared visual display height."""
+        return self._display.height_pixels
+
     def show(self, frame: object) -> None:
         """Render one abstract pixel frame."""
         self._display.show(frame)

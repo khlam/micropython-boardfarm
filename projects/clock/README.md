@@ -244,4 +244,5 @@ MCU pins (GP6–GP8 are free for other use).
 ## Packages used
 
 `atgm336h` (GPS UART), `nmea` (sentence parsing), `tz_offset` (UTC→local),
-`max7219` (display driver + fonts + display-cycle), `boot_status_led` (status LED).
+`pixel_frame` (frame/text rendering), `pixel_display` (display facade), `max7219`
+(matrix driver), `boot_status_led` (status LED).
