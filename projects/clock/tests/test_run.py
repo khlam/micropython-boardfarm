@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
-import clock_text
+import clock_hardware
 import pytest
 
 import clock_cycle
 import clock_screens
 import clock_sync
 import clock_transitions
-from pixel_display import Frame, PackedFrame
+from pixel_frame import Frame, Text
 
 _RMC_FIX = "$GPRMC,235958,A,3723.2475,N,12158.3416,W,0.0,0.0,230626,0.0,E*69"
 
@@ -68,10 +69,15 @@ class _FakeDisplay:
     def __init__(self) -> None:
         """Initialise an empty call log."""
         self.shown: list[object] = []
+        self.flips = 0
 
     def show(self, frame: object) -> None:
         """Record the requested frame."""
         self.shown.append(frame)
+
+    def flip(self) -> None:
+        """Record a display-orientation flip."""
+        self.flips += 1
 
 
 class _FakeGPS:
@@ -170,7 +176,10 @@ def test_wait_screen_transitions_off_after_one_second() -> None:
     clock.ticks = phase_started + clock_screens.WAIT_ROTATE_MS - 1
     cycle.tick(synced=False)
     assert cycle.current_screen == clock_screens.WAIT_OFF
-    assert _same_frame(display.shown[-1], clock_screens.render_screen(clock_screens.WAIT_OFF, None))
+    assert _same_frame(
+        display.shown[-1],
+        clock_screens.render_screen(clock_screens.WAIT_OFF, None),
+    )
 
 
 def test_wait_screen_holds_after_slow_transition_lands() -> None:
@@ -247,13 +256,13 @@ def test_screen_specs_and_renderers_fit_the_matrix() -> None:
 
     for screen in clock_screens.REGULAR_SCREENS + clock_screens.INTERSTITIAL_SCREENS:
         frame = clock_screens.render_screen(screen, parts)
-        assert isinstance(frame, PackedFrame)
+        assert isinstance(frame, Frame)
         assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
         assert any(frame.data)
 
     for screen in clock_screens.WAIT_SCREENS:
         frame = clock_screens.render_screen(screen, None)
-        assert isinstance(frame, PackedFrame)
+        assert isinstance(frame, Frame)
         assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
 
 
@@ -301,14 +310,17 @@ def test_clock_meridiem_screen_centers_tall_time() -> None:
     rtc.value = (2026, 6, 23, 1, 12, 59, 0, 0)
 
     frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
-    unscaled_clock_width = clock_text.compact_text_width("12:59")
-    clock_width = clock_text.compact_text_width(
+    unscaled_clock_width = Text("12:59", scale=(1, 1)).measure()[0]
+    clock_width = Text(
         "12:59",
-        clock_screens.CLOCK_MERIDIEM_TIME_GAP_PIXELS,
-        clock_screens.CLOCK_MERIDIEM_TIME_X_SCALE,
-    )
-    meridiem_width = clock_text.compact_text_width("M", 0)
-    side_by_side_meridiem_width = clock_text.compact_text_width("PM")
+        scale=(
+            clock_screens.CLOCK_MERIDIEM_TIME_X_SCALE,
+            clock_screens.CLOCK_MERIDIEM_TIME_Y_SCALE,
+        ),
+    ).measure()[0]
+    meridiem = Text("PM", flow="vertical")
+    meridiem_width, meridiem_height = meridiem.measure()
+    side_by_side_meridiem_width = Text("PM").measure()[0]
     group_width = clock_width + clock_screens.CLOCK_MERIDIEM_LABEL_GAP_PIXELS + meridiem_width
     left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
 
@@ -317,9 +329,7 @@ def test_clock_meridiem_screen_centers_tall_time() -> None:
     assert left == (frame.width - group_width) // 2
     assert right == left + group_width - 1
     assert (top, bottom) == (0, 14)
-    assert bottom - top + 1 == (
-        (2 * clock_text.COMPACT_GLYPH_HEIGHT) + clock_screens.CLOCK_MERIDIEM_LABEL_LINE_GAP_PIXELS
-    )
+    assert bottom - top + 1 == meridiem_height
     assert clock_screens.key_from_rtc(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc) == (
         clock_screens.SCREEN_CLOCK_MERIDIEM,
         12,
@@ -350,6 +360,49 @@ def test_sync_uses_startup_timezone_offset(monkeypatch: pytest.MonkeyPatch) -> N
     assert emitted[-1]["local"] == "2026-06-23T16:59:58"
 
 
+def test_clock_hardware_opens_devices_and_flips_live_display() -> None:
+    """ClockHardware owns construction and BOOT-button display flips."""
+    board = SimpleNamespace(
+        uart=SimpleNamespace(bus_id=0, tx=0, rx=1),
+        display=SimpleNamespace(
+            spi_id=1,
+            sck=26,
+            mosi=27,
+            cs=28,
+            surface=SimpleNamespace(width_pixels=32, height_pixels=16, brightness=0.2),
+        ),
+    )
+    created: dict = {}
+
+    def _display(**kwargs: object) -> _FakeDisplay:
+        created["display"] = dict(kwargs)
+        return _FakeDisplay()
+
+    def _gps(**kwargs: object) -> _FakeGPS:
+        created["gps"] = dict(kwargs)
+        return _FakeGPS([])
+
+    hardware = clock_hardware.ClockHardware(board, _display, _gps, _FakeRTC)
+
+    hardware.flip_display()
+    devices = hardware.open()
+    hardware.flip_display()
+
+    assert created["display"] == {
+        "spi_id": 1,
+        "sck": 26,
+        "mosi": 27,
+        "cs": 28,
+        "width_pixels": 32,
+        "height_pixels": 16,
+        "brightness": 0.2,
+    }
+    assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}
+    assert devices.display is hardware.display
+    assert devices.display.flips == 1
+    assert isinstance(devices.rtc, _FakeRTC)
+
+
 def test_display_cycle_starts_main_and_updates_each_minute() -> None:
     """The synced display starts on the main screen and refreshes when visible time changes."""
     clock = _ManualTime()
@@ -367,25 +420,30 @@ def test_display_cycle_starts_main_and_updates_each_minute() -> None:
     assert cycle.current_screen == clock_screens.SCREEN_MAIN
     assert len(display.shown) == 2
     rtc.value = (2026, 6, 23, 1, 0, 5, 58, 0)
-    assert _same_frame(display.shown[0], clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc))
+    assert _same_frame(
+        display.shown[0],
+        clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc),
+    )
     rtc.value = (2026, 6, 23, 1, 0, 6, 0, 0)
-    assert _same_frame(display.shown[1], clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc))
+    assert _same_frame(
+        display.shown[1],
+        clock_screens.screen_frame(clock_screens.SCREEN_MAIN, rtc),
+    )
 
 
 def test_month_abbreviations_fit_main_date_row() -> None:
     """Month abbreviations fit with the largest day on the main date row."""
     for month, label in enumerate(clock_screens.MONTH_ABBRS, start=1):
         assert clock_screens.format_month_abbr(month) == label
-        assert clock_text.compact_text_width(f"{label} 31") <= 32
+        assert Text(f"{label} 31").measure()[0] <= 32
 
 
 def test_two_row_frame_centers_compact_month_date() -> None:
     """The month row uses compact glyphs centered in the lower display band."""
-    frame = clock_text.two_row_frame("12:05 AM", "June 23")
-    month_width = clock_text.compact_text_width("June 23")
+    frame = clock_screens._two_row_frame("12:05 AM", "June 23", 32, 16)
+    month_width = Text("June 23").measure()[0]
     left, right, top, bottom = _lit_bounds(frame, 8, 16)
 
-    assert month_width < Frame.text("June 23").width
     assert left == (frame.width - month_width) // 2
     assert right == left + month_width - 1
     assert (top, bottom) == (9, 15)
@@ -443,8 +501,8 @@ def test_display_cycle_holds_regular_screens_for_three_minutes() -> None:
     cycle.tick(synced=True)
 
     assert cycle.current_screen == clock_screens.SCREEN_MAIN
-    assert cycle.transition["target_screen"] == clock_screens.SCREEN_SEASON
-    assert cycle.transition["effect"] == clock_transitions.TRANSITION_WIPE
+    assert cycle.transition.target_screen == clock_screens.SCREEN_SEASON
+    assert cycle.transition.effect == clock_transitions.TRANSITION_WIPE
 
 
 def test_transition_completion_sets_target_and_restarts_hold() -> None:
@@ -516,7 +574,7 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
         clock_screens.SCREEN_SEASON,
         clock_transitions.TRANSITION_STEPS,
     )
-    cycle.transition["step"] = 1
+    cycle.transition.step = 1
     rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
     cycle._advance_transition(clock.ticks_ms())
 
@@ -542,7 +600,7 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
         clock_screens.SCREEN_TIME_SECONDS,
         clock_transitions.TRANSITION_STEPS,
     )
-    cycle.transition["step"] = cycle.transition["steps"]
+    cycle.transition.step = cycle.transition.steps
     shown_before_landing = len(display.shown)
     rtc.value = (2026, 6, 23, 1, 15, 59, 59, 0)
     cycle._advance_transition(clock.ticks_ms())
@@ -558,8 +616,8 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
 
 def test_fade_frame_lands_on_target() -> None:
     """Fade transitions land exactly on the target endpoint."""
-    source = Frame.blank(4, 2)
-    target = Frame.blank(4, 2)
+    source = Frame(4, 2)
+    target = Frame(4, 2)
     for index in range(len(target.data)):
         target.data[index] = 255
 

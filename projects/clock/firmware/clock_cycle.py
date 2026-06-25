@@ -11,6 +11,28 @@ REASSERT_MS = 5_000
 WAIT_TRANSITION_STEPS = max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS)
 
 
+class TransitionRun:
+    """State for one in-progress display transition."""
+
+    def __init__(
+        self,
+        effect: int,
+        target_screen: int,
+        source_frame: object,
+        target_frame: object,
+        target_key: tuple,
+        steps: int,
+    ) -> None:
+        """Store transition endpoints and the next frame step."""
+        self.effect = effect
+        self.target_screen = target_screen
+        self.source_frame = source_frame
+        self.target_frame = target_frame
+        self.target_key = target_key
+        self.step = 1
+        self.steps = 1 if effect == clock_transitions.TRANSITION_INSTANT else steps
+
+
 class DisplayCycle:
     """Advance wait screens, regular screens, interstitials, and transitions."""
 
@@ -151,15 +173,14 @@ class DisplayCycle:
             self._frame_and_key(source_screen, source_parts)[0],
         )
         target_frame, target_key = self._frame_and_key(target_screen, target_parts)
-        self.transition = {
-            "effect": effect,
-            "target_screen": target_screen,
-            "source_frame": source_frame,
-            "target_frame": clock_transitions.as_packed_frame(target_frame),
-            "target_key": target_key,
-            "step": 1,
-            "steps": 1 if effect == clock_transitions.TRANSITION_INSTANT else steps,
-        }
+        self.transition = TransitionRun(
+            effect,
+            target_screen,
+            source_frame,
+            clock_transitions.as_packed_frame(target_frame),
+            target_key,
+            steps,
+        )
 
     def _advance_transition(self, now: int) -> None:
         """Render at most one active transition frame."""
@@ -167,25 +188,25 @@ class DisplayCycle:
         if transition is None:
             return
         frame = clock_transitions.frame_transition_frame(
-            transition["effect"],
-            transition["source_frame"],
-            transition["target_frame"],
-            step=transition["step"],
-            steps=transition["steps"],
+            transition.effect,
+            transition.source_frame,
+            transition.target_frame,
+            step=transition.step,
+            steps=transition.steps,
         )
         self._display.show(frame)
         self.last_reassert_ms = now
-        if transition["step"] >= transition["steps"]:
+        if transition.step >= transition.steps:
             self._land_transition(transition, now)
             return
-        transition["step"] += 1
+        transition.step += 1
 
-    def _land_transition(self, transition: dict, now: int) -> None:
+    def _land_transition(self, transition: object, now: int) -> None:
         """Commit a completed transition and refresh changed target content."""
-        target = transition["target_screen"]
+        target = transition.target_screen
         self.current_screen = target
-        self.screen_frame = transition["target_frame"]
-        self.shown_key = transition["target_key"]
+        self.screen_frame = transition.target_frame
+        self.shown_key = transition.target_key
         self.screen_started_ms = now
         self.transition = None
         self._refresh_landed_target(now)

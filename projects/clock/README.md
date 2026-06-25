@@ -2,14 +2,13 @@
 
 A GPS-synced wall clock with a 16×32 MAX7219 LED matrix (two 8×32 panels
 daisy-chained in series on one SPI bus, sharing 5 V and GND). MicroPython firmware reads
-UTC date/time and longitude from an ATGM336H GPS over UART (NMEA RMC), derives a
-fixed UTC offset from the longitude (`round(lon/15)`, since MicroPython has no
-timezone database), converts to local time, sets the onboard RTC, and drives the
-matrix over SPI. The UART and SPI buses are independent: one cooperative loop pumps the GPS
-(non-blocking `readline`) and advances the display every tick while the RTC keeps
-time between GPS bursts — neither bus blocks the other. A host FastAPI service
-fans the per-fix JSON lines out over a WebSocket and serves a live clock
-dashboard.
+UTC date/time and position from an ATGM336H GPS over UART (NMEA RMC), derives a
+startup timezone offset from the first complete fix, converts GPS time to local
+time, sets the onboard RTC, and drives the matrix over SPI. The UART and SPI
+buses are independent: one cooperative loop pumps the GPS (non-blocking
+`readline`) and advances the display every tick while the RTC keeps time between
+GPS bursts — neither bus blocks the other. A host FastAPI service fans the
+per-fix JSON lines out over a WebSocket and serves a live clock dashboard.
 
 After the first GPS fix, the display cycles through three regular 16×32
 screens, holding each completed regular screen for three minutes:
@@ -32,7 +31,9 @@ packages remain board-agnostic and the firmware builds for RP2040, RP2350, and E
 ## Layout
 ```
 clock/
-  firmware/main.py            board wiring, hardware init, cooperative loop
+  firmware/main.py            board wiring, boot sequence, init retry loop, main loop
+  firmware/clock_hardware.py  device construction and BOOT-button display flip
+  firmware/clock_runtime.py   GPS sync and display-cycle tick state
   firmware/clock_*.py         GPS sync, screen specs, text drawing, transitions
   viz/static/index.html       live clock panel (time, day, longitude, UTC offset)
   tests/                      host pytest for the run() behaviour
@@ -75,11 +76,11 @@ and replug the board.
   buses directly. The LED goes white (boot) → cyan (opening buses) → green
   (running); an init failure flashes magenta and retries from white.
 - The display shows `GPS` / `WAIT` until the first checksum-valid RMC sentence
-  carrying UTC time, date, and longitude arrives. The longitude sets a fixed
-  whole-hour offset (`round(lon/15)`); there is no DST or timezone-boundary
-  handling.
+  carrying UTC time, date, latitude, and longitude arrives. The first complete
+  fix sets the startup timezone offset; later fixes reuse that offset while the
+  RTC keeps local time between GPS updates.
 - Each fix emits one JSON line:
-  `{"fix": true, "lon": <deg>, "offset_h": <int>, "local": "<ISO local time>", "day": "<weekday>", "t": <ms>}`.
+  `{"fix": true, "lat": <deg>, "lon": <deg>, "offset_h": <int>, "offset_min": <int>, "tz": "<abbr>", "local": "<ISO local time>", "day": "<weekday>", "t": <ms>}`.
   UART/parse faults emit `{"diag": "read_err"}` and briefly turn the LED red
   before returning to green; an init failure emits `{"diag": "init_err"}`.
 - LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)

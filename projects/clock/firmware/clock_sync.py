@@ -10,6 +10,33 @@ from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
 _DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
+class ClockSynchronizer:
+    """Keep GPS parse state and apply complete fixes to an RTC."""
+
+    def __init__(
+        self,
+        rtc: object,
+        *,
+        emitter: object | None = None,
+        clock: object | None = None,
+    ) -> None:
+        """Bind synchronization state to one RTC."""
+        if emitter is None:
+            emitter = emit
+        if clock is None:
+            clock = time
+        self._rtc = rtc
+        self._emitter = emitter
+        self._clock = clock
+        self.state = {"synced": False}
+        self.synced = False
+
+    def consume(self, line: str | None) -> None:
+        """Parse one GPS line and update ``synced`` when a fix is complete."""
+        sync_from_line(line, self._rtc, self.state, self._emitter, self._clock)
+        self.synced = self.state.get("synced", False)
+
+
 def emit(obj: dict) -> None:
     """Print one line of compact JSON to the serial port.
 

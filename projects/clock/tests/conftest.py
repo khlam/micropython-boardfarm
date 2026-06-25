@@ -72,6 +72,9 @@ def main_ns() -> SimpleNamespace:
     Returns:
         SimpleNamespace with ``ns``, ``time``, and ``status`` attributes.
     """
+    import clock_hardware
+    import clock_runtime
+
     import clock_cycle
     import clock_sync
 
@@ -83,8 +86,8 @@ def main_ns() -> SimpleNamespace:
         BOARD=_TEST_BOARD,
         random=random,
         button=SimpleNamespace(on_press=lambda _cb: None),
-        DisplayCycle=clock_cycle.DisplayCycle,
+        ClockHardware=clock_hardware.ClockHardware,
+        ClockRuntime=clock_runtime.ClockRuntime,
         POLL_SLEEP_MS=clock_cycle.POLL_SLEEP_MS,
         emit=clock_sync.emit,
-        sync_from_line=clock_sync.sync_from_line,
     )

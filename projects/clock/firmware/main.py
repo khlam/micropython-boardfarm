@@ -1,7 +1,7 @@
 """MCU MicroPython firmware for the clock project.
 
-Reads UTC date/time and longitude from an ATGM336H GPS over UART, derives a
-fixed local offset from longitude, sets the onboard RTC, and drives the modular
+Reads UTC date/time and position from an ATGM336H GPS over UART, derives a
+local timezone offset, sets the onboard RTC, and drives the modular
 display cycle on the 16x32 MAX7219 matrix.
 """
 
@@ -11,16 +11,18 @@ import time
 from collections import namedtuple
 
 from boot_button import button
+from clock_hardware import ClockHardware
+from clock_runtime import ClockRuntime
 from machine import RTC
 
 from atgm336h import GPS
 from boot_status_led import status
-from clock_cycle import POLL_SLEEP_MS, DisplayCycle
-from clock_sync import emit, sync_from_line
+from clock_cycle import POLL_SLEEP_MS
+from clock_sync import emit
 from max7219 import MAX7219
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-DisplaySpec = namedtuple("DisplaySpec", ("width_pixels", "height_pixels", "brightness"))
+PixelSurface = namedtuple("PixelSurface", ("width_pixels", "height_pixels", "brightness"))
 DisplayWiring = namedtuple(
     "DisplayWiring",
     (
@@ -28,12 +30,12 @@ DisplayWiring = namedtuple(
         "sck",
         "mosi",
         "cs",
-        "spec",
+        "surface",
     ),
 )
 Board = namedtuple("Board", ("name", "uart", "display"))
 
-_DISPLAY_SPEC = DisplaySpec(width_pixels=32, height_pixels=16, brightness=0.1)
+_SURFACE = PixelSurface(width_pixels=32, height_pixels=16, brightness=0.1)
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -45,7 +47,7 @@ if "ESP32S3" in _machine:
             sck=5,
             mosi=6,
             cs=7,
-            spec=_DISPLAY_SPEC,
+            surface=_SURFACE,
         ),
     )
 elif "RP2350" in _machine:
@@ -57,7 +59,7 @@ elif "RP2350" in _machine:
             sck=10,
             mosi=11,
             cs=9,
-            spec=_DISPLAY_SPEC,
+            surface=_SURFACE,
         ),
     )
 else:
@@ -69,7 +71,7 @@ else:
             sck=26,
             mosi=27,
             cs=28,
-            spec=_DISPLAY_SPEC,
+            surface=_SURFACE,
         ),
     )
 
@@ -85,18 +87,18 @@ def run(gps: object, display: object, rtc: object) -> None:
         display: Object exposing ``show(frame)``.
         rtc: ``machine.RTC`` instance used as the clock source between fixes.
     """
-    status.streaming()
-    sync_state = {"synced": False}
-    display_cycle = DisplayCycle(
+    runtime = ClockRuntime(
+        gps,
         display,
         rtc,
+        emitter=emit,
         clock=time,
         rng=random,
     )
+    status.streaming()
     while True:
         try:
-            sync_from_line(gps.readline(), rtc, sync_state, emit, time)
-            display_cycle.tick(synced=sync_state.get("synced", False))
+            runtime.tick()
             time.sleep_ms(POLL_SLEEP_MS)
         except Exception:  # noqa: BLE001
             status.read_err()
@@ -114,38 +116,19 @@ def main() -> None:
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
 
-    active = {"display": None}
-
-    def _on_button_press() -> None:
-        """Flip the live display 180 degrees on each BOOT-button press."""
-        display = active["display"]
-        if display is not None:
-            display.flip()
-
-    button.on_press(_on_button_press)
+    hardware = ClockHardware(BOARD, MAX7219, GPS, RTC)
+    button.on_press(hardware.flip_display)
     while True:
         status.i2c_init()
         try:
-            spec = BOARD.display.spec
-            display = MAX7219(
-                spi_id=BOARD.display.spi_id,
-                sck=BOARD.display.sck,
-                mosi=BOARD.display.mosi,
-                cs=BOARD.display.cs,
-                width_pixels=spec.width_pixels,
-                height_pixels=spec.height_pixels,
-                brightness=spec.brightness,
-            )
-            gps = GPS(bus_id=BOARD.uart.bus_id, tx=BOARD.uart.tx, rx=BOARD.uart.rx)
-            rtc = RTC()
+            devices = hardware.open()
         except Exception:  # noqa: BLE001
             status.init_err()
             emit({"diag": "init_err"})
             time.sleep_ms(_INIT_ERR_PAUSE_MS)
             status.boot()
             continue
-        active["display"] = display
-        run(gps, display, rtc)
+        run(devices.gps, devices.display, devices.rtc)
 
 
 main()
