@@ -1,56 +1,22 @@
 """GPS sentence parsing and RTC sync for the clock project."""
 
-import time
-
-import ujson
-
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
 from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
-
-_DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
 class ClockSynchronizer:
     """Keep GPS parse state and apply complete fixes to an RTC."""
 
-    def __init__(
-        self,
-        rtc: object,
-        *,
-        emitter: object | None = None,
-        clock: object | None = None,
-    ) -> None:
+    def __init__(self, rtc: object) -> None:
         """Bind synchronization state to one RTC."""
-        if emitter is None:
-            emitter = emit
-        if clock is None:
-            clock = time
         self._rtc = rtc
-        self._emitter = emitter
-        self._clock = clock
         self.state = {"synced": False}
         self.synced = False
 
     def consume(self, line: str | None) -> None:
         """Parse one GPS line and update ``synced`` when a fix is complete."""
-        sync_from_line(line, self._rtc, self.state, self._emitter, self._clock)
+        sync_from_line(line, self._rtc, self.state)
         self.synced = self.state.get("synced", False)
-
-
-def emit(obj: dict) -> None:
-    """Print one line of compact JSON to the serial port.
-
-    All firmware output must go through this helper; raw ``print()`` calls
-    elsewhere pollute the serial stream and are silently dropped by the viz
-    JSON parser.
-    """
-    print(ujson.dumps(obj))
-
-
-def iso_local(local: tuple) -> str:
-    """Format a local time tuple as an ISO-like timestamp for JSON output."""
-    year, month, day, _weekday, hour, minute, second = local
-    return f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}"
 
 
 def rtc_datetime(local: tuple) -> tuple:
@@ -101,13 +67,7 @@ def gps_offset(date_str: str, utc_str: str, state: dict) -> tuple:
     return state["offset_s"], state.get("tz_abbrev")
 
 
-def sync_from_line(
-    line: str | None,
-    rtc: object,
-    state: dict,
-    emitter: object | None = None,
-    clock: object | None = None,
-) -> None:
+def sync_from_line(line: str | None, rtc: object, state: dict) -> None:
     """Parse one NMEA sentence and set the RTC when a complete fix is available."""
     if line is None or not nmea_checksum_valid(line):
         return
@@ -128,25 +88,7 @@ def sync_from_line(
         or state.get("lon") is None
     ):
         return
-    if emitter is None:
-        emitter = emit
-    if clock is None:
-        clock = time
-    now = clock.ticks_ms()
-    offset_s, tz_abbrev = gps_offset(cached_date, utc_time, state)
+    offset_s, _tz_abbrev = gps_offset(cached_date, utc_time, state)
     local = local_from_offset(cached_date, utc_time, offset_s)
     rtc.datetime(rtc_datetime(local))
     state["synced"] = True
-    emitter(
-        {
-            "fix": True,
-            "lat": state["lat"],
-            "lon": state["lon"],
-            "offset_h": offset_s // 3600,
-            "offset_min": offset_s // 60,
-            "tz": tz_abbrev,
-            "local": iso_local(local),
-            "day": _DAYS[local[3]],
-            "t": now,
-        }
-    )

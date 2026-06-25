@@ -5,10 +5,9 @@ daisy-chained in series on one SPI bus, sharing 5 V and GND). MicroPython firmwa
 UTC date/time and position from an ATGM336H GPS over UART (NMEA RMC), derives a
 startup timezone offset from the first complete fix, converts GPS time to local
 time, sets the onboard RTC, and drives the matrix over SPI. The UART and SPI
-buses are independent: one cooperative loop pumps the GPS (non-blocking
-`readline`) and advances the display every tick while the RTC keeps time between
-GPS bursts — neither bus blocks the other. A host FastAPI service fans the
-per-fix JSON lines out over a WebSocket and serves a live clock dashboard.
+buses are independent: two cooperative `asyncio` tasks run concurrently — one
+pumps the GPS (non-blocking `readline`) and the other steps the display program
+— while the RTC keeps time between GPS bursts, so neither bus blocks the other.
 
 After the first GPS fix, the display cycles through three regular 16×32
 screens, holding each completed regular screen for three minutes:
@@ -31,14 +30,14 @@ packages remain board-agnostic and the firmware builds for RP2040, RP2350, and E
 ## Layout
 ```
 clock/
-  firmware/main.py            board wiring, boot sequence, init retry loop, main loop
+  firmware/main.py            board wiring, boot/init retry, async screen sequence
   firmware/clock_hardware.py  device construction and BOOT-button display flip
-  firmware/clock_runtime.py   GPS sync and display-cycle tick state
+  firmware/clock_runtime.py   pump_gps task that keeps the RTC synced
+  firmware/clock_cycle.py     DisplayEngine + transition/hold step coroutines
   firmware/clock_*.py         GPS sync, screen specs, text drawing, transitions
-  viz/static/index.html       live clock panel (time, day, longitude, UTC offset)
   tests/                      host pytest for the run() behaviour
   outputs/                    build artifacts (UF2 + ESP32 bin)
-  docker-compose.yaml         pi-compile / esp32-compile / esp32-flash / viz services
+  docker-compose.yaml         pi-compile / esp32-compile / esp32-flash services
 ```
 
 ## Usage
@@ -60,17 +59,6 @@ clock/
    ```
    Runs `esp32-compile` to produce [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin), then immediately flashes it via `esptool.py` running inside the container.
 
-### Web dashboard
-With the board plugged in (`/dev/ttyACM0`):
-```bash
-docker compose up --build viz
-```
-Open `http://localhost:18501`. The connection pill turns green when the serial
-port is open, and a second pill shows `FIX` / `NO FIX`. Once the GPS has a fix the
-panel shows the local timestamp alongside the detected longitude, derived UTC
-offset, and the age of the last fix. The dashboard auto-reconnects if you unplug
-and replug the board.
-
 ## Notes
 - The firmware skips any I²C scan — it opens the UART (GPS) and SPI (display)
   buses directly. The LED goes white (boot) → cyan (opening buses) → green
@@ -79,10 +67,9 @@ and replug the board.
   carrying UTC time, date, latitude, and longitude arrives. The first complete
   fix sets the startup timezone offset; later fixes reuse that offset while the
   RTC keeps local time between GPS updates.
-- Each fix emits one JSON line:
-  `{"fix": true, "lat": <deg>, "lon": <deg>, "offset_h": <int>, "offset_min": <int>, "tz": "<abbr>", "local": "<ISO local time>", "day": "<weekday>", "t": <ms>}`.
-  UART/parse faults emit `{"diag": "read_err"}` and briefly turn the LED red
-  before returning to green; an init failure emits `{"diag": "init_err"}`.
+- The firmware produces no serial output; status is shown entirely on the LED.
+  UART/parse faults briefly turn the LED red before returning to green; an init
+  failure flashes magenta and retries.
 - LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
   in the boot_status_led README.
 

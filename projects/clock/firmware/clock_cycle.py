@@ -1,5 +1,6 @@
-"""Display-cycle scheduler for clock screens and transitions."""
+"""Display engine and step coroutines for clock screens and transitions."""
 
+import asyncio
 import random
 import time
 
@@ -9,6 +10,31 @@ import clock_transitions
 POLL_SLEEP_MS = 50
 REASSERT_MS = 5_000
 WAIT_TRANSITION_STEPS = max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS)
+
+
+async def play_transition(engine: object, target: int, clock: object) -> None:
+    """Animate the transition into ``target``, one frame per poll interval."""
+    engine.begin_transition(target)
+    while not engine.advance_transition(clock.ticks_ms()):
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
+
+
+async def hold_screen(engine: object, clock: object, *, stop: object = None) -> None:
+    """Hold the landed screen for its spec'd time, healing live content each frame.
+
+    Args:
+        engine: The :class:`DisplayEngine` whose ``current_screen`` is held.
+        clock: ``time``-like source providing ``ticks_ms``/``ticks_diff``.
+        stop: Optional predicate; when it returns true the hold ends early. Used
+            by the GPS-wait blink to break out the moment a fix arrives.
+    """
+    deadline = clock.ticks_ms()
+    hold_ms = clock_screens.screen_spec(engine.current_screen).hold_ms
+    while clock.ticks_diff(clock.ticks_ms(), deadline) < hold_ms:
+        if stop is not None and stop():
+            return
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
+        engine.reassert(clock.ticks_ms())
 
 
 class TransitionRun:
@@ -33,8 +59,13 @@ class TransitionRun:
         self.steps = 1 if effect == clock_transitions.TRANSITION_INSTANT else steps
 
 
-class DisplayCycle:
-    """Advance wait screens, regular screens, interstitials, and transitions."""
+class DisplayEngine:
+    """Render wait screens, regular screens, interstitials, and transitions.
+
+    Exposes synchronous step primitives (`begin_transition`, `advance_transition`,
+    `reassert`) that the module-level coroutines drive in `await`-sleep loops; the
+    screen *order* lives in the caller, not in this engine.
+    """
 
     def __init__(
         self,
@@ -44,7 +75,7 @@ class DisplayCycle:
         clock: object | None = None,
         rng: object | None = None,
     ) -> None:
-        """Bind the cycle manager to a display, RTC, clock source, and RNG."""
+        """Bind the engine to a display, RTC, clock source, and RNG."""
         self._display = display
         self._rtc = rtc
         self._clock = time if clock is None else clock
@@ -53,48 +84,30 @@ class DisplayCycle:
         self._height_pixels = getattr(display, "height_pixels", clock_screens.HEIGHT_PIXELS)
         self._frame_cache = {}
         self.current_screen = None
-        self.previous_regular = clock_screens.SCREEN_MAIN
-        self.screen_started_ms = None
         self.last_reassert_ms = None
         self.shown_key = None
         self.screen_frame = None
         self.transition = None
 
-    def tick(self, *, synced: bool) -> None:
-        """Render at most one display update for the current loop tick."""
-        now = self._clock.ticks_ms()
-        if not synced:
-            self._tick_wait(now)
-            return
-        if self.current_screen is None or clock_screens.is_wait(self.current_screen):
-            self.transition = None
-            self._show_screen(clock_screens.SCREEN_MAIN, now)
-            return
-        if self.transition is not None:
-            self._advance_transition(now)
-            return
-        if self._hold_expired(now):
-            self._start_next_screen_transition()
-            self._advance_transition(now)
-            return
-        self._show_current_or_reassert(now)
+    def begin_transition(self, target_screen: int) -> None:
+        """Start a transition from the current screen into ``target_screen``."""
+        source = self.current_screen
+        if source is None:
+            source = clock_screens.WAIT_OFF
+        steps = (
+            WAIT_TRANSITION_STEPS
+            if clock_screens.is_wait(target_screen)
+            else clock_transitions.TRANSITION_STEPS
+        )
+        self._start_transition(source, target_screen, steps)
 
-    def _tick_wait(self, now: int) -> None:
-        """Animate the unsynced GPS wait display."""
-        if self.transition is not None:
-            self._advance_transition(now)
-            return
-        if self.current_screen not in clock_screens.WAIT_SCREENS:
-            self.current_screen = clock_screens.WAIT_OFF
-            self.shown_key = clock_screens.screen_key(clock_screens.WAIT_OFF, None)
-            self.screen_started_ms = None
-            self._start_wait_transition()
-            self._advance_transition(now)
-            return
-        if self._hold_expired(now):
-            self._start_wait_transition()
-            self._advance_transition(now)
-            return
+    def advance_transition(self, now: int) -> bool:
+        """Render one transition frame; return whether the transition has landed."""
+        self._advance_transition(now)
+        return self.transition is None
+
+    def reassert(self, now: int) -> None:
+        """Refresh live content changes or periodically heal the current screen."""
         self._show_current_or_reassert(now)
 
     def _parts(self) -> tuple:
@@ -122,47 +135,12 @@ class DisplayCycle:
         self._frame_cache[screen] = (key, frame)
         return frame, key
 
-    def _show_screen(self, screen: int, now: int) -> None:
-        """Render a stable screen and start its hold timer."""
-        parts = self._parts_for_screen(screen)
-        frame, key = self._frame_and_key(screen, parts)
-        self.current_screen = screen
-        self.screen_started_ms = now
-        self._show_frame(frame, key, now)
-
     def _show_frame(self, frame: object, key: tuple, now: int) -> None:
         """Render ``frame`` and store the visible-content state."""
         self._display.show(frame)
         self.screen_frame = frame
         self.shown_key = key
         self.last_reassert_ms = now
-
-    def _hold_expired(self, now: int) -> bool:
-        """Return whether the current screen's hold time has elapsed."""
-        if self.current_screen is None or self.screen_started_ms is None:
-            return True
-        hold_ms = clock_screens.screen_spec(self.current_screen).hold_ms
-        return self._clock.ticks_diff(now, self.screen_started_ms) >= hold_ms
-
-    def _start_wait_transition(self) -> None:
-        """Create transition state for the next GPS wait on/off flip."""
-        source = self.current_screen
-        if source not in clock_screens.WAIT_SCREENS:
-            source = clock_screens.WAIT_OFF
-        target = (
-            clock_screens.WAIT_OFF if source == clock_screens.WAIT_ON else clock_screens.WAIT_ON
-        )
-        self._start_transition(source, target, WAIT_TRANSITION_STEPS)
-
-    def _start_next_screen_transition(self) -> None:
-        """Create transition state for the next synced screen hop."""
-        current = self.current_screen
-        if clock_screens.is_interstitial(current):
-            target = clock_screens.choose_next_regular(self.previous_regular, self._rng)
-        else:
-            self.previous_regular = current
-            target = clock_screens.choose_interstitial(self._rng)
-        self._start_transition(current, target, clock_transitions.TRANSITION_STEPS)
 
     def _start_transition(self, source_screen: int, target_screen: int, steps: int) -> None:
         """Snapshot source and target frames for a transition run."""
@@ -207,7 +185,6 @@ class DisplayCycle:
         self.current_screen = target
         self.screen_frame = transition.target_frame
         self.shown_key = transition.target_key
-        self.screen_started_ms = now
         self.transition = None
         self._refresh_landed_target(now)
 
