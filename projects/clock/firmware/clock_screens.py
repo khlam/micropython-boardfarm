@@ -23,8 +23,6 @@ SCREEN_HOLD_MS = 180_000
 INTERSTITIAL_HOLD_MS = 3_000
 WAIT_ROTATE_MS = 1_000
 
-CLOCK_MERIDIEM_TIME_X_SCALE = 1
-CLOCK_MERIDIEM_TIME_Y_SCALE = 2
 CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
 
 WIDTH_PIXELS = 32
@@ -155,17 +153,28 @@ def clock_meridiem_screen_frame(
     width_pixels: int = WIDTH_PIXELS,
     height_pixels: int = HEIGHT_PIXELS,
 ) -> object:
-    """Render a centered time-only face with meridiem."""
+    """Render a centered time-only face, scaling the time to fill the frame.
+
+    The meridiem keeps a fixed narrow column on the right; the time then grows to
+    the largest integer scale that fits the remaining box on each axis
+    independently, so short strings (single-digit hour) render markedly larger
+    than the widest ``12:59``-style times instead of leaving the screen mostly
+    empty.
+    """
     _year, _month, _day, _weekday, hour, minute, _second = parts
     clock, meridiem = format_time_parts(hour, minute)
     frame = Frame(width_pixels, height_pixels)
-    time_text = Text(
-        clock,
-        scale=(CLOCK_MERIDIEM_TIME_X_SCALE, CLOCK_MERIDIEM_TIME_Y_SCALE),
-    )
     label_text = Text(meridiem, flow="vertical")
-    time_width, time_height = time_text.measure()
     label_width, label_height = label_text.measure()
+    base_width, base_height = Text(clock).measure()
+    time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - label_width
+    if base_width <= 0 or base_height <= 0 or time_box_width <= 0:
+        frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
+        return frame
+    x_scale = max(1, time_box_width // base_width)
+    y_scale = max(1, height_pixels // base_height)
+    time_text = Text(clock, scale=(x_scale, y_scale))
+    time_width, time_height = time_text.measure()
     group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + label_width
     group_height = max(time_height, label_height)
     if group_width > width_pixels or group_height > height_pixels:

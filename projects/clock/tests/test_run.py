@@ -304,31 +304,48 @@ def test_time_seconds_screen_updates_each_second() -> None:
     )
 
 
-def test_clock_meridiem_screen_centers_tall_time() -> None:
-    """The clock-only screen centers large time next to a smaller meridiem."""
+def test_clock_meridiem_screen_fills_frame() -> None:
+    """A short time scales up to fill the frame width next to a narrow meridiem."""
+    rtc = _FakeRTC()
+    rtc.value = (2026, 6, 23, 1, 9, 5, 0, 0)
+
+    frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
+    unscaled_clock_width = Text("9:05", scale=(1, 1)).measure()[0]
+    meridiem = Text("AM", flow="vertical")
+    meridiem_width, meridiem_height = meridiem.measure()
+    side_by_side_meridiem_width = Text("AM").measure()[0]
+    left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
+
+    # The time + meridiem span the full width and nearly the full height.
+    assert (left, right) == (0, frame.width - 1)
+    assert (top, bottom) == (0, frame.height - 2)
+    # The time is scaled up past its 1:1 footprint while the meridiem stays narrow.
+    assert right - left + 1 > unscaled_clock_width + meridiem_width
+    assert meridiem_width < side_by_side_meridiem_width
+    assert bottom - top + 1 == meridiem_height
+    assert clock_screens.key_from_rtc(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc) == (
+        clock_screens.SCREEN_CLOCK_MERIDIEM,
+        9,
+        5,
+    )
+
+
+def test_clock_meridiem_screen_widest_time_stays_in_bounds() -> None:
+    """The widest two-digit time still centers within the frame without overflow."""
     rtc = _FakeRTC()
     rtc.value = (2026, 6, 23, 1, 12, 59, 0, 0)
 
     frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
-    unscaled_clock_width = Text("12:59", scale=(1, 1)).measure()[0]
-    clock_width = Text(
-        "12:59",
-        scale=(
-            clock_screens.CLOCK_MERIDIEM_TIME_X_SCALE,
-            clock_screens.CLOCK_MERIDIEM_TIME_Y_SCALE,
-        ),
-    ).measure()[0]
-    meridiem = Text("PM", flow="vertical")
-    meridiem_width, meridiem_height = meridiem.measure()
+    meridiem_width, meridiem_height = Text("PM", flow="vertical").measure()
     side_by_side_meridiem_width = Text("PM").measure()[0]
-    group_width = clock_width + clock_screens.CLOCK_MERIDIEM_LABEL_GAP_PIXELS + meridiem_width
     left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
 
-    assert clock_width > unscaled_clock_width
+    assert left >= 0
+    assert right <= frame.width - 1
+    # Still horizontally centered (floor division leaves at most 1px of skew).
+    assert 0 <= (frame.width - 1 - right) - left <= 1
+    assert (top, bottom) == (0, frame.height - 2)
     assert meridiem_width < side_by_side_meridiem_width
-    assert left == (frame.width - group_width) // 2
-    assert right == left + group_width - 1
-    assert (top, bottom) == (0, 14)
     assert bottom - top + 1 == meridiem_height
     assert clock_screens.key_from_rtc(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc) == (
         clock_screens.SCREEN_CLOCK_MERIDIEM,
