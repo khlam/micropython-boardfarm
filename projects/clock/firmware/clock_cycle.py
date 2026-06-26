@@ -7,16 +7,38 @@ import time
 import clock_screens
 import clock_transitions
 
-POLL_SLEEP_MS = 50
+POLL_SLEEP_MS = 10
+FRAME_RATE_TEST_SLEEP_MS = POLL_SLEEP_MS
 REASSERT_MS = 5_000
-WAIT_TRANSITION_STEPS = max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS)
+WAIT_TRANSITION_STEPS = min(
+    clock_transitions.TRANSITION_STEPS,
+    max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS),
+)
 
 
-async def play_transition(engine: object, target: int, clock: object) -> None:
+async def play_transition(
+    engine: object,
+    target: int,
+    clock: object,
+    *,
+    effect: int | None = None,
+    direction: int | None = None,
+) -> None:
     """Animate the transition into ``target``, one frame per poll interval."""
-    engine.begin_transition(target)
+    engine.begin_transition(target, effect=effect, direction=direction)
     while not engine.advance_transition(clock.ticks_ms()):
         await asyncio.sleep_ms(POLL_SLEEP_MS)
+
+
+async def play_fade_transition(engine: object, target: int, clock: object) -> None:
+    """Fade the current display state into ``target``."""
+    await play_transition(
+        engine,
+        target,
+        clock,
+        effect=clock_transitions.TRANSITION_FADE,
+        direction=clock_transitions.DIRECTION_LEFT,
+    )
 
 
 async def hold_screen(engine: object, clock: object, *, stop: object = None) -> None:
@@ -35,6 +57,34 @@ async def hold_screen(engine: object, clock: object, *, stop: object = None) -> 
             return
         await asyncio.sleep_ms(POLL_SLEEP_MS)
         engine.reassert(clock.ticks_ms())
+
+
+async def run_frame_rate_test(engine: object, clock: object) -> None:
+    """Render the startup display frame-rate diagnostic for its screen hold."""
+    start = clock.ticks_ms()
+    frame_count = 0
+    hold_ms = clock_screens.screen_spec(clock_screens.SCREEN_FRAME_RATE).hold_ms
+    while True:
+        now = clock.ticks_ms()
+        elapsed_ms = clock.ticks_diff(now, start)
+        if elapsed_ms >= hold_ms:
+            return
+        frame_count += 1
+        engine.show_frame_rate(frame_count, elapsed_ms, now)
+        await asyncio.sleep_ms(FRAME_RATE_TEST_SLEEP_MS)
+
+
+async def play_startup_handoff(engine: object, target: int, clock: object) -> None:
+    """Scroll the diagnostic away, show the brand, then fade into ``target``."""
+    await play_transition(
+        engine,
+        clock_screens.SCREEN_BRAND,
+        clock,
+        effect=clock_transitions.TRANSITION_SCROLL,
+        direction=clock_transitions.DIRECTION_RIGHT,
+    )
+    await hold_screen(engine, clock)
+    await play_fade_transition(engine, target, clock)
 
 
 class TransitionRun:
@@ -91,7 +141,13 @@ class DisplayEngine:
         self.screen_frame = None
         self.transition = None
 
-    def begin_transition(self, target_screen: int) -> None:
+    def begin_transition(
+        self,
+        target_screen: int,
+        *,
+        effect: int | None = None,
+        direction: int | None = None,
+    ) -> None:
         """Start a transition from the current screen into ``target_screen``."""
         source = self.current_screen
         if source is None:
@@ -101,7 +157,7 @@ class DisplayEngine:
             if clock_screens.is_wait(target_screen)
             else clock_transitions.TRANSITION_STEPS
         )
-        self._start_transition(source, target_screen, steps)
+        self._start_transition(source, target_screen, steps, effect=effect, direction=direction)
 
     def advance_transition(self, now: int) -> bool:
         """Render one transition frame; return whether the transition has landed."""
@@ -111,6 +167,14 @@ class DisplayEngine:
     def reassert(self, now: int) -> None:
         """Refresh live content changes or periodically heal the current screen."""
         self._show_current_or_reassert(now)
+
+    def show_frame_rate(self, frame_count: int, elapsed_ms: int, now: int) -> None:
+        """Render one diagnostic sample while measuring display throughput."""
+        parts = (frame_count, elapsed_ms, _frame_rate_x10(frame_count, elapsed_ms))
+        frame, key = self._frame_and_key(clock_screens.SCREEN_FRAME_RATE, parts)
+        self.current_screen = clock_screens.SCREEN_FRAME_RATE
+        self.transition = None
+        self._show_frame(frame, key, now)
 
     def _parts(self) -> tuple:
         """Return the current RTC parts snapshot."""
@@ -144,19 +208,29 @@ class DisplayEngine:
         self.shown_key = key
         self.last_reassert_ms = now
 
-    def _start_transition(self, source_screen: int, target_screen: int, steps: int) -> None:
+    def _start_transition(
+        self,
+        source_screen: int,
+        target_screen: int,
+        steps: int,
+        *,
+        effect: int | None = None,
+        direction: int | None = None,
+    ) -> None:
         """Snapshot source and target frames for a transition run."""
-        effect = clock_transitions.choose_transition(self._rng)
-        direction = (
-            clock_transitions.DIRECTION_LEFT
-            if effect == clock_transitions.TRANSITION_INSTANT
-            else clock_transitions.choose_direction(self._rng)
-        )
+        random_effect = effect is None
+        if effect is None:
+            effect = clock_transitions.choose_transition(self._rng)
+        if direction is None:
+            direction = _transition_direction(effect, random_effect=random_effect, rng=self._rng)
         source_parts = self._parts_for_screen(source_screen)
         target_parts = self._parts_for_screen(target_screen)
-        source_frame = clock_transitions.as_packed_frame(
-            self._frame_and_key(source_screen, source_parts)[0],
-        )
+        if source_screen == self.current_screen and self.screen_frame is not None:
+            source_frame = clock_transitions.as_packed_frame(self.screen_frame)
+        else:
+            source_frame = clock_transitions.as_packed_frame(
+                self._frame_and_key(source_screen, source_parts)[0],
+            )
         target_frame, target_key = self._frame_and_key(target_screen, target_parts)
         self.transition = TransitionRun(
             effect,
@@ -222,3 +296,21 @@ class DisplayEngine:
         if self._clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS:
             frame, _key = self._frame_and_key(self.current_screen, parts)
             self._show_frame(frame, key, now)
+
+
+def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:
+    """Return frames per second as a fixed-point tenths value."""
+    if elapsed_ms <= 0:
+        return 0
+    return frame_count * 10_000 // elapsed_ms
+
+
+def _transition_direction(effect: int, *, random_effect: bool, rng: object) -> int:
+    """Return the direction for either a random or forced transition effect."""
+    if effect == clock_transitions.TRANSITION_INSTANT:
+        return clock_transitions.DIRECTION_LEFT
+    if random_effect:
+        return clock_transitions.choose_direction(rng)
+    if effect == clock_transitions.TRANSITION_SCROLL:
+        return clock_transitions.DIRECTION_RIGHT
+    return clock_transitions.DIRECTION_LEFT

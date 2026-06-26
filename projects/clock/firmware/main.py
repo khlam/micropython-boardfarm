@@ -19,7 +19,14 @@ from machine import RTC
 import clock_screens
 from atgm336h import GPS
 from boot_status_led import status
-from clock_cycle import DisplayEngine, hold_screen, play_transition
+from clock_cycle import (
+    DisplayEngine,
+    hold_screen,
+    play_fade_transition,
+    play_startup_handoff,
+    play_transition,
+    run_frame_rate_test,
+)
 from clock_sync import ClockSynchronizer
 from max7219 import MAX7219
 
@@ -89,17 +96,25 @@ async def clock_program(engine: object, sync: object, rng: object, clock: object
     rendering mechanics live in :class:`clock_cycle.DisplayEngine`; this is only
     the sequence.
     """
+    await run_frame_rate_test(engine, clock)
+    regular = clock_screens.choose_regular(rng)
+    target = regular if sync.synced else clock_screens.WAIT_ON
+    await play_startup_handoff(engine, target, clock)
+
     # Wait for the first GPS fix: blink GPS / WAIT until ``sync`` reports a fix.
-    target = clock_screens.WAIT_ON
+    target = clock_screens.WAIT_OFF
     while not sync.synced:
-        await play_transition(engine, target, clock)
         await hold_screen(engine, clock, stop=lambda: sync.synced)
+        if sync.synced:
+            break
+        await play_transition(engine, target, clock)
         target = (
             clock_screens.WAIT_OFF if target == clock_screens.WAIT_ON else clock_screens.WAIT_ON
         )
-    # Synced: reveal the main clock, then cycle regular faces with interstitials.
-    await play_transition(engine, clock_screens.SCREEN_MAIN, clock)
-    regular = clock_screens.SCREEN_MAIN
+
+    # Synced: reveal a random clock, then cycle regular faces with interstitials.
+    if engine.current_screen != regular:
+        await play_fade_transition(engine, regular, clock)
     while True:
         await hold_screen(engine, clock)  # live clock face (3 min)
         await play_transition(engine, clock_screens.choose_interstitial(rng), clock)

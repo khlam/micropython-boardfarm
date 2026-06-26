@@ -12,15 +12,20 @@ SCREEN_SEASON = 1
 SCREEN_TIME_SECONDS = 2
 SCREEN_FULL_DATE = 3
 SCREEN_CLOCK_MERIDIEM = 4
-WAIT_OFF = 5
-WAIT_ON = 6
+SCREEN_FRAME_RATE = 5
+SCREEN_BRAND = 6
+WAIT_OFF = 7
+WAIT_ON = 8
 
 KIND_REGULAR = "regular"
 KIND_INTERSTITIAL = "interstitial"
+KIND_DIAGNOSTIC = "diagnostic"
 KIND_WAIT = "wait"
 
 SCREEN_HOLD_MS = 180_000
 INTERSTITIAL_HOLD_MS = 3_000
+FRAME_RATE_TEST_MS = 15_000
+BRAND_HOLD_MS = 1_500
 WAIT_ROTATE_MS = 1_000
 
 CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
@@ -204,6 +209,33 @@ def full_date_screen_frame(
     )
 
 
+def frame_rate_screen_frame(
+    parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
+    """Render one display frame-rate diagnostic sample."""
+    frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
+    frame = Frame(width_pixels, height_pixels)
+    split = max(1, height_pixels // 2)
+    _draw_frame_rate_trace(frame, frame_index, width_pixels, split)
+    if split < height_pixels:
+        frame[split:height_pixels, 0:width_pixels] = Text(
+            f"FPS {_frame_rate_label(fps_x10)}",
+            valign="bottom",
+        )
+    return frame
+
+
+def brand_screen_frame(
+    _parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
+    """Render the startup brand screen."""
+    return _two_row_frame("KINHOLA", "M.COM", width_pixels, height_pixels)
+
+
 def wait_on_frame(
     _parts: tuple | None,
     width_pixels: int = WIDTH_PIXELS,
@@ -242,6 +274,34 @@ def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int
     return f"{format_month_abbr(month)} {day}"
 
 
+def _frame_rate_parts(parts: tuple | None) -> tuple:
+    """Return checked frame-rate diagnostic values."""
+    if parts is None or len(parts) != 3:
+        return 0, 0, 0
+    return parts
+
+
+def _frame_rate_label(fps_x10: int) -> str:
+    """Format a fixed-point frames-per-second value for the matrix."""
+    fps_x10 = min(9_999, max(0, fps_x10))
+    return f"{fps_x10 // 10}.{fps_x10 % 10}"
+
+
+def _draw_frame_rate_trace(frame: object, frame_index: int, width: int, height: int) -> None:
+    """Draw a moving diagnostic trace whose jumps reveal uneven frame pacing."""
+    for x in range(width):
+        frame.pixel(x, (x + frame_index) % height)
+    head = frame_index % width
+    trail = min(width, 5)
+    for offset in range(trail):
+        x = (head - offset) % width
+        frame.pixel(x, 0)
+        frame.pixel(x, height - 1)
+        if offset < 2 and height > 2:
+            frame.pixel(x, 1)
+            frame.pixel(x, height - 2)
+
+
 def main_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the compact time/date screen."""
     _year, _month, day, weekday, hour, minute, _second = parts
@@ -270,6 +330,17 @@ def clock_meridiem_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the time-only screen."""
     _year, _month, _day, _weekday, hour, minute, _second = parts
     return SCREEN_CLOCK_MERIDIEM, hour, minute
+
+
+def frame_rate_screen_key(parts: tuple | None) -> tuple:
+    """Return the visible-content key for one frame-rate diagnostic sample."""
+    frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
+    return SCREEN_FRAME_RATE, frame_index, fps_x10
+
+
+def brand_screen_key(_parts: tuple | None) -> tuple:
+    """Return the visible-content key for the startup brand screen."""
+    return (SCREEN_BRAND,)
 
 
 def wait_on_key(_parts: tuple | None) -> tuple:
@@ -323,6 +394,22 @@ SCREEN_SPECS = (
         full_date_screen_frame,
         full_date_screen_key,
     ),
+    ScreenSpec(
+        SCREEN_FRAME_RATE,
+        "frame_rate",
+        KIND_DIAGNOSTIC,
+        FRAME_RATE_TEST_MS,
+        frame_rate_screen_frame,
+        frame_rate_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_BRAND,
+        "brand",
+        KIND_DIAGNOSTIC,
+        BRAND_HOLD_MS,
+        brand_screen_frame,
+        brand_screen_key,
+    ),
     ScreenSpec(WAIT_OFF, "wait_off", KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, wait_off_key),
     ScreenSpec(WAIT_ON, "wait_on", KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, wait_on_key),
 )
@@ -330,6 +417,7 @@ SCREEN_SPECS = (
 SCREEN_BY_ID = {spec.id: spec for spec in SCREEN_SPECS}
 REGULAR_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_REGULAR)
 INTERSTITIAL_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_INTERSTITIAL)
+DIAGNOSTIC_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_DIAGNOSTIC)
 WAIT_SCREENS = (WAIT_OFF, WAIT_ON)
 
 
@@ -394,6 +482,11 @@ def choose_next_regular(current: int, rng: object | None = None) -> int:
             break
     offset = randbelow(len(REGULAR_SCREENS) - 1, rng) + 1
     return REGULAR_SCREENS[(cur_idx + offset) % len(REGULAR_SCREENS)]
+
+
+def choose_regular(rng: object | None = None) -> int:
+    """Choose one regular clock screen at random."""
+    return REGULAR_SCREENS[randbelow(len(REGULAR_SCREENS), rng)]
 
 
 def choose_interstitial(rng: object | None = None) -> int:
