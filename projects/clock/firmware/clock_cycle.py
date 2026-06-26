@@ -43,6 +43,7 @@ class TransitionRun:
     def __init__(
         self,
         effect: int,
+        direction: int,
         target_screen: int,
         source_frame: object,
         target_frame: object,
@@ -51,6 +52,7 @@ class TransitionRun:
     ) -> None:
         """Store transition endpoints and the next frame step."""
         self.effect = effect
+        self.direction = direction
         self.target_screen = target_screen
         self.source_frame = source_frame
         self.target_frame = target_frame
@@ -145,6 +147,11 @@ class DisplayEngine:
     def _start_transition(self, source_screen: int, target_screen: int, steps: int) -> None:
         """Snapshot source and target frames for a transition run."""
         effect = clock_transitions.choose_transition(self._rng)
+        direction = (
+            clock_transitions.DIRECTION_LEFT
+            if effect == clock_transitions.TRANSITION_INSTANT
+            else clock_transitions.choose_direction(self._rng)
+        )
         source_parts = self._parts_for_screen(source_screen)
         target_parts = self._parts_for_screen(target_screen)
         source_frame = clock_transitions.as_packed_frame(
@@ -153,6 +160,7 @@ class DisplayEngine:
         target_frame, target_key = self._frame_and_key(target_screen, target_parts)
         self.transition = TransitionRun(
             effect,
+            direction,
             target_screen,
             source_frame,
             clock_transitions.as_packed_frame(target_frame),
@@ -171,6 +179,7 @@ class DisplayEngine:
             transition.target_frame,
             step=transition.step,
             steps=transition.steps,
+            direction=transition.direction,
         )
         self._display.show(frame)
         self.last_reassert_ms = now
