@@ -444,6 +444,7 @@ version = "0.1.0"
 source = { registry = "/wheels" }
 dependencies = [
     { name = "pixel-display" },
+    { name = "pixel-frame" },
 ]
 sdist = { path = "/wheels/max7219-0.1.0.tar.gz" }
 wheels = [
@@ -473,6 +474,7 @@ dependencies = [
     { name = "mpu6050" },
     { name = "nmea" },
     { name = "pixel-display" },
+    { name = "pixel-frame" },
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
@@ -500,6 +502,7 @@ test = [
     { name = "mpu6050" },
     { name = "nmea" },
     { name = "pixel-display" },
+    { name = "pixel-frame" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
@@ -528,6 +531,7 @@ requires-dist = [
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "nmea", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "pixel-display", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "pixel-frame", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -555,6 +559,7 @@ test = [
     { name = "mpu6050", index = "file:///wheels" },
     { name = "nmea", index = "file:///wheels" },
     { name = "pixel-display", index = "file:///wheels" },
+    { name = "pixel-frame", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
@@ -690,9 +695,21 @@ wheels = [
 name = "pixel-display"
 version = "0.1.0"
 source = { registry = "/wheels" }
+dependencies = [
+    { name = "pixel-frame" },
+]
 sdist = { path = "/wheels/pixel_display-0.1.0.tar.gz" }
 wheels = [
     { path = "/wheels/pixel_display-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "pixel-frame"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/pixel_frame-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/pixel_frame-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]

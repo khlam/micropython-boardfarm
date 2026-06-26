@@ -311,13 +311,14 @@ def test_clock_meridiem_screen_fills_frame() -> None:
 
     frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
     unscaled_clock_width = Text("9:05", scale=(1, 1)).measure()[0]
-    meridiem = Text("AM", flow="vertical")
-    meridiem_width, meridiem_height = meridiem.measure()
+    meridiem_width, meridiem_height = clock_screens._MeridiemBadge("AM").measure()
     side_by_side_meridiem_width = Text("AM").measure()[0]
     left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
 
-    # The time + meridiem span the full width and nearly the full height.
-    assert (left, right) == (0, frame.width - 1)
+    # The time + meridiem span nearly the full width and nearly the full height.
+    assert left == 0
+    assert right >= frame.width - 2
+    # The seconds bar row stays blank at :00, so the lit height is the meridiem.
     assert (top, bottom) == (0, frame.height - 2)
     # The time is scaled up past its 1:1 footprint while the meridiem stays narrow.
     assert right - left + 1 > unscaled_clock_width + meridiem_width
@@ -327,6 +328,7 @@ def test_clock_meridiem_screen_fills_frame() -> None:
         clock_screens.SCREEN_CLOCK_MERIDIEM,
         9,
         5,
+        0,
     )
 
 
@@ -336,7 +338,7 @@ def test_clock_meridiem_screen_widest_time_stays_in_bounds() -> None:
     rtc.value = (2026, 6, 23, 1, 12, 59, 0, 0)
 
     frame = clock_screens.screen_frame(clock_screens.SCREEN_CLOCK_MERIDIEM, rtc)
-    meridiem_width, meridiem_height = Text("PM", flow="vertical").measure()
+    meridiem_width, meridiem_height = clock_screens._MeridiemBadge("PM").measure()
     side_by_side_meridiem_width = Text("PM").measure()[0]
     left, right, top, bottom = _lit_bounds(frame, 0, frame.height)
 
@@ -351,7 +353,45 @@ def test_clock_meridiem_screen_widest_time_stays_in_bounds() -> None:
         clock_screens.SCREEN_CLOCK_MERIDIEM,
         12,
         59,
+        0,
     )
+
+
+def test_seconds_free_faces_blink_the_colon_each_second() -> None:
+    """The hour:minute faces drop the colon on odd seconds and key on it."""
+    rtc = _FakeRTC()
+    for screen in (clock_screens.SCREEN_MAIN, clock_screens.SCREEN_CLOCK_MERIDIEM):
+        rtc.value = (2026, 6, 23, 1, 9, 5, 0, 0)
+        colon_on = clock_screens.screen_frame(screen, rtc)
+        rtc.value = (2026, 6, 23, 1, 9, 5, 1, 0)
+        colon_off = clock_screens.screen_frame(screen, rtc)
+
+        assert not _same_frame(colon_on, colon_off)
+        assert _lit_count(colon_on) > _lit_count(colon_off)
+        # The per-second key lets the engine re-render the blink while H:MM holds.
+        assert clock_screens.screen_key(screen, (2026, 6, 23, 1, 9, 5, 1)) != (
+            clock_screens.screen_key(screen, (2026, 6, 23, 1, 9, 5, 0))
+        )
+
+
+def test_seconds_progress_bar_fills_across_the_minute() -> None:
+    """A seconds bar grows from blank at :00 to full width by :59 on free rows."""
+    rows = {
+        clock_screens.SCREEN_MAIN: (clock_screens.HEIGHT_PIXELS // 2) - 1,
+        clock_screens.SCREEN_CLOCK_MERIDIEM: clock_screens.HEIGHT_PIXELS - 1,
+    }
+    rtc = _FakeRTC()
+    for screen, row in rows.items():
+        rtc.value = (2026, 6, 23, 1, 12, 30, 0, 0)
+        assert _lit_row(clock_screens.screen_frame(screen, rtc), row) == 0
+        rtc.value = (2026, 6, 23, 1, 12, 30, 59, 0)
+        assert _lit_row(clock_screens.screen_frame(screen, rtc), row) == clock_screens.WIDTH_PIXELS
+
+        counts = []
+        for second in range(0, 60, 10):
+            rtc.value = (2026, 6, 23, 1, 12, 30, second, 0)
+            counts.append(_lit_row(clock_screens.screen_frame(screen, rtc), row))
+        assert counts == sorted(counts)
 
 
 def test_sync_uses_startup_timezone_offset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -729,6 +769,16 @@ def _same_frame(left: object, right: object) -> bool:
                 if left.value_at(x, y, channel) != right.value_at(x, y, channel):
                     return False
     return True
+
+
+def _lit_count(frame: object) -> int:
+    """Return the number of lit pixels in a frame."""
+    return sum(1 for y in range(frame.height) for x in range(frame.width) if frame.value_at(x, y))
+
+
+def _lit_row(frame: object, y: int) -> int:
+    """Return the number of lit pixels in one frame row."""
+    return sum(1 for x in range(frame.width) if frame.value_at(x, y))
 
 
 def _lit_bounds(frame: object, y0: int, y1: int) -> tuple:

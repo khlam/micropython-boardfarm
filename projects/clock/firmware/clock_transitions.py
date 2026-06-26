@@ -4,9 +4,6 @@ import random
 
 from pixel_frame import Frame, MatrixFrame
 
-WIDTH_PIXELS = 32
-HEIGHT_PIXELS = 16
-
 TRANSITION_WIPE = 0
 TRANSITION_FADE = 1
 TRANSITION_SCROLL = 2
@@ -37,18 +34,9 @@ DIRECTIONS = (
     DIRECTION_BOTTOM_LEFT,
     DIRECTION_BOTTOM_RIGHT,
 )
-OPPOSITE_DIRECTIONS = (
-    DIRECTION_RIGHT,
-    DIRECTION_LEFT,
-    DIRECTION_BOTTOM,
-    DIRECTION_TOP,
-    DIRECTION_BOTTOM_RIGHT,
-    DIRECTION_BOTTOM_LEFT,
-    DIRECTION_TOP_RIGHT,
-    DIRECTION_TOP_LEFT,
-)
 _DIRECTION_MASKS = {}
-_DIRECTIONAL_DITHER_MASKS = {}
+_RANDOM_DISSOLVE_MASKS = {}
+_DISSOLVE_SEED = 0x9E3779B1
 
 
 def copy_frame(frame: object) -> object:
@@ -100,48 +88,6 @@ def as_packed_frame(frame: object) -> object:
     return Frame.from_packed(frame.width, frame.height, stride, data, intensity)
 
 
-def blank_packed_like(frame: object, intensity: int = 0) -> object:
-    """Return a blank packed frame with matching geometry."""
-    return Frame.from_packed(
-        frame.width,
-        frame.height,
-        frame.stride,
-        bytearray(frame.height * frame.stride),
-        intensity,
-    )
-
-
-def fade_step_value(max_value: int, progress: int, total: int) -> int:
-    """Return one global fade intensity between off and max."""
-    if max_value <= 0:
-        return 0
-    if progress <= 0:
-        return 0
-    if total <= 0 or progress >= total:
-        return max_value
-    return max_value * progress // total
-
-
-def dither_rank(x: int, y: int, total: int) -> int:
-    """Return a stable spatial rank used by masked fade frames."""
-    return ((x * 5) + (y * 3)) % total
-
-
-def build_dither_masks(width: int, height: int, total: int) -> tuple:
-    """Build packed masks for every visible-step count."""
-    stride = (width + 7) // 8
-    masks = []
-    for visible_steps in range(total + 1):
-        data = bytearray(height * stride)
-        for y in range(height):
-            row_base = y * stride
-            for x in range(width):
-                if dither_rank(x, y, total) < visible_steps:
-                    data[row_base + (x >> 3)] |= 1 << (x & 7)
-        masks.append(data)
-    return tuple(masks)
-
-
 def direction_delta(direction: int) -> tuple:
     """Return the entry vector for ``direction``."""
     dx = 0
@@ -155,13 +101,6 @@ def direction_delta(direction: int) -> tuple:
     elif direction in (DIRECTION_BOTTOM, DIRECTION_BOTTOM_LEFT, DIRECTION_BOTTOM_RIGHT):
         dy = 1
     return dx, dy
-
-
-def opposite_direction(direction: int) -> int:
-    """Return the direction opposite ``direction``."""
-    if direction < 0 or direction >= len(OPPOSITE_DIRECTIONS):
-        return DIRECTION_TOP_LEFT
-    return OPPOSITE_DIRECTIONS[direction]
 
 
 def direction_rank(direction: int, width: int, height: int, x: int, y: int) -> int:
@@ -205,47 +144,6 @@ def direction_visible(
     total = direction_total(direction, width, height)
     visible_ranks = max(1, total * visible_steps // total_steps)
     return direction_rank(direction, width, height, x, y) < visible_ranks
-
-
-def directional_dither_mask(
-    frame: object,
-    total: int,
-    visible_steps: int,
-    direction: int,
-) -> bytearray:
-    """Return a packed dither mask biased toward ``direction``."""
-    visible_steps = min(total, max(0, visible_steps))
-    key = (frame.width, frame.height, total, direction)
-    cached = _DIRECTIONAL_DITHER_MASKS.get(key)
-    if cached is not None:
-        return cached[visible_steps]
-    masks = build_directional_dither_masks(frame.width, frame.height, total, direction)
-    _DIRECTIONAL_DITHER_MASKS[key] = masks
-    return masks[visible_steps]
-
-
-def build_directional_dither_masks(
-    width: int,
-    height: int,
-    total: int,
-    direction: int,
-) -> tuple:
-    """Build packed directional dither masks for every visible-step count."""
-    stride = (width + 7) // 8
-    masks = []
-    area_total = direction_total(direction, width, height)
-    for visible_steps in range(total + 1):
-        data = bytearray(height * stride)
-        if visible_steps > 0:
-            for y in range(height):
-                row_base = y * stride
-                for x in range(width):
-                    rank = direction_rank(direction, width, height, x, y)
-                    rank = (rank * total + dither_rank(x, y, total)) // area_total
-                    if rank < visible_steps:
-                        data[row_base + (x >> 3)] |= 1 << (x & 7)
-        masks.append(data)
-    return tuple(masks)
 
 
 def directional_mask(
@@ -308,62 +206,55 @@ def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
     )
 
 
-DISPLAY_DITHER_MASKS = build_dither_masks(
-    WIDTH_PIXELS,
-    HEIGHT_PIXELS,
-    TRANSITION_STEPS // 2,
-)
+def shuffled_pixel_order(width: int, height: int, seed: int) -> list:
+    """Return all pixel indices in a deterministic pseudo-random order.
+
+    A fixed LCG-driven Fisher-Yates shuffle keeps the order stable across the
+    steps of one transition (so pixels don't flicker mid-dissolve) and across
+    runs (so host tests stay reproducible), while still scattering the reveal.
+    """
+    order = list(range(width * height))
+    state = seed & 0x7FFFFFFF
+    for i in range(len(order) - 1, 0, -1):
+        state = ((state * 1103515245) + 12345) & 0x7FFFFFFF
+        j = state % (i + 1)
+        order[i], order[j] = order[j], order[i]
+    return order
 
 
-def dither_mask(frame: object, total: int, visible_steps: int) -> bytearray:
-    """Return a packed dither mask for one frame geometry."""
+def build_dissolve_masks(width: int, height: int, total: int) -> tuple:
+    """Build cumulative packed masks revealing pixels in random order.
+
+    ``masks[k]`` has the first ``k / total`` of all pixels set (in the shuffled
+    order), so ``masks[0]`` is empty and ``masks[total]`` is fully lit.
+    """
+    stride = (width + 7) // 8
+    order = shuffled_pixel_order(width, height, _DISSOLVE_SEED)
+    pixel_count = width * height
+    data = bytearray(height * stride)
+    masks = [bytes(data)]
+    placed = 0
+    for visible_steps in range(1, total + 1):
+        target_count = visible_steps * pixel_count // total
+        while placed < target_count:
+            index = order[placed]
+            x = index % width
+            y = index // width
+            data[(y * stride) + (x >> 3)] |= 1 << (x & 7)
+            placed += 1
+        masks.append(bytes(data))
+    return tuple(masks)
+
+
+def dissolve_mask(frame: object, total: int, visible_steps: int) -> bytes:
+    """Return the cumulative random-dissolve mask for one frame geometry."""
     visible_steps = min(total, max(0, visible_steps))
-    if (
-        frame.width == WIDTH_PIXELS
-        and frame.height == HEIGHT_PIXELS
-        and total == TRANSITION_STEPS // 2
-    ):
-        return DISPLAY_DITHER_MASKS[visible_steps]
-    return build_dither_masks(frame.width, frame.height, total)[visible_steps]
-
-
-def masked_fade_frame(
-    source: object,
-    visible_steps: int,
-    total_steps: int,
-    step_value: int,
-) -> object:
-    """Render a dither-masked view of ``source`` at one fade intensity."""
-    return _packed_masked_fade_frame(
-        as_packed_frame(source),
-        visible_steps,
-        total_steps,
-        step_value,
-    )
-
-
-def _packed_masked_fade_frame(
-    source: object,
-    visible_steps: int,
-    total_steps: int,
-    step_value: int,
-    direction: int | None = None,
-) -> object:
-    """Render a dither-masked view of a packed ``source``."""
-    if visible_steps <= 0 or step_value <= 0:
-        return blank_packed_like(source)
-    visible_steps = min(total_steps, visible_steps)
-    value = min(step_value, max_frame_value(source))
-    if value <= 0:
-        return blank_packed_like(source)
-    if direction is None:
-        mask = dither_mask(source, total_steps, visible_steps)
-    else:
-        mask = directional_dither_mask(source, total_steps, visible_steps, direction)
-    data = bytearray(len(source.data))
-    for i, item in enumerate(source.data):
-        data[i] = item & mask[i]
-    return Frame.from_packed(source.width, source.height, source.stride, data, value)
+    key = (frame.width, frame.height, total)
+    cached = _RANDOM_DISSOLVE_MASKS.get(key)
+    if cached is None:
+        cached = build_dissolve_masks(frame.width, frame.height, total)
+        _RANDOM_DISSOLVE_MASKS[key] = cached
+    return cached[visible_steps]
 
 
 def packed_row_bits(frame: object, y: int) -> int:
@@ -497,58 +388,25 @@ def _packed_scroll_frame(
     )
 
 
-def fade_frame(
-    source: object,
-    target: object,
-    step: int,
-    steps: int,
-    direction: int = DIRECTION_LEFT,
-) -> object:
-    """Fade through masked low-intensity frames into ``target`` from ``direction``."""
-    return _packed_fade_frame(
-        as_packed_frame(source),
-        as_packed_frame(target),
-        step,
-        steps,
-        direction,
-    )
+def fade_frame(source: object, target: object, step: int, steps: int) -> object:
+    """Cross-dissolve ``source`` into ``target`` by random pixel replacement."""
+    return _packed_fade_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
 
 
-def _packed_fade_frame(
-    source: object,
-    target: object,
-    step: int,
-    steps: int,
-    direction: int,
-) -> object:
-    """Fade through masked low-intensity frames between packed endpoints."""
+def _packed_fade_frame(source: object, target: object, step: int, steps: int) -> object:
+    """Swap packed ``source`` pixels for ``target`` pixels in random order.
+
+    Pixels toggle fully on or off as they flip between frames rather than
+    dimming, so the dissolve stays visible at the display's low global brightness
+    where an intensity ramp collapses to one or two MAX7219 levels. The out- and
+    in-dissolves run together: one growing random mask picks the pixels already
+    showing ``target`` and leaves the rest on ``source``.
+    """
     if step <= 0:
         return copy_frame(source)
     if step >= steps:
         return copy_frame(target)
-    half = steps // 2
-    if step <= half:
-        visible_steps = half - step
-        value = fade_step_value(
-            max_frame_value(source),
-            visible_steps - 1,
-            half - 1,
-        )
-        return _packed_masked_fade_frame(
-            source,
-            visible_steps,
-            half,
-            value,
-            opposite_direction(direction),
-        )
-    visible_steps = step - half
-    total_steps = steps - half
-    value = fade_step_value(
-        max_frame_value(target),
-        visible_steps - 1,
-        total_steps - 1,
-    )
-    return _packed_masked_fade_frame(target, visible_steps, total_steps, value, direction)
+    return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
 
 
 def frame_transition_frame(
@@ -564,9 +422,7 @@ def frame_transition_frame(
     if effect == TRANSITION_INSTANT:
         return copy_frame(target)
     if effect == TRANSITION_FADE:
-        if direction is None:
-            direction = DIRECTION_LEFT
-        return _packed_fade_frame(source, target, step, steps, direction)
+        return _packed_fade_frame(source, target, step, steps)
     if effect == TRANSITION_SCROLL:
         if direction is None:
             direction = DIRECTION_RIGHT

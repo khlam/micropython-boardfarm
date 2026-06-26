@@ -33,6 +33,19 @@ CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
 WIDTH_PIXELS = 32
 HEIGHT_PIXELS = 16
 
+# Dedicated meridiem letterforms for the time-only face. The body font renders
+# AM/PM as full-size glyphs with a chunky 5-wide ``M``; these condensed,
+# uniform-width letters read as a tidy badge beside the scaled-up time and free
+# a column for a slightly larger clock.
+_MERIDIEM_GLYPH_WIDTH = 4
+_MERIDIEM_GLYPH_HEIGHT = 7
+_MERIDIEM_GLYPH_GAP = 1
+_MERIDIEM_GLYPHS = {
+    "A": ("0110", "1001", "1001", "1111", "1001", "1001", "1001"),
+    "P": ("1110", "1001", "1001", "1110", "1000", "1000", "1000"),
+    "M": ("1001", "1111", "1111", "1001", "1001", "1001", "1001"),
+}
+
 MONTH_ABBRS = (
     "JAN",
     "FEB",
@@ -116,15 +129,22 @@ def main_screen_frame(
     width_pixels: int = WIDTH_PIXELS,
     height_pixels: int = HEIGHT_PIXELS,
 ) -> object:
-    """Render time with meridiem above day name and day number, both centered."""
-    _year, _month, day, weekday, hour, minute, _second = parts
+    """Render time with meridiem above day name and day number, both centered.
+
+    The face shows no seconds, so the time colon blinks once per second and a
+    seconds progress bar fills the gap row between the two text rows.
+    """
+    _year, _month, day, weekday, hour, minute, second = parts
     clock, meridiem = format_time_parts(hour, minute)
-    return _two_row_frame(
+    frame = _two_row_frame(
         f"{clock} {meridiem}",
         f"{DAYS[weekday]} {day}",
         width_pixels,
         height_pixels,
+        top_hidden_chars=_blink_colon_hidden(second),
     )
+    _draw_seconds_bar(frame, second, (height_pixels // 2) - 1, width_pixels)
+    return frame
 
 
 def season_screen_frame(
@@ -160,17 +180,19 @@ def clock_meridiem_screen_frame(
 ) -> object:
     """Render a centered time-only face, scaling the time to fill the frame.
 
-    The meridiem keeps a fixed narrow column on the right; the time then grows to
-    the largest integer scale that fits the remaining box on each axis
-    independently, so short strings (single-digit hour) render markedly larger
-    than the widest ``12:59``-style times instead of leaving the screen mostly
-    empty.
+    The meridiem keeps a fixed narrow column on the right, drawn with the
+    condensed clock-style badge font; the time then grows to the largest integer
+    scale that fits the remaining box on each axis independently, so short
+    strings (single-digit hour) render markedly larger than the widest
+    ``12:59``-style times instead of leaving the screen mostly empty. The face
+    shows no seconds, so the colon blinks once per second and a seconds progress
+    bar fills the free bottom row.
     """
-    _year, _month, _day, _weekday, hour, minute, _second = parts
+    _year, _month, _day, _weekday, hour, minute, second = parts
     clock, meridiem = format_time_parts(hour, minute)
     frame = Frame(width_pixels, height_pixels)
-    label_text = Text(meridiem, flow="vertical")
-    label_width, label_height = label_text.measure()
+    label = _MeridiemBadge(meridiem)
+    label_width, label_height = label.measure()
     base_width, base_height = Text(clock).measure()
     time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - label_width
     if base_width <= 0 or base_height <= 0 or time_box_width <= 0:
@@ -178,7 +200,7 @@ def clock_meridiem_screen_frame(
         return frame
     x_scale = max(1, time_box_width // base_width)
     y_scale = max(1, height_pixels // base_height)
-    time_text = Text(clock, scale=(x_scale, y_scale))
+    time_text = Text(clock, scale=(x_scale, y_scale), hidden_chars=_blink_colon_hidden(second))
     time_width, time_height = time_text.measure()
     group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + label_width
     group_height = max(time_height, label_height)
@@ -189,7 +211,8 @@ def clock_meridiem_screen_frame(
     time_x1 = x0 + time_width
     label_x0 = time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS
     frame[0:height_pixels, x0:time_x1] = time_text
-    frame[0:height_pixels, label_x0 : label_x0 + label_width] = label_text
+    frame[0:height_pixels, label_x0 : label_x0 + label_width] = label
+    _draw_seconds_bar(frame, second, height_pixels - 1, width_pixels)
     return frame
 
 
@@ -254,16 +277,87 @@ def wait_off_frame(
     return Frame(width_pixels, height_pixels, intensity=0)
 
 
-def _two_row_frame(top: str, bottom: str, width_pixels: int, height_pixels: int) -> object:
-    """Render two centered text rows into an exact-size frame."""
+def _two_row_frame(
+    top: str,
+    bottom: str,
+    width_pixels: int,
+    height_pixels: int,
+    *,
+    top_hidden_chars: str = "",
+) -> object:
+    """Render two centered text rows into an exact-size frame.
+
+    ``top_hidden_chars`` are kept in the layout but drawn blank, letting the
+    time colon blink without shifting the rest of the row.
+    """
     frame = Frame(width_pixels, height_pixels)
     split = height_pixels // 2
     if split <= 0:
-        frame[0:height_pixels, 0:width_pixels] = Text(top)
+        frame[0:height_pixels, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
         return frame
-    frame[0:split, 0:width_pixels] = Text(top)
+    frame[0:split, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
     frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
     return frame
+
+
+def _blink_colon_hidden(second: int) -> str:
+    """Return the chars to blank so the time colon blinks once per second."""
+    return ":" if second % 2 else ""
+
+
+def _draw_seconds_bar(frame: object, second: int, y: int, width: int) -> None:
+    """Draw a left-anchored seconds progress bar that fills across the minute.
+
+    The bar grows from empty at ``:00`` to the full width by ``:59``, giving a
+    seconds readout on faces that only show hours and minutes. Drawing is
+    skipped when the target row falls outside the frame.
+    """
+    if y < 0 or y >= frame.height:
+        return
+    filled = (second * width) // 59
+    for x in range(filled):
+        frame.pixel(x, y)
+
+
+class _MeridiemBadge:
+    """Condensed AM/PM badge drawn from the dedicated meridiem letterforms.
+
+    Mirrors the :class:`Text` ``measure``/``draw`` interface so it can be
+    assigned straight into a frame box, but stacks two uniform-width letters
+    instead of reusing the body font's mixed-width glyphs.
+    """
+
+    def __init__(self, meridiem: str) -> None:
+        """Store the two-letter meridiem to stack vertically."""
+        self.letters = meridiem
+
+    def measure(self) -> tuple:
+        """Return the badge's pixel width and height."""
+        count = len(self.letters)
+        height = (count * _MERIDIEM_GLYPH_HEIGHT) + (max(0, count - 1) * _MERIDIEM_GLYPH_GAP)
+        return _MERIDIEM_GLYPH_WIDTH, height
+
+    def draw(self, frame: object, x0: int, y0: int, width: int, height: int) -> None:
+        """Draw the stacked badge centered inside an assigned pixel box."""
+        badge_width, badge_height = self.measure()
+        if badge_width > width or badge_height > height:
+            return
+        x = x0 + ((width - badge_width) // 2)
+        y = y0 + ((height - badge_height) // 2)
+        for letter in self.letters:
+            _draw_meridiem_glyph(frame, letter, x, y)
+            y += _MERIDIEM_GLYPH_HEIGHT + _MERIDIEM_GLYPH_GAP
+
+
+def _draw_meridiem_glyph(frame: object, letter: str, x0: int, y0: int) -> None:
+    """Draw one meridiem letterform with its top-left corner at ``(x0, y0)``."""
+    rows = _MERIDIEM_GLYPHS.get(letter)
+    if rows is None:
+        return
+    for dy, row in enumerate(rows):
+        for dx, bit in enumerate(row):
+            if bit == "1":
+                frame.pixel(x0 + dx, y0 + dy)
 
 
 def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int) -> str:
@@ -303,9 +397,13 @@ def _draw_frame_rate_trace(frame: object, frame_index: int, width: int, height: 
 
 
 def main_screen_key(parts: tuple) -> tuple:
-    """Return the visible-content key for the compact time/date screen."""
-    _year, _month, day, weekday, hour, minute, _second = parts
-    return SCREEN_MAIN, weekday, day, hour, minute
+    """Return the visible-content key for the compact time/date screen.
+
+    Includes ``second`` so the blinking colon and seconds bar re-render each
+    second even while the hour and minute hold.
+    """
+    _year, _month, day, weekday, hour, minute, second = parts
+    return SCREEN_MAIN, weekday, day, hour, minute, second
 
 
 def season_screen_key(parts: tuple) -> tuple:
@@ -327,9 +425,13 @@ def full_date_screen_key(parts: tuple) -> tuple:
 
 
 def clock_meridiem_screen_key(parts: tuple) -> tuple:
-    """Return the visible-content key for the time-only screen."""
-    _year, _month, _day, _weekday, hour, minute, _second = parts
-    return SCREEN_CLOCK_MERIDIEM, hour, minute
+    """Return the visible-content key for the time-only screen.
+
+    Includes ``second`` so the blinking colon and seconds bar re-render each
+    second even while the hour and minute hold.
+    """
+    _year, _month, _day, _weekday, hour, minute, second = parts
+    return SCREEN_CLOCK_MERIDIEM, hour, minute, second
 
 
 def frame_rate_screen_key(parts: tuple | None) -> tuple:
