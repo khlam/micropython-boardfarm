@@ -47,6 +47,8 @@ OPPOSITE_DIRECTIONS = (
     DIRECTION_TOP_RIGHT,
     DIRECTION_TOP_LEFT,
 )
+_DIRECTION_MASKS = {}
+_DIRECTIONAL_DITHER_MASKS = {}
 
 
 def copy_frame(frame: object) -> object:
@@ -213,18 +215,97 @@ def directional_dither_mask(
 ) -> bytearray:
     """Return a packed dither mask biased toward ``direction``."""
     visible_steps = min(total, max(0, visible_steps))
-    data = bytearray(len(frame.data))
-    if visible_steps <= 0:
-        return data
-    area_total = direction_total(direction, frame.width, frame.height)
-    for y in range(frame.height):
-        row_base = y * frame.stride
-        for x in range(frame.width):
-            rank = direction_rank(direction, frame.width, frame.height, x, y)
-            rank = (rank * total + dither_rank(x, y, total)) // area_total
-            if rank < visible_steps:
-                data[row_base + (x >> 3)] |= 1 << (x & 7)
-    return data
+    key = (frame.width, frame.height, total, direction)
+    cached = _DIRECTIONAL_DITHER_MASKS.get(key)
+    if cached is not None:
+        return cached[visible_steps]
+    masks = build_directional_dither_masks(frame.width, frame.height, total, direction)
+    _DIRECTIONAL_DITHER_MASKS[key] = masks
+    return masks[visible_steps]
+
+
+def build_directional_dither_masks(
+    width: int,
+    height: int,
+    total: int,
+    direction: int,
+) -> tuple:
+    """Build packed directional dither masks for every visible-step count."""
+    stride = (width + 7) // 8
+    masks = []
+    area_total = direction_total(direction, width, height)
+    for visible_steps in range(total + 1):
+        data = bytearray(height * stride)
+        if visible_steps > 0:
+            for y in range(height):
+                row_base = y * stride
+                for x in range(width):
+                    rank = direction_rank(direction, width, height, x, y)
+                    rank = (rank * total + dither_rank(x, y, total)) // area_total
+                    if rank < visible_steps:
+                        data[row_base + (x >> 3)] |= 1 << (x & 7)
+        masks.append(data)
+    return tuple(masks)
+
+
+def directional_mask(
+    frame: object,
+    total_steps: int,
+    visible_steps: int,
+    direction: int,
+) -> bytearray:
+    """Return a packed directional reveal mask."""
+    visible_steps = min(total_steps, max(0, visible_steps))
+    key = (frame.width, frame.height, total_steps, direction)
+    cached = _DIRECTION_MASKS.get(key)
+    if cached is not None:
+        return cached[visible_steps]
+    masks = build_direction_masks(frame.width, frame.height, total_steps, direction)
+    _DIRECTION_MASKS[key] = masks
+    return masks[visible_steps]
+
+
+def build_direction_masks(
+    width: int,
+    height: int,
+    total_steps: int,
+    direction: int,
+) -> tuple:
+    """Build packed directional reveal masks for every transition step."""
+    stride = (width + 7) // 8
+    masks = []
+    for visible_steps in range(total_steps + 1):
+        data = bytearray(height * stride)
+        if visible_steps > 0:
+            for y in range(height):
+                row_base = y * stride
+                for x in range(width):
+                    if direction_visible(
+                        direction,
+                        width,
+                        height,
+                        x,
+                        y,
+                        visible_steps,
+                        total_steps,
+                    ):
+                        data[row_base + (x >> 3)] |= 1 << (x & 7)
+        masks.append(data)
+    return tuple(masks)
+
+
+def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
+    """Return ``source`` and ``target`` composited through a packed mask."""
+    data = bytearray(len(source.data))
+    for i, item in enumerate(mask):
+        data[i] = (target.data[i] & item) | (source.data[i] & (0xFF ^ item))
+    return Frame.from_packed(
+        source.width,
+        source.height,
+        source.stride,
+        data,
+        max(source.intensity, target.intensity),
+    )
 
 
 DISPLAY_DITHER_MASKS = build_dither_masks(
@@ -285,16 +366,40 @@ def _packed_masked_fade_frame(
     return Frame.from_packed(source.width, source.height, source.stride, data, value)
 
 
-def packed_bit(frame: object, x: int, y: int) -> bool:
-    """Return whether one packed-frame pixel is lit."""
-    if x < 0 or y < 0 or x >= frame.width or y >= frame.height:
-        return False
-    return bool(frame.data[y * frame.stride + (x >> 3)] & (1 << (x & 7)))
+def packed_row_bits(frame: object, y: int) -> int:
+    """Return one packed row as a little-endian integer."""
+    bits = 0
+    row_base = y * frame.stride
+    for byte_index in range(frame.stride):
+        bits |= frame.data[row_base + byte_index] << (byte_index * 8)
+    return bits
 
 
-def set_packed_bit(data: bytearray, stride: int, x: int, y: int) -> None:
-    """Set one packed-frame pixel."""
-    data[y * stride + (x >> 3)] |= 1 << (x & 7)
+def write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -> None:
+    """Write a little-endian row integer into packed row bytes."""
+    for byte_index in range(stride):
+        data[base + byte_index] = bits & 0xFF
+        bits >>= 8
+
+
+def shifted_source_bits(bits: int, width: int, offset: int, dx: int) -> int:
+    """Return source row bits shifted out opposite the entry direction."""
+    mask = (1 << width) - 1
+    if dx < 0:
+        return (bits << offset) & mask
+    if dx > 0:
+        return bits >> offset
+    return bits & mask
+
+
+def shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
+    """Return target row bits shifted in from the entry direction."""
+    mask = (1 << width) - 1
+    if dx < 0:
+        return bits >> (width - offset)
+    if dx > 0:
+        return (bits << (width - offset)) & mask
+    return bits & mask
 
 
 def wipe_frame(
@@ -326,28 +431,8 @@ def _packed_wipe_frame(
         return copy_frame(source)
     if step >= steps:
         return copy_frame(target)
-    data = bytearray(len(source.data))
-    for y in range(source.height):
-        for x in range(source.width):
-            visible = direction_visible(
-                direction,
-                source.width,
-                source.height,
-                x,
-                y,
-                step,
-                steps,
-            )
-            frame = target if visible else source
-            if packed_bit(frame, x, y):
-                set_packed_bit(data, source.stride, x, y)
-    return Frame.from_packed(
-        source.width,
-        source.height,
-        source.stride,
-        data,
-        max(source.intensity, target.intensity),
-    )
+    mask = directional_mask(source, steps, step, direction)
+    return mixed_mask_frame(source, target, mask)
 
 
 def scroll_frame(
@@ -383,18 +468,26 @@ def _packed_scroll_frame(
     dx, dy = direction_delta(direction)
     offset_x = source.width * step // steps if dx else 0
     offset_y = source.height * step // steps if dy else 0
-    target_x = dx * (source.width - offset_x) if dx else 0
     target_y = dy * (source.height - offset_y) if dy else 0
     for y in range(source.height):
-        for x in range(source.width):
-            source_x = x + dx * offset_x
-            source_y = y + dy * offset_y
-            target_sample_x = x - target_x
-            target_sample_y = y - target_y
-            if packed_bit(source, source_x, source_y):
-                set_packed_bit(data, source.stride, x, y)
-            if packed_bit(target, target_sample_x, target_sample_y):
-                set_packed_bit(data, source.stride, x, y)
+        bits = 0
+        source_y = y + dy * offset_y
+        if 0 <= source_y < source.height:
+            bits |= shifted_source_bits(
+                packed_row_bits(source, source_y),
+                source.width,
+                offset_x,
+                dx,
+            )
+        target_sample_y = y - target_y
+        if 0 <= target_sample_y < target.height:
+            bits |= shifted_target_bits(
+                packed_row_bits(target, target_sample_y),
+                source.width,
+                offset_x,
+                dx,
+            )
+        write_packed_row_bits(data, y * source.stride, source.stride, bits)
     return Frame.from_packed(
         source.width,
         source.height,
