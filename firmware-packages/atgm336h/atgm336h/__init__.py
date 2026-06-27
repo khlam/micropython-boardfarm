@@ -62,9 +62,7 @@ class GPS:
         t_start = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), t_start) < probe_ms:
             self._drain()
-            nl = self._buf.find(b"\n")
-            if nl >= 0:
-                del self._buf[: nl + 1]
+            if self._take_line() is not None:
                 return
             utime.sleep_ms(_PROBE_POLL_MS)
         raise DeviceNotFoundError(f"no NMEA bytes within {probe_ms} ms")
@@ -77,6 +75,22 @@ class GPS:
         chunk = self._uart.read(n)
         if chunk:
             self._buf.extend(chunk)
+
+    def _take_line(self) -> bytes | None:
+        """Pop the next complete line (up to and including the newline), or None.
+
+        The remainder is kept by reassigning a fresh slice rather than
+        ``del self._buf[:n]``: MicroPython's ``bytearray`` does not support item
+        deletion (``TypeError`` on the MCU), even though it works under the
+        CPython host tests. Slicing + reassignment is supported on both.
+        """
+        nl = self._buf.find(b"\n")
+        if nl < 0:
+            return None
+        end = nl + 1
+        line = bytes(self._buf[:end])
+        self._buf = self._buf[end:]
+        return line
 
     def readline(self) -> str | None:
         """Read one complete NMEA sentence without blocking.
@@ -92,11 +106,9 @@ class GPS:
             ASCII, or the decoded line does not start with ``$``.
         """
         self._drain()
-        nl = self._buf.find(b"\n")
-        if nl < 0:
+        raw = self._take_line()
+        if raw is None:
             return None
-        raw = bytes(self._buf[: nl + 1])
-        del self._buf[: nl + 1]
         try:
             line = raw.decode().strip()
         except (ValueError, UnicodeError):
