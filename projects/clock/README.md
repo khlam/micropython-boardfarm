@@ -109,9 +109,12 @@ diagrams below mirror it.
 ```
 
 **Power:** the ATGM336H module includes an onboard 3.3 V LDO, so **VCC accepts
-3.3–5 V** — the 5 V USB rail is fine. The module's UART I/O is 3.3 V logic, which
-is safe for all three MCU targets. Only the GPS TX → MCU RX connection is required
-for receiving NMEA sentences; MCU TX → GPS RX is optional.
+3.3–5 V** — the 5 V USB rail is fine. The module's UART I/O is 3.3 V logic,
+which is safe for all three MCU targets.
+
+Only the GPS TX → MCU RX connection is required for receiving NMEA sentences.
+The MCU TX → GPS RX line is optional and only needed if you want to send
+configuration commands to the module.
 
 ### MAX7219 16×32 matrix (two 8×32 panels daisy-chained in series)
 
@@ -144,21 +147,21 @@ so use an external 5 V supply for sustained use.
 ### RP2040-Zero
 
 ```
-                                   ┌─── USB-C ───┐
-                              ┌────┴─────────────┴────┐
-                              │                       │
-   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 0  ────► GPS RX (opt.)
-   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── GPS TX
-                         3V3 ─┤                       ├─ 2
-                          29 ─┤                       ├─ 3
-    TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4
-    TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5
-    TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  (free)
-                          15 ─┤        on GP16        ├─ 7  (free)
-                          14 ─┤                       ├─ 8  (free)
-                              │    RP2040 BOARD       │
-                              │                       │
-                              └─┬────┬────┬────┬────┬─┘
+                                     ┌─── USB-C ───┐
+                                ┌────┴─────────────┴────┐
+                                │                       │
+ATGM336H · MATRIX VCC ◄───  5V ─┤                       ├─ 0  ────► ATGM336H RX (opt.)
+ATGM336H · MATRIX GND ◄─── GND ─┤                       ├─ 1  ◄──── ATGM336H TX
+                           3V3 ─┤                       ├─ 2
+                            29 ─┤                       ├─ 3
+      TOP MATRIX CS  ◄───── 28 ─┤                       ├─ 4
+      TOP MATRIX DIN ◄───── 27 ─┤  [BOOT] (●) [RESET]   ├─ 5
+      TOP MATRIX CLK ◄───── 26 ─┤        WS2812         ├─ 6  (free)
+                            15 ─┤        on GP16        ├─ 7  (free)
+                            14 ─┤                       ├─ 8  (free)
+                                │    RP2040 BOARD       │
+                                │                       │
+                                └─┬────┬────┬────┬────┬─┘
 ```
 
 GP1 is UART0 RX (data flows from GPS into the MCU); GP0 is UART0 TX and is
@@ -171,21 +174,21 @@ on-board WS2812 is driven by GP16 — no external wiring required.
 ### ESP32-S3-Zero
 
 ```
-                                   ┌─── USB-C ───┐
-                              ┌────┴─────────────┴────┐
-                              │                       │
-   GPS · MATRIX VCC ◄───  5V ─┤                       ├─ 13 ────► GPS RX (opt.)
-   GPS · MATRIX GND ◄─── GND ─┤                       ├─ 12 ◄──── GPS TX
-                         3V3 ─┤                       ├─ 11 (free)
-                           1 ─┤                       ├─ 10 (free)
-                           2 ─┤                       ├─ 9  (free)
-                           3 ─┤  [BOOT] (●) [RESET]   ├─ 8
-                           4 ─┤        WS2812         ├─ 43
-     TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44
-     TOP MATRIX DIN ◄───── 6 ─┤                       ├─ 14
-     TOP MATRIX CS  ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15
-                              │                       │
-                              └─┬────┬────┬────┬────┬─┘
+                                     ┌─── USB-C ───┐
+                                ┌────┴─────────────┴────┐
+                                │                       │
+ATGM336H · MATRIX VCC ◄───  5V ─┤                       ├─ 13 ────► ATGM336H RX (opt.)
+ATGM336H · MATRIX GND ◄─── GND ─┤                       ├─ 12 ◄──── ATGM336H TX
+                           3V3 ─┤                       ├─ 11 (free)
+                             1 ─┤                       ├─ 10 (free)
+                             2 ─┤                       ├─ 9  (free)
+                             3 ─┤  [BOOT] (●) [RESET]   ├─ 8
+                             4 ─┤        WS2812         ├─ 43
+       TOP MATRIX CLK ◄───── 5 ─┤        on GPIO21      ├─ 44
+       TOP MATRIX DIN ◄───── 6 ─┤                       ├─ 14
+       TOP MATRIX CS  ◄───── 7 ─┤   ESP32-S3-Zero       ├─ 15
+                                │                       │
+                                └─┬────┬────┬────┬────┬─┘
 ```
 
 GPIO12 is UART1 RX (data flows from GPS into the MCU); GPIO13 is UART1 TX and is
@@ -197,31 +200,31 @@ The on-board WS2812 is driven by GPIO21 — no external wiring required.
 ### RP2350
 
 ```
-                                          ┌──── USB ────┐
-                              ┌───────────┴─────────────┴───────────┐
-                              │                                     │
-                           0 ─┤                                     ├─ VBUS ──► GPS · MATRIX VCC
-                           1 ─┤                                     ├─ VSYS
-   GPS · MATRIX GND ◄─── GND ─┤                                     ├─ GND
-                           2 ─┤                                     ├─ 3V3_EN
-                           3 ─┤                                     ├─ 3V3
-        GPS RX (opt.) ◄─── 4 ─┤                                     ├─ ADC_VREF
-               GPS TX ───► 5 ─┤                                     ├─ 28
-                         GND ─┤   [BOOTSEL] (●) LED on WL_GPIO0     ├─ AGND
-                           6 ─┤                                     ├─ 27
-                           7 ─┤                                     ├─ 26
-                           8 ─┤      RP2350                         ├─ RUN
-        TOP MATRIX CS ◄─── 9 ─┤                                     ├─ 22
-                         GND ─┤                                     ├─ GND
-      TOP MATRIX CLK ◄─── 10 ─┤                                     ├─ 21
-      TOP MATRIX DIN ◄─── 11 ─┤                                     ├─ 20
-                          12 ─┤                                     ├─ 19
-                          13 ─┤                                     ├─ 18
-                         GND ─┤                                     ├─ GND
-                          14 ─┤                                     ├─ 17
-                          15 ─┤                                     ├─ 16
-                              │                                     │
-                              └─────────────────────────────────────┘
+                                            ┌──── USB ────┐
+                                ┌───────────┴─────────────┴───────────┐
+                                │                                     │
+                             0 ─┤                                     ├─ VBUS ──► ATGM336H · MATRIX VCC
+                             1 ─┤                                     ├─ VSYS
+ATGM336H · MATRIX GND ◄─── GND ─┤                                     ├─ GND
+                             2 ─┤                                     ├─ 3V3_EN
+                             3 ─┤                                     ├─ 3V3
+     ATGM336H RX (opt.) ◄─── 4 ─┤                                     ├─ ADC_VREF
+            ATGM336H TX ───► 5 ─┤                                     ├─ 28
+                           GND ─┤   [BOOTSEL] (●) LED on WL_GPIO0     ├─ AGND
+                             6 ─┤                                     ├─ 27
+                             7 ─┤                                     ├─ 26
+                             8 ─┤      RP2350                         ├─ RUN
+          TOP MATRIX CS ◄─── 9 ─┤                                     ├─ 22
+                           GND ─┤                                     ├─ GND
+        TOP MATRIX CLK ◄─── 10 ─┤                                     ├─ 21
+        TOP MATRIX DIN ◄─── 11 ─┤                                     ├─ 20
+                            12 ─┤                                     ├─ 19
+                            13 ─┤                                     ├─ 18
+                           GND ─┤                                     ├─ GND
+                            14 ─┤                                     ├─ 17
+                            15 ─┤                                     ├─ 16
+                                │                                     │
+                                └─────────────────────────────────────┘
 ```
 
 VBUS is the 5 V USB rail. GP5 is UART1 RX; GP4 is UART1 TX (optional). The
