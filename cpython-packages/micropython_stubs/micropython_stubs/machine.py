@@ -5,7 +5,7 @@ from __future__ import annotations
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
-_uart_lines: list[bytes] = []
+_uart_rx = bytearray()
 _spi_instances: list[object] = []
 _timer_instances: list[object] = []
 
@@ -16,15 +16,20 @@ def register_device(address: int, device: object) -> None:
 
 
 def feed_uart(lines: list[bytes]) -> None:
-    """Queue byte lines for UART.readline() to return in order (FIFO)."""
-    _uart_lines.extend(lines)
+    """Append byte chunks to the shared UART RX buffer (FIFO).
+
+    Chunks need not be whole lines: feeding a sentence in fragments models a
+    non-blocking UART that returns only the bytes received so far.
+    """
+    for chunk in lines:
+        _uart_rx.extend(chunk)
 
 
 def reset() -> None:
     """Clear recorded pin constructions, the device registry, UART/SPI/Timer state."""
     pin_constructions.clear()
     _devices.clear()
-    _uart_lines.clear()
+    del _uart_rx[:]
     _spi_instances.clear()
     _timer_instances.clear()
 
@@ -177,7 +182,7 @@ class SoftI2C(_I2CBase):
 
 
 class UART:
-    """Fake `machine.UART` backed by a queued byte-line reader."""
+    """Fake `machine.UART` backed by the shared byte RX buffer."""
 
     def __init__(
         self,
@@ -198,9 +203,38 @@ class UART:
         self.timeout = timeout
         self.timeout_char = timeout_char
 
+    def any(self) -> int:
+        """Number of bytes available to read from the RX buffer."""
+        return len(_uart_rx)
+
+    def read(self, nbytes: int | None = None) -> bytes | None:
+        """Return up to nbytes from the RX buffer, or None when empty.
+
+        Models a non-blocking read: it never waits for more bytes to arrive, so
+        a sentence fed in fragments comes back one fragment at a time.
+        """
+        if not _uart_rx:
+            return None
+        if nbytes is None or nbytes >= len(_uart_rx):
+            data = bytes(_uart_rx)
+            del _uart_rx[:]
+            return data
+        data = bytes(_uart_rx[:nbytes])
+        del _uart_rx[:nbytes]
+        return data
+
     def readline(self) -> bytes | None:
-        """Return the next queued byte line, or None when the queue is empty."""
-        return _uart_lines.pop(0) if _uart_lines else None
+        """Return bytes up to and including the next newline, or None.
+
+        Returns None when no complete line is buffered yet — matching a
+        non-blocking UART that does not wait for the rest of the sentence.
+        """
+        nl = _uart_rx.find(b"\n")
+        if nl < 0:
+            return None
+        data = bytes(_uart_rx[: nl + 1])
+        del _uart_rx[: nl + 1]
+        return data
 
 
 class Timer:
