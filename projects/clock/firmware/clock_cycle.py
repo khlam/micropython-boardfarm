@@ -30,14 +30,30 @@ async def play_transition(
         await asyncio.sleep_ms(POLL_SLEEP_MS)
 
 
-async def play_fade_transition(engine: object, target: int, clock: object) -> None:
-    """Fade the current display state into ``target``."""
+async def play_dissolve_transition(engine: object, target: int, clock: object) -> None:
+    """Dissolve the current display state into ``target``."""
     await play_transition(
         engine,
         target,
         clock,
-        effect=clock_transitions.TRANSITION_FADE,
+        effect=clock_transitions.TRANSITION_DISSOLVE,
         direction=clock_transitions.DIRECTION_LEFT,
+    )
+
+
+async def play_wait_transition(engine: object, clock: object) -> None:
+    """Scroll the GPS-wait screen back into itself for the looping wait animation.
+
+    The wait screen scrolls into a fresh copy of itself rather than blinking to a
+    blank endpoint, so ``GPS WAIT`` stays continuously on screen — an unsynced
+    display that animates in place instead of going dark every other second.
+    """
+    await play_transition(
+        engine,
+        clock_screens.WAIT_ON,
+        clock,
+        effect=clock_transitions.TRANSITION_SCROLL,
+        direction=clock_transitions.DIRECTION_RIGHT,
     )
 
 
@@ -75,7 +91,7 @@ async def run_frame_rate_test(engine: object, clock: object) -> None:
 
 
 async def play_startup_handoff(engine: object, target: int, clock: object) -> None:
-    """Scroll the diagnostic away, show the brand, then fade into ``target``."""
+    """Scroll the diagnostic away, show the brand, then dissolve into ``target``."""
     await play_transition(
         engine,
         clock_screens.SCREEN_BRAND,
@@ -84,7 +100,7 @@ async def play_startup_handoff(engine: object, target: int, clock: object) -> No
         direction=clock_transitions.DIRECTION_RIGHT,
     )
     await hold_screen(engine, clock)
-    await play_fade_transition(engine, target, clock)
+    await play_dissolve_transition(engine, target, clock)
 
 
 class TransitionRun:

@@ -5,12 +5,12 @@ import random
 from pixel_frame import Frame, MatrixFrame
 
 TRANSITION_WIPE = 0
-TRANSITION_FADE = 1
+TRANSITION_DISSOLVE = 1
 TRANSITION_SCROLL = 2
 TRANSITION_INSTANT = 3
 TRANSITIONS = (
     TRANSITION_WIPE,
-    TRANSITION_FADE,
+    TRANSITION_DISSOLVE,
     TRANSITION_SCROLL,
     TRANSITION_INSTANT,
 )
@@ -388,12 +388,12 @@ def _packed_scroll_frame(
     )
 
 
-def fade_frame(source: object, target: object, step: int, steps: int) -> object:
+def dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
     """Cross-dissolve ``source`` into ``target`` by random pixel replacement."""
-    return _packed_fade_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
+    return _packed_dissolve_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
 
 
-def _packed_fade_frame(source: object, target: object, step: int, steps: int) -> object:
+def _packed_dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
     """Swap packed ``source`` pixels for ``target`` pixels in random order.
 
     Pixels toggle fully on or off as they flip between frames rather than
@@ -421,8 +421,8 @@ def frame_transition_frame(
     """Render one transition frame between two packed frame endpoints."""
     if effect == TRANSITION_INSTANT:
         return copy_frame(target)
-    if effect == TRANSITION_FADE:
-        return _packed_fade_frame(source, target, step, steps)
+    if effect == TRANSITION_DISSOLVE:
+        return _packed_dissolve_frame(source, target, step, steps)
     if effect == TRANSITION_SCROLL:
         if direction is None:
             direction = DIRECTION_RIGHT

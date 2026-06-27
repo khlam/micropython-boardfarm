@@ -22,9 +22,10 @@ from boot_status_led import status
 from clock_cycle import (
     DisplayEngine,
     hold_screen,
-    play_fade_transition,
+    play_dissolve_transition,
     play_startup_handoff,
     play_transition,
+    play_wait_transition,
     run_frame_rate_test,
 )
 from clock_sync import ClockSynchronizer
@@ -101,20 +102,17 @@ async def clock_program(engine: object, sync: object, rng: object, clock: object
     target = regular if sync.synced else clock_screens.WAIT_ON
     await play_startup_handoff(engine, target, clock)
 
-    # Wait for the first GPS fix: blink GPS / WAIT until ``sync`` reports a fix.
-    target = clock_screens.WAIT_OFF
+    # Wait for the first GPS fix: hold GPS / WAIT, scrolling it back into itself
+    # each second until ``sync`` reports a fix, so the screen never goes blank.
     while not sync.synced:
         await hold_screen(engine, clock, stop=lambda: sync.synced)
         if sync.synced:
             break
-        await play_transition(engine, target, clock)
-        target = (
-            clock_screens.WAIT_OFF if target == clock_screens.WAIT_ON else clock_screens.WAIT_ON
-        )
+        await play_wait_transition(engine, clock)
 
     # Synced: reveal a random clock, then cycle regular faces with interstitials.
     if engine.current_screen != regular:
-        await play_fade_transition(engine, regular, clock)
+        await play_dissolve_transition(engine, regular, clock)
     while True:
         await hold_screen(engine, clock)  # live clock face (3 min)
         await play_transition(engine, clock_screens.choose_interstitial(rng), clock)

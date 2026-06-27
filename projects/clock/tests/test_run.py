@@ -522,7 +522,8 @@ def test_random_screen_and_transition_choices() -> None:
         clock_transitions.choose_transition(_FakeRandom([0])) == clock_transitions.TRANSITION_WIPE
     )
     assert (
-        clock_transitions.choose_transition(_FakeRandom([1])) == clock_transitions.TRANSITION_FADE
+        clock_transitions.choose_transition(_FakeRandom([1]))
+        == clock_transitions.TRANSITION_DISSOLVE
     )
     assert (
         clock_transitions.choose_transition(_FakeRandom([2])) == clock_transitions.TRANSITION_SCROLL
@@ -671,15 +672,15 @@ def test_transition_snapshots_endpoints_and_refreshes_target_after_landing() -> 
     )
 
 
-def test_fade_frame_lands_on_target() -> None:
-    """Fade transitions land exactly on the target endpoint."""
+def test_dissolve_frame_lands_on_target() -> None:
+    """Dissolve transitions land exactly on the target endpoint."""
     source = Frame(4, 2)
     target = Frame(4, 2)
     for index in range(len(target.data)):
         target.data[index] = 255
 
     assert _same_frame(
-        clock_transitions.fade_frame(
+        clock_transitions.dissolve_frame(
             source,
             target,
             clock_transitions.TRANSITION_STEPS,

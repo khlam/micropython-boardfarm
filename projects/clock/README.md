@@ -21,7 +21,7 @@ either the current meteorological season with the year, or the full month name
 and day with the year.
 
 Screen changes use one randomly selected transition per hop — instant, wipe,
-scroll, or a low-intensity dithered fade — while the main loop keeps reading GPS
+scroll, or a random-pixel dissolve — while the main loop keeps reading GPS
 sentences.
 
 Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
