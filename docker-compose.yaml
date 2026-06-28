@@ -54,11 +54,11 @@ services:
   # Host-only generator for the tz_offset timezone dataset. Regenerate the blob:
   #   docker compose run --rm tzgen > firmware-packages/tz_offset/tz_offset/_tzdata.py
   # Run its tests (shapely/tzdata live in this image, not the pytest one):
-  #   docker compose run --rm --entrypoint pytest tzgen /work/cpython-packages/tzgen/tests -v
+  #   docker compose run --rm --entrypoint pytest tzgen /work/projects/clock/tzgen/tests -v
   tzgen:
     build:
       context: .
-      dockerfile: Dockerfile.host
+      dockerfile: projects/clock/Dockerfile.tzgen
       target: tzgen
     volumes:
-      - ./cpython-packages/tzgen:/work/cpython-packages/tzgen:ro
+      - ./projects/clock/tzgen:/work/projects/clock/tzgen:ro

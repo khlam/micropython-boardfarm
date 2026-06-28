@@ -7,7 +7,7 @@ fails if it changes without this `VENDOR.md` being touched in the same commit.
 
 | Field | Value |
 | --- | --- |
-| Generator | `cpython-packages/tzgen` (`python -m tzgen`) |
+| Generator | `projects/clock/tzgen` (`python -m tzgen`) |
 | Boundary source | [timezone-boundary-builder](https://github.com/evansiroky/timezone-boundary-builder) `2025b`, land-only `timezones.geojson` |
 | DST rules | IANA `tzdata` `2026.2` POSIX TZ footers (RFC 8536 §3.3) |
 | Resolution | 0.25° (R_UDEG 250000; 720×1440 grid) |

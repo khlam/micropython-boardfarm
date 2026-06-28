@@ -225,7 +225,7 @@ rules.call-non-callable = "ignore"
 # tzgen is host-only tooling; shapely/tzdata live solely in its Docker stage, so
 # they are unresolved in the typecheck environment.
 [[tool.ty.overrides]]
-include = ["cpython-packages/tzgen/**"]
+include = ["projects/clock/tzgen/**"]
 rules.unresolved-import = "ignore"
 
 [tool.ruff]
