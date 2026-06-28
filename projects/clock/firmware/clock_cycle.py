@@ -10,6 +10,19 @@ import clock_transitions
 POLL_SLEEP_MS = 10
 FRAME_RATE_TEST_SLEEP_MS = POLL_SLEEP_MS
 REASSERT_MS = 5_000
+
+# Adaptive animation frame pacing. Transition frames are paced to a wall-clock
+# budget instead of a fixed inter-frame sleep: each frame sleeps only the time
+# left in its budget after rendering, so frames land at an even cadence (less
+# visible jank) and the loop never re-renders faster than the eye resolves
+# (fewer SPI bursts → less switching power). When a render overruns its budget
+# the rate adapts downward — the next frame starts as soon as the scheduler
+# yields back — so animations stay smooth even with the core clock dialed down.
+TARGET_FPS = 18
+FRAME_BUDGET_MS = 1_000 // TARGET_FPS
+# Floor on the per-frame sleep so the cooperative GPS pump is always scheduled,
+# even when a render eats the whole budget.
+MIN_FRAME_YIELD_MS = 2
 WAIT_TRANSITION_STEPS = min(
     clock_transitions.TRANSITION_STEPS,
     max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS),
@@ -24,10 +37,25 @@ async def play_transition(
     effect: int | None = None,
     direction: int | None = None,
 ) -> None:
-    """Animate the transition into ``target``, one frame per poll interval."""
+    """Animate the transition into ``target``, one frame per adaptive budget."""
     engine.begin_transition(target, effect=effect, direction=direction)
-    while not engine.advance_transition(clock.ticks_ms()):
-        await asyncio.sleep_ms(POLL_SLEEP_MS)
+    while True:
+        frame_start = clock.ticks_ms()
+        if engine.advance_transition(frame_start):
+            return
+        await _pace_frame(clock, frame_start)
+
+
+async def _pace_frame(clock: object, frame_start: int) -> None:
+    """Sleep the remainder of this frame's budget, never below the yield floor.
+
+    Pacing from ``frame_start`` (taken before the render) keeps frame spacing
+    even regardless of how long the render took, and collapses to
+    ``MIN_FRAME_YIELD_MS`` when a render overruns so the rate degrades
+    gracefully instead of accumulating lag.
+    """
+    remaining = FRAME_BUDGET_MS - clock.ticks_diff(clock.ticks_ms(), frame_start)
+    await asyncio.sleep_ms(max(MIN_FRAME_YIELD_MS, remaining))
 
 
 async def play_dissolve_transition(engine: object, target: int, clock: object) -> None:
