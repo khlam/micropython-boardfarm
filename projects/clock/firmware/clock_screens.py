@@ -16,6 +16,7 @@ SCREEN_FRAME_RATE = 5
 SCREEN_BRAND = 6
 WAIT_OFF = 7
 WAIT_ON = 8
+SCREEN_UPTIME = 9
 
 KIND_REGULAR = "regular"
 KIND_INTERSTITIAL = "interstitial"
@@ -27,6 +28,13 @@ INTERSTITIAL_HOLD_MS = 3_000
 FRAME_RATE_TEST_MS = 15_000
 BRAND_HOLD_MS = 1_500
 WAIT_ROTATE_MS = 1_000
+UPTIME_HOLD_MS = 7_000
+
+# Marquee pacing for rows wider than the matrix: one pixel of travel every
+# ``SCROLL_MS_PER_PX`` ms gives a slow, readable left-right sweep. Driven off the
+# monotonic clock rather than a frame counter so the speed is wall-clock stable
+# regardless of how often the hold loop reasserts.
+SCROLL_MS_PER_PX = 100
 
 CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
 
@@ -259,6 +267,33 @@ def brand_screen_frame(
     return _two_row_frame("KINHOLA", "M.COM", width_pixels, height_pixels)
 
 
+def uptime_screen_frame(
+    parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
+    """Render the run uptime over the boot timestamp, scrolling rows that overflow.
+
+    Top row reads ``UP HH:MM:SS`` (elapsed since the first GPS fix); bottom row
+    reads ``BOOT: DD.MM.YY`` (the first fix's local date). Either row is wider
+    than the matrix once labelled, so each scrolls independently as a slow
+    left-right marquee when it does not fit.
+    """
+    boot_parts, now_parts, scroll_ms = _uptime_fields(parts)
+    frame = Frame(width_pixels, height_pixels)
+    split = height_pixels // 2
+    top = "UP " + _format_uptime(_uptime_seconds(boot_parts, now_parts))
+    bottom = "BOOT: " + _format_boot_date(boot_parts)
+    if split <= 0:
+        _draw_marquee_row(frame, top, 0, height_pixels, width_pixels, scroll_ms, "middle")
+        return frame
+    _draw_marquee_row(frame, top, 0, split, width_pixels, scroll_ms, "middle")
+    _draw_marquee_row(
+        frame, bottom, split, height_pixels - split, width_pixels, scroll_ms, "bottom"
+    )
+    return frame
+
+
 def wait_on_frame(
     _parts: tuple | None,
     width_pixels: int = WIDTH_PIXELS,
@@ -317,6 +352,112 @@ def _draw_seconds_bar(frame: object, second: int, y: int, width: int) -> None:
     filled = (second * width) // 59
     for x in range(filled):
         frame.pixel(x, y)
+
+
+def _uptime_fields(parts: tuple | None) -> tuple:
+    """Return the ``(boot_parts, now_parts, scroll_ms)`` triple the engine packs.
+
+    The engine cannot express boot time or a scroll phase as an RTC snapshot, so
+    it hands the uptime screen its own composite parts; ``None`` collapses to a
+    no-fix, zero-phase placeholder.
+    """
+    if parts is None:
+        return None, None, 0
+    return parts
+
+
+def _format_uptime(total_seconds: int) -> str:
+    """Format an elapsed-seconds count as ``HH:MM:SS``, widening hours past 99."""
+    hours = total_seconds // 3_600
+    minutes = (total_seconds % 3_600) // 60
+    seconds = total_seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _format_boot_date(boot_parts: tuple | None) -> str:
+    """Format the first-fix date as ``DD.MM.YY``, or dashes before any fix."""
+    if boot_parts is None:
+        return "--.--.--"
+    year, month, day = boot_parts[0], boot_parts[1], boot_parts[2]
+    return f"{day:02d}.{month:02d}.{year % 100:02d}"
+
+
+def _uptime_seconds(boot_parts: tuple | None, now_parts: tuple | None) -> int:
+    """Return whole seconds between the first fix and now, never negative."""
+    if boot_parts is None or now_parts is None:
+        return 0
+    elapsed = _epoch_seconds(now_parts) - _epoch_seconds(boot_parts)
+    return max(0, elapsed)
+
+
+def _epoch_seconds(parts: tuple) -> int:
+    """Return seconds since 1970-01-01 for an RTC parts tuple.
+
+    Boot and now are both local RTC readings, so the shared epoch base cancels
+    in the difference; the absolute value only needs to be consistent.
+    """
+    year, month, day, _weekday, hour, minute, second = parts
+    return _days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
+
+
+def _days_from_civil(year: int, month: int, day: int) -> int:
+    """Return days since 1970-01-01 (Hinnant's civil-to-days algorithm).
+
+    Integer-only and branch-light so it runs the same on MicroPython as on the
+    host; valid for any proleptic Gregorian date the RTC can hold.
+    """
+    y = year - (1 if month <= 2 else 0)
+    era = (y if y >= 0 else y - 399) // 400
+    yoe = y - era * 400
+    doy = (153 * (month - 3 if month > 2 else month + 9) + 2) // 5 + (day - 1)
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146_097 + doe - 719_468
+
+
+def _scroll_offset(text_width: int, width_pixels: int, scroll_ms: int) -> int:
+    """Return the left crop, in pixels, for a ping-pong marquee at ``scroll_ms``.
+
+    Sweeps 0 -> overflow -> 0 as a triangle wave so the row eases to each edge
+    and reverses instead of jumping back to the start.
+    """
+    overflow = text_width - width_pixels
+    if overflow <= 0:
+        return 0
+    span = 2 * overflow
+    phase = (scroll_ms // SCROLL_MS_PER_PX) % span
+    return phase if phase <= overflow else span - phase
+
+
+def _draw_marquee_row(
+    frame: object,
+    text: str,
+    y0: int,
+    band_height: int,
+    width_pixels: int,
+    scroll_ms: int,
+    valign: str,
+) -> None:
+    """Draw one text row, centering it if it fits or scrolling it if it overflows.
+
+    Overflowing text is rendered once into a full-width strip and a
+    ``width_pixels`` window is blitted at the current scroll offset, since
+    :class:`Text` refuses to draw content wider than its target box.
+    """
+    content = Text(text, valign=valign)
+    text_width, _height = content.measure()
+    if text_width <= width_pixels:
+        frame[y0 : y0 + band_height, 0:width_pixels] = content
+        return
+    strip = Frame(text_width, band_height)
+    strip[0:band_height, 0:text_width] = Text(text, align="left", valign=valign)
+    offset = _scroll_offset(text_width, width_pixels, scroll_ms)
+    for x in range(width_pixels):
+        src_x = x + offset
+        if src_x >= text_width:
+            break
+        for y in range(band_height):
+            if strip.value_at(src_x, y):
+                frame.pixel(x, y0 + y)
 
 
 class _MeridiemBadge:
@@ -445,6 +586,16 @@ def brand_screen_key(_parts: tuple | None) -> tuple:
     return (SCREEN_BRAND,)
 
 
+def uptime_screen_key(parts: tuple | None) -> tuple:
+    """Return the visible-content key for the uptime screen.
+
+    Keys on both the whole-second uptime and the integer scroll step so the
+    engine re-renders each tick of the clock *and* each pixel of marquee travel.
+    """
+    boot_parts, now_parts, scroll_ms = _uptime_fields(parts)
+    return SCREEN_UPTIME, _uptime_seconds(boot_parts, now_parts), scroll_ms // SCROLL_MS_PER_PX
+
+
 def wait_on_key(_parts: tuple | None) -> tuple:
     """Return the visible-content key for the visible wait endpoint."""
     return (WAIT_ON,)
@@ -495,6 +646,14 @@ SCREEN_SPECS = (
         INTERSTITIAL_HOLD_MS,
         full_date_screen_frame,
         full_date_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_UPTIME,
+        "uptime",
+        KIND_INTERSTITIAL,
+        UPTIME_HOLD_MS,
+        uptime_screen_frame,
+        uptime_screen_key,
     ),
     ScreenSpec(
         SCREEN_FRAME_RATE,

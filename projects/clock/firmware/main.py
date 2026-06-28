@@ -140,8 +140,8 @@ async def run_async(gps: object, display: object, rtc: object) -> None:
         display: Object exposing ``show(frame)``.
         rtc: ``machine.RTC`` instance used as the clock source between fixes.
     """
-    engine = DisplayEngine(display, rtc, clock=time, rng=random)
     sync = ClockSynchronizer(rtc)
+    engine = DisplayEngine(display, rtc, clock=time, rng=random, sync=sync)
     status.streaming()
     await asyncio.gather(
         pump_gps(gps, sync),

@@ -12,11 +12,19 @@ class ClockSynchronizer:
         self._rtc = rtc
         self.state = {"synced": False}
         self.synced = False
+        self.boot_time = None
 
     def consume(self, line: str | None) -> None:
-        """Parse one GPS line and update ``synced`` when a fix is complete."""
+        """Parse one GPS line and update ``synced`` when a fix is complete.
+
+        The first complete fix is latched into ``boot_time`` as the RTC parts
+        tuple it just set, giving the uptime screen a fixed reference instant —
+        the wall-clock moment this run became a real clock.
+        """
         sync_from_line(line, self._rtc, self.state)
         self.synced = self.state.get("synced", False)
+        if self.synced and self.boot_time is None:
+            self.boot_time = tuple(self._rtc.datetime())[:7]
 
 
 def rtc_datetime(local: tuple) -> tuple:

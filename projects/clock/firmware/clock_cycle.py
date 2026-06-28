@@ -170,12 +170,19 @@ class DisplayEngine:
         *,
         clock: object | None = None,
         rng: object | None = None,
+        sync: object | None = None,
     ) -> None:
-        """Bind the engine to a display, RTC, clock source, and RNG."""
+        """Bind the engine to a display, RTC, clock source, RNG, and sync state.
+
+        ``sync`` is read only for its latched ``boot_time``, which the uptime
+        screen needs and the RTC alone cannot supply; it stays optional so the
+        engine still renders every other screen without a synchronizer.
+        """
         self._display = display
         self._rtc = rtc
         self._clock = time if clock is None else clock
         self._rng = random if rng is None else rng
+        self._sync = sync
         self._width_pixels = getattr(display, "width_pixels", clock_screens.WIDTH_PIXELS)
         self._height_pixels = getattr(display, "height_pixels", clock_screens.HEIGHT_PIXELS)
         self._frame_cache = {}
@@ -225,10 +232,22 @@ class DisplayEngine:
         return clock_screens.rtc_parts(self._rtc)
 
     def _parts_for_screen(self, screen: int) -> tuple | None:
-        """Return RTC parts only for screens whose content depends on the RTC."""
+        """Return the render inputs a screen depends on.
+
+        Most screens key off the RTC snapshot; wait screens are static; the
+        uptime screen needs a composite of boot time, the RTC, and a scroll
+        phase that no single RTC reading can express.
+        """
         if clock_screens.is_wait(screen):
             return None
+        if screen == clock_screens.SCREEN_UPTIME:
+            return self._uptime_parts()
         return self._parts()
+
+    def _uptime_parts(self) -> tuple:
+        """Return the uptime screen's ``(boot_time, now, scroll_ms)`` inputs."""
+        boot_time = None if self._sync is None else getattr(self._sync, "boot_time", None)
+        return boot_time, self._parts(), self._clock.ticks_ms()
 
     def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:
         """Return a cached frame and its visible-content key."""

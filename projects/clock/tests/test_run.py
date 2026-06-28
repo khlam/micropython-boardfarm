@@ -252,10 +252,15 @@ def test_screen_specs_and_renderers_fit_the_matrix() -> None:
     assert set(clock_screens.INTERSTITIAL_SCREENS) == {
         clock_screens.SCREEN_SEASON,
         clock_screens.SCREEN_FULL_DATE,
+        clock_screens.SCREEN_UPTIME,
     }
 
+    # The uptime screen takes a composite (boot, now, scroll_ms) parts tuple
+    # rather than a bare RTC snapshot, so feed it boot == now for a clean frame.
+    uptime_parts = (parts, parts, 0)
     for screen in clock_screens.REGULAR_SCREENS + clock_screens.INTERSTITIAL_SCREENS:
-        frame = clock_screens.render_screen(screen, parts)
+        screen_parts = uptime_parts if screen == clock_screens.SCREEN_UPTIME else parts
+        frame = clock_screens.render_screen(screen, screen_parts)
         assert isinstance(frame, Frame)
         assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
         assert any(frame.data)
