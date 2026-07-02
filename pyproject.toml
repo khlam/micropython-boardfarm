@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
+    "tz_offset>=0.1.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
@@ -26,6 +27,7 @@ pythonpath = [
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/smoothing/tests",
+    "/firmware-packages/tz_offset/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
@@ -51,6 +53,7 @@ serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
+tz_offset = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
@@ -79,6 +82,7 @@ test = [
     "micropython_stubs",
     "boot_status_led",
     "atgm336h",
+    "tz_offset",
     "i2c_bus",
     "mpu6050",
     "qmc5883p",
@@ -105,6 +109,7 @@ source = [
 source_pkgs = [
   "boot_status_led",
   "atgm336h",
+  "tz_offset",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",
@@ -117,6 +122,7 @@ omit = [
   "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
   "*/vl53l5cx/vl53l5cx.py",    # vendored upstream driver
   "*/vl53l5cx/_config_bytes.py",  # vendored firmware binary data
+  "*/tz_offset/_tzdata.py",    # generated timezone raster + POSIX table
   "*/tests/*",
   "*/__init__.py",
 ]
@@ -136,11 +142,15 @@ check-class-attributes = false
 # only pydoclint-clean return annotation (Generator/Iterator/Iterable) needs a
 # typing/collections.abc import absent on MicroPython, so it can't be satisfied
 # in frozen firmware — excluded like the vendored vl53l0x.py.
-exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|manifest\.py'
+exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|firmware-packages/tz_offset/tz_offset/_tzdata\.py|manifest\.py'
 
 [tool.vulture]
 min_confidence = 70
-exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
+exclude = [
+  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
+  "manifest.py",
+]
 
 [tool.ty.src]
 include = [
@@ -152,6 +162,7 @@ exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   "manifest.py",
   "**/outputs/**",
 ]
@@ -183,6 +194,12 @@ rules.unresolved-attribute = "ignore"
 rules.unresolved-import = "ignore"
 rules.invalid-return-type = "ignore"
 
+# tzgen is host-only tooling; shapely/tzdata live solely in its Docker stage, so
+# they are unresolved in the typecheck environment.
+[[tool.ty.overrides]]
+include = ["projects/clock/tzgen/**"]
+rules.unresolved-import = "ignore"
+
 [tool.ruff]
 target-version = "py312"
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
@@ -193,6 +210,7 @@ extend-exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
+  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   ".vulture_allowlist.py",
   "manifest.py",
 ]
@@ -277,6 +295,7 @@ ban-relative-imports = "all"
 known-first-party = [
   "boot_status_led",
   "atgm336h",
+  "tz_offset",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",

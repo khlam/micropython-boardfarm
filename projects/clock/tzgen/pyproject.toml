@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tzgen"
+version = "0.1.0"
+description = "Host-only generator of the tz_offset global timezone raster + POSIX TZ table."
+requires-python = ">=3.12"
+
+# Host-only generation dependencies, installed solely by the tzgen Docker stage.
+# tzgen is not a workspace member and is absent from uv.lock, so these never reach
+# the firmware, the pytest image, or the viz runtime.
+dependencies = [
+    "shapely>=2.0",
+    "tzdata>=2024.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tzgen"]
