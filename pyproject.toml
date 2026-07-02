@@ -9,6 +9,8 @@ requires-python = ">=3.12"
 dependencies = [
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
+    "pixel_frame>=0.1.0",
+    "pixel_display>=0.1.0",
     "i2c_bus>=0.2.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
@@ -23,6 +25,7 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/firmware-packages/atgm336h/tests",
+    "/firmware-packages/pixel_display/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/smoothing/tests",
@@ -51,6 +54,8 @@ serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
+pixel_frame = { index = "internal" }
+pixel_display = { index = "internal" }
 i2c_bus = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
@@ -79,6 +84,8 @@ test = [
     "micropython_stubs",
     "boot_status_led",
     "atgm336h",
+    "pixel_frame",
+    "pixel_display",
     "i2c_bus",
     "mpu6050",
     "qmc5883p",
@@ -105,6 +112,8 @@ source = [
 source_pkgs = [
   "boot_status_led",
   "atgm336h",
+  "pixel_frame",
+  "pixel_display",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",
@@ -277,6 +286,8 @@ ban-relative-imports = "all"
 known-first-party = [
   "boot_status_led",
   "atgm336h",
+  "pixel_frame",
+  "pixel_display",
   "i2c_bus",
   "mpu6050",
   "qmc5883p",

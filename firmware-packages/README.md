@@ -17,6 +17,8 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 |---|---|
 | [boot_status_led](boot_status_led/) | Boot/runtime indicator LED state machine. |
 | [i2c_bus](i2c_bus/) | Import-time–selected `SoftI2C` / `I2C` instance per chip |
+| [pixel_frame](pixel_frame/) | Frame construction, packed drawing, and text rendering for pixel displays. |
+| [pixel_display](pixel_display/) | Hardware-agnostic `Display` facade for pixel backends. |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
 | [qmc5883p](qmc5883p/) | Driver for the QST QMC5883P 3-axis magnetometer. |
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
