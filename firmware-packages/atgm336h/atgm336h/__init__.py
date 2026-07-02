@@ -7,7 +7,7 @@ if no bytes arrive within ``probe_ms`` it raises ``DeviceNotFoundError``.
 Example:
     from atgm336h import GPS, DeviceNotFoundError
     gps = GPS(bus_id=0, tx=0, rx=1)   # UART opened + probed here
-    line = gps.readline()          # "$GPRMC,..." or None on timeout
+    line = gps.readline()          # "$GPRMC,..." or None when no line is ready
 """
 
 import utime
@@ -43,27 +43,70 @@ class GPS:
         """
         from machine import UART, Pin  # noqa: PLC0415
 
-        self._uart = UART(bus_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=100)
+        # timeout=0 keeps every read non-blocking so a cooperative display loop
+        # is never stalled on the 9600-baud stream. We deliberately do NOT use
+        # UART.readline(): it reads byte-by-byte and applies the per-byte
+        # first-char `timeout` to each one, so timeout=0 truncates a sentence on
+        # the ~1 ms inter-character gap. Instead we drain whatever bytes are
+        # buffered and reassemble complete lines in `_buf` ourselves.
+        self._uart = UART(bus_id, baudrate=9600, tx=Pin(tx), rx=Pin(rx), timeout=0)
+        self._buf = bytearray()
         self._probe(probe_ms)
 
     def _probe(self, probe_ms: int) -> None:
-        """Wait for the first byte line; raise DeviceNotFoundError if none arrives."""
+        """Wait for a first complete line; raise DeviceNotFoundError if none arrives.
+
+        The leading sentence is discarded: attaching mid-stream usually catches a
+        partial line, so dropping through the first newline resyncs to a boundary.
+        """
         t_start = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), t_start) < probe_ms:
-            if self._uart.readline() is not None:
+            self._drain()
+            if self._take_line() is not None:
                 return
             utime.sleep_ms(_PROBE_POLL_MS)
         raise DeviceNotFoundError(f"no NMEA bytes within {probe_ms} ms")
 
+    def _drain(self) -> None:
+        """Append all currently-buffered UART bytes to the line buffer (non-blocking)."""
+        n = self._uart.any()
+        if not n:
+            return
+        chunk = self._uart.read(n)
+        if chunk:
+            self._buf.extend(chunk)
+
+    def _take_line(self) -> bytes | None:
+        """Pop the next complete line (up to and including the newline), or None.
+
+        The remainder is kept by reassigning a fresh slice rather than
+        ``del self._buf[:n]``: MicroPython's ``bytearray`` does not support item
+        deletion (``TypeError`` on the MCU), even though it works under the
+        CPython host tests. Slicing + reassignment is supported on both.
+        """
+        nl = self._buf.find(b"\n")
+        if nl < 0:
+            return None
+        end = nl + 1
+        line = bytes(self._buf[:end])
+        self._buf = self._buf[end:]
+        return line
+
     def readline(self) -> str | None:
-        """Read one NMEA sentence from UART.
+        """Read one complete NMEA sentence without blocking.
+
+        Drains the UART into an internal buffer and returns the next complete
+        line. Partial sentences stay buffered across calls and are completed when
+        the remaining bytes arrive, so a sentence split across reads is never
+        truncated.
 
         Returns:
-            The decoded sentence string (e.g. ``"$GPRMC,..."``), or ``None``
-            when the UART timeout fires before a newline arrives or when the
-            bytes cannot be decoded as ASCII or do not start with ``$``.
+            The decoded sentence string (e.g. ``"$GPRMC,..."``), or ``None`` when
+            no complete line is buffered yet, the bytes cannot be decoded as
+            ASCII, or the decoded line does not start with ``$``.
         """
-        raw = self._uart.readline()
+        self._drain()
+        raw = self._take_line()
         if raw is None:
             return None
         try:

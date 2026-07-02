@@ -49,3 +49,41 @@ def test_gps_readline_streams_after_probe():
     gps = _make_gps([_GPRMC, _GPGGA])
     assert gps.readline().startswith("$GPGGA")
     assert gps.readline() is None
+
+
+def test_gps_uses_nonblocking_uart():
+    """The UART is opened non-blocking so it never stalls a cooperative loop."""
+    gps = _make_gps([_GPRMC])
+    assert gps._uart.timeout == 0
+
+
+def test_gps_assembles_sentence_split_across_reads():
+    """A sentence arriving in fragments is reassembled into one complete line.
+
+    Regression: a non-blocking UART (timeout=0) hands back only the bytes
+    received so far, so a sentence can span several reads. readline() must
+    buffer the fragments and return the whole sentence — emitting the truncated
+    head instead makes every line fail the NMEA checksum and the GPS goes silent.
+    """
+    machine.reset()
+    machine.feed_uart([_GPRMC])  # consumed by the probe
+    gps = GPS(bus_id=0, tx=0, rx=1)
+
+    head, tail = _GPGGA[:20], _GPGGA[20:]
+    machine.feed_uart([head])
+    assert gps.readline() is None  # no newline yet → no complete sentence
+
+    machine.feed_uart([tail])
+    assert gps.readline() == _GPGGA.decode().strip()
+
+
+def test_gps_readline_preserves_trailing_bytes_after_a_line():
+    """Bytes past the first newline stay buffered for the next readline()."""
+    machine.reset()
+    machine.feed_uart([_GPRMC])  # consumed by the probe
+    gps = GPS(bus_id=0, tx=0, rx=1)
+
+    machine.feed_uart([_GPGGA + _GPGSV])
+    assert gps.readline() == _GPGGA.decode().strip()
+    assert gps.readline() == _GPGSV.decode().strip()
+    assert gps.readline() is None

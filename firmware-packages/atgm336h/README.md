@@ -9,11 +9,11 @@ constructor takes flat pin numbers and opens its own UART, so the project's
 from atgm336h import GPS, DeviceNotFoundError
 
 gps = GPS(bus_id=0, tx=0, rx=1)   # opens the UART at 9600 baud + probes for bytes
-line = gps.readline()              # "$GPRMC,..." or None on timeout
+line = gps.readline()              # "$GPRMC,..." or None when no line is ready
 ```
 
-`readline()` returns one decoded NMEA sentence (starting with `$`), or `None` on
-timeout, decode error, or a non-NMEA line. The constructor raises
+`readline()` returns one decoded NMEA sentence (starting with `$`), or `None`
+when no complete line is ready, on decode error, or on a non-NMEA line. The constructor raises
 `DeviceNotFoundError` if no NMEA bytes arrive within the probe budget (~2 s).
 
 ## Pin numbers live in the project
