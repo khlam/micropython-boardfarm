@@ -182,6 +182,9 @@ include = ["cpython-packages/micropython_stubs/**"]
 rules.unresolved-attribute = "ignore"
 rules.unresolved-import = "ignore"
 rules.invalid-return-type = "ignore"
+# Stubs store duck-typed handlers (IRQ/Timer callbacks, micropython.schedule
+# targets) typed as object/None and invoke them, mirroring the firmware override.
+rules.call-non-callable = "ignore"
 
 [tool.ruff]
 target-version = "py312"

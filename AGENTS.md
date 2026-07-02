@@ -12,6 +12,9 @@ Never install anything on the host machine. Docker is the only required host too
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
 
+### CI and hooks
+Do not run CI/check suites or fix pre-commit failures unless explicitly asked. This includes `pre-commit`, lint/typecheck jobs, Docker bake checks, and full pytest/CI-style validation runs; mention relevant commands when helpful, but leave them unrun.
+
 ### JSON output schema †
 Firmware runs MicroPython (`ujson` built-in); host tests run CPython, where `ujson` is a thin stub that re-exports `json.dumps`. Both sides produce identical compact JSON, so `emit()` is safe to call in either context — but raw `print()` bypasses that contract and silently corrupts the viz parser, which drops any line that isn't valid JSON.
 
