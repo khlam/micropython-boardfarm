@@ -10,10 +10,10 @@ import time
 from collections import namedtuple
 
 import ujson
-from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
 from atgm336h import GPS, DeviceNotFoundError
 from boot_status_led import status
+from nmea import apply_parsed, build_utc_full, nmea_checksum_valid, parse_sentence
 
 # Per-chip pin map — the authoritative wiring for this project, plain GPIO
 # numbers. uart_id selects the UART peripheral the driver opens; tx drives the
