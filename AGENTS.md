@@ -35,6 +35,7 @@ Before changing anything, identify the area you're touching:
 | --- | --- | --- |
 | Entry point | `projects/<project>/firmware/` | `main.py` — BOARD pin table, sensor init/retry, JSON streaming loop |
 | LED state machine | `firmware-packages/boot_status_led/boot_status_led/` | `status.py` — named transitions + colour constants, chip dispatch |
+| Boot button | `firmware-packages/boot_button/boot_button/` | `button.py` — `on_press(callback)`; chip dispatch → ESP32-S3 GPIO0 hardware IRQ, RP2040/RP2350 soft-`Timer` poll of `rp2.bootsel_button()`; debounced, deferred via `micropython.schedule` |
 | I²C bus (internal) | `firmware-packages/i2c_bus/i2c_bus/` | `__init__.py` — `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` + `DeviceNotFoundError`; consumed only by drivers, never by projects |
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(sda=, scl=, skip_spad_info=True, interrupt_status_mask=0xFF)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |

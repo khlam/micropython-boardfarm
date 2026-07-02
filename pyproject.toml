@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 
 
 dependencies = [
+    "boot_button>=0.1.0",
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
     "i2c_bus>=0.2.0",
@@ -49,6 +50,7 @@ explicit = true   # only sources pinned to it use it; third-party stays on PyPI
 [tool.uv.sources]
 serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
+boot_button = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
 i2c_bus = { index = "internal" }
