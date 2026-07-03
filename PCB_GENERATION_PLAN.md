@@ -128,6 +128,11 @@ from firmware or README diagrams. Each MCU definition should provide canonical
 pin labels plus aliases where useful, such as `GPIO0`, `GP0`, and `0`, all
 pointing at the same physical header coordinate.
 
+Every MCU board definition should include the complete through-board header
+geometry. Assume each MCU board is soldered to headers along its left and right
+pin columns, so every physical MCU header pin gets a plated through-hole pad even
+when no firmware-defined connection uses it.
+
 ## Physical Constants
 
 Use conservative constants for the initial through-hole prototyping PCB
@@ -306,9 +311,14 @@ Start with a deterministic, conservative prototyping board layout:
   edge margins.
 - 2.54 mm grid.
 - Full MCU header footprint on one side, with drilled plated through-holes for
-  every header pin that will be manually soldered.
+  every physical left/right header pin on the target MCU board, whether used by
+  firmware or not.
 - Breakout module footprint nearby, with plated through-hole pads for every
   breakout IO/header pin.
+- No spare prototyping area or extra unused perfboard grid holes. The board is
+  only a carrier that seats the MCU and breakout headers, then connects them
+  according to the project's firmware wiring plus hardware-library power/ground
+  defaults.
 - No extra mechanical screw/standoff mounting holes for now; they are out of
   scope until a later layout option is explicitly added.
 - Silkscreen labels for project, target board, module, and pin names.
@@ -356,6 +366,8 @@ Intent model tests:
 - Verify default power and ground nets route from breakout pads through MCU board
   supply pads unless explicitly overridden.
 - Verify metadata fields such as `i2c_id` and `uart_id` do not create traces.
+- Verify every MCU through-board header pin appears in the model, including pins
+  with no routed connection.
 - Verify every breakout module pin appears in the model, including pins with no
   routed connection.
 
@@ -363,8 +375,10 @@ PCB output tests:
 
 - Generated board contains expected nets.
 - Generated board contains plated through-hole pads.
+- Every physical MCU left/right header pin has a plated through-hole pad.
 - Every breakout module IO/header pin has a plated through-hole pad.
 - Unconnected breakout pins remain isolated pads.
+- No spare prototyping grid holes are generated.
 - Generated board has an `Edge.Cuts` outline.
 - Generated board has solder mask openings over pads.
 - Generated board has drill definitions for all through-hole pads.
@@ -406,8 +420,3 @@ All tests and generation commands should run through Docker compose services.
 11. Add the all-project CI check that creates `WIRING.MD` and validates PCB
     generation from source.
 12. Generate one Gerber fabrication package per MCU for each current project.
-
-## Open Questions
-
-- Should generated boards include only component header holes, or also extra
-  perfboard grid holes for later hand wiring?
