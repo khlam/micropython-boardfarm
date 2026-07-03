@@ -33,17 +33,13 @@ Current pattern:
 
 Current project shapes:
 
-| Project | Driver | Board fields | Signals consumed |
+| Project | Driver | Board fields | Firmware connection fields |
 | --- | --- | --- | --- |
-| `distance-stream` | `VL53L0X` | `name`, `sda`, `scl` | I2C SDA/SCL |
-| `multizone-ranging` | `VL53L5CX` | `name`, `sda`, `scl` | I2C SDA/SCL |
-| `compass` | `QMC5883P` | `name`, `i2c_id`, `sda`, `scl` | I2C SDA/SCL |
-| `gyro-stream` | `MPU6050` | `name`, `i2c_id`, `sda`, `scl` | I2C SDA/SCL |
-| `gps` | `GPS` | `name`, `uart_id`, `tx`, `rx` | UART TX/RX |
-
---The firmware is the right source of truth for logical signal mapping. It is not
-enough to generate a PCB by itself because it does not contain physical header
-geometry, board outline, pad sizes, drill sizes, or module placement.--
+| `distance-stream` | `VL53L0X` | `name`, `sda`, `scl` | `sda`, `scl` |
+| `multizone-ranging` | `VL53L5CX` | `name`, `sda`, `scl` | `sda`, `scl` |
+| `compass` | `QMC5883P` | `name`, `i2c_id`, `sda`, `scl` | `sda`, `scl` |
+| `gyro-stream` | `MPU6050` | `name`, `i2c_id`, `sda`, `scl` | `sda`, `scl` |
+| `gps` | `GPS` | `name`, `uart_id`, `tx`, `rx` | `tx`, `rx` |
 
 The user or agent writing firmware is responsible for choosing correct logical
 connections. The PCB workflow should faithfully translate those connections into
@@ -80,20 +76,12 @@ module: VL53L0X
 nets:
   SDA: MCU GPIO0 -> sensor SDA
   SCL: MCU GPIO1 -> sensor SCL
-  5V:  MCU 5V/VBUS -> sensor VIN
-  GND: MCU GND -> sensor GND
 ```
 
-GPS needs direction-aware mapping:
-
-```text
-MCU rx -> GPS TX
-MCU tx -> GPS RX
-```
-
-The GPS RX connection should be represented as optional because the project
-README says it is only needed when sending configuration commands to the module,
-even though firmware defines the MCU TX pin.
+Treat every firmware-defined connection as an undirected net between plated
+through-hole pads. The generator should not infer protocol semantics from names
+such as `sda`, `scl`, `tx`, or `rx`; they are just connection names. Fields such
+as `name`, `i2c_id`, and `uart_id` are metadata and do not create copper traces.
 
 ## Hardware Library
 
@@ -122,10 +110,15 @@ Each hardware entry should define:
 - Drill diameter.
 - Copper pad diameter.
 - Default pin shape, such as round or square pin 1.
-- Power pin aliases, such as `5V`, `VBUS`, `VIN`, `VCC`, `3V3`, and `GND`.
-- Optional pins, such as `AD0`, `LPN`, `XSHUT`, and GPS `RX`.
+- Pin aliases, such as `5V`, `VBUS`, `VIN`, `VCC`, `3V3`, and `GND`.
+- Module-specific pins, such as `AD0`, `LPN`, and `XSHUT`.
 - Silkscreen labels.
 - Keepout or placement hints where needed.
+
+Every breakout module definition should include all of its IO/header pins. The
+generated PCB should place a plated through-hole pad for every breakout pin even
+when no firmware-defined connection routes to it. Unconnected breakout pins
+remain isolated pads with solder mask openings and silkscreen labels.
 
 The three supported MCU boards are defined and static. Their physical header
 maps should be checked in as explicit hardware-library data rather than inferred
@@ -179,10 +172,7 @@ Target generated artifacts:
 - Excellon drill files for plated through-holes.
 - Fabrication zip.
 
-Generated PCB artifacts should not be written under `projects/<project>/outputs/`,
-because that directory is reserved for firmware build artifacts and should not be
-read or edited directly. Use a separate generated-artifact area such as
-`build/pcb/<project>/<target-board>/`.
+Generated PCB artifacts should be saved under `projects/<project>/outputs/`
 
 When this plan says one Gerber output per MCU, treat that as one generated
 fabrication package per MCU target. The package may contain multiple standard
@@ -206,10 +196,6 @@ should not live inside a single project's firmware, tests, or dashboard code.
 The standalone workflow should accept project inputs such as:
 
 - `--project-dir projects/<project>`
-- `--project <project>`
-- `--mcu RP2040-Zero`
-- `--mcu RP2350`
-- `--mcu ESP32-S3-Zero`
 - optional output directory override
 
 Each project should call the same workflow from its Docker-facing project entry.
@@ -220,9 +206,9 @@ dispatch to the same shared workflow instead of duplicating PCB logic.
 
 The workflow owns these steps:
 
-- Parse `projects/<project>/firmware/main.py`.
-- Build the normalized PCB intent model.
+- Parse `projects/<project>/firmware/` for the board datastructures, get mcu targets from the firmware
 - Create or update `projects/<project>/WIRING.MD`.
+- Build the normalized PCB intent model.
 - Generate one KiCad PCB per requested MCU target.
 - Export the MCU-specific Gerber fabrication package.
 - Export drill files.
@@ -248,10 +234,9 @@ It should include:
 - Source firmware file path.
 - Supported MCU targets discovered from the `BOARD` table.
 - Per-MCU logical pin table.
-- Derived nets, including power and ground.
+- Firmware-defined pad-to-pad connections.
 - Driver/module name inferred from the consumed constructor call.
-- Optional connections, such as GPS module `RX`.
-- Any power assumptions supplied by the hardware library.
+- All breakout module pins, including isolated pads with no routed connection.
 - Output artifact paths for the generated MCU-specific PCB packages.
 
 The file should make clear that firmware `main.py` remains the source of truth
@@ -285,9 +270,9 @@ Start with a deterministic, conservative prototyping board layout:
 
 - Rectangular board outline.
 - 2.54 mm grid.
-- Plated through-hole pads only where components or useful tie points exist.
-- MCU header footprint on one side.
-- Sensor or GPS breakout footprint nearby.
+- Full MCU header footprint on one side.
+- Breakout module footprint nearby, with plated through-hole pads for every
+  breakout IO/header pin.
 - Silkscreen labels for project, target board, module, and pin names.
 - Conservative trace width, clearance, annular ring, and board-edge margin.
 
@@ -295,26 +280,21 @@ Initial routing should use Manhattan traces on the 2.54 mm grid. Prefer simple,
 predictable routes over dense compaction. Use both copper layers only when it
 keeps the routing clear and fabrication-friendly.
 
-## Net Mapping Rules
+## Connection Rules
 
-I2C projects:
+All project firmware connections are plain pad-to-pad connections:
 
-- Firmware `sda` maps to the module `SDA` pin.
-- Firmware `scl` maps to the module `SCL` pin.
-- Add `5V` or `VBUS` to module `VIN` or `VCC` when the module entry allows it.
-- Add `GND` to module `GND`.
-- Preserve `i2c_id` in the parsed model for traceability, but it usually has no
-  PCB geometry impact.
-
-GPS project:
-
-- Firmware `rx` is the MCU receive pin and connects to GPS `TX`.
-- Firmware `tx` is the MCU transmit pin and connects to GPS `RX`.
-- GPS `RX` may be optional in the generated board variant.
-- Add `5V` or `VBUS` to module `VCC`.
-- Add `GND` to module `GND`.
-- Preserve `uart_id` in the parsed model for traceability, but it usually has no
-  PCB geometry impact.
+- A driver constructor argument that consumes a physical `BOARD` field creates a
+  generated net with that argument name.
+- The selected `BOARD` value identifies the MCU pad for that net.
+- The breakout hardware entry identifies the module pad for that same connection
+  name.
+- The PCB generator connects those two pads with copper.
+- Metadata fields such as `name`, `i2c_id`, and `uart_id` stay in the intent
+  model for traceability but do not create traces.
+- Breakout pins that do not match a firmware-defined connection still get through-hole pads, mask openings, and labels, but no copper trace.
+- The generator should fail fast if a firmware-defined connection name cannot be
+  resolved to an MCU pad or breakout pad.
 
 ## Testing Plan
 
@@ -328,17 +308,17 @@ Parser tests:
 
 Intent model tests:
 
-- Verify expected I2C nets for `distance-stream`, `multizone-ranging`,
-  `compass`, and `gyro-stream`.
-- Verify expected UART direction mapping for `gps`.
-- Verify optional GPS RX behavior.
-- Verify power and ground defaults come from hardware library data rather than
-  hidden parser assumptions.
+- Verify expected firmware-defined connection nets for every current project.
+- Verify metadata fields such as `i2c_id` and `uart_id` do not create traces.
+- Verify every breakout module pin appears in the model, including pins with no
+  routed connection.
 
 PCB output tests:
 
 - Generated board contains expected nets.
 - Generated board contains plated through-hole pads.
+- Every breakout module IO/header pin has a plated through-hole pad.
+- Unconnected breakout pins remain isolated pads.
 - Generated board has an `Edge.Cuts` outline.
 - Generated board has solder mask openings over pads.
 - Generated board has drill definitions for all through-hole pads.
@@ -352,8 +332,8 @@ PCB output tests:
 - File is created for a project that does not have one.
 - File is updated deterministically when firmware wiring changes.
 - File lists every MCU target discovered in the firmware.
-- File shows GPS TX/RX direction correctly.
-- File marks optional GPS RX behavior clearly.
+- File shows firmware-defined connections as plain pad-to-pad copper nets.
+- File lists unconnected breakout pins as available holes.
 
 All tests and generation commands should run through Docker compose services.
 
@@ -373,12 +353,10 @@ All tests and generation commands should run through Docker compose services.
 
 ## Open Questions
 
-- Should generated boards include only the required module header holes, or also
-  extra perfboard grid holes for later hand wiring?
-- Should GPS MCU TX to GPS RX be included by default, or exposed as an explicit
-  optional variant?
-- Should sensor modules always use 5V/VBUS when their breakout supports it, or
-  should 3V3 be selectable per generated board?
+- Should generated boards include only component header holes, or also extra
+  perfboard grid holes for later hand wiring?
+- Should power and ground be added by a separate project-level board spec, or
+  stay as labeled holes unless firmware/data explicitly defines those nets?
 - Should board dimensions be derived from component placement plus margins, or
   chosen from standard low-cost fabrication panel sizes?
 - Should output variants include mounting holes?
