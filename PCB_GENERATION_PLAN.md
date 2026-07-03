@@ -9,7 +9,7 @@ plated through-hole pads, copper traces, solder mask openings, optional
 silkscreen labels, board outline, and drill files.
 
 The workflow should also create or update `projects/<project>/WIRING.MD` from
-the same parsed wiring model so the human-readable wiring documentation and the
+the same parsed wiring model so human-readable wiring documentation and
 fabrication output are derived from one source.
 
 This plan is intentionally implementation-free. It describes the shape of the
@@ -111,6 +111,8 @@ Each hardware entry should define:
 - Copper pad diameter.
 - Default pin shape, such as round or square pin 1.
 - Pin aliases, such as `5V`, `VBUS`, `VIN`, `VCC`, `3V3`, and `GND`.
+- Default power and ground mappings from breakout pads to MCU board supply pads,
+  unless a project or hardware entry explicitly overrides them.
 - Module-specific pins, such as `AD0`, `LPN`, and `XSHUT`.
 - Silkscreen labels.
 - Keepout or placement hints where needed.
@@ -144,6 +146,7 @@ Recommended initial constants:
 | Trace width | `0.40 mm` | Easy fabrication and hand-inspection margin. |
 | Copper clearance | `0.25 mm` | Conservative for common low-cost 2-layer PCB fabrication. |
 | Board edge margin | `2.00 mm` | Minimum distance from routed copper/pads to outline. |
+| Standard board sizes | `50x50`, `50x70`, `70x100`, `100x100 mm` | Try in order and choose the smallest size that fits. |
 | Silkscreen text height | `1.00 mm` | Legible without consuming much board area. |
 | Silkscreen stroke | `0.15 mm` | Typical manufacturable text stroke. |
 | Solder mask expansion | KiCad default unless overridden | Let KiCad/fabricator defaults handle common mask openings first. |
@@ -172,12 +175,17 @@ Target generated artifacts:
 - Excellon drill files for plated through-holes.
 - Fabrication zip.
 
-Generated PCB artifacts should be saved under `projects/<project>/outputs/`
+Generated PCB artifacts should not be committed. Save them under `projects/<project>/outputs/`.
 
 When this plan says one Gerber output per MCU, treat that as one generated
 fabrication package per MCU target. The package may contain multiple standard
 Gerber layer files plus drill files, because PCB fabricators expect layer-specific
 Gerbers rather than one monolithic file.
+
+The committed PCB design state should be the generator plus the hardware library.
+Docker/CI wiring and tests are workflow source. Generated `WIRING.MD`, KiCad
+files, Gerbers, drill files, fabrication zips, and other PCB build products
+should be reproducible from source and left uncommitted.
 
 Initial generated targets:
 
@@ -206,7 +214,8 @@ dispatch to the same shared workflow instead of duplicating PCB logic.
 
 The workflow owns these steps:
 
-- Parse `projects/<project>/firmware/` for the board datastructures, get mcu targets from the firmware
+- Parse `projects/<project>/firmware/` for the board data structures and MCU
+  targets.
 - Create or update `projects/<project>/WIRING.MD`.
 - Build the normalized PCB intent model.
 - Generate one KiCad PCB per requested MCU target.
@@ -235,12 +244,35 @@ It should include:
 - Supported MCU targets discovered from the `BOARD` table.
 - Per-MCU logical pin table.
 - Firmware-defined pad-to-pad connections.
+- Hardware-library power and ground connections supplied through the MCU board.
 - Driver/module name inferred from the consumed constructor call.
 - All breakout module pins, including isolated pads with no routed connection.
 - Output artifact paths for the generated MCU-specific PCB packages.
 
 The file should make clear that firmware `main.py` remains the source of truth
 for signal pins and that `WIRING.MD` is generated documentation.
+
+## CI Validation
+
+The same standalone workflow that creates `WIRING.MD` should also be the CI check
+for PCB validity. CI should run it from source for every project and every
+supported MCU target.
+
+The CI check should:
+
+- Create or refresh `projects/<project>/WIRING.MD` for every project.
+- Build the PCB intent model from firmware plus the committed hardware library.
+- Generate one KiCad PCB per MCU target.
+- Run KiCad DRC where available.
+- Export Gerbers and Excellon drills.
+- Produce one fabrication package per MCU target.
+- Fail if any firmware-defined connection cannot be resolved to a valid MCU pad
+  and breakout pad.
+- Fail if any generated board is missing required holes, copper, mask, outline,
+  drill, or fabrication outputs.
+
+CI should treat generated `WIRING.MD` files, PCB files, and fabrication packages
+as build artifacts, not source files to commit.
 
 ## Docker-Only Tooling
 
@@ -269,10 +301,16 @@ The service should:
 Start with a deterministic, conservative prototyping board layout:
 
 - Rectangular board outline.
+- Smallest standard low-cost board size that fits the target MCU footprint,
+  breakout footprint, all breakout holes, required routing, labels, and board
+  edge margins.
 - 2.54 mm grid.
-- Full MCU header footprint on one side.
+- Full MCU header footprint on one side, with drilled plated through-holes for
+  every header pin that will be manually soldered.
 - Breakout module footprint nearby, with plated through-hole pads for every
   breakout IO/header pin.
+- No extra mechanical screw/standoff mounting holes for now; they are out of
+  scope until a later layout option is explicitly added.
 - Silkscreen labels for project, target board, module, and pin names.
 - Conservative trace width, clearance, annular ring, and board-edge margin.
 
@@ -290,9 +328,15 @@ All project firmware connections are plain pad-to-pad connections:
 - The breakout hardware entry identifies the module pad for that same connection
   name.
 - The PCB generator connects those two pads with copper.
+- Power and ground are supplied through the MCU board by default. The hardware
+  library maps breakout supply pads such as `VIN`, `VCC`, and `GND` to the target
+  MCU board's matching supply pads, unless a project or hardware entry explicitly
+  defines a different supply net.
 - Metadata fields such as `name`, `i2c_id`, and `uart_id` stay in the intent
   model for traceability but do not create traces.
-- Breakout pins that do not match a firmware-defined connection still get through-hole pads, mask openings, and labels, but no copper trace.
+- Breakout pins that do not match a firmware-defined connection or hardware
+  power/ground mapping still get through-hole pads, mask openings, and labels,
+  but no copper trace.
 - The generator should fail fast if a firmware-defined connection name cannot be
   resolved to an MCU pad or breakout pad.
 
@@ -309,6 +353,8 @@ Parser tests:
 Intent model tests:
 
 - Verify expected firmware-defined connection nets for every current project.
+- Verify default power and ground nets route from breakout pads through MCU board
+  supply pads unless explicitly overridden.
 - Verify metadata fields such as `i2c_id` and `uart_id` do not create traces.
 - Verify every breakout module pin appears in the model, including pins with no
   routed connection.
@@ -335,6 +381,14 @@ PCB output tests:
 - File shows firmware-defined connections as plain pad-to-pad copper nets.
 - File lists unconnected breakout pins as available holes.
 
+CI workflow tests:
+
+- The all-project PCB check creates `WIRING.MD` for every project.
+- The same check generates valid PCB artifacts for every project/MCU target.
+- The check fails on unresolved firmware connection fields.
+- Generated `WIRING.MD`, KiCad, Gerber, drill, and fabrication package files are
+  not required to be committed.
+
 All tests and generation commands should run through Docker compose services.
 
 ## Milestones
@@ -349,16 +403,11 @@ All tests and generation commands should run through Docker compose services.
 8. Add Dockerized KiCad export through the standalone workflow.
 9. Add DRC and fabrication zip checks.
 10. Expand hardware data to all supported MCU boards and modules.
-11. Generate one Gerber fabrication package per MCU for each current project.
+11. Add the all-project CI check that creates `WIRING.MD` and validates PCB
+    generation from source.
+12. Generate one Gerber fabrication package per MCU for each current project.
 
 ## Open Questions
 
 - Should generated boards include only component header holes, or also extra
   perfboard grid holes for later hand wiring?
-- Should power and ground be added by a separate project-level board spec, or
-  stay as labeled holes unless firmware/data explicitly defines those nets?
-- Should board dimensions be derived from component placement plus margins, or
-  chosen from standard low-cost fabrication panel sizes?
-- Should output variants include mounting holes?
-- Should the generated KiCad file be committed as a design artifact, or should
-  only the generator and hardware library be committed?
