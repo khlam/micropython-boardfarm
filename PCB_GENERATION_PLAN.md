@@ -38,20 +38,28 @@ Current pattern:
 
 PCB-generation-capable firmware must also define the complete board-to-breakout
 wiring in `main.py` using a static project-library syntax that the PCB parser can
-read without importing the firmware. That declaration owns every routed net:
+read without importing the firmware. That declaration owns two things: each
+breakout connector's complete pad list in physical order, and every routed net —
 signal, power, ground, and any optional control line such as `AD0`, `LPN`, or
-`XSHUT` when connected. No copper connection should be invented by the hardware
-library.
+`XSHUT` when connected. Connector pad names are opaque labels; the declaration
+is the only source of breakout pin count, pin order, and pad naming. No copper
+connection should be invented by the hardware library.
 
 The project-library guard should enforce that:
 
 - Every driver constructor argument that consumes a physical `BOARD` field is
   represented in the explicit firmware wiring declaration.
-- Every firmware-declared net resolves to known pads in the hardware library.
+- Every firmware-declared net resolves to a pad on the target MCU board or in a
+  declared connector pad list.
+- Each connector declares its full pad set, with no duplicate pad names.
 - Metadata fields such as `name`, `i2c_id`, and `uart_id` cannot create routed
   nets.
-- Power, ground, and voltage-domain choices are explicit in firmware wiring, not
-  supplied by defaults.
+- Power and ground choices are explicit in firmware wiring, not supplied by
+  defaults.
+
+Declared connector pin order is trusted as physically correct. The generator
+cannot detect a declaration whose pad order differs from the real module; that
+risk is accepted and owned by the firmware author.
 
 Current project shapes:
 
@@ -65,15 +73,16 @@ Current project shapes:
 
 The table reflects today's signal-only firmware pattern. PCB generation should
 not produce boards for a project until that project's `main.py` has been
-migrated to the explicit all-net wiring declaration, including power and ground.
+migrated to the explicit wiring declaration, including connector pad lists,
+power, and ground.
 
 The user or agent writing firmware is responsible for choosing correct logical
 connections. The PCB workflow should faithfully translate those connections into
 documentation and board files. It should not second-guess firmware by silently
 rewriting pins, choosing alternate GPIOs, or inferring a different bus. It may
-fail fast on missing firmware wiring declarations, unknown board names, unknown
-signal names, missing hardware-library entries, or physically impossible
-mappings.
+fail fast on missing firmware wiring declarations, unknown target-board names,
+pads that do not resolve on the MCU board or in a declared connector, or
+physically impossible mappings.
 
 ## Important Parser Boundary
 
@@ -86,88 +95,95 @@ The parser should extract:
 
 - `Board = namedtuple(...)` field names.
 - Each machine-dispatched `BOARD = Board(...)` branch.
-- The explicit project-library wiring declaration that lists all pad-to-pad nets.
+- The explicit project-library wiring declaration: each connector's ordered pad
+  list plus all pad-to-pad nets.
 - Target board names such as `RP2040-Zero`, `RP2350`, and `ESP32-S3-Zero`.
 - Driver constructor calls that consume `BOARD` fields, such as
-  `VL53L0X(sda=BOARD.sda, scl=BOARD.scl)`.
+  `VL53L0X(sda=BOARD.sda, scl=BOARD.scl)` — used only as a consistency lint
+  (every consumed `BOARD` field must appear in a declared net), never as a
+  source of nets.
 
 ## Intermediate PCB Intent Model
 
-Normalize parsed firmware into a small, explicit model before any PCB generation.
+Normalize parsed firmware into a small, explicit model before any PCB
+generation. The model has three parts: the target MCU board, the declared
+connectors, and the declared nets.
 
 Example conceptual output for `distance-stream` on `RP2040-Zero`:
 
 ```text
 project: distance-stream
 target_board: RP2040-Zero
-module: VL53L0X
+connectors:
+  J1: 2.54 mm single-row header, pads in physical order:
+      VIN, GND, SDA, SCL, GPIO1, XSHUT
 nets:
-  VIN: MCU 5V -> sensor VIN
-  GND: MCU GND -> sensor GND
-  SDA: MCU GPIO0 -> sensor SDA
-  SCL: MCU GPIO1 -> sensor SCL
+  VIN: MCU.5V  -> J1.VIN
+  GND: MCU.GND -> J1.GND
+  SDA: MCU.GP0 -> J1.SDA
+  SCL: MCU.GP1 -> J1.SCL
 ```
 
 Treat every firmware-defined connection as an undirected net between plated
-through-hole pads, including power and ground. The generator should not infer
-protocol semantics from names such as `sda`, `scl`, `tx`, or `rx`; they are just
-connection names. Fields such as `name`, `i2c_id`, and `uart_id` are metadata
-and do not create copper traces.
+through-hole pads, including power and ground. All connector-side pad names are
+opaque labels: `SDA`, `XSHUT`, and `FOO` are treated identically. The generator
+never infers protocol semantics, buses, directions, or defaults from names.
+Fields such as `name`, `i2c_id`, and `uart_id` are metadata and do not create
+copper traces.
 
-## Hardware Library
+The model includes every MCU header pad and every declared connector pad,
+connected or not; unconnected pads become isolated plated through-holes with
+solder mask openings and silkscreen labels.
 
-Add a data-only hardware library that supplies physical facts missing from
-firmware. A likely location is `tools/pcbgen/hardware/`.
+## Hardware Library: MCU Boards and a Generic Connector
 
-The library should describe MCU boards:
+Add a data-only hardware library that supplies the physical facts missing from
+firmware. A likely location is `tools/pcbgen/hardware/`. It contains exactly
+two kinds of definitions.
+
+### MCU board definitions
+
+One entry each for:
 
 - `rp2040_zero`
 - `rp2350`
 - `esp32_s3_zero`
 
-And breakout modules:
-
-- `vl53l0x`
-- `vl53l5cx`
-- `mpu6050`
-- `qmc5883p`
-- `atgm336h`
-
-Each hardware entry should define:
-
-- Human-readable name.
-- Through-hole header pin names.
-- Physical pin coordinates on a 2.54 mm grid.
-- Drill diameter.
-- Copper pad diameter.
-- Default pin shape, such as round or square pin 1.
-- Pin aliases, such as `5V`, `VBUS`, `VIN`, `VCC`, `3V3`, and `GND`, for
-  resolving firmware-declared wiring to physical pads.
-- Voltage-domain metadata and guard rules, such as whether a breakout supply pad
-  may be connected to `5V`, `VBUS`, or `3V3`.
-- Module-specific pins, such as `AD0`, `LPN`, and `XSHUT`.
-- Silkscreen labels.
-- Keepout or placement hints where needed.
-
-The hardware library must not define default power, ground, or signal
-connections. It supplies pad geometry, aliases, voltage compatibility, and
-physical constraints; the firmware wiring declaration supplies all routed nets.
-
-Every breakout module definition should include all of its IO/header pins. The
-generated PCB should place a plated through-hole pad for every breakout pin even
-when no firmware-defined connection routes to it. Unconnected breakout pins
-remain isolated pads with solder mask openings and silkscreen labels.
-
 The three supported MCU boards are defined and static. Their physical header
 maps should be checked in as explicit hardware-library data rather than inferred
-from firmware or README diagrams. Each MCU definition should provide canonical
-pin labels plus aliases where useful, such as `GPIO0`, `GP0`, and `0`, all
-pointing at the same physical header coordinate.
+from firmware or README diagrams. Each MCU entry defines:
 
-Every MCU board definition should include the complete through-board header
-geometry. Assume each MCU board is soldered to headers along its left and right
-pin columns, so every physical MCU header pin gets a plated through-hole pad even
+- Human-readable name.
+- The complete left/right through-board header geometry: ordered physical pads
+  with coordinates on the 2.54 mm grid.
+- Canonical pad names plus GPIO-number aliases — `0`, `GP0`, and `GPIO0` all
+  resolve to the same physical header coordinate — because `BOARD` fields are
+  plain integers.
+- Supply-pad identities: which pads are 5V-class (`5V`/`VBUS`), `3V3`, and
+  `GND`.
+- Board body outline for placement and board sizing.
+- Silkscreen labels.
+
+Assume each MCU board is soldered to headers along its left and right pin
+columns, so every physical MCU header pin gets a plated through-hole pad even
 when no firmware-defined connection uses it.
+
+### Generic breakout connector template
+
+One parameterized template: an N-pin 2.54 mm plated through-hole header, single
+row by default with a dual-row option, using drill, pad, pin-1 marking, and
+silkscreen geometry from the Physical Constants table.
+
+There are no per-module hardware entries. Breakout pad names, pin count, and
+pin order come entirely from the firmware wiring declaration; the library
+treats pad names as opaque labels used for net endpoints and silkscreen. The
+library carries no peripheral knowledge — no module voltage rules, no
+control-pin semantics, no breakout-side aliases — and never defines a power,
+ground, or signal connection.
+
+Every declared connector pad gets a plated through-hole pad even when no
+firmware-defined connection routes to it. Unconnected connector pads remain
+isolated pads with solder mask openings and silkscreen labels.
 
 ## Physical Constants
 
@@ -193,8 +209,9 @@ Recommended initial constants:
 | Solder mask expansion | KiCad default unless overridden | Let KiCad/fabricator defaults handle common mask openings first. |
 
 These constants are assumptions for the generated carrier/perfboard PCB, not
-firmware behavior. The static MCU board and module footprint definitions still
-own their exact pin counts, pin order, aliases, and coordinates.
+firmware behavior. The static MCU board definitions own their exact pin counts,
+pin order, aliases, and coordinates; connector pin counts, order, and names
+come from each project's firmware wiring declaration.
 
 ## PCB Generator Strategy
 
@@ -306,12 +323,17 @@ It should include:
 - Source firmware file path.
 - Supported MCU targets discovered from the `BOARD` table.
 - Per-MCU logical pin table.
+- Declared connectors with their full ordered pad lists.
 - Firmware-defined pad-to-pad connections.
 - Firmware-defined power and ground connections.
-- Hardware-library validation results for pad resolution and voltage-domain
-  compatibility.
-- Driver/module name inferred from the consumed constructor call.
-- All breakout module pins, including isolated pads with no routed connection.
+- Pad-resolution validation results against the MCU board definition and the
+  declared connector pad lists.
+- A review section listing every net attached to an MCU 5V-class supply pad,
+  since the generator has no module voltage knowledge to validate against.
+- Driver/module name from the consumed constructor call, as optional
+  traceability metadata only.
+- All declared connector pads, including isolated pads with no routed
+  connection.
 - Output artifact paths for the generated MCU-specific PCB packages.
 
 The file should make clear that firmware `main.py` remains the source of truth
@@ -338,9 +360,10 @@ The CI check should:
 - Export Gerbers and Excellon drills to the temporary artifact directory.
 - Produce one fabrication package per MCU target.
 - Fail if any firmware-defined connection cannot be resolved to a valid MCU pad
-  and breakout pad.
-- Fail if checked-in `WIRING.MD` describes connections, modules, target boards,
-  or output artifact paths that do not match the generated intent model.
+  and declared connector pad.
+- Fail if checked-in `WIRING.MD` describes connections, connectors, target
+  boards, or output artifact paths that do not match the generated intent
+  model.
 - Fail if any generated board is missing required holes, copper, mask, outline,
   drill, or fabrication outputs.
 
@@ -391,20 +414,24 @@ Start with a deterministic, conservative prototyping board layout:
 
 - Rectangular board outline.
 - Smallest standard low-cost board size that fits the target MCU footprint,
-  breakout footprint, all breakout holes, required routing, labels, and board
-  edge margins.
+  declared connector footprints, all connector holes, required routing, labels,
+  and board edge margins.
 - 2.54 mm grid.
 - Full MCU header footprint on one side, with drilled plated through-holes for
   every physical left/right header pin on the target MCU board, whether used by
   firmware or not.
-- Breakout module footprint nearby, with plated through-hole pads for every
-  breakout IO/header pin.
+- Generic breakout header connectors nearby, with plated through-hole pads for
+  every declared connector pad. Module body size is unknown to the generator,
+  so keep a conservative default clearance around each connector for
+  breakout-board overhang, overridable by an optional per-connector body hint
+  in the firmware declaration.
 - No spare prototyping area or extra unused perfboard grid holes. The board is
   only a carrier that seats the MCU and breakout headers, then connects them
   according to the project's explicit firmware wiring declaration.
 - No extra mechanical screw/standoff mounting holes for now; they are out of
   scope until a later layout option is explicitly added.
-- Silkscreen labels for project, target board, module, and pin names.
+- Silkscreen labels for project, target board, connector designators, and pad
+  names.
 - Conservative trace width, clearance, annular ring, and board-edge margin.
 
 Initial routing should use Manhattan traces on the 2.54 mm grid. Prefer simple,
@@ -415,23 +442,48 @@ keeps the routing clear and fabrication-friendly.
 
 All project firmware connections are plain pad-to-pad connections:
 
-- The explicit project-library wiring declaration in firmware creates generated
-  nets.
-- Each net identifies the MCU pad and breakout pad to connect.
+- The explicit project-library wiring declaration in firmware is the sole
+  source of connectors and generated nets. Each connector lists its complete
+  pad set in physical order; each net lists the exact pads it joins
+  (`MCU.<pad>` or `<connector>.<pad>`).
+- The generator routes exactly the declared nets: no alternate GPIOs, no
+  inferred buses, no default power or ground, no invented copper.
 - The selected `BOARD` value may identify the MCU pad for a signal net, such as
-  `BOARD.sda` or `BOARD.rx`.
-- Literal supply aliases such as `5V`, `VBUS`, `3V3`, and `GND` may identify
-  MCU supply pads, but only when explicitly declared in firmware.
-- The breakout hardware entry resolves declared breakout pad names and validates
-  physical and voltage compatibility.
-- The PCB generator connects only firmware-declared pad pairs with copper.
+  `BOARD.sda` or `BOARD.rx`, resolved by GPIO number against the MCU board
+  definition.
+- MCU supply pads are referenced by their canonical names (`5V`, `3V3`, `GND`)
+  and only appear in nets when explicitly declared in firmware.
+- Connector-side pad names are opaque; the generator attaches no meaning to
+  `SDA`, `TX`, `XSHUT`, or any other label.
 - Metadata fields such as `name`, `i2c_id`, and `uart_id` stay in the intent
   model for traceability but do not create traces.
-- Breakout pins that do not appear in a firmware-defined connection still get
+- Connector pads that do not appear in a firmware-defined connection still get
   through-hole pads, mask openings, and labels, but no copper trace.
-- The generator should fail fast if a firmware-defined connection cannot be
-  resolved to a valid MCU pad and breakout pad, or if a declared voltage-domain
-  connection violates the hardware-library guard rules.
+
+Fail fast on:
+
+- A net pad that does not resolve on the target MCU board or in a declared
+  connector pad list.
+- The same physical pad appearing in two different nets.
+- A net joining two different MCU supply rails, or a supply pad to `GND`.
+- A net with fewer than two pads, duplicate net names, or duplicate pad names
+  within one connector.
+- A `BOARD` field consumed by a driver constructor call but absent from the
+  wiring declaration.
+- A machine branch in `BOARD` dispatch that the declaration does not cover.
+- Unroutable nets or DRC violations — never silently reroute or substitute
+  pins.
+
+Softer checks, with explicit opt-outs rather than silent defaults:
+
+- A connector with no net to any MCU supply pad, or no net to `GND`, fails
+  unless the declaration explicitly marks that connector as intentionally
+  unpowered.
+- Every net attached to an MCU 5V-class pad is surfaced in `WIRING.MD` for
+  human review, since the generator has no module voltage knowledge to validate
+  against.
+- An MCU-pad-to-MCU-pad net with no connector involved is legal but flagged
+  with a warning.
 
 ## Testing Plan
 
@@ -439,9 +491,11 @@ Parser tests:
 
 - Extract all current project `Board` fields.
 - Extract all current machine branches.
-- Extract explicit project-library wiring declarations.
+- Extract explicit project-library wiring declarations, including each
+  connector's ordered pad list.
 - Verify expected target board names.
-- Verify consumed driver kwargs.
+- Verify the consistency lint: a `BOARD` field consumed by a driver constructor
+  but absent from the wiring declaration fails the guard.
 - Verify firmware without a complete all-net wiring declaration fails the PCB
   generation guard.
 - Verify no firmware execution occurs during parsing.
@@ -449,21 +503,26 @@ Parser tests:
 Intent model tests:
 
 - Verify expected firmware-defined connection nets for every current project.
-- Verify explicit firmware-defined power and ground nets route from breakout
-  pads through MCU board supply pads.
+- Verify explicit firmware-defined power and ground nets route from connector
+  pads to MCU board supply pads.
 - Verify metadata fields such as `i2c_id` and `uart_id` do not create traces.
 - Verify every MCU through-board header pin appears in the model, including pins
   with no routed connection.
-- Verify every breakout module pin appears in the model, including pins with no
-  routed connection.
+- Verify every declared connector pad appears in the model, including pads with
+  no routed connection.
+- Verify one physical pad appearing in two different nets fails.
+- Verify a net joining two different MCU supply rails, or a supply pad to
+  `GND`, fails.
+- Verify a connector with no supply net or no `GND` net fails unless explicitly
+  marked as intentionally unpowered.
 
 PCB output tests:
 
 - Generated board contains expected nets.
 - Generated board contains plated through-hole pads.
 - Every physical MCU left/right header pin has a plated through-hole pad.
-- Every breakout module IO/header pin has a plated through-hole pad.
-- Unconnected breakout pins remain isolated pads.
+- Every declared connector pad has a plated through-hole pad.
+- Unconnected connector pads remain isolated pads.
 - No spare prototyping grid holes are generated.
 - Generated board has an `Edge.Cuts` outline.
 - Generated board has solder mask openings over pads.
@@ -480,7 +539,8 @@ PCB output tests:
 - File lists every MCU target discovered in the firmware.
 - File shows firmware-defined connections as plain pad-to-pad copper nets.
 - File includes explicit firmware-defined power and ground nets.
-- File lists unconnected breakout pins as available holes.
+- File lists unconnected connector pads as available holes.
+- File includes the 5V-class rail review section when such nets exist.
 - CI fails if the generated file differs from the checked-in file.
 
 CI workflow tests:
@@ -502,16 +562,19 @@ All tests and generation commands should run through Docker compose services.
 1. Document the firmware-to-net mapping contract.
 2. Define the shared core interface and separate generation/check command
    contracts.
-3. Define the firmware project-library wiring syntax and guard rules.
-4. Migrate one project to the explicit all-net firmware wiring declaration.
-5. Add the hardware library schema and data for one MCU board plus one sensor.
+3. Define the firmware project-library wiring syntax — connector pad lists plus
+   nets — and guard rules.
+4. Migrate one project to the explicit all-net firmware wiring declaration,
+   including its connector pad lists.
+5. Add the hardware library schema and data for one MCU board plus the generic
+   connector template.
 6. Build the AST parser and tests for current `main.py` files.
 7. Build the intermediate intent model and tests.
 8. Generate deterministic, committed `projects/<project>/WIRING.MD`.
 9. Generate a minimal KiCad PCB for one project and one MCU target.
 10. Add Dockerized KiCad export through the generation job.
 11. Add DRC and fabrication zip checks.
-12. Expand hardware data to all supported MCU boards and modules.
+12. Add the remaining MCU board definitions.
 13. Migrate every current project to explicit all-net firmware wiring.
 14. Add the all-project CI check that validates checked-in `WIRING.MD` files and
     PCB generation from source without updating committed files.
