@@ -444,7 +444,7 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.8.0"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
