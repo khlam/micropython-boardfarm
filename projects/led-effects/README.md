@@ -4,14 +4,14 @@ MicroPython firmware that cycles a WS2812B addressable-LED strip through four
 parametric animations — rainbow, hue rotation, breathing, and colour fade —
 rendering each for 200 frames at ~50 fps before advancing to the next. It is a
 hardware demo for the [`ws2812b`](../../firmware-packages/ws2812b) package and
-ships no dashboard; the strip's data pin is the only chip-specific detail and
-lives in the backend selected at import time, so the same firmware builds for
+ships no dashboard; the strip's data pin lives in the firmware's `BOARD` table
+(dispatched per chip by `os.uname().machine`), so the same firmware builds for
 RP2040, RP2350, and ESP32-S3.
 
 ## Layout
 ```
 led-effects/
-  firmware/main.py            chip-agnostic effect-cycling loop, calls emit()
+  firmware/main.py            BOARD pin table + effect-cycling loop, calls emit()
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash services
 ```
@@ -40,16 +40,17 @@ led-effects/
   of each (`rainbow` → `hue_rotate` → `breathe` → `color_fade`) at ~50 fps
   before advancing. It emits one JSON line per effect change
   (`{"effect": <name>}`); there is no sensor and no dashboard.
-- The strip is fixed at 8 LEDs (`LED_COUNT` in [firmware/main.py](firmware/main.py));
+- The strip is fixed at 20 LEDs (`LED_COUNT` in [firmware/main.py](firmware/main.py));
   change it there and recompile to drive a longer strip.
-- The data pin is the only chip-specific detail — it lives in `DATA_PIN` in each
-  `ws2812b` backend, never in the firmware:
+- The data pin is project wiring — it lives in the `BOARD` table in
+  [firmware/main.py](firmware/main.py), dispatched per chip by
+  `os.uname().machine`, and reaches the driver as `Strip(count, pin=...)`:
 
-  | Board         | Data pin | Backend                                                                    |
-  | ------------- | -------- | -------------------------------------------------------------------------- |
-  | RP2040-Zero   | `GP15`   | [`ws2812b/rp2040.py`](../../firmware-packages/ws2812b/ws2812b/rp2040.py)    |
-  | RP2350-Zero   | `GP15`   | [`ws2812b/rp2350.py`](../../firmware-packages/ws2812b/ws2812b/rp2350.py)    |
-  | ESP32-S3-Zero | `GPIO15` | [`ws2812b/esp32s3.py`](../../firmware-packages/ws2812b/ws2812b/esp32s3.py)  |
+  | Board         | Data pin |
+  | ------------- | -------- |
+  | RP2040-Zero   | `GP15`   |
+  | RP2350        | `GP15`   |
+  | ESP32-S3-Zero | `GPIO15` |
 
   Every board drives the strip from a dedicated GPIO, separate from the on-board
   WS2812 (the boot status LED on `GP16` / `GPIO21`). The on-board pixel is never

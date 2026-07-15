@@ -1,30 +1,26 @@
-"""MCU-micropython WS2812B strip driver with chip-dispatched data pin.
+"""MCU-micropython WS2812B strip driver.
 
-Picks the per-chip backend at import time (the pattern ``boot_status_led``
-establishes), so project firmware constructs ``Strip(count)`` without knowing
-which board it runs on. The backend owns the one chip-specific detail — the
-WS2812B data GPIO — and the effects in ``ws2812b.effects`` stay hardware-free.
+The data GPIO arrives as a constructor argument from the project's BOARD
+table — pin assignments are project wiring, so the package holds no per-chip
+configuration and the effects in ``ws2812b.effects`` stay hardware-free.
 """
 
-import os
-
-# Pick the chip-specific backend at import time.
-_machine = os.uname().machine
-if "ESP32S3" in _machine:
-    from ws2812b.esp32s3 import pixels as _pixels
-elif "RP2350" in _machine:
-    from ws2812b.rp2350 import pixels as _pixels
-else:
-    from ws2812b.rp2040 import pixels as _pixels
+from machine import Pin
+from neopixel import NeoPixel
 
 
 class Strip:
     """Owns a NeoPixel buffer and latches effect frames to the WS2812B LEDs."""
 
-    def __init__(self, count: int) -> None:
-        """Build a ``count``-LED strip on the active chip's data pin."""
+    def __init__(self, count: int, *, pin: int) -> None:
+        """Build a ``count``-LED strip with its data line on GPIO ``pin``.
+
+        Args:
+            count: Number of LEDs on the strip.
+            pin: GPIO number carrying the strip's DIN line.
+        """
         self.count = count
-        self._np = _pixels(count)
+        self._np = NeoPixel(Pin(pin, Pin.OUT), count)
 
     def render(self, frame: list[tuple[int, int, int]]) -> None:
         """Write one ``frame`` (one ``(r, g, b)`` per LED) to the strip and latch it.

@@ -1,10 +1,10 @@
 # ws2812b
 
-Chip-dispatched WS2812B addressable-LED strip driver plus a small set of
-parametric animation effects. The effect maths is pure (host-testable under
-CPython); the only chip-specific detail — the strip's data GPIO — lives in the
-per-chip backends (`rp2040`, `rp2350`, `esp32s3`) selected at import time, the
-same pattern `boot_status_led` uses.
+WS2812B addressable-LED strip driver plus a small set of parametric animation
+effects. The effect maths is pure (host-testable under CPython); the strip's
+data GPIO is project wiring, supplied by the caller from the project's BOARD
+table (`Strip(count, pin=...)`), so the package holds no per-chip
+configuration.
 
 ## Effects
 
@@ -24,7 +24,7 @@ constants of the 8-bit RGB / HSV colour model.
 ```python
 from ws2812b import Strip, Rainbow
 
-strip = Strip(8)                                   # 8 LEDs on the board's data pin
+strip = Strip(8, pin=15)                           # 8 LEDs, DIN on GPIO15
 effect = Rainbow(8, brightness=0.3, step=0.01)
 while True:
     strip.render(effect.frame())                   # one frame per render

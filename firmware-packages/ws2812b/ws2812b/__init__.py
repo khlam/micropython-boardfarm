@@ -1,7 +1,7 @@
 """MCU-micropython WS2812B strip driver and parametric animation effects.
 
 Public API:
-    Strip(count)                 # chip-dispatched driver; render(frame)
+    Strip(count, pin=...)        # driver on the caller's data GPIO; render(frame)
     Rainbow(count, ...)          # full-spectrum sweep across the strip
     HueRotate(count, ...)        # continuous uniform hue shift
     Breathe(count, ...)          # sinusoidal brightness pulse of one colour

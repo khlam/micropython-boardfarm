@@ -104,6 +104,7 @@ source = [
   "/projects/distance-stream/firmware",
   "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
+  "/projects/led-effects/firmware",
   "/projects/multizone-ranging/firmware",
 ]
 source_pkgs = [

@@ -1,18 +1,36 @@
 """MCU-micropython firmware entry point for the led-effects WS2812B demo.
 
 Cycles through the four ws2812b animations — rainbow, hue rotation, breathing,
-and colour fade — rendering each to the board's WS2812B data pin for a fixed
-run of frames before advancing to the next. Chip-agnostic: the data pin and
-NeoPixel construction live in the ws2812b backend selected at import time, so
-this firmware builds unchanged for RP2040, RP2350, and ESP32-S3.
+and colour fade — rendering each to the strip's data pin for a fixed run of
+frames before advancing to the next. Pin assignments live in this module's
+BOARD table (dispatched per chip by os.uname().machine); the Strip driver
+takes the data pin as a constructor argument, so the package stays free of
+board wiring and this firmware builds unchanged for RP2040, RP2350, and
+ESP32-S3.
 """
 
+import os
 import time
+from collections import namedtuple
 
 import ujson
 
 from boot_status_led import status
 from ws2812b import Breathe, ColorFade, HueRotate, Rainbow, Strip
+
+# Per-chip pin map — the authoritative wiring for this project, plain GPIO
+# numbers. data_pin carries the external strip's data line, kept clear of the
+# on-board WS2812 (boot status LED: GP16 on the Zeros, GPIO21 on ESP32-S3) so
+# the on-board pixel is never first in the chain. Filled per chip by
+# os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "data_pin"))
+_machine = os.uname().machine
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", data_pin=15)
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", data_pin=15)
+else:
+    BOARD = Board(name="RP2040-Zero", data_pin=15)
 
 LED_COUNT = 20
 FRAME_PERIOD_MS = 20  # ~50 fps render cadence
@@ -62,7 +80,7 @@ def main() -> None:
     """Run boot → build strip + effects → cycle. MicroPython entry point."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    strip = Strip(LED_COUNT)
+    strip = Strip(LED_COUNT, pin=BOARD.data_pin)
     status.streaming()
     run(strip, build_effects())
 
