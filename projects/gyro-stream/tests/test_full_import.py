@@ -8,6 +8,7 @@ A fake MPU6050 raises after one sample to escape stream().
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import sys
 from contextlib import redirect_stdout
@@ -15,11 +16,21 @@ from types import SimpleNamespace
 
 import pytest
 
+from micropython_stubs.testing import (
+    BOARD_CHIPS,
+    DeviceNotFoundError,
+    FakeStatus,
+    build_full_import_stubs,
+)
+
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 PRIMARY = 0x68
 
 
-def test_main_executes_init_then_streams_one_sample(monkeypatch, fake_status):
+@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
+def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
+    fake_status = FakeStatus()
+    monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.delitem(sys.modules, "main", raising=False)
@@ -31,9 +42,9 @@ def test_main_executes_init_then_streams_one_sample(monkeypatch, fake_status):
     with redirect_stdout(buf), pytest.raises(_StopMainError):
         spec.loader.exec_module(module)
 
+    assert module.BOARD.name == board_name
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
     diags = [ln.get("diag") for ln in lines if "diag" in ln]
-    assert "scan" in diags
     assert "imu_ok" in diags
     assert any("ax" in ln for ln in lines)
 
@@ -42,19 +53,11 @@ class _StopMainError(Exception):
     """Raised by the fake IMU on the second read_all() to escape stream()."""
 
 
-class _Bus:
-    """Minimal I²C bus stub: scans to the MPU6050 primary address."""
-
-    @staticmethod
-    def scan() -> list[int]:
-        return [PRIMARY]
-
-
 class _FakeIMU:
-    """Stub MPU6050; second read_all() raises to escape stream()."""
+    """Stub MPU6050 that opens its own bus; second read_all() raises to escape stream()."""
 
-    def __init__(self, _bus, *, addr) -> None:
-        self.addr = addr
+    def __init__(self, *, sda, scl, bus_id=0) -> None:
+        self.addr = PRIMARY
         self.kind = "MPU6050"
         self.last_saturated = False
         self._calls = 0
@@ -67,19 +70,8 @@ class _FakeIMU:
 
 
 def _build_stubs(status_stub):
-    time_stub = SimpleNamespace(
-        sleep_ms=lambda _ms: None,
-        ticks_ms=lambda: 0,
-    )
-    boot_status_led_stub = SimpleNamespace(status=status_stub)
-    i2c_bus_stub = SimpleNamespace(hard_i2c=_Bus())
-    mpu6050_stub = SimpleNamespace(MPU6050=_FakeIMU)
-
-    return {
-        "time": time_stub,
-        "ujson": __import__("json"),
-        "boot_status_led": boot_status_led_stub,
-        "boot_status_led.status": status_stub,
-        "i2c_bus": i2c_bus_stub,
-        "mpu6050": mpu6050_stub,
-    }
+    # main() now builds MPU6050(id=, sda=, scl=) directly — the driver owns the
+    # bus and the address probe — so the project no longer imports i2c_bus; the
+    # mpu6050 stub exposes the driver class and its DeviceNotFoundError.
+    mpu6050_stub = SimpleNamespace(MPU6050=_FakeIMU, DeviceNotFoundError=DeviceNotFoundError)
+    return build_full_import_stubs("mpu6050", mpu6050_stub, status_stub)

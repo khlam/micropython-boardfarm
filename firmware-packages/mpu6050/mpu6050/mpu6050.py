@@ -5,13 +5,21 @@ gyro register map and only differ in WHO_AM_I and the temperature
 transfer function. The driver auto-detects the chip via WHO_AM_I and
 applies the right temperature scale + offset accordingly.
 
-Chip-agnostic with respect to the MCU: takes a `machine.I2C` (or
-`SoftI2C`) instance from the caller and never imports `machine` itself.
+The constructor takes flat pin numbers and opens its own 400 kHz hardware I²C
+bus (the MPU6050 doesn't clock-stretch) via the internal ``i2c_bus`` helper, and
+auto-detects the device address (0x68 with AD0 low, else 0x69) by scanning — the
+project supplies pins, not a bus object or address.
 """
 
 import struct
 
 from micropython import const
+
+from i2c_bus import DeviceNotFoundError, hard_i2c
+
+# 7-bit I²C addresses the MPU6050 family answers on: 0x68 (AD0=GND/floating),
+# 0x69 (AD0=3V3). Probed in this order at construction.
+_ADDRESSES = (0x68, 0x69)
 
 _WHO_AM_I = const(0x75)
 _PWR_MGMT_1 = const(0x6B)
@@ -39,31 +47,40 @@ class MPU6050:
     """Configured ±2 g / ±250 °/s ranges with 44 Hz DLPF, 125 Hz internal sample rate.
 
     Attributes:
-        i2c: The bus passed by the caller.
-        addr: 7-bit I²C address (0x68 or 0x69 depending on AD0).
+        i2c: The hardware I²C bus this driver opened.
+        addr: 7-bit I²C address auto-detected at construction (0x68 or 0x69).
         kind: One of "MPU6050", "MPU6500", or "MPU9250" — set after the
             WHO_AM_I dispatch at construction.
         last_saturated: Set by `read_all()` to True if any raw axis hit
             the int16 rail on the most recent sample (range exceeded).
     """
 
-    def __init__(self, i2c: object, addr: int = 0x68) -> None:
-        """Detect the chip via WHO_AM_I and write the standard init sequence.
+    def __init__(self, *, sda: int, scl: int, bus_id: int = 0) -> None:
+        """Open the bus, find the device, then detect the chip and init it.
+
+        Scans for an MPU6050 at 0x68 (AD0=GND/floating), falling back to 0x69
+        (AD0=3V3), so the project never has to pick the address.
 
         Args:
-            i2c: A `machine.I2C` or `SoftI2C` (anything with
-                `readfrom_mem` / `writeto_mem` / `readfrom_mem_into`).
-            addr: 7-bit I²C address — 0x68 (AD0=GND/floating) or 0x69
-                (AD0=3V3).
+            sda: GPIO number for the I²C data line.
+            scl: GPIO number for the I²C clock line.
+            bus_id: Hardware I²C peripheral selector.
 
         Raises:
+            DeviceNotFoundError: Neither 0x68 nor 0x69 ACKed on the scanned bus.
             OSError: WHO_AM_I returns a value not in the known table
                 (counterfeit chip or wrong device on the bus).
         """
+        i2c = hard_i2c(bus_id, sda, scl)
         self.i2c = i2c
-        self.addr = addr
         self._buf = bytearray(14)
         self.last_saturated = False
+
+        devices = i2c.scan()
+        addr = next((a for a in _ADDRESSES if a in devices), None)
+        if addr is None:
+            raise DeviceNotFoundError("MPU6050 not found at 0x68/0x69")
+        self.addr = addr
 
         who = self.i2c.readfrom_mem(addr, _WHO_AM_I, 1)[0]
         if who not in _KNOWN:

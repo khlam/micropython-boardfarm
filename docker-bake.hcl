@@ -1,7 +1,7 @@
 // Build definitions for the build-only call sites: the lint/typecheck images
-// (.githooks/run-linters.sh, `make precommit`) and the CVE-scan images
-// (.github/workflows/ci.yml). Compose owns the *runtime* services — pytest,
-// firmware compile, viz, uv — and supplies the wheels context itself via
+// (`make build-linters`) and the CVE-scan images (.github/workflows/ci.yml).
+// Compose owns the *runtime* services — pytest, firmware compile, viz, uv —
+// and supplies the wheels context itself via
 // `additional_contexts: wheels: service:wheels`. Bake supplies the same context
 // here via `contexts = { wheels = "target:wheels" }`, so the wheels build logic
 // lives only once in Dockerfile.host (no mirrored stage in Dockerfile.tests).

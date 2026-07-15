@@ -1,46 +1,60 @@
-"""MCU-micropython package selecting the correct I²C chip backend at import time.
+"""MCU-micropython internal I²C bus helpers, consumed only by sensor drivers.
 
-Example:
-    from i2c_bus import soft_i2c   # sensors that clock-stretch (VL53L0X)
-    from i2c_bus import hard_i2c   # sensors that don't (MPU6050)
+A driver supplies the plain pin numbers from the project's ``BOARD`` table and
+gets back a ready ``machine.I2C`` / ``SoftI2C``; the project never sees this
+package. Nothing here touches ``os.uname()`` or claims a pin at import time.
+
+Example (inside a driver):
+    from i2c_bus import DeviceNotFoundError, hard_i2c
+    i2c = hard_i2c(bus_id=0, sda=0, scl=1)     # sensors that don't clock-stretch
+    if address not in i2c.scan():
+        raise DeviceNotFoundError(...)
 """
 
-import os
-
-import i2c_bus.esp32s3
-import i2c_bus.rp2040
-import i2c_bus.rp2350
-
-_machine = os.uname().machine
-if "ESP32S3" in _machine:
-    _backend = i2c_bus.esp32s3
-elif "RP2350" in _machine:
-    _backend = i2c_bus.rp2350
-else:
-    _backend = i2c_bus.rp2040
+__all__ = ["DeviceNotFoundError", "hard_i2c", "soft_i2c"]
 
 
-def __getattr__(name: str) -> object:
-    """Lazily forward bus lookups to the chip-specific backend.
+class DeviceNotFoundError(Exception):
+    """No expected device ACKed on the opened I²C bus.
 
-    Only the requested bus is instantiated — importing soft_i2c never
-    creates hard_i2c, so the two I²C peripherals cannot conflict on shared
-    pins even though both backends define both names.
+    Drivers raise this (instead of a generic ``OSError``) after scanning so a
+    project's retry loop can tell "nothing on the bus" — bad wiring, power, or
+    pull-ups — apart from "device present but init failed".
+    """
+
+
+def soft_i2c(sda: int, scl: int, freq: int = 100_000) -> object:
+    """Build a bit-banged SoftI2C on the wired pins.
+
+    Soft I²C tolerates the heavy clock-stretching some sensors do during
+    bring-up (the VL53L0X/VL53L5CX firmware upload), which the hardware
+    peripheral aborts on.
 
     Args:
-        name: Attribute name; must be ``soft_i2c`` or ``hard_i2c``.
+        sda: GPIO number for the data line.
+        scl: GPIO number for the clock line.
+        freq: Bus clock in Hz; 100 kHz keeps long clock-stretches stable.
 
     Returns:
-        The constructed I²C bus instance for the running chip.
-
-    Raises:
-        AttributeError: When name is not a known bus export.
+        A ready ``machine.SoftI2C``.
     """
-    if name not in ("soft_i2c", "hard_i2c"):
-        raise AttributeError(name)
-    v = getattr(_backend, name)
-    globals()[name] = v  # cache so subsequent accesses bypass __getattr__
-    return v
+    from machine import Pin, SoftI2C  # noqa: PLC0415
+
+    return SoftI2C(sda=Pin(sda), scl=Pin(scl), freq=freq)
 
 
-__all__ = ["hard_i2c", "soft_i2c"]
+def hard_i2c(bus_id: int, sda: int, scl: int, freq: int = 400_000) -> object:
+    """Build a hardware I2C peripheral on the wired pins.
+
+    Args:
+        bus_id: Selects the hardware I²C peripheral.
+        sda: GPIO number for the data line.
+        scl: GPIO number for the clock line.
+        freq: Bus clock in Hz; 400 kHz for sensors that don't clock-stretch.
+
+    Returns:
+        A ready ``machine.I2C``.
+    """
+    from machine import I2C, Pin  # noqa: PLC0415
+
+    return I2C(bus_id, sda=Pin(sda), scl=Pin(scl), freq=freq)

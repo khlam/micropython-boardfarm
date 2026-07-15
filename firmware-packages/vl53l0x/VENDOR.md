@@ -27,6 +27,10 @@ upstream `975d212a`:
   the wrapper surface described in [README.md](README.md) —
   `skip_spad_info` and `interrupt_status_mask` constructor options for
   the ESP32-S3 breakout.
+- Project-specific concerns — soft I²C bus creation, device scan,
+  `DeviceNotFoundError`, soft-reset, and default overrides — live in
+  ``__init__.py`` as a thin subclass. The vendored file takes a pre-built
+  ``i2c`` object and has no dependency on ``i2c_bus``.
 
 Treat the file as a vendored-with-local-modifications snapshot: don't
 re-sync from upstream without re-applying these changes, and don't edit

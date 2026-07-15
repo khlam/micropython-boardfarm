@@ -70,6 +70,9 @@ you unplug and replug the board.
 
 ## Wiring
 
+> The authoritative pin map is the `BOARD` table in [firmware/main.py](firmware/main.py);
+> the per-board diagrams below mirror it.
+
 ### QMC5883P magnetometer
 
 ```
@@ -94,7 +97,8 @@ you have a bare/unregulated variant instead, power VCC from **3V3**.
 
 The QMC5883P responds at the fixed I²C address `0x2C` (not configurable). Same
 SDA/SCL pins as the other projects — SDA=GP0 / SCL=GP1 on the RP boards,
-SDA=GPIO1 / SCL=GPIO2 on the ESP32-S3 — via the shared `i2c_bus` package.
+SDA=GPIO1 / SCL=GPIO2 on the ESP32-S3 — set by this project's `BOARD` table and
+passed to `i2c_bus.hard_i2c`.
 
 ### RP2040-Zero
 

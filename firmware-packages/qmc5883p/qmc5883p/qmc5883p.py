@@ -7,14 +7,17 @@ QMC5883L convention (so atan2(y, x) heading reads the same), selects ±2 G range
 and starts continuous output at 50 Hz with OSR=512 (max in-sensor averaging).
 read() blocks on the data-ready bit and returns signed (x, y, z) ints.
 
-Chip-agnostic w.r.t. the MCU: takes a machine.I2C / SoftI2C from the caller and
-never imports `machine`.
+The constructor takes flat pin numbers and opens its own 400 kHz hardware I²C
+bus (the QMC5883P never clock-stretches) via the internal ``i2c_bus`` helper —
+the project supplies pins, not a bus object.
 """
 
 import struct
 
 import utime
 from micropython import const
+
+from i2c_bus import DeviceNotFoundError, hard_i2c
 
 _REG_CHIP_ID = const(0x00)
 _REG_DATA = const(0x01)  # 6 bytes: X/Y/Z LSB,MSB signed little-endian
@@ -41,28 +44,34 @@ class QMC5883P:
     """QMC5883P magnetometer in ±2 G continuous mode at 50 Hz, OSR=512.
 
     Attributes:
-        i2c: The bus passed by the caller.
+        i2c: The hardware I²C bus this driver opened.
         address: Fixed 7-bit I²C address (0x2C).
         last_status: STATUS byte from the most recent read(); bit1 (OVL) flags
             field saturation. main.py edge-triggers a diag on it.
     """
 
-    def __init__(self, i2c: object, address: int = 0x2C) -> None:
-        """Verify the chip-ID and write the standard init sequence.
+    def __init__(self, *, sda: int, scl: int, bus_id: int = 0, address: int = 0x2C) -> None:
+        """Open the bus, confirm the device is present, then init the chip.
 
         Args:
-            i2c: machine.I2C / SoftI2C (readfrom_mem / writeto_mem /
-                readfrom_mem_into).
+            sda: GPIO number for the I²C data line.
+            scl: GPIO number for the I²C clock line.
+            bus_id: Hardware I²C peripheral selector.
             address: 7-bit I²C address; fixed at 0x2C on this part.
 
         Raises:
+            DeviceNotFoundError: Nothing ACKed at ``address`` on the scanned bus.
             OSError: CHIP_ID register doesn't read _CHIP_ID (wrong device on the
                 bus or a counterfeit part).
         """
+        i2c = hard_i2c(bus_id, sda, scl)
         self.i2c = i2c
         self.address = address
         self._buf = bytearray(6)
         self._status = bytearray(1)
+
+        if address not in i2c.scan():
+            raise DeviceNotFoundError(f"QMC5883P not found at 0x{address:02x}")
 
         i2c.writeto_mem(address, _REG_CTRL_2, bytes((_CTRL_2_SOFT_RESET,)))
         utime.sleep_ms(_RESET_PAUSE_MS)

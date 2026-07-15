@@ -1,10 +1,10 @@
-"""Host CPython stub of the `utime` module — sleep_ms is a no-op so tests never wait."""
+"""Host CPython stub of MicroPython's `utime` module."""
 
 import time as _time
 
 
 def sleep_ms(ms: int) -> None:
-    """No-op stand-in for `utime.sleep_ms`; tests never need to actually wait."""
+    """Return immediately instead of sleeping."""
 
 
 def ticks_ms() -> int:

@@ -1,68 +1,72 @@
 """Host CPython pytest tests for init_sensor in compass firmware.
 
-Drives the happy path at the fixed 0x2C address, the no_device retry, and the
-init_err (OSError, including a chip-ID mismatch) retry.
+The driver opens its own bus and scans, so init_sensor() takes no arguments and
+constructs QMC5883P(bus_id=, sda=, scl=) from BOARD. A fake driver class drives the
+happy path, the no_device retry (DeviceNotFoundError), and the init_err (OSError,
+e.g. a chip-ID mismatch) retry.
 """
 
-import pytest
+import math
+import os
+import pathlib
+from collections import namedtuple
+from typing import ClassVar
 
+from micropython_stubs.testing import ScriptedFake, firmware_namespace
+from qmc5883p import DeviceNotFoundError
+
+_FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
+_KEEP_FUNCS = {"emit", "init_sensor", "stream"}
+Board = namedtuple("Board", ("name", "i2c_id", "sda", "scl"))
+_TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 ADDR = 0x2C
 
 
-def test_init_sensor_happy_path(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[ADDR]])
+class _FakeMag(ScriptedFake):
+    """QMC5883P stand-in (see ScriptedFake): records address + status on success."""
+
+    script: ClassVar[list] = []
+
+    def __init__(self, *, sda, scl, bus_id=0, address=ADDR) -> None:
+        super().__init__()
+        self.address = address
+        self.last_status = 0
+
+
+def _make_init_ns():
+    """Create AST-loaded namespace with _FakeMag injected."""
+    _FakeMag.script = []
+    from smoothing import simple_moving_average
+
+    return firmware_namespace(
+        _FIRMWARE,
+        _KEEP_FUNCS,
+        os=os,
+        namedtuple=namedtuple,
+        BOARD=_TEST_BOARD,
+        math=math,
+        simple_moving_average=simple_moving_average,
+        QMC5883P=_FakeMag,
+        DeviceNotFoundError=DeviceNotFoundError,
+    )
+
+
+def test_init_sensor_happy_path():
+    init_ns = _make_init_ns()
     mag = init_ns.ns["init_sensor"]()
     assert mag.address == ADDR
     assert init_ns.status.calls == ["i2c_init"]
 
 
-def test_init_sensor_retries_when_device_missing(init_ns):
-    init_ns.ns["i2c"] = _FakeBus(scans=[[], [ADDR]])
+def test_init_sensor_retries_when_device_missing():
+    init_ns = _make_init_ns()
+    _FakeMag.script = [DeviceNotFoundError("no device"), None]
     init_ns.ns["init_sensor"]()
     assert init_ns.status.calls == ["i2c_init", "no_device"]
 
 
-def test_init_sensor_handles_init_err(init_ns):
-    # First construction raises (e.g. chip-ID mismatch); second succeeds.
-    _FakeMag.raise_oserror_once = True
-    init_ns.ns["i2c"] = _FakeBus(scans=[[ADDR], [ADDR]])
+def test_init_sensor_handles_init_err():
+    init_ns = _make_init_ns()
+    _FakeMag.script = [OSError("scripted chip-ID fail"), None]
     init_ns.ns["init_sensor"]()
     assert "init_err" in init_ns.status.calls
-
-
-@pytest.fixture(autouse=True)
-def _reset_mag():
-    _FakeMag.raise_oserror_once = False
-    _FakeMag._calls = 0
-    yield
-
-
-@pytest.fixture
-def init_ns(main_ns):
-    main_ns.ns["QMC5883P"] = _FakeMag
-    return main_ns
-
-
-class _FakeBus:
-    def __init__(self, *, scans) -> None:
-        self._scans = list(scans)
-
-    def scan(self):
-        if len(self._scans) == 1:
-            return self._scans[0]
-        return self._scans.pop(0)
-
-
-class _FakeMag:
-    """QMC5883P stand-in: records address, optionally raises on first init."""
-
-    raise_oserror_once = False
-    _calls = 0
-
-    def __init__(self, bus, address=ADDR) -> None:
-        type(self)._calls += 1
-        if type(self).raise_oserror_once and type(self)._calls == 1:
-            raise OSError("scripted chip-ID fail")
-        self.bus = bus
-        self.address = address
-        self.last_status = 0
