@@ -14,7 +14,7 @@ import ujson
 from boot_status_led import status
 from ws2812b import Breathe, ColorFade, HueRotate, Rainbow, Strip
 
-LED_COUNT = 8
+LED_COUNT = 20
 FRAME_PERIOD_MS = 20  # ~50 fps render cadence
 FRAMES_PER_EFFECT = 200  # frames shown before advancing to the next effect
 _BOOT_PAUSE_MS = 300
