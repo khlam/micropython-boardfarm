@@ -15,6 +15,12 @@ def test_hsv_primaries_and_extremes():
     assert hsv_to_rgb(0.42, 1, 0) == (0, 0, 0)  # zero value → black
 
 
+def test_hsv_wraps_negative_hue():
+    wrapped = hsv_to_rgb(-0.1, 1, 1)
+    assert wrapped == hsv_to_rgb(0.9, 1, 1)
+    assert all(0 <= channel <= 255 for channel in wrapped)
+
+
 def test_rainbow_spreads_spectrum_and_scrolls():
     effect = Rainbow(4, brightness=1.0, step=0.25)
     first = effect.frame()

@@ -52,10 +52,10 @@ led-effects/
   | RP2350        | `GP15`   |
   | ESP32-S3-Zero | `GPIO15` |
 
-  Every board drives the strip from a dedicated GPIO, separate from the on-board
-  WS2812 (the boot status LED on `GP16` / `GPIO21`). The on-board pixel is never
-  wired into the strip chain — it stays a standalone status indicator and is
-  never the first LED of the effects strip.
+  Every board drives the strip from a dedicated GPIO, separate from its on-board
+  status indicator. RP2040-Zero and ESP32-S3-Zero use WS2812 LEDs on `GP16` and
+  `GPIO21`; RP2350 uses a single-colour LED through CYW43 `WL_GPIO0`. None is
+  wired into the strip chain or counted among the effects LEDs.
 - LED indication is chip-aware — see the [Boot LED states table](../../firmware-packages/boot_status_led/README.md#boot-led-states)
   in the boot_status_led README.
 
@@ -151,7 +151,7 @@ The strip's `DIN` goes to `GPIO15`, leaving the on-board WS2812 (boot status LED
                               └─────────────────────────────────────┘
 ```
 
-`VBUS` is the 5 V USB rail. The strip's `DIN` goes to `GP15`, leaving the on-board WS2812 (boot status LED) on `GP16` free — the on-board pixel is never part of the strip chain.
+`VBUS` is the 5 V USB rail. The strip's `DIN` goes to `GP15`, separate from the single-colour boot status LED on CYW43 `WL_GPIO0`.
 
 **Power**
 - A WS2812B LED draws up to ~60 mA at full white. A handful of LEDs can run from

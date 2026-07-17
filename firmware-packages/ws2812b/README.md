@@ -22,7 +22,9 @@ constants of the 8-bit RGB / HSV colour model.
 ## Usage
 
 ```python
-from ws2812b import Strip, Rainbow
+import time
+
+from ws2812b import Rainbow, Strip
 
 strip = Strip(8, pin=15)                           # 8 LEDs, DIN on GPIO15
 effect = Rainbow(8, brightness=0.3, step=0.01)

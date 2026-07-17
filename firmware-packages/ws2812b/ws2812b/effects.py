@@ -43,15 +43,26 @@ def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
         v: Value/brightness in ``[0, 1]``.
 
     Returns:
-        Channel values in ``[0, _CHANNEL_MAX]``. Uses a branchless sextant
-        lookup so the conversion stays a single code path.
+        Channel values in ``[0, _CHANNEL_MAX]``.
     """
-    sector = int(h * _SECTORS) % _SECTORS
-    f = h * _SECTORS - int(h * _SECTORS)
+    scaled_hue = (h % 1) * _SECTORS
+    sector = int(scaled_hue)
+    f = scaled_hue - sector
     p = v * (1 - s)
     q = v * (1 - f * s)
     t = v * (1 - (1 - f) * s)
-    r, g, b = ((v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q))[sector]
+    if sector == 0:
+        r, g, b = v, t, p
+    elif sector == 1:
+        r, g, b = q, v, p
+    elif sector == 2:
+        r, g, b = p, v, t
+    elif sector == 3:
+        r, g, b = p, q, v
+    elif sector == 4:
+        r, g, b = t, p, v
+    else:
+        r, g, b = v, p, q
     return (int(r * _CHANNEL_MAX), int(g * _CHANNEL_MAX), int(b * _CHANNEL_MAX))
 
 
