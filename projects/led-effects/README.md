@@ -50,7 +50,7 @@ led-effects/
   | ------------- | -------- |
   | RP2040-Zero   | `GP15`   |
   | RP2350        | `GP15`   |
-  | ESP32-S3-Zero | `GPIO15` |
+  | ESP32-S3-Zero | `GPIO7`  |
 
   Every board drives the strip from a dedicated GPIO, separate from its on-board
   status indicator. RP2040-Zero and ESP32-S3-Zero use WS2812 LEDs on `GP16` and
@@ -112,14 +112,14 @@ The strip's `DIN` goes to `GP15`, leaving the on-board WS2812 (boot status LED) 
                            4 ─┤        WS2812         ├─ 43
                            5 ─┤        on GPIO21      ├─ 44
                            6 ─┤                       ├─ 14
-                           7 ─┤   ESP32-S3-Zero       ├─ 15 ────► WS2812B DIN
+        WS2812B DIN ◄───   7 ─┤   ESP32-S3-Zero       ├─ 15
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
                                 │    │    │    │    │
                                 16   17   18   21   45
 ```
 
-The strip's `DIN` goes to `GPIO15`, leaving the on-board WS2812 (boot status LED) on `GPIO21` free — the on-board pixel is never part of the strip chain.
+The strip's `DIN` goes to `GPIO7`, leaving the on-board WS2812 (boot status LED) on `GPIO21` free — the on-board pixel is never part of the strip chain.
 
 ### RP2350
 

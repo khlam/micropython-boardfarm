@@ -26,7 +26,7 @@ from ws2812b import Breathe, ColorFade, HueRotate, Rainbow, Strip
 Board = namedtuple("Board", ("name", "data_pin"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
-    BOARD = Board(name="ESP32-S3-Zero", data_pin=15)
+    BOARD = Board(name="ESP32-S3-Zero", data_pin=7)
 elif "RP2350" in _machine:
     BOARD = Board(name="RP2350", data_pin=15)
 else:

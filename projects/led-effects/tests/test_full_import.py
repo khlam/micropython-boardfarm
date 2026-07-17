@@ -21,7 +21,9 @@ from micropython_stubs.testing import BOARD_CHIPS, FakeStatus, build_full_import
 from ws2812b import Breathe, ColorFade, HueRotate, Rainbow
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
-_DATA_PIN = 15
+# Expected strip data pin per BOARD.name — ESP32-S3-Zero wires DIN to GPIO7,
+# the RP boards to GP15.
+_DATA_PIN = {"RP2040-Zero": 15, "RP2350": 15, "ESP32-S3-Zero": 7}
 _RENDERS_BEFORE_STOP = 3
 
 
@@ -43,7 +45,7 @@ def test_main_builds_strip_on_board_pin_and_starts_cycle(monkeypatch, machine_st
 
     assert module.BOARD.name == board_name
     strip = _FakeStrip.instances[-1]
-    assert strip.pin == _DATA_PIN
+    assert strip.pin == _DATA_PIN[board_name]
     assert strip.count == module.LED_COUNT
     assert all(len(frame) == module.LED_COUNT for frame in strip.frames)
     lines = [json.loads(ln) for ln in buf.getvalue().splitlines() if ln.strip()]
