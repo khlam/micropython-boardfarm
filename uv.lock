@@ -412,10 +412,14 @@ version = "0.1.0"
 source = { virtual = "projects/led-effects" }
 dependencies = [
     { name = "boot-status-led" },
+    { name = "vl53l0x" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" }]
+requires-dist = [
+    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
+]
 
 [[package]]
 name = "markdown-it-py"
