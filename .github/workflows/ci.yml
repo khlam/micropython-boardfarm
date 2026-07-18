@@ -84,6 +84,7 @@ jobs:
         project:
           - compass
           - distance-stream
+          - gps
           - gyro-stream
           - led-effects
           - multizone-ranging
