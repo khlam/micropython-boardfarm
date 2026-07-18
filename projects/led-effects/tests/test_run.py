@@ -13,9 +13,9 @@ from collections import namedtuple
 from contextlib import redirect_stdout
 
 import pytest
+from effects import Breathe, ColorFade, HueRotate, Rainbow
 
 from micropython_stubs.testing import StopLoopError, firmware_namespace
-from ws2812b import Breathe, ColorFade, HueRotate, Rainbow
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "build_effects", "run"}

@@ -18,7 +18,6 @@ from typing import ClassVar
 import pytest
 
 from micropython_stubs.testing import BOARD_CHIPS, FakeStatus, build_full_import_stubs
-from ws2812b import Breathe, ColorFade, HueRotate, Rainbow
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 # Expected strip data pin per BOARD.name — ESP32-S3-Zero wires DIN to GPIO7,
@@ -75,14 +74,5 @@ class _FakeStrip:
 
 
 def _build_stubs(status_stub):
-    # main.py imports the Strip driver and the four effect classes from
-    # ws2812b; the effects are pure math, so the stub re-exports the real
-    # ones and only fakes the hardware-facing Strip.
-    ws2812b_stub = SimpleNamespace(
-        Strip=_FakeStrip,
-        Breathe=Breathe,
-        ColorFade=ColorFade,
-        HueRotate=HueRotate,
-        Rainbow=Rainbow,
-    )
-    return build_full_import_stubs("ws2812b", ws2812b_stub, status_stub)
+    strip_stub = SimpleNamespace(Strip=_FakeStrip)
+    return build_full_import_stubs("strip", strip_stub, status_stub)

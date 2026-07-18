@@ -21,7 +21,6 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [qmc5883p](qmc5883p/) | Driver for the QST QMC5883P 3-axis magnetometer. |
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
 | [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
-| [ws2812b](ws2812b/) | WS2812B addressable-LED strip driver on a caller-wired data pin, plus parametric rainbow/hue/breathe/fade effects. |
 
 
 ## Notes

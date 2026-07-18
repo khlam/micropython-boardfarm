@@ -10,7 +10,6 @@
     "./firmware-packages/smoothing",
     "./firmware-packages/vl53l0x",
     "./firmware-packages/vl53l5cx",
-    "./firmware-packages/ws2812b",
     "./cpython-packages/serial_over_web",
     "./cpython-packages/micropython_stubs/micropython_stubs"
   ]

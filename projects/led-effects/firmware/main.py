@@ -1,12 +1,11 @@
 """MCU-micropython firmware entry point for the led-effects WS2812B demo.
 
-Cycles through the four ws2812b animations — rainbow, hue rotation, breathing,
+Cycles through four WS2812B animations — rainbow, hue rotation, breathing,
 and colour fade — rendering each to the strip's data pin for a fixed run of
 frames before advancing to the next. Pin assignments live in this module's
-BOARD table (dispatched per chip by os.uname().machine); the Strip driver
-takes the data pin as a constructor argument, so the package stays free of
-board wiring and this firmware builds unchanged for RP2040, RP2350, and
-ESP32-S3.
+BOARD table (dispatched per chip by os.uname().machine); the project-local
+Strip driver takes the data pin as a constructor argument, so this firmware
+builds unchanged for RP2040, RP2350, and ESP32-S3.
 """
 
 import os
@@ -14,9 +13,10 @@ import time
 from collections import namedtuple
 
 import ujson
+from effects import Breathe, ColorFade, HueRotate, Rainbow
+from strip import Strip
 
 from boot_status_led import status
-from ws2812b import Breathe, ColorFade, HueRotate, Rainbow, Strip
 
 # Per-chip pin map — the authoritative wiring for this project, plain GPIO
 # numbers. data_pin carries the external strip's data line, kept clear of the

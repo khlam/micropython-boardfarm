@@ -1,37 +1,25 @@
-"""MCU-micropython parametric animation effects for WS2812B strips.
+"""Parametric animation effects for the led-effects WS2812B strip.
 
-Pure colour maths with no hardware dependency, so the effects run unchanged on
-the host under CPython and on the chip under MicroPython. Each effect is a small
-stateful object: construct it with its tuning parameters, then call ``frame()``
-once per render to get the next ``list[(r, g, b)]`` of length ``count``. The
-``Strip`` driver in ``ws2812b.strip`` writes those frames to the LEDs.
-
-Every animation parameter — LED count, brightness ceiling, speed/step, period,
-and the colours — is a constructor argument; the only bare literals here are the
-fixed constants of the 8-bit RGB / HSV colour model.
+The colour maths has no hardware dependency. Each stateful effect returns the
+next list of RGB tuples from ``frame()`` for the project-local strip driver.
 """
 
 import math
 
-# Colour-model constants — fixed by the WS2812B (8-bit channels) and the HSV
-# wheel, not tunable animation parameters.
-_CHANNEL_MAX = 255  # per-channel value of a WS2812B LED
-_SECTORS = 6  # HSV hue wheel sextants
-_HALF = 0.5  # midpoint scaler for the breathing cosine
-_FULL_TURN = 2 * math.pi  # one breathing cycle, in radians
-_CYCLE = 2  # ping-pong period of the colour-fade triangle wave
+_CHANNEL_MAX = 255
+_SECTORS = 6
+_HALF = 0.5
+_FULL_TURN = 2 * math.pi
+_CYCLE = 2
 
-# Default animation parameters. Every one is overridable per effect; they exist
-# so a caller can construct an effect with no arguments and still get something
-# sensible, while keeping the literals out of the call sites.
 DEFAULT_COUNT = 8
-DEFAULT_BRIGHTNESS = 0.3  # ceiling in [0, 1]; WS2812B at full power is blinding
-DEFAULT_SPEED = 0.01  # hue fraction advanced per frame (hue rotation)
-DEFAULT_STEP = 0.01  # offset/progress advanced per frame (rainbow, fade)
-DEFAULT_PERIOD = 60  # frames per full breathing cycle
-DEFAULT_COLOR = (0, 128, 255)  # breathing colour (azure)
-DEFAULT_START = (255, 0, 0)  # colour-fade start (red)
-DEFAULT_END = (0, 0, 255)  # colour-fade end (blue)
+DEFAULT_BRIGHTNESS = 0.3
+DEFAULT_SPEED = 0.01
+DEFAULT_STEP = 0.01
+DEFAULT_PERIOD = 60
+DEFAULT_COLOR = (0, 128, 255)
+DEFAULT_START = (255, 0, 0)
+DEFAULT_END = (0, 0, 255)
 
 
 def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
@@ -43,7 +31,7 @@ def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
         v: Value/brightness in ``[0, 1]``.
 
     Returns:
-        Channel values in ``[0, _CHANNEL_MAX]``.
+        Channel values in ``[0, 255]``.
     """
     scaled_hue = (h % 1) * _SECTORS
     sector = int(scaled_hue)
@@ -67,12 +55,7 @@ def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
 
 
 class Rainbow:
-    """Full-spectrum sweep: each LED a different hue, animated along the strip.
-
-    LED ``i`` takes hue ``(i / count + offset) % 1`` so the whole spectrum is
-    laid across the strip at once; ``offset`` advances by ``step`` each frame,
-    scrolling the rainbow.
-    """
+    """Full-spectrum sweep with a different animated hue on each LED."""
 
     def __init__(
         self,
@@ -98,10 +81,7 @@ class Rainbow:
 
 
 class HueRotate:
-    """Continuous hue shift: every LED shares one hue that rotates over time.
-
-    The shared hue advances by ``speed`` (a fraction of the wheel) each frame.
-    """
+    """Continuous hue shift shared by every LED."""
 
     def __init__(
         self,
@@ -124,11 +104,7 @@ class HueRotate:
 
 
 class Breathe:
-    """Sinusoidal brightness pulse of a fixed colour over a configurable period.
-
-    The brightness factor follows ``(1 - cos(2π·n / period)) / 2``, a smooth
-    ``0 → 1 → 0`` swell over ``period`` frames, scaled by the brightness ceiling.
-    """
+    """Sinusoidal brightness pulse of a fixed colour."""
 
     def __init__(
         self,
@@ -154,11 +130,7 @@ class Breathe:
 
 
 class ColorFade:
-    """Smooth linear interpolation that ping-pongs between two colours.
-
-    A triangle-wave parameter ``t`` sweeps ``0 → 1 → 0`` so the strip fades from
-    ``start`` to ``end`` and back; ``t`` advances by ``step`` each frame.
-    """
+    """Linear colour interpolation that ping-pongs between two colours."""
 
     def __init__(
         self,
@@ -186,12 +158,12 @@ class ColorFade:
 
 
 def _scale(rgb: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
-    """Scale each channel of ``rgb`` by ``factor`` (the brightness ceiling)."""
+    """Scale each channel of ``rgb`` by ``factor``."""
     return (int(rgb[0] * factor), int(rgb[1] * factor), int(rgb[2] * factor))
 
 
 def _lerp(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    """Per-channel linear interpolation from ``a`` to ``b`` at fraction ``t``."""
+    """Interpolate each channel from ``a`` to ``b`` at fraction ``t``."""
     return (
         int(a[0] + (b[0] - a[0]) * t),
         int(a[1] + (b[1] - a[1]) * t),

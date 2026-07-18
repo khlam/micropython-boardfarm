@@ -2,16 +2,18 @@
 
 MicroPython firmware that cycles a WS2812B addressable-LED strip through four
 parametric animations — rainbow, hue rotation, breathing, and colour fade —
-rendering each for 200 frames at ~50 fps before advancing to the next. It is a
-hardware demo for the [`ws2812b`](../../firmware-packages/ws2812b) package and
-ships no dashboard; the strip's data pin lives in the firmware's `BOARD` table
-(dispatched per chip by `os.uname().machine`), so the same firmware builds for
-RP2040, RP2350, and ESP32-S3.
+rendering each for 200 frames at ~50 fps before advancing to the next. The
+strip driver and effects are local to this project, and it ships no dashboard.
+The strip's data pin lives in the firmware's `BOARD` table (dispatched per chip
+by `os.uname().machine`), so the same firmware builds for RP2040, RP2350, and
+ESP32-S3.
 
 ## Layout
 ```
 led-effects/
+  firmware/effects.py         rainbow/hue/breathe/fade frame generators
   firmware/main.py            BOARD pin table + effect-cycling loop, calls emit()
+  firmware/strip.py           project-local NeoPixel strip driver
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash services
 ```
