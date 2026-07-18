@@ -42,7 +42,7 @@ else:
     BOARD = Board(name="RP2040-Zero", data_pin=15, sda=0, scl=1)
 
 LED_COUNT = 20
-FRAME_PERIOD_MS = 20  # ~50 fps render cadence when no sensor is pacing the loop
+FRAME_PERIOD_MS = 20  # ~50 fps render cadence; run() holds every frame to this
 FRAMES_PER_EFFECT = 200  # frames shown before advancing to the next effect
 
 # Distance gauge: readings are clamped to [MIN, MAX] and mapped linearly across
@@ -54,7 +54,7 @@ MAX_DISTANCE_MM = 500
 OUT_OF_RANGE_MM = 8190  # sensor reports ~8190 mm (up to 65535) when nothing is in range
 
 HOLD_TOLERANCE_MM = 25  # jitter band that still counts as "held at that distance"
-HOLD_MS = 5000  # object must stay within tolerance this long to lock the gauge
+HOLD_MS = 1000  # object must stay within tolerance this long to lock the gauge
 RELEASE_MS = 5000  # object must stay out of range this long to leave the gauge
 
 TIMING_BUDGET_US = 20_000  # ~50 Hz; read() self-paces the loop at this cadence
@@ -114,13 +114,14 @@ def init_sensor() -> VL53L0X | None:
 
 
 def read_distance(tof: VL53L0X | None) -> int | None:
-    """Return the next in-range distance in mm, or None, pacing the loop.
+    """Return the next in-range distance in mm, or None.
 
-    When a sensor is present, `tof.read()` blocks until the next sample is
-    ready, so this call also paces the render loop at the timing budget. When
-    no sensor is present it sleeps one frame period instead so the loop never
-    spins. Out-of-range readings and transient faults both return None (the
-    caller treats "no object" and "read failed" the same); a fault additionally
+    A single reading for the gesture tracker: `tof.read()` returns the latest
+    sample and returns None with no sensor attached. This no longer paces the
+    loop — `run()` holds each iteration to FRAME_PERIOD_MS so the animation
+    keeps main's fixed ~50 fps cadence no matter how fast the sensor samples.
+    Out-of-range readings and transient faults both return None (the caller
+    treats "no object" and "read failed" the same); a fault additionally
     flashes read_err and restarts continuous mode, mirroring distance-stream.
 
     Args:
@@ -130,7 +131,6 @@ def read_distance(tof: VL53L0X | None) -> int | None:
         Distance in mm for an in-range sample, else None.
     """
     if tof is None:
-        time.sleep_ms(FRAME_PERIOD_MS)
         return None
     try:
         distance_mm = tof.read()
@@ -304,6 +304,7 @@ def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
     gauge_frame = None
     emit({"effect": effects[0][0]})
     while True:
+        frame_start = time.ticks_ms()
         distance_mm = read_distance(tof)
         now = time.ticks_ms()
         if not locked:
@@ -321,6 +322,14 @@ def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
                 cycle = (cycle[0], FRAMES_PER_EFFECT)
                 emit({"diag": "unlock"})
                 emit({"effect": effects[cycle[0]][0]})
+        # Hold each iteration to the fixed frame period so the animation runs at
+        # main's ~50 fps regardless of how fast tof.read() returns; a longer
+        # iteration (e.g. play_transition) leaves the remainder negative and
+        # skips the sleep. Never spins: with no sensor the body is near-instant
+        # and this sleep paces the whole loop.
+        elapsed = time.ticks_diff(time.ticks_ms(), frame_start)
+        if elapsed < FRAME_PERIOD_MS:
+            time.sleep_ms(FRAME_PERIOD_MS - elapsed)
 
 
 def main() -> None:
