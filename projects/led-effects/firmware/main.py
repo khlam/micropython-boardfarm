@@ -3,10 +3,11 @@
 Cycles through four WS2812B animations — rainbow, hue rotation, breathing,
 and colour fade — until a VL53L0X time-of-flight sensor detects an object held
 steady above it. Holding an object at one distance for HOLD_MS collapses the
-strip to a single LED whose position maps the measured distance onto the bar
-(first LED = MIN_DISTANCE_MM, last LED = MAX_DISTANCE_MM); that LED then
-live-tracks the object. Removing the object for RELEASE_MS plays a short
-transition and resumes the animations.
+strip to a soft glow whose position maps the measured distance onto the bar
+(first LED = MIN_DISTANCE_MM, last LED = MAX_DISTANCE_MM); the glow then
+live-tracks the object, easing smoothly between LEDs as the distance changes.
+Removing the object for RELEASE_MS plays a short transition and resumes the
+animations.
 
 The sensor is optional: if none is found at boot the animations still run and
 the gesture is simply inactive. Pin assignments live in this module's BOARD
@@ -58,7 +59,9 @@ HOLD_MS = 1000  # object must stay within tolerance this long to lock the gauge
 RELEASE_MS = 5000  # object must stay out of range this long to leave the gauge
 
 TIMING_BUDGET_US = 20_000  # ~50 Hz; read() self-paces the loop at this cadence
-POSITION_COLOR = (0, 120, 255)  # colour of the single lit gauge LED
+POSITION_COLOR = (0, 120, 255)  # base colour of the gauge glow
+GLOW_RADIUS = 2.5  # half-width in LEDs of the glow's linear brightness falloff
+POSITION_SMOOTHING = 0.25  # per-frame easing fraction toward the target position (0-1)
 
 _BOOT_PAUSE_MS = 300
 _TRANSITION_STEP_MS = 25  # per-LED dwell of the unlock sweep (~0.5 s total)
@@ -150,11 +153,13 @@ def read_distance(tof: VL53L0X | None) -> int | None:
     return distance_mm
 
 
-def position_index(distance_mm: int) -> int:
-    """Map a distance to a 0-based LED index, clamped to the gauge range.
+def position_fraction(distance_mm: int) -> float:
+    """Map a distance to a fractional LED position, clamped to the gauge range.
 
-    MIN_DISTANCE_MM maps to the first LED (0) and MAX_DISTANCE_MM to the last
-    (LED_COUNT - 1); readings outside the range clamp to the nearest end.
+    MIN_DISTANCE_MM maps to the first LED (0.0) and MAX_DISTANCE_MM to the last
+    (LED_COUNT - 1); readings outside the range clamp to the nearest end. The
+    result is fractional so the glow can sit between LEDs and slide smoothly
+    across them rather than snapping to whole-pixel positions.
     """
     span = MAX_DISTANCE_MM - MIN_DISTANCE_MM
     frac = (distance_mm - MIN_DISTANCE_MM) / span
@@ -162,26 +167,34 @@ def position_index(distance_mm: int) -> int:
         frac = 0.0
     elif frac > 1:
         frac = 1.0
-    return round(frac * (LED_COUNT - 1))
+    return frac * (LED_COUNT - 1)
 
 
-def position_frame(distance_mm: int) -> list:
-    """Return a frame with only the gauge LED for `distance_mm` illuminated."""
-    frame = [(0, 0, 0)] * LED_COUNT
-    frame[position_index(distance_mm)] = POSITION_COLOR
+def gauge_frame(position: float) -> list:
+    """Render a soft glow centred on fractional LED `position`.
+
+    Each LED's brightness falls off linearly with its distance from `position`
+    over GLOW_RADIUS LEDs, so the lit spot spans its neighbours and moving the
+    centre a fraction of a pixel cross-fades the light between them.
+    """
+    frame = []
+    for i in range(LED_COUNT):
+        offset = abs(i - position)
+        if offset >= GLOW_RADIUS:
+            frame.append((0, 0, 0))
+        else:
+            frame.append(_dim(POSITION_COLOR, 1 - offset / GLOW_RADIUS))
     return frame
 
 
 def play_transition(strip: Strip) -> None:
-    """Sweep a single lit LED across the strip, then blank it (~0.5 s).
+    """Sweep the gauge glow across the strip, then blank it (~0.5 s).
 
     Marks the return from the distance gauge to the cycling animations as a
     deliberate gesture rather than an abrupt cut.
     """
     for i in range(LED_COUNT):
-        frame = [(0, 0, 0)] * LED_COUNT
-        frame[i] = POSITION_COLOR
-        strip.render(frame)
+        strip.render(gauge_frame(i))
         time.sleep_ms(_TRANSITION_STEP_MS)
     strip.render([(0, 0, 0)] * LED_COUNT)
 
@@ -253,36 +266,44 @@ def _step_locked(
     distance_mm: int | None,
     now: int,
     release_start: int | None,
-    gauge_frame: list | None,
+    position: float | None,
 ) -> tuple:
-    """Advance one gauge frame: track the object, or count down to release.
+    """Advance one gauge frame: ease the glow toward the object, or count down.
 
-    While the object is in range the lit LED tracks it; once it is gone for
-    RELEASE_MS the unlock transition plays.
+    While the object is in range the glow eases a POSITION_SMOOTHING fraction of
+    the way toward its mapped position each frame, so distance changes cross-fade
+    smoothly across the strip instead of jumping; once the object is gone for
+    RELEASE_MS the unlock transition plays. The first in-range reading snaps the
+    glow straight to its position so it appears where the object is.
 
     Args:
         strip: The WS2812B strip driver.
         distance_mm: Latest in-range reading, or None.
         now: Current ``ticks_ms()`` timestamp.
         release_start: When the object was first lost, or None.
-        gauge_frame: Last rendered gauge frame, held while briefly out of range.
+        position: Eased fractional LED position of the glow, or None before the
+            first in-range reading. Held while briefly out of range.
 
     Returns:
-        ``(unlock, release_start, gauge_frame)`` with the updated state; `unlock`
+        ``(unlock, release_start, position)`` with the updated state; `unlock`
         is True once the object has been gone for RELEASE_MS.
     """
     if distance_mm is not None:
-        gauge_frame = position_frame(distance_mm)
-        strip.render(gauge_frame)
-        return False, None, gauge_frame
+        target = position_fraction(distance_mm)
+        if position is None:
+            position = target
+        else:
+            position += (target - position) * POSITION_SMOOTHING
+        strip.render(gauge_frame(position))
+        return False, None, position
     if release_start is None:
         release_start = now
     elif time.ticks_diff(now, release_start) >= RELEASE_MS:
         play_transition(strip)
-        return True, release_start, gauge_frame
-    if gauge_frame is not None:
-        strip.render(gauge_frame)
-    return False, release_start, gauge_frame
+        return True, release_start, position
+    if position is not None:
+        strip.render(gauge_frame(position))
+    return False, release_start, position
 
 
 def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
@@ -301,7 +322,7 @@ def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
     hold = (None, 0)
     locked = False
     release_start = None
-    gauge_frame = None
+    position = None
     emit({"effect": effects[0][0]})
     while True:
         frame_start = time.ticks_ms()
@@ -311,10 +332,10 @@ def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
             locked, cycle, hold = _step_unlocked(strip, effects, distance_mm, now, cycle, hold)
             if locked:
                 release_start = None
-                gauge_frame = None
+                position = None
         else:
-            unlock, release_start, gauge_frame = _step_locked(
-                strip, distance_mm, now, release_start, gauge_frame
+            unlock, release_start, position = _step_locked(
+                strip, distance_mm, now, release_start, position
             )
             if unlock:
                 locked = False
@@ -330,6 +351,11 @@ def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
         elapsed = time.ticks_diff(time.ticks_ms(), frame_start)
         if elapsed < FRAME_PERIOD_MS:
             time.sleep_ms(FRAME_PERIOD_MS - elapsed)
+
+
+def _dim(rgb: tuple, factor: float) -> tuple:
+    """Scale each channel of `rgb` by `factor` (0.0-1.0)."""
+    return (int(rgb[0] * factor), int(rgb[1] * factor), int(rgb[2] * factor))
 
 
 def main() -> None:
