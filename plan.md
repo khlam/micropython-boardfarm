@@ -1,233 +1,289 @@
-Implement secure Wi-Fi provisioning in two separated layers.
+# Secure Wi-Fi provisioning plan
 
-## 1. Shared firmware package
+Implement provisioning in two layers: a reusable `wifi` firmware package and a
+small `led-effects` integration. Paths are relative to the repository root.
 
-Create a reusable firmware package under:
+## Current `led-effects` context
 
-`/home/khl/Documents/github/micropython-boardfarm/firmware-packages/<appropriate-wifi-provisioning-package-name>`
+- `projects/led-effects/firmware/main.py` runs one cooperative loop at about
+  50 fps, drives 20 WS2812B LEDs through four deterministic effects, and enters
+  a smooth distance gauge after a steady VL53L0X reading. Network work must fit
+  this loop without threads or `asyncio`.
+- Run Wi-Fi provisioning continuously from boot as a background service in the
+  same cooperative loop; it is not tied to the distance gauge. The gauge and its
+  `HOLD_MS`/`RELEASE_MS=1000` transitions still drive the LED display, but never
+  start, stop, or gate provisioning.
+- The 128x64 SSD1306 is required to provision: it continuously displays the QR
+  for the currently valid credentials. The sensor is optional and affects only
+  the LED gauge. Preserve normal degraded behavior; without a working OLED, run
+  effects and the gauge but do not provision.
+- The same firmware builds for ESP32-S3 Zero, Pico 2 W/RP2350, and non-Wi-Fi
+  RP2040. The package must import safely and expose the same API on all three;
+  RP2040 reports unsupported and continues running effects and the gauge.
+- Keep all serial output as compact JSON through `emit()`. `manifest.py`
+  automatically freezes imported shared packages and their transitive
+  dependencies, so importing `wifi` needs no package-specific manifest edit.
 
-The package must expose the same documented, hardware-independent public API to all supported boards, initially ESP32 and RP2350. Keep all MCU-specific behavior inside narrow platform adapters. Code in consuming projects must not branch on ESP32 versus RP2350 for provisioning behavior.
+## Fixed defaults
 
-The package is responsible for:
+| Item | Decision |
+| --- | --- |
+| Target adapters | ESP32-S3 Zero and Pico 2 W/RP2350; RP2040 is an unsupported no-op adapter |
+| Provisioning lifecycle | Start provisioning at boot and keep it running continuously, independent of the gauge. Regenerate all credentials at startup and again every 10 minutes, tearing the AP down and bringing it back up under fresh secrets on each rotation |
+| Gauge trigger | Enter gauge mode when the steady hold reaches `HOLD_MS`; set `RELEASE_MS=1000` so one continuous second without an object exits gauge mode. The gauge drives only the LED display |
+| Credentials | SSID `LEDFX-` + 8 uppercase hex characters from 4 random bytes; 24-character uppercase hex password from 12 bytes; 32-character uppercase hex CSRF token from 16 bytes |
+| Network | Visible WPA2-PSK/CCMP AP, channel 6, `192.168.4.1/24`, canonical URL `http://192.168.4.1/`, local alias `led-effects.test` |
+| Credential rotation | Every 600 seconds generate new secrets, restart the AP under them, and redraw the OLED QR. The AP never stops on its own while the OLED works; there is no no-client timeout |
+| OLED | Continuously display only the QR for the currently valid credentials, redrawn on each rotation. Never blank it while provisioning is running |
+| LED modes | `solid` applies one `RRGGBB` color to all 20 LEDs; `random` chooses among the four existing effects every 200 frames and is the boot default |
+| Project routes | `GET /`, `POST /color`, and `POST /random` only |
 
-* Validating that the platform entropy source is ready before creating secrets.
-* Generating fresh credentials for every provisioning session using only `os.urandom()`.
-* Generating an SSID suffix from at least 4 random bytes.
-* Generating a password from at least 12 random bytes, providing at least 96 bits of entropy.
-* Generating an unpredictable per-session CSRF token using `os.urandom()`.
-* Encoding credentials with a QR-safe character set such as uppercase hexadecimal or Base32.
-* Validating SSID and password length limits and rejecting semicolons, commas, quotes, colons, backslashes, whitespace, control characters, and other characters requiring Wi-Fi QR escaping.
-* Starting and stopping a WPA2-PSK-only SoftAP.
-* Failing closed if WPA2-only security cannot be configured; never temporarily or permanently start an open AP.
-* Disabling the station interface while provisioning unless the existing platform architecture strictly requires it.
-* Preventing NAT, routing, bridging, and Internet forwarding.
-* Binding DNS and HTTP sockets specifically to the SoftAP address where supported.
-* Enabling PMF in optional mode when exposed by the MicroPython port.
-* Supporting one-client limits and SoftAP client isolation where available.
-* Reporting all relevant platform capabilities through a deterministic capability API.
-* Treating WPA2-only operation and SoftAP isolation from other interfaces as required capabilities.
-* Reporting and documenting unsupported optional controls rather than silently weakening behavior.
-* Tracking client association state.
-* Implementing defensive captive-portal DNS handling.
-* Responding only to supported DNS query types and captive-portal use cases.
-* Ignoring malformed, truncated, recursive, oversized, or unsupported DNS requests.
-* Never forwarding DNS requests to an upstream resolver.
-* Ensuring DNS responses are not substantially larger than their requests.
-* Redirecting recognized plain-HTTP captive-portal checks to a canonical configuration URL.
-* Never intercepting HTTPS, impersonating TLS endpoints, generating misleading certificates, or downgrading arbitrary HTTPS traffic.
-* Providing bounded HTTP parsing and serving primitives for project-defined fixed routes.
-* Supporting CSRF-token validation for state-changing requests.
-* Enforcing absolute provisioning timeouts and no-associated-client timeouts.
-* Cleaning up sockets, interfaces, credentials, tokens, and adapter state after normal shutdown or exceptions.
-* Restoring the prior networking state when provisioning ends.
+## 1. Shared `wifi` package
 
-Design the package to remain safe under thousands of simultaneous connection attempts. This means it must:
+### Layout and API
 
-* Use a small, fixed maximum number of active sockets.
-* Use bounded request, header, body, and DNS buffers.
-* Define maximum request-line length, header count, total header bytes, body bytes, and DNS packet size.
-* Use short read, write, connection, and idle timeouts.
-* Apply a bounded request rate.
-* Reject excess connections or requests immediately with a small response or connection close.
-* Never allocate queues, tasks, buffers, or session objects in proportion to offered traffic.
-* Process at most one HTTP request per connection.
-* Close every HTTP connection after its response.
-* Reject HTTP pipelining.
-* Reject chunked request bodies.
-* Reject missing, malformed, duplicate, or oversized `Content-Length` values on POST requests.
-* Reject multipart uploads, WebSockets, and persistent keep-alive connections.
-* Avoid a general-purpose web framework unless one is already an unavoidable project dependency.
+Create `firmware-packages/wifi/` with `pyproject.toml`, `README.md`, and an inner
+`wifi/` package. Keep session, DNS, and HTTP code platform-neutral. Lazy-load
+ESP32-S3, RP2350, and RP2040 adapters using the dispatch pattern established by
+`boot_status_led`; never make the consuming project branch by chip.
 
-The package must never provide or enable:
+Expose this exact API:
 
-* Open Wi-Fi.
-* WEP, WPA1, WPA/WPA2 mixed mode, or TKIP fallback.
-* NAT, routing, bridging, or Internet forwarding.
-* HTTPS interception or TLS impersonation.
-* Recursive or upstream DNS resolution.
-* Filesystem browsing or arbitrary file access.
-* Directory listings.
-* Firmware or file uploads.
-* Arbitrary imports.
-* Command execution.
-* REPL access.
-* Package-management endpoints.
-* Source-code or traceback exposure.
-* Generic file read/write routes.
+- `Config(ssid_prefix, ap_ip, netmask, channel, local_hostname,
+  absolute_timeout_ms, no_client_timeout_ms)` is a fixed-size immutable record;
+  unknown configuration fields are impossible.
+- `Request(method, path, form)` contains only bounded, fully parsed values after
+  generic HTTP, host, origin, and CSRF validation. `Response(status, body,
+  terminal=False)` accepts only a fixed HTML body no larger than the response
+  limit; the package owns all headers.
+- `capabilities() -> dict` always returns the boolean keys `supported`,
+  `wpa2_only`, `ap_bind`, `station_count`, `dhcp_dns`, `pmf`, `max_clients`, and
+  `client_isolation`. The first five are required; the last three are optional
+  and must report `False` when the port cannot enforce them.
+- `quiesce() -> None` idempotently forces AP and station interfaces down and
+  verifies that state. It is a no-op on RP2040.
+- `create_session(config, handler) -> Session` validates the config, obtains the
+  session randomness, and accepts a `handler(request, csrf_form_value) ->
+  Response`. The token argument exists only for rendering the hidden GET form
+  field and must never be logged or retained after the call.
+- `Session.qr_payload() -> str` is available only in `NEW`; `start()` transitions
+  `NEW -> ACTIVE`; `client_count() -> int` reads association state; `stop()` is
+  idempotent and transitions `NEW` or `ACTIVE` to `STOPPED`.
+- `Session.poll(now_ms) -> str | None` does bounded nonblocking work. It returns
+  `complete` after a successful configuration POST as a non-terminal notification
+  and keeps serving; the terminal events `absolute_timeout` and `fatal` mean the
+  session must be stopped, and `no_client_timeout` fires only when that timeout is
+  enabled. Ordinary and rejected requests return `None`.
 
-Expose a small, deterministic API with operations equivalent to:
+Invalid transitions and fatal setup raise `ProvisioningError` with only
+`unsupported`, `capability`, `entropy`, `network`, or `state` as its code. Do
+not include raw adapter errors or session data in the exception or object repr.
 
-* Capability discovery.
-* Provisioning-session creation.
-* `start(config)`.
-* `poll()`.
-* Association or client-count status.
-* Bounded request-dispatch hooks for application routes.
-* `stop()`.
+### AP and secret invariants
 
-Use the same method names, arguments, return types, state transitions, and error categories on ESP32 and RP2350. Keep credentials and CSRF tokens inside session-scoped objects and avoid exposing them through object representations, diagnostic output, exceptions, or adapter state. Return only small, stable, redacted error codes.
+`led-effects` owns no network connection: call `quiesce()` once at boot, and
+disable provisioning for that boot if it fails. A session must also refuse to
+start unless both interfaces are still inactive. This avoids trying to restore
+a station connection from insufficient MicroPython state and clears an AP left
+active by a soft reset or watchdog recovery.
 
-Never print, log, persist, or transmit credentials or CSRF tokens over serial. Do not store them in project configuration files. Remove references to them and overwrite mutable secret buffers where practical when the session ends.
+Configure the fixed IP, DHCP/DNS advertisement, SSID, password, and exact
+WPA2-PSK/CCMP mode while the AP is down; read back every exposed setting before
+activation. Bind DNS and HTTP to the AP address, never a wildcard. If either
+target cannot prove exact WPA2-only mode, AP-address binding, station counts,
+DHCP DNS, or teardown, its adapter must report the capability false and start
+must fail. Configure PMF optional mode, a one-client limit, and client-to-client
+isolation only when the adapter reports that it can enforce them.
 
+Never configure an open, WEP, WPA1, mixed WPA/WPA2, or TKIP state, including
+temporarily. Do not add NAT, routing, bridging, forwarding, or upstream DNS.
+Cleanup closes sockets, calls `ap.active(False)`, and verifies the AP is down;
+do not depend on a `WLAN.deinit()` method or reactivate the station interface.
 
-## 2. `led-effects` project integration
+Split one 32-byte `os.urandom()` result according to Fixed defaults. Fail on a
+missing API, exception, wrong-length result, or all-zero result; never substitute
+timestamps, MAC addresses, a PRNG, or a home-grown entropy test. Validate the
+final ASCII and Wi-Fi lengths and reject every QR delimiter, whitespace, control
+character, backslash, quote, comma, and colon before starting.
 
-Modify:
+### Bounded DNS and HTTP
 
-`/home/khl/Documents/github/micropython-boardfarm/projects/led-effects`
+Steady-state `poll()` must preserve the 20 ms loop cadence. Use at most three
+sockets: one nonblocking UDP listener, one nonblocking TCP listener with backlog
+1, and one accepted TCP connection. Each poll handles at most one DNS datagram
+and one HTTP parse/write step, with no traffic-proportional queues or state.
 
-The project must call the new shared firmware package and contain only project-specific integration, OLED presentation, LED controls, validation, persistence, and provisioning lifecycle logic. Do not duplicate general Wi-Fi, DNS, HTTP parsing, captive-portal, rate-limiting, or platform-adapter functionality inside the project.
+- Limits are 512 bytes per DNS packet, 256 bytes per request line, 16 headers,
+  2048 total header bytes, 512 body bytes, and 4096 response bytes. An accepted
+  connection has a two-second absolute deadline and two-second no-progress
+  deadline. Fixed global token buckets allow HTTP 4/second with burst 8 and DNS
+  20/second with burst 40; overload is closed or dropped immediately.
+- Process one request per connection, then send `Connection: close`. Reject
+  pipelining, chunking, keep-alive, multipart, WebSockets, body-bearing GETs,
+  and missing, duplicate, malformed, or oversized POST `Content-Length`.
 
-Provisioning may start only after the deliberate physical distance-gauge trigger.
+DNS accepts one uncompressed class-`IN` `QUERY` for these exact names:
+`led-effects.test`, `connectivitycheck.gstatic.com`, `captive.apple.com`,
+`www.msftconnecttest.com`, `www.msftncsi.com`, and
+`detectportal.firefox.com`. Type `A` returns `192.168.4.1`; type `AAAA` returns a
+successful empty answer. Accept recursion-desired but set `RA=0` and never
+forward. Reject malformed, truncated, compressed, multi-question, extra-record,
+unsupported-type, and oversized packets. Return `NXDOMAIN` for unknown names;
+responses remain at most 512 bytes and no more than 32 bytes larger than the
+request.
 
-After the deliberate trigger, create a new provisioning session through the shared package. Display only an OLED QR code containing:
+HTTP accepts only versions 1.0 and 1.1 and requires exactly one valid `Host` on
+every request. `GET /` accepts only the AP IP or local alias. Redirect only these
+exact probe pairs to the canonical URL:
 
-`WIFI:T:WPA;S:<ssid>;P:<password>;;`
+- `connectivitycheck.gstatic.com/generate_204`
+- `captive.apple.com/hotspot-detect.html`
+- `www.msftconnecttest.com/connecttest.txt`
+- `www.msftncsi.com/ncsi.txt`
+- `detectportal.firefox.com/canonical.html`
 
-Do not display additional credentials, instructions, PINs, login prompts, or authentication challenges. The SoftAP password is the sole user-facing authentication credential.
+Return a small generic response or close for malformed input. Never intercept
+HTTPS, generate certificates, downgrade arbitrary hosts, or forward requests.
 
-Use the shared package’s captive-portal and HTTP facilities to provide a small, fixed-route, no-JavaScript LED configuration page. Do not load external scripts, fonts, styles, analytics, CDNs, or Internet resources.
+## 2. `led-effects` integration
 
-The configuration page must support only:
+### Lifecycle and OLED
 
-* Setting LED colors using exactly one documented format, preferably exactly six hexadecimal digits per color.
-* Resetting LED behavior to random mode.
+Provisioning is a continuous background service, not a gauge episode. Once the
+boot `quiesce()` succeeds and the OLED is confirmed working, generate the first
+set of credentials, create and start a session, and render its QR. If `quiesce()`
+fails, the OLED is missing, or the initial QR/setup or a required capability
+fails, disable provisioning for the boot and keep running effects and the gauge
+normally.
 
-The reset operation must affect only LED behavior. It must not erase unrelated configuration, firmware, network settings, or device state.
+Rotate credentials every 10 minutes. Set `absolute_timeout_ms` to 600000 and
+disable the no-client timeout (`no_client_timeout_ms` set so it never fires), so
+`poll()` returns `absolute_timeout` exactly at each rotation boundary. On that
+signal, tear the session down through the normal `finally` path — zeroing the old
+bitmap and secret buffers — then generate fresh secrets, create and start a new
+session, and draw its QR before resuming. Rotation drops any associated client;
+they rejoin with the new QR. A `fatal` event tears down the same way and rebuilds
+on the next rotation attempt; if setup keeps failing, leave provisioning disabled
+for the boot without disturbing effects or the gauge.
 
-All state-changing operations must:
+Before each `Session.start()`, render its exact payload
+`WIFI:T:WPA;S:<ssid>;P:<password>;;` as a fixed byte-mode QR Version 4/M. The
+56-byte payload fits its 62-byte capacity; with a four-module quiet zone, draw
+the centered 41x41 bitmap at one OLED pixel per module. Reject any other size.
+Display only that QR, with no text, PIN, instructions, or login prompt. A draw or
+flush failure prevents activation. The OLED continuously shows the QR for the
+currently valid credentials and is redrawn only on rotation; never blank it while
+provisioning is running. A later OLED failure stops provisioning, because a stale
+or blank display can no longer prove the shown QR matches the live credentials;
+blank and flush it if possible on that stop.
 
-* Use POST.
-* Require the current session’s CSRF token in a hidden form field.
-* Use a valid, bounded `Content-Length`.
-* Validate the `Host` header.
-* Accept only the SoftAP IP address and one documented local hostname as valid POST hosts.
-* Reject captive-portal detection hostnames for POST requests.
-* Validate `Origin` when it is present.
-* Reject cross-origin state-changing requests.
-* Avoid enabling CORS.
-* Never return `Access-Control-Allow-Origin: *`.
-* Reject unknown fields.
-* Reject duplicate fields.
-* Reject missing required fields.
-* Reject malformed form encoding.
-* Reject oversized values.
-* Reject extra path components.
-* Reject trailing unparsed input.
-* Validate every LED value completely before changing or persisting state.
+The distance gauge and LED effects run independently of provisioning. Distinguish
+an in-range distance, confirmed out-of-range, and a sensor error; only confirmed
+out-of-range samples advance the one-second gauge-release timer, and errors
+preserve the current state. Gauge entry and exit change only the LED display —
+never provisioning — and gauge exit resumes the latest valid LED setting:
+random/default mode when no solid color is configured, or the persisted solid
+color after a successful color operation.
 
-GET requests, captive-portal probes, redirects, favicon requests, image requests, malformed requests, and failed validation must never alter LED state or persistent configuration.
+Continue gauge rendering, distance sampling, and nonblocking network polling
+every loop. WLAN setup, OLED flush, and any small durable settings commit are
+one-off transition operations and may pause a frame; measure them, but do not
+permit steady-state network or rotation traffic to stall the loop. A successful
+POST applies its LED setting and returns success but does not stop the AP; the
+portal and QR stay up until the next rotation. Keep no persistent session or
+re-arm flag, so boot, crash, reset, and watchdog recovery always start from a
+fresh first rotation and cannot resume an earlier session or its secrets.
 
-Serve only a fixed route set, such as:
+### Routes and validation
 
-* A canonical GET route for the configuration page.
-* One POST route for validated LED color changes.
-* One POST route for resetting LED behavior to random mode.
-* A small fixed set of captive-portal detection routes handled through the shared package.
-* An optional fixed favicon response that performs no state changes.
+- `GET /` serves one self-contained, no-JavaScript HTML page with a text field
+  for uppercase `RRGGBB` and separate POST forms. Insert the supplied CSRF value
+  only into hidden fields and HTML-escape every dynamic value. Load no external
+  scripts, styles, fonts, images, analytics, CDNs, or Internet resources.
+- `POST /color` accepts exactly `csrf` and `color`, with `color` matching ASCII
+  `[0-9A-F]{6}`; `POST /random` accepts exactly `csrf`. Persist the requested
+  mode completely before returning a terminal success.
+- Both POSTs require exactly `Content-Type: application/x-www-form-urlencoded`,
+  a valid bounded body, no query or trailing path, and a matching token. After
+  ASCII lowercase and optional exact `:80` removal, accept only
+  `192.168.4.1` and `led-effects.test` as hosts. If `Origin` is present, require
+  its corresponding exact `http://` origin. Do not enable CORS.
+- Reject unknown, duplicate, missing, empty, malformed percent-encoded, or
+  oversized fields before touching RAM state or storage. GETs, redirects,
+  rejected input, and validation or persistence failures are read-only. Unknown
+  paths return 404 and unsupported methods return 405.
 
-Escape every dynamic value before inserting it into HTML. Never insert request values directly into HTML, HTTP headers, redirects, CSS, logs, or error messages.
+Every response adds `Cache-Control: no-store`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and the exact
+CSP `default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`.
 
-Include defensive response headers where compatible:
+### LED state and persistence
 
-* `Cache-Control: no-store`
-* `X-Content-Type-Options: nosniff`
-* `Referrer-Policy: no-referrer`
-* A restrictive Content Security Policy that permits only the page’s required inline form and styling behavior.
+In random mode, use `os.urandom(1)` to select one of the existing four effects
+at each 200-frame boundary; solid mode continuously renders the configured RGB
+value whenever the gauge is unlocked.
 
-Persist LED settings only after complete validation. Use an atomic write or the project’s existing safe configuration mechanism so a reset or power loss cannot leave a partially written configuration.
+Use exactly these records, with `N` an integer from 0 through `2^31-1`:
+`{"version":1,"generation":N,"mode":"solid","color":"RRGGBB"}` and
+`{"version":1,"generation":N,"mode":"random"}`. Compare generations with
+modulo-`2^31` serial-number arithmetic so wraparound is unambiguous.
 
-Return generic error pages or small error responses. Never expose:
+Alternate `/led-effects-0.json` and `/led-effects-1.json`. Write a temporary
+file in the same directory, flush and `os.sync()`, remove only the inactive slot,
+rename the temporary file into it, then reread and validate before applying.
+The active generation remains intact through interruption. At boot, choose the
+newest fully valid record; missing or corrupt records select random mode. A
+failed commit changes neither LEDs nor active settings, and `/random` changes no
+state outside these records.
 
-* Internal exception messages.
-* Tracebacks.
-* Memory addresses.
-* Filesystem paths.
-* Wi-Fi credentials.
-* CSRF tokens.
-* Device identifiers.
-* Platform-adapter diagnostics.
+### Cleanup and prohibited surface
 
-Provisioning must stop immediately when:
+Use one guaranteed `finally` path around each session — run on every rotation and
+on final shutdown — to call idempotent `Session.stop()`, verify all sockets and
+the AP are down, zero the QR bitmap and other mutable secret/protocol buffers, and
+release immutable secret/session references before the next session's secrets are
+generated. On final shutdown or an OLED-failure stop, also blank and flush the QR
+and leave the base LED state correct; on a rotation the next session redraws the QR
+immediately. MicroPython cannot guarantee erasure of immutable strings or driver
+copies; do not claim otherwise. Emit only fixed redacted JSON codes through `emit()`.
 
-* The user leaves distance-gauge mode.
-* A valid LED configuration operation succeeds.
-* The LED behavior is successfully reset to random mode.
-* The configurable absolute timeout expires, defaulting to 10 minutes.
-* The configurable no-associated-client timeout expires.
-* A fatal provisioning error occurs.
+Neither layer may offer filesystem or directory browsing, generic file routes,
+uploads, arbitrary imports or execution, REPL or package-management access,
+source or traceback disclosure, CORS, a web framework, or a third-party runtime
+dependency. Never expose memory addresses, device identifiers, adapter details,
+credentials, QR payloads, or CSRF tokens in responses, logs, serial, exceptions,
+reprs, or persistent storage, except for the CSRF token in its intended hidden
+configuration-page fields.
 
-Use a guaranteed `finally`-style cleanup path. Cleanup must:
+## Documentation and verification
 
-* Stop project request handling.
-* Close all HTTP and DNS sockets through the shared package.
-* Deactivate the SoftAP.
-* Clear the OLED QR code.
-* Discard the session credentials and CSRF token.
-* Overwrite mutable secret buffers where practical.
-* Restore the prior networking state.
-* Restore the appropriate prior or newly configured LED state.
-* Ensure watchdog recovery cannot automatically restart provisioning.
+Add `wifi` to the `AGENTS.md` Routing table and document the package contract and
+limits above in its README. Update the project README with continuous boot-time
+provisioning, 10-minute credential rotation, the always-on OLED QR, the `HOLD_MS`
+gauge trigger and one-second release for the LED display only, routes, modes,
+persistence, cleanup, and the fact that anyone who can see the OLED QR can
+configure the LEDs until the next rotation.
 
-Add a short project security note documenting:
+Do not add automated tests in this iteration. Run the existing Dockerized suite
+and compile both firmware targets, then verify manually:
 
-* The deliberate physical trigger.
-* The shared package boundary.
-* Project-owned routes.
-* LED input representation and validation.
-* Provisioning lifetime.
-* Cleanup behavior.
-* Persistent-setting behavior.
-* The fact that anyone who views or obtains the QR code may configure the LEDs during that provisioning session.
-
-Do not write automated tests yet.
-
-Add a concise manual verification checklist covering:
-
-* Identical project-facing API behavior on ESP32 and RP2350.
-* No open-AP or legacy-security fallback.
-* Fresh SSID, password, and CSRF token for every session.
-* Provisioning never starting after ordinary boot, reset, crash, or watchdog recovery.
-* HTTP and DNS being unreachable outside the SoftAP interface.
-* The station interface being disabled where possible.
-* No NAT, routing, bridging, or forwarding.
-* Correct optional capability reporting for PMF, client limits, and isolation.
-* Successful QR scanning and SoftAP joining without another login or PIN.
-* Captive-portal redirection over plain HTTP.
-* No HTTPS interception.
-* Timeout and no-client cleanup.
-* Immediate cleanup when distance-gauge mode ends.
-* Cleanup after exceptions.
-* Malformed DNS packet rejection.
-* Malformed HTTP request rejection.
-* Oversized request rejection.
-* Excess-connection load shedding.
-* No memory growth proportional to simultaneous connection attempts.
-* CSRF-token rejection.
-* Invalid `Host` rejection.
-* Cross-origin POST rejection.
-* GET requests causing no state changes.
-* Unknown and duplicate form fields being rejected.
-* LED settings being persisted only after full validation.
-* The reset action changing only LED behavior to random mode.
-* Credentials and CSRF tokens being absent from logs, serial output, exceptions, configuration files, and persistent storage.
+- Both Wi-Fi targets have API parity and prove required capabilities, exact
+  WPA2-only operation, interface isolation, QR join, fresh secrets, captive
+  redirects, and honest optional capabilities; RP2040 never starts an AP.
+- Verify provisioning starts at boot, the OLED continuously shows the QR for the
+  live credentials, and every 10 minutes the credentials rotate: fresh secrets, a
+  redrawn QR, a restarted AP that the old QR can no longer join and the new QR can,
+  and any connected client dropped. RP2040 never starts an AP. Missing OLED,
+  reset/watchdog recovery, later OLED failure, and injected exceptions leave no
+  network or session artifacts and never resume old secrets.
+- Verify the gauge is fully decoupled from provisioning: `HOLD_MS` entry and one
+  second of confirmed inactivity change only the LED display, and on every gauge
+  exit the LEDs resume random/default mode or the latest persisted solid color,
+  including after successful configuration and failure.
+- Malformed, oversized, cross-origin, bad-host, bad-CSRF, pipelined, and excess
+  DNS/HTTP traffic is rejected with bounded memory and no steady-state cadence
+  loss or LED/settings changes.
+- Power interruption at each commit phase retains a valid generation; only a
+  fully validated operation changes the intended LED state, and no secret
+  appears in serial JSON, errors, configuration, storage, or an unintended
+  response field.
