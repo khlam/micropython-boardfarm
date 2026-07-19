@@ -93,16 +93,27 @@ activation. Bind DNS and HTTP to the AP address, never a wildcard. If either
 target cannot prove exact WPA2-only mode, AP-address binding, station counts,
 DHCP DNS, or teardown, its adapter must report the capability false and start
 must fail. Configure PMF optional mode, a one-client limit, and client-to-client
-isolation only when the adapter reports that it can enforce them.
+isolation only when the adapter reports that it can enforce them. Where a port
+cannot enforce the one-client limit or isolation, the session still starts, so
+every associated client is fully trusted: multiple clients may associate at once
+and each can drive the LEDs. Record which ports fall into this case during
+verification.
 
 Never configure an open, WEP, WPA1, mixed WPA/WPA2, or TKIP state, including
 temporarily. Do not add NAT, routing, bridging, forwarding, or upstream DNS.
 Cleanup closes sockets, calls `ap.active(False)`, and verifies the AP is down;
 do not depend on a `WLAN.deinit()` method or reactivate the station interface.
 
-Split one 32-byte `os.urandom()` result according to Fixed defaults. Fail on a
-missing API, exception, wrong-length result, or all-zero result; never substitute
-timestamps, MAC addresses, a PRNG, or a home-grown entropy test. Validate the
+Draw secrets only after the adapter confirms the radio hardware is initialized,
+so ports whose hardware RNG is fully seeded only once the RF subsystem is active
+(notably ESP32-S3, where `os.urandom` degrades toward a PRNG before Wi-Fi is
+brought up) never generate credentials from weak entropy; an adapter that cannot
+confirm radio-backed entropy must fail with `entropy`. Split one 32-byte
+`os.urandom()` result according to Fixed defaults. Fail on a missing API,
+exception, wrong-length result, or a result whose bytes are all identical — which
+covers the all-zero stuck-source case as well as a source stuck on any constant
+byte; never substitute timestamps, MAC addresses, a PRNG, or a home-grown entropy
+test. Validate the
 final ASCII and Wi-Fi lengths and reject every QR delimiter, whitespace, control
 character, backslash, quote, comma, and colon before starting.
 
@@ -199,7 +210,10 @@ fresh first rotation and cannot resume an earlier session or its secrets.
 - `GET /` serves one self-contained, no-JavaScript HTML page with a text field
   for uppercase `RRGGBB` and separate POST forms. Insert the supplied CSRF value
   only into hidden fields and HTML-escape every dynamic value. Load no external
-  scripts, styles, fonts, images, analytics, CDNs, or Internet resources.
+  scripts, styles, fonts, images, analytics, CDNs, or Internet resources. The page
+  carries no CSS — no `<style>` block and no `style` attributes — so the strict CSP
+  below (`default-src 'none'` with no `style-src`) applies with nothing relaxed;
+  rely on plain semantic HTML for layout.
 - `POST /color` accepts exactly `csrf` and `color`, with `color` matching ASCII
   `[0-9A-F]{6}`; `POST /random` accepts exactly `csrf`. Persist the requested
   mode completely before returning a terminal success.
@@ -262,7 +276,12 @@ limits above in its README. Update the project README with continuous boot-time
 provisioning, 10-minute credential rotation, the always-on OLED QR, the `HOLD_MS`
 gauge trigger and one-second release for the LED display only, routes, modes,
 persistence, cleanup, and the fact that anyone who can see the OLED QR can
-configure the LEDs until the next rotation.
+configure the LEDs until the next rotation. State the accepted-risk consequence
+explicitly: the AP broadcasts and accepts a client continuously for the device's
+entire uptime — not only during a deliberate provisioning window — so this
+exposure is permanent while the OLED works, and on ports that cannot enforce the
+one-client limit or client isolation more than one client may control the LEDs at
+once.
 
 Do not add automated tests in this iteration. Run the existing Dockerized suite
 and compile both firmware targets, then verify manually:
