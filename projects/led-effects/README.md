@@ -151,19 +151,19 @@ They share `3V3` and GND.
 ### ESP32-S3-Zero
 
 ```
-                           ┌───── USB-C ─────┐
-                      ┌────┴─────────────────┴────┐
-    WS2812B 5V ◄── 5V / VBUS ─┤                           ├─ GPIO43 / TX
-OLED/VL53/STRIP GND ◄── GND ─┤                           ├─ GPIO44 / RX
+                                    ┌───── USB-C ─────┐
+                               ┌────┴─────────────────┴────┐
+     WS2812B 5V ◄── 5V / VBUS ─┤                           ├─ GPIO43 / TX
+  OLED/VL53/STRIP GND ◄── GND ─┤                           ├─ GPIO44 / RX
      OLED/VL53 VCC ◄─ 3V3 OUT ─┤                           ├─ GPIO13
-       VL53L0X SDA ◄── GPIO1 ─┤                           ├─ GPIO12
-       VL53L0X SCL ◄── GPIO2 ─┤                           ├─ GPIO11
-                    GPIO3 ─┤   [BOOT]       [RESET]   ├─ GPIO10
-                    GPIO4 ─┤    GPIO0          EN     ├─ GPIO9 ───► OLED SCL
-                    GPIO5 ─┤                           ├─ GPIO8 ───► OLED SDA
-                    GPIO6 ─┤    WS2812: GPIO21         ├─ GPIO7 ───► WS2812B DIN
-                          │                           │
-                          └───────────────────────────┘
+        VL53L0X SDA ◄── GPIO1 ─┤                           ├─ GPIO12
+        VL53L0X SCL ◄── GPIO2 ─┤                           ├─ GPIO11
+                        GPIO3 ─┤   [BOOT]       [RESET]    ├─ GPIO10
+                        GPIO4 ─┤    GPIO0          EN      ├─ GPIO9 ───► OLED SCL
+                        GPIO5 ─┤                           ├─ GPIO8 ───► OLED SDA
+                        GPIO6 ─┤    WS2812: GPIO21         ├─ GPIO7 ───► WS2812B DIN
+                               │                           │
+                               └───────────────────────────┘
 ```
 
 The strip's `DIN` goes to `GPIO7`, leaving the on-board WS2812 (boot status LED)
