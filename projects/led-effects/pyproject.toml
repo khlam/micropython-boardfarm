@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 
 dependencies = [
     "boot_status_led>=0.2.0",
+    "ssd1306>=0.1.0",
     "vl53l0x>=0.1.0",
 ]
 
@@ -16,4 +17,5 @@ package = false
 
 [tool.uv.sources]
 boot_status_led = { index = "internal" }
+ssd1306 = { index = "internal" }
 vl53l0x = { index = "internal" }

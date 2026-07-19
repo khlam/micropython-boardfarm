@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ssd1306"
+version = "0.1.0"
+description = "MicroPython framebuffer driver for SSD1306 OLED displays over I2C."
+requires-python = ">=3.12"
+dependencies = [
+    "i2c_bus>=0.2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ssd1306"]

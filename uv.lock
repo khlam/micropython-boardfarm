@@ -412,12 +412,14 @@ version = "0.1.0"
 source = { virtual = "projects/led-effects" }
 dependencies = [
     { name = "boot-status-led" },
+    { name = "ssd1306" },
     { name = "vl53l0x" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "ssd1306", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
@@ -455,6 +457,7 @@ dependencies = [
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "ssd1306" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -480,6 +483,7 @@ test = [
     { name = "qmc5883p" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "ssd1306" },
     { name = "ty" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
@@ -501,6 +505,7 @@ requires-dist = [
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "ssd1306", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
 ]
@@ -519,13 +524,14 @@ test = [
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
-    { name = "micropython-stubs", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.4.0", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
+    { name = "ssd1306", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
     { name = "vl53l0x", index = "file:///wheels" },
     { name = "vl53l5cx", index = "file:///wheels" },
@@ -535,11 +541,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.3.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.4.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.3.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.4.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -940,6 +946,18 @@ source = { registry = "/wheels" }
 sdist = { path = "/wheels/smoothing-0.1.0.tar.gz" }
 wheels = [
     { path = "/wheels/smoothing-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "ssd1306"
+version = "0.1.0"
+source = { registry = "/wheels" }
+dependencies = [
+    { name = "i2c-bus" },
+]
+sdist = { path = "/wheels/ssd1306-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/ssd1306-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]

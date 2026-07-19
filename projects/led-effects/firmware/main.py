@@ -1,4 +1,4 @@
-"""MCU-micropython firmware entry point for the led-effects WS2812B demo.
+"""MCU firmware entry point for the led-effects WS2812B and OLED demo.
 
 Cycles through four WS2812B animations — rainbow, hue rotation, breathing,
 and colour fade — until a VL53L0X time-of-flight sensor detects an object held
@@ -9,11 +9,12 @@ live-tracks the object, easing smoothly between LEDs as the distance changes.
 Removing the object for RELEASE_MS plays a short transition and resumes the
 animations.
 
-The sensor is optional: if none is found at boot the animations still run and
-the gesture is simply inactive. Pin assignments live in this module's BOARD
-table (dispatched per chip by os.uname().machine); the project-local Strip
-driver and the VL53L0X driver each take flat pins as constructor arguments, so
-this firmware builds unchanged for RP2040, RP2350, and ESP32-S3.
+At startup a 128x64 SSD1306 OLED displays ``Hello world``. The display and
+sensor use separate software-I²C pin pairs and are optional: if either is absent,
+the animations still run and only that peripheral's feature is inactive. Pin
+assignments live in this module's BOARD table (dispatched per chip by
+os.uname().machine); drivers take flat pins as constructor arguments, so this
+firmware builds unchanged for RP2040, RP2350, and ESP32-S3.
 """
 
 import os
@@ -22,6 +23,8 @@ from collections import namedtuple
 
 import ujson
 from effects import Breathe, ColorFade, HueRotate, Rainbow
+from ssd1306 import SSD1306
+from ssd1306 import DeviceNotFoundError as OledNotFoundError
 from strip import Strip
 
 from boot_status_led import status
@@ -31,20 +34,25 @@ from vl53l0x import VL53L0X, DeviceNotFoundError
 # numbers. data_pin carries the external strip's data line, kept clear of the
 # on-board WS2812 (boot status LED: GP16 on the Zeros, GPIO21 on ESP32-S3) so
 # the on-board pixel is never first in the chain. sda/scl carry the VL53L0X
-# soft-I²C bus (the driver opens it internally). Filled per chip by
-# os.uname().machine dispatch at import.
-Board = namedtuple("Board", ("name", "data_pin", "sda", "scl"))
+# soft-I²C bus; oled_sda/oled_scl give the SSD1306 a separate soft-I²C bus.
+# Filled per chip by os.uname().machine dispatch at import.
+Board = namedtuple("Board", ("name", "data_pin", "sda", "scl", "oled_sda", "oled_scl"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
-    BOARD = Board(name="ESP32-S3-Zero", data_pin=7, sda=1, scl=2)
+    BOARD = Board(name="ESP32-S3-Zero", data_pin=7, sda=1, scl=2, oled_sda=8, oled_scl=9)
 elif "RP2350" in _machine:
-    BOARD = Board(name="RP2350", data_pin=15, sda=0, scl=1)
+    BOARD = Board(name="RP2350", data_pin=15, sda=0, scl=1, oled_sda=2, oled_scl=3)
 else:
-    BOARD = Board(name="RP2040-Zero", data_pin=15, sda=0, scl=1)
+    BOARD = Board(name="RP2040-Zero", data_pin=15, sda=0, scl=1, oled_sda=2, oled_scl=3)
 
 LED_COUNT = 20
 FRAME_PERIOD_MS = 20  # ~50 fps render cadence; run() holds every frame to this
 FRAMES_PER_EFFECT = 200  # frames shown before advancing to the next effect
+
+OLED_WIDTH = 128
+OLED_HEIGHT = 64
+OLED_ADDRESS = 0x3C
+OLED_MESSAGE = "Hello world"
 
 # Distance gauge: readings are clamped to [MIN, MAX] and mapped linearly across
 # the 20 LEDs. MAX_DISTANCE_MM is the tunable "max measurable distance" — the
@@ -78,6 +86,46 @@ def emit(obj: dict) -> None:
     viz JSON parser.
     """
     print(ujson.dumps(obj))
+
+
+def init_display() -> SSD1306 | None:
+    """Initialise the OLED and show the startup message when it is present.
+
+    The display uses the dedicated OLED software-I²C pins in ``BOARD``. Missing
+    or faulty display hardware is optional: after bounded retries this function
+    emits ``oled_disabled`` and returns None so the LED effects and distance
+    sensor can still start.
+
+    Returns:
+        The initialised SSD1306 displaying ``Hello world``, or None after all
+        attempts fail.
+    """
+    status.i2c_init()
+    for _ in range(_INIT_ATTEMPTS):
+        try:
+            display = SSD1306(
+                sda=BOARD.oled_sda,
+                scl=BOARD.oled_scl,
+                width=OLED_WIDTH,
+                height=OLED_HEIGHT,
+                address=OLED_ADDRESS,
+            )
+            display.fill(0)
+            display.text(OLED_MESSAGE, 0, 0, 1)
+            display.show()
+        except OledNotFoundError as err:
+            status.no_device()
+            emit({"diag": "no_oled", "err": str(err)})
+            time.sleep_ms(_RETRY_PAUSE_MS)
+        except (OSError, RuntimeError) as err:
+            status.init_err()
+            emit({"diag": "oled_init_err", "err": str(err)})
+            time.sleep_ms(_RETRY_PAUSE_MS)
+        else:
+            emit({"diag": "oled_ok", "addr": display.address})
+            return display
+    emit({"diag": "oled_disabled"})
+    return None
 
 
 def init_sensor() -> VL53L0X | None:
@@ -359,10 +407,11 @@ def _dim(rgb: tuple, factor: float) -> tuple:
 
 
 def main() -> None:
-    """Run boot → build strip + sensor → cycle. MicroPython entry point."""
+    """Run boot → build display, strip, and sensor → cycle."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
     strip = Strip(LED_COUNT, pin=BOARD.data_pin)
+    _display = init_display()
     tof = init_sensor()
     status.streaming()
     run(strip, tof, build_effects())

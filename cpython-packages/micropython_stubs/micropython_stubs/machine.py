@@ -99,6 +99,24 @@ class _I2CBase:
             raise OSError("ENODEV")
         dev.write(reg, bytes(buf))
 
+    def writeto(self, addr: int, buf: bytes | bytearray, **_kwargs: object) -> int:
+        """Write one raw transaction and return its byte count."""
+        dev = _devices.get(addr)
+        if dev is None:
+            raise OSError("ENODEV")
+        data = bytes(buf)
+        dev.write_raw(data)
+        return len(data)
+
+    def writevto(self, addr: int, vector: tuple, **_kwargs: object) -> int:
+        """Write a vector as one raw transaction and return its byte count."""
+        dev = _devices.get(addr)
+        if dev is None:
+            raise OSError("ENODEV")
+        data = b"".join(bytes(part) for part in vector)
+        dev.write_raw(data)
+        return len(data)
+
 
 class I2C(_I2CBase):
     """Fake `machine.I2C` (hardware peripheral)."""

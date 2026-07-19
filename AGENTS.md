@@ -38,6 +38,7 @@ Before changing anything, identify the area you're touching:
 | I²C bus (internal) | `firmware-packages/i2c_bus/i2c_bus/` | `__init__.py` — `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` + `DeviceNotFoundError`; consumed only by drivers, never by projects |
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(sda=, scl=, skip_spad_info=True, interrupt_status_mask=0xFF)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |
+| OLED driver | `firmware-packages/ssd1306/ssd1306/` | `ssd1306.py` — `SSD1306(sda=, scl=, width=128, height=64, address=0x3C)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
