@@ -80,13 +80,16 @@ detail, credential, or session field.
   interface is already enabled in the Wi-Fi mode, and MicroPython's
   `WLAN.active(True)` fuses `esp_wifi_set_mode` with `esp_wifi_start` — so the
   interface cannot be enabled without starting the radio once. `esp32s3.py` starts
-  and immediately stops the AP a single time per boot to enable the mode (ESP-IDF
-  keeps it across `esp_wifi_stop`), then writes the credentials with the radio
-  off. That priming window is shorter than one 100 ms beacon interval and carries
-  only the ESP-IDF default SSID, but it is a real window: on this port the "never
-  open, not even transiently" guarantee holds for every *configured* activation,
-  including all rotations, not for the first mode enable. The Pico 2 W has no such
-  window — the CYW43 driver accepts credentials while inactive.
+  and immediately stops the AP before every configuration write to enable the
+  mode, then writes the credentials with the radio off. That priming window is
+  shorter than one 100 ms beacon interval and carries only the ESP-IDF default
+  SSID, but it is a real window: on this port the "never open, not even
+  transiently" guarantee holds for every *configured* activation, including all
+  rotations, not for the mode enable that precedes each one. Priming cannot be
+  done once per boot — bringing both interfaces down (every `stop_ap` and
+  `quiesce`, so every rotation) takes the AP back out of the mode, after which
+  `ap.config` accepts a write that `active(True)` then discards. The Pico 2 W has
+  no such window — the CYW43 driver accepts credentials while inactive.
 - **Fresh secrets, no persistence.** All three secrets come from one 32-byte
   `os.urandom` read (SSID 4 B, password 12 B, CSRF 16 B), drawn only after the
   adapter confirms radio-backed entropy. The draw fails closed on a missing API,

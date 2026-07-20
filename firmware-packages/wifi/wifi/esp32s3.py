@@ -10,12 +10,19 @@ extra step. ESP-IDF refuses ``esp_wifi_set_config`` unless the AP interface is
 already enabled in the Wi-Fi mode, and MicroPython's ``WLAN.active(True)`` fuses
 ``esp_wifi_set_mode`` and ``esp_wifi_start`` into one call — so the AP interface
 cannot be enabled without also starting the radio at least once. ``_prime``
-therefore starts and immediately stops the AP: ESP-IDF keeps the mode after
-``esp_wifi_stop``, so the credentials can then be written with the radio off and
-every later activation (including each rotation) beacons WPA2 from its first
-beacon. The priming window is shorter than one 100 ms beacon interval and
-advertises only the ESP-IDF default SSID, but it is a real window and the only
-one this port permits; see README.md.
+therefore starts and immediately stops the AP before every configuration write,
+so the credentials that follow are written with the radio off and the AP beacons
+WPA2 from its first beacon. The priming window is shorter than one 100 ms beacon
+interval and advertises only the ESP-IDF default SSID, but it is a real window
+and the only one this port permits; see README.md.
+
+Priming is repeated on every ``start_ap`` rather than cached per boot. Bringing
+both interfaces down — which ``stop_ap`` and ``quiesce`` do between every
+rotation — takes the AP back out of the Wi-Fi mode, and a write made without
+re-priming is accepted by ``ap.config`` yet silently discarded on the next
+``active(True)``, leaving an *open* AP. ``_prove`` catches that and fails the
+start, so the observable symptom of caching the flag is that provisioning dies
+at the first rotation rather than that credentials leak.
 
 Entropy is drawn only after the RF subsystem is powered, because the ESP32-S3
 hardware RNG degrades toward a PRNG before Wi-Fi is initialised. ``random_bytes``
@@ -48,7 +55,6 @@ class Adapter:
         """Initialise capability profile; defer all radio access to first use."""
         self._ap = None
         self._sta = None
-        self._primed = False
         # Optimistic profile for the required capabilities; start_ap proves them
         # by read-back and downgrades any it cannot. The one-client limit is
         # enforceable on ESP32 (max_clients); PMF and client isolation are not
@@ -130,16 +136,14 @@ class Adapter:
 
         ESP-IDF only accepts an AP configuration once the AP interface is enabled
         in the current mode, and MicroPython can only enable it by also starting
-        the radio. Starting and immediately stopping leaves the mode enabled — it
-        survives ``esp_wifi_stop`` — so the credentials that follow are written
-        with the radio off. Skipped once the mode is already enabled, which makes
-        every rotation after the first entirely window-free.
+        the radio. Starting and immediately stopping enables the mode without
+        leaving the radio up, so the credentials that follow are written with it
+        off. Run unconditionally: the mode does not survive both interfaces going
+        inactive, which is exactly what every rotation does (see the module
+        docstring), and re-priming is the only way to prove it is enabled.
         """
-        if self._primed:
-            return
         ap.active(True)
         ap.active(False)
-        self._primed = True
 
     def start_ap(self, ssid: str, password: str, channel: int, ap_ip: str, netmask: str) -> None:
         """Configure and activate the WPA2-only AP, proving every setting.
