@@ -268,8 +268,11 @@ def _parse_form(body: bytes) -> dict | None:
 
 
 def _strip_port(host: str) -> str:
-    """Remove exactly a trailing ``:80`` from a host value."""
-    return host.removesuffix(":80")
+    """Remove exactly a trailing ``:80`` from a host value.
+
+    Sliced rather than ``str.removesuffix``, which MicroPython does not provide.
+    """
+    return host[:-3] if host.endswith(":80") else host
 
 
 def _render(status: int, body: bytes, extra: str = "") -> bytes:

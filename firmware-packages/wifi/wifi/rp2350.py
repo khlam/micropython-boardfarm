@@ -10,17 +10,19 @@ The RP2350 has a dedicated hardware TRNG that is seeded independently of the RF
 subsystem, so ``random_bytes`` reads ``os.urandom`` directly without powering the
 radio first.
 
-Hardware-specific constants and read-back semantics are marked ``VERIFY`` — the
-CYW43 security enumeration and the ``stations`` status must be confirmed on a real
-Pico 2 W during manual verification.
+Unlike the ESP32-S3 port, the CYW43 driver stores the AP credentials in driver
+state, so they can be written with the interface inactive and the AP never
+beacons an unconfigured network.
 """
 
 from wifi.errors import ProvisioningError
 
 __all__ = ["Adapter"]
 
-# CYW43 auth value for WPA2-AES-PSK (not the WPA/WPA2 mixed value 0x00400006).
-# VERIFY on hardware: compared against the read-back of ap.config("security").
+# CYW43_AUTH_WPA2_AES_PSK from lib/cyw43-driver/src/cyw43_ll.h — WPA2-AES only,
+# deliberately not CYW43_AUTH_WPA2_MIXED_PSK (0x00400006), which admits WPA1.
+# MicroPython exposes no WLAN.SEC_* alias for the AES-only value, so the raw
+# constant is passed through to cyw43_wifi_ap_set_auth and proven by read-back.
 _WPA2_AES_PSK = 0x00400004
 
 
@@ -109,10 +111,7 @@ class Adapter:
         # Configure while inactive so the AP never broadcasts a default network.
         try:
             ap.config(essid=ssid, password=password, channel=channel)
-            try:
-                ap.config(security=_WPA2_AES_PSK)  # VERIFY: CYW43 WPA2-only value
-            except (OSError, ValueError):
-                pass  # proven by read-back below; default with a key is WPA2-AES
+            ap.config(security=_WPA2_AES_PSK)
         except (OSError, ValueError):
             self._caps["wpa2_only"] = False
             raise ProvisioningError("capability") from None
@@ -148,7 +147,7 @@ class Adapter:
             raise ProvisioningError("capability")
 
         try:
-            ap.status("stations")  # VERIFY: CYW43 station enumeration support
+            ap.status("stations")
         except (OSError, ValueError, TypeError):
             self._caps["station_count"] = False
             self._safe_down(ap)

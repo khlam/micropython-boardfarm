@@ -55,7 +55,6 @@ FRAMES_PER_EFFECT = 200  # frames shown before choosing the next random effect
 OLED_WIDTH = 128
 OLED_HEIGHT = 64
 OLED_ADDRESS = 0x3C
-OLED_MESSAGE = "Hello world"
 
 # Distance gauge: readings are clamped to [MIN, MAX] and mapped linearly across
 # the 20 LEDs. MAX_DISTANCE_MM is the tunable "max measurable distance" — the
@@ -129,16 +128,19 @@ class LedState:
 
 
 def init_display() -> SSD1306 | None:
-    """Initialise the OLED and show the startup message when it is present.
+    """Initialise the OLED and leave it blank, ready for the provisioning QR.
 
-    The display uses the dedicated OLED software-I²C pins in ``BOARD``. Missing
-    or faulty display hardware is optional: after bounded retries this function
-    emits ``oled_disabled`` and returns None so the LED effects and distance
-    sensor can still start. A working OLED is required to provision.
+    The display uses the dedicated OLED software-I²C pins in ``BOARD``. The panel
+    is cleared rather than given a startup message: the QR for the live
+    credentials is the only thing this project ever shows, so any other content
+    would either be overwritten immediately or — if provisioning never starts —
+    linger as a misleading indication that it did. Missing or faulty display
+    hardware is optional: after bounded retries this function emits
+    ``oled_disabled`` and returns None so the LED effects and distance sensor can
+    still start. A working OLED is required to provision.
 
     Returns:
-        The initialised SSD1306 displaying ``Hello world``, or None after all
-        attempts fail.
+        The initialised, blanked SSD1306, or None after all attempts fail.
     """
     status.i2c_init()
     for _ in range(_INIT_ATTEMPTS):
@@ -151,7 +153,6 @@ def init_display() -> SSD1306 | None:
                 address=OLED_ADDRESS,
             )
             display.fill(0)
-            display.text(OLED_MESSAGE, 0, 0, 1)
             display.show()
         except OledNotFoundError as err:
             status.no_device()
@@ -397,27 +398,32 @@ def _step_locked(
 def setup_provisioning(display: SSD1306 | None, led_state: LedState) -> Provisioner | None:
     """Bring provisioning up as a background service, or disable it for the boot.
 
-    Calls ``wifi.quiesce()`` once to clear any stale AP, then requires a
-    supported Wi-Fi port and a working OLED. If any precondition fails,
-    provisioning is skipped and the caller keeps running effects and the gauge.
+    Requires a working OLED — the QR is the only way credentials are ever shown —
+    then calls ``wifi.quiesce()`` once to clear any stale AP and checks the port
+    supports an AP at all. Every failure, including an unexpected one, is
+    reported and swallowed: provisioning is skipped for the boot and the caller
+    keeps running effects and the gauge.
 
     Returns:
         A started ``Provisioner`` (whose ``poll`` is a no-op if setup later
         disabled it), or None when provisioning is unavailable this boot.
     """
-    try:
-        wifi.quiesce()
-    except wifi.ProvisioningError as err:
-        emit({"diag": "wifi_disabled", "code": err.code})
-        return None
-    if not wifi.capabilities()["supported"]:
-        emit({"diag": "wifi_unsupported"})
-        return None
     if display is None:
         emit({"diag": "wifi_no_oled"})
         return None
-    provisioner = Provisioner(PROV_CONFIG, display, led_state, emit)
-    provisioner.begin()
+    try:
+        wifi.quiesce()
+        if not wifi.capabilities()["supported"]:
+            emit({"diag": "wifi_unsupported"})
+            return None
+        provisioner = Provisioner(PROV_CONFIG, display, led_state, emit)
+    except wifi.ProvisioningError as err:
+        emit({"diag": "wifi_disabled", "code": err.code})
+        return None
+    except Exception as err:  # noqa: BLE001 - never let setup stop the LEDs
+        emit({"diag": "wifi_fail", "err": type(err).__name__})
+        return None
+    provisioner.begin()  # contains its own failures; leaves itself disabled
     return provisioner
 
 

@@ -267,6 +267,11 @@ unfixable = ["T201", "T203", "ERA001"]
 [tool.ruff.lint.per-file-ignores]
 # Firmware is flat-frozen; emit() owns print output.
 "projects/*/firmware/*" = ["T201", "INP001"]
+# MicroPython's str has no removeprefix/removesuffix, so FURB188 would push MCU
+# code toward a method that raises AttributeError on the chip while passing every
+# CPython host test.
+"projects/*/firmware/*.py" = ["FURB188"]
+"firmware-packages/*/*/*.py" = ["FURB188"]
 # MicroPython ships no pathlib and no frozen contextlib, so os.* file calls and
 # try/except/pass are the idiomatic forms for filesystem work and for
 # best-effort socket/radio cleanup that must never raise from a finally path.

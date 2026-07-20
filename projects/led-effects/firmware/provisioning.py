@@ -106,18 +106,19 @@ class Provisioner:
             self._new_session()
             self.enabled = True
         except wifi.ProvisioningError as err:
-            self._emit({"diag": "wifi_disabled", "code": err.code})
-            self._quiet_teardown()
-        except (OSError, RuntimeError, ValueError, qr_code.QRError):
-            self._emit({"diag": "wifi_oled_fail"})
-            self._quiet_teardown()
-            self._blank_oled()
+            self._disable({"diag": "wifi_disabled", "code": err.code})
+        except Exception as err:  # noqa: BLE001 - see _disable
+            self._disable({"diag": "wifi_fail", "err": type(err).__name__})
 
     def poll(self, now_ms: int) -> None:
         """Advance the session once; rotate or disable on a terminal event."""
         if not self.enabled or self._session is None:
             return
-        event = self._session.poll(now_ms)
+        try:
+            event = self._session.poll(now_ms)
+        except Exception as err:  # noqa: BLE001 - see _disable
+            self._disable({"diag": "wifi_fail", "err": type(err).__name__})
+            return
         if event is None:
             return
         if event == "complete":
@@ -155,14 +156,23 @@ class Provisioner:
         try:
             self._new_session()
         except wifi.ProvisioningError as err:
-            self._emit({"diag": "wifi_disabled", "code": err.code})
-            self._quiet_teardown()
-            self.enabled = False
-        except (OSError, RuntimeError, ValueError, qr_code.QRError):
-            self._emit({"diag": "wifi_oled_fail"})
-            self._quiet_teardown()
-            self._blank_oled()
-            self.enabled = False
+            self._disable({"diag": "wifi_disabled", "code": err.code})
+        except Exception as err:  # noqa: BLE001 - see _disable
+            self._disable({"diag": "wifi_fail", "err": type(err).__name__})
+
+    def _disable(self, diag: dict) -> None:
+        """Report ``diag``, tear everything down, and stay off for the boot.
+
+        Provisioning is a background service layered onto the render loop, so no
+        failure inside it may propagate: a stray exception here would otherwise
+        stop the LEDs and the gauge as well. The diagnostic carries the exception
+        *class* name only — enough to identify a firmware fault over serial,
+        never enough to expose a credential, address, or token.
+        """
+        self._emit(diag)
+        self._quiet_teardown()
+        self._blank_oled()
+        self.enabled = False
 
     def _teardown(self) -> None:
         """Guaranteed cleanup between sessions: stop, verify, scrub the bitmap.

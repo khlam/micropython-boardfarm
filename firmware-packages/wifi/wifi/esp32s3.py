@@ -1,19 +1,26 @@
 """ESP32-S3 AP adapter over ``network.WLAN``.
 
 Brings up a single WPA2-PSK/CCMP access point bound to the AP address, with the
-DHCP server advertising the AP as DNS. Credentials, IP, and auth mode are set
-while the interface is inactive and every exposed setting is read back before the
-AP is trusted; any setting that cannot be proven downgrades the matching
-capability to ``False`` and fails the start, so the AP never comes up open, WEP,
-WPA1, mixed, or TKIP — not even transiently.
+DHCP server advertising the AP as DNS. Every exposed setting is read back before
+the AP is trusted; any setting that cannot be proven downgrades the matching
+capability to ``False`` and fails the start.
+
+Credentials are staged while the radio is stopped, which on this port takes one
+extra step. ESP-IDF refuses ``esp_wifi_set_config`` unless the AP interface is
+already enabled in the Wi-Fi mode, and MicroPython's ``WLAN.active(True)`` fuses
+``esp_wifi_set_mode`` and ``esp_wifi_start`` into one call — so the AP interface
+cannot be enabled without also starting the radio at least once. ``_prime``
+therefore starts and immediately stops the AP: ESP-IDF keeps the mode after
+``esp_wifi_stop``, so the credentials can then be written with the radio off and
+every later activation (including each rotation) beacons WPA2 from its first
+beacon. The priming window is shorter than one 100 ms beacon interval and
+advertises only the ESP-IDF default SSID, but it is a real window and the only
+one this port permits; see README.md.
 
 Entropy is drawn only after the RF subsystem is powered, because the ESP32-S3
 hardware RNG degrades toward a PRNG before Wi-Fi is initialised. ``random_bytes``
 powers the radio through the station interface for the read and returns it to
 inactive, so both interfaces are down again before the AP is started.
-
-Hardware-specific constants and read-back semantics are marked ``VERIFY`` — they
-must be confirmed on a real ESP32-S3-Zero during manual verification.
 """
 
 from wifi.errors import ProvisioningError
@@ -41,6 +48,7 @@ class Adapter:
         """Initialise capability profile; defer all radio access to first use."""
         self._ap = None
         self._sta = None
+        self._primed = False
         # Optimistic profile for the required capabilities; start_ap proves them
         # by read-back and downgrades any it cannot. The one-client limit is
         # enforceable on ESP32 (max_clients); PMF and client isolation are not
@@ -117,6 +125,22 @@ class Adapter:
         if not self.interfaces_down():
             raise ProvisioningError("network")
 
+    def _prime(self, ap: object) -> None:
+        """Enable the AP interface in the Wi-Fi mode, leaving the radio stopped.
+
+        ESP-IDF only accepts an AP configuration once the AP interface is enabled
+        in the current mode, and MicroPython can only enable it by also starting
+        the radio. Starting and immediately stopping leaves the mode enabled — it
+        survives ``esp_wifi_stop`` — so the credentials that follow are written
+        with the radio off. Skipped once the mode is already enabled, which makes
+        every rotation after the first entirely window-free.
+        """
+        if self._primed:
+            return
+        ap.active(True)
+        ap.active(False)
+        self._primed = True
+
     def start_ap(self, ssid: str, password: str, channel: int, ap_ip: str, netmask: str) -> None:
         """Configure and activate the WPA2-only AP, proving every setting.
 
@@ -129,24 +153,25 @@ class Adapter:
         try:
             sta.active(False)
             ap.active(False)
+            self._prime(ap)
         except OSError:
             raise ProvisioningError("network") from None
 
-        # Configure everything while the interface is inactive so the AP never
-        # broadcasts an open or default network. If the port cannot accept config
-        # while down, fail closed rather than open an insecure AP.
+        # Write the credentials with the radio stopped so the AP beacons WPA2
+        # from its first beacon. If the port rejects the write, fail closed
+        # rather than fall back to activating an unconfigured (open) AP.
         try:
             ap.config(
                 essid=ssid,
                 password=password,
-                authmode=network.AUTH_WPA2_PSK,
+                authmode=network.WLAN.SEC_WPA2,
                 channel=channel,
             )
         except (OSError, ValueError):
             self._caps["wpa2_only"] = False
             raise ProvisioningError("capability") from None
         try:
-            ap.config(max_clients=1)  # VERIFY: one-client cap on ESP32-S3
+            ap.config(max_clients=1)
         except (OSError, ValueError):
             self._caps["max_clients"] = False
 
@@ -166,7 +191,7 @@ class Adapter:
             authmode = ap.config("authmode")
         except (OSError, ValueError):
             authmode = None
-        if authmode != network.AUTH_WPA2_PSK:  # reject open/WEP/WPA1/mixed/TKIP
+        if authmode != network.WLAN.SEC_WPA2:  # reject open/WEP/WPA1/mixed/TKIP
             self._caps["wpa2_only"] = False
             self._safe_down(ap)
             raise ProvisioningError("capability")

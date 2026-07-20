@@ -71,11 +71,22 @@ detail, credential, or session field.
 
 ## Notes
 
-- **Fail-closed security.** The AP is configured while inactive and every exposed
-  setting (WPA2-only auth, AP-address binding, DHCP-advertised DNS, station
-  counting) is read back and proven before the AP is trusted. It never comes up
-  open, WEP, WPA1, mixed WPA/WPA2, or TKIP — not even transiently; anything that
-  cannot be proven fails the start.
+- **Fail-closed security.** The AP is configured while the radio is stopped and
+  every exposed setting (WPA2-only auth, AP-address binding, DHCP-advertised DNS,
+  station counting) is read back and proven before the AP is trusted. It never
+  beacons open, WEP, WPA1, mixed WPA/WPA2, or TKIP; anything that cannot be proven
+  fails the start rather than falling back to a weaker mode.
+- **One ESP32-S3 caveat.** ESP-IDF rejects an AP configuration unless the AP
+  interface is already enabled in the Wi-Fi mode, and MicroPython's
+  `WLAN.active(True)` fuses `esp_wifi_set_mode` with `esp_wifi_start` — so the
+  interface cannot be enabled without starting the radio once. `esp32s3.py` starts
+  and immediately stops the AP a single time per boot to enable the mode (ESP-IDF
+  keeps it across `esp_wifi_stop`), then writes the credentials with the radio
+  off. That priming window is shorter than one 100 ms beacon interval and carries
+  only the ESP-IDF default SSID, but it is a real window: on this port the "never
+  open, not even transiently" guarantee holds for every *configured* activation,
+  including all rotations, not for the first mode enable. The Pico 2 W has no such
+  window — the CYW43 driver accepts credentials while inactive.
 - **Fresh secrets, no persistence.** All three secrets come from one 32-byte
   `os.urandom` read (SSID 4 B, password 12 B, CSRF 16 B), drawn only after the
   adapter confirms radio-backed entropy. The draw fails closed on a missing API,

@@ -75,8 +75,10 @@ led-effects/
   the LEDs; they never touch provisioning. All are constants at the top of
   [firmware/main.py](firmware/main.py).
 - **The OLED.** A 128×64 I²C SSD1306 at address `0x3C` is cleared during startup
-  and shows `Hello world` briefly. When provisioning is available it then
-  continuously displays **only** the QR for the currently valid credentials
+  and left blank — the QR is the only thing this project ever draws, so a startup
+  message would either be overwritten immediately or linger as a false signal that
+  provisioning came up. When provisioning is available the display then
+  continuously shows **only** the QR for the currently valid credentials
   (redrawn on each rotation, no text or prompt). Initialisation is retried three
   times; if the display remains absent or faulty, an `oled_disabled` diagnostic is
   emitted, provisioning is skipped, and the effects and gauge continue.
@@ -108,7 +110,11 @@ led-effects/
   that cannot enforce the one-client limit or client isolation (the Pico 2 W does
   not; the ESP32-S3 enforces `max_clients=1` where the port allows), **more than one
   client may control the LEDs at once**, and every associated client is fully
-  trusted. The plain RP2040 has no radio and never starts an AP.
+  trusted. On the ESP32-S3 the AP is also started and stopped once per boot, before
+  any credentials exist, to satisfy an ESP-IDF ordering rule — a sub-beacon-interval
+  window advertising the default SSID openly; see the
+  [wifi package notes](../../firmware-packages/wifi/README.md#notes). The plain
+  RP2040 has no radio and never starts an AP.
 - The strip is fixed at 20 LEDs (`LED_COUNT` in [firmware/main.py](firmware/main.py));
   change it there and recompile to drive a longer strip.
 - Pins are project wiring — they live in the `BOARD` table in

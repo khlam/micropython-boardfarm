@@ -105,8 +105,11 @@ def _rs_remainder(data: bytearray, divisor: bytearray) -> bytearray:
     result = bytearray(degree)
     for b in data:
         factor = b ^ result[0]
-        del result[0]
-        result.append(0)
+        # Shift one place left. MicroPython bytearrays support neither item
+        # deletion nor pop(), so the shift is done in place.
+        for j in range(degree - 1):
+            result[j] = result[j + 1]
+        result[degree - 1] = 0
         for j in range(degree):
             result[j] ^= _gf_mul(divisor[j], factor)
     return result
