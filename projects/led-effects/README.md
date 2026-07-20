@@ -5,7 +5,7 @@ MicroPython firmware that drives a 20-LED WS2812B strip in one of two modes:
 rotation, breathing, and colour fade, picking the next at random every 200 frames
 at ~50 fps) and **solid** (one configured `RRGGBB` colour). A VL53L0X
 time-of-flight sensor makes the strip interactive: hold an object steady above it
-for `HOLD_MS` (1 s) and the strip collapses to a live distance gauge; one
+for `HOLD_MS` (0.5 s) and the strip collapses to a live distance gauge; one
 continuous second (`RELEASE_MS`) without an object sweeps once and resumes the
 configured LED mode. The gauge changes only the LED display.
 
@@ -65,7 +65,7 @@ led-effects/
   (`{"diag": "wifi_up"|"wifi_rotate"|"wifi_config"|"wifi_disabled"|...}` — never a
   credential, QR payload, or CSRF token). There is no dashboard.
 - **The distance gauge (LED display only).** Once a VL53L0X sees an object and the
-  reading stays within `HOLD_TOLERANCE_MM` (25 mm) for `HOLD_MS` (1 s), the strip
+  reading stays within `HOLD_TOLERANCE_MM` (25 mm) for `HOLD_MS` (0.5 s), the strip
   collapses to a soft glow at the mapped position — the first LED is
   `MIN_DISTANCE_MM` (50 mm) and the last is `MAX_DISTANCE_MM` (500 mm, the tunable
   "max measurable distance"). Readings outside that range clamp to the nearest end.

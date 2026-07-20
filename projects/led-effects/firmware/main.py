@@ -66,7 +66,7 @@ MAX_DISTANCE_MM = 500
 OUT_OF_RANGE_MM = 8190  # sensor reports ~8190 mm (up to 65535) when nothing is in range
 
 HOLD_TOLERANCE_MM = 25  # jitter band that still counts as "held at that distance"
-HOLD_MS = 1000  # object must stay within tolerance this long to lock the gauge
+HOLD_MS = 500  # object must stay within tolerance this long to lock the gauge
 RELEASE_MS = 1000  # object must stay confirmed out of range this long to leave the gauge
 
 TIMING_BUDGET_US = 20_000  # ~50 Hz; read() self-paces the loop at this cadence
