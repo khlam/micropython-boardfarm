@@ -39,6 +39,8 @@ Before changing anything, identify the area you're touching:
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(sda=, scl=, skip_spad_info=True, interrupt_status_mask=0xFF)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |
 | OLED driver | `firmware-packages/ssd1306/ssd1306/` | `ssd1306.py` — `SSD1306(sda=, scl=, width=128, height=64, address=0x3C)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
+| Wi-Fi provisioning | `firmware-packages/wifi/wifi/` | platform-neutral `config`/`secrets`/`dns`/`http`/`session` + `os.uname().machine` adapter dispatch (`esp32s3`/`rp2350`/`rp2040` no-op); `create_session(config, handler)`, `Session.poll(now_ms)`, `capabilities()`, `quiesce()`; raises `ProvisioningError` |
+| QR encoder | `firmware-packages/qr_code/qr_code/` | `qr_code.py` — fixed Version 4 / level-M byte-mode `encode(text) -> 33x33 grid`; raises `QRError` |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |

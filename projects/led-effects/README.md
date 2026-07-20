@@ -1,23 +1,33 @@
 # led-effects
 
-MicroPython firmware that cycles a WS2812B addressable-LED strip through four
-parametric animations — rainbow, hue rotation, breathing, and colour fade —
-rendering each for 200 frames at ~50 fps before advancing to the next. A
-VL53L0X time-of-flight sensor makes the strip interactive: hold an object steady
-above it for 5 seconds and the strip collapses to a single LED whose position
-maps the measured distance onto the bar (a live distance gauge); remove the
-object for 5 seconds and a short sweep hands control back to the animations. A
-128×64 SSD1306 OLED shows `Hello world` at startup. The strip driver and effects
-are local to this project, and it ships no dashboard. Pin assignments live in
-the firmware's `BOARD` table (dispatched per chip by `os.uname().machine`), so
-the same firmware builds for RP2040, RP2350, and ESP32-S3. The sensor and OLED
-are optional — either can be disconnected without stopping the animations.
+MicroPython firmware that drives a 20-LED WS2812B strip in one of two modes:
+**random** (the boot default — cycles the four parametric animations rainbow, hue
+rotation, breathing, and colour fade, picking the next at random every 200 frames
+at ~50 fps) and **solid** (one configured `RRGGBB` colour). A VL53L0X
+time-of-flight sensor makes the strip interactive: hold an object steady above it
+for `HOLD_MS` (1 s) and the strip collapses to a live distance gauge; one
+continuous second (`RELEASE_MS`) without an object sweeps once and resumes the
+configured LED mode. The gauge changes only the LED display.
+
+Separately and continuously from boot, the firmware runs **secure Wi-Fi
+provisioning** as a background service: a 128×64 SSD1306 OLED shows a QR code for
+a locked-down WPA2 access point, and anyone who can see the QR can join and set
+the LED colour or mode from a tiny no-JavaScript page. Credentials rotate every
+10 minutes. The gauge and provisioning are fully independent — neither starts,
+stops, nor gates the other. The strip driver and effects are local to this
+project, and it ships no dashboard. Pin assignments live in the firmware's
+`BOARD` table (dispatched per chip by `os.uname().machine`), so the same firmware
+builds for RP2040 (no Wi-Fi — provisioning is an inert no-op), RP2350/Pico 2 W,
+and ESP32-S3. The sensor is optional (it only affects the gauge); provisioning
+requires a working OLED.
 
 ## Layout
 ```
 led-effects/
   firmware/effects.py         rainbow/hue/breathe/fade frame generators
-  firmware/main.py            BOARD pin table + effect-cycling loop, calls emit()
+  firmware/main.py            BOARD pin table, LED state machine, gauge + loop, calls emit()
+  firmware/provisioning.py    Wi-Fi session lifecycle, OLED QR, HTTP handler + page
+  firmware/settings.py        crash-safe dual-slot persistence of the active LED mode
   firmware/strip.py           project-local NeoPixel strip driver
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash services
@@ -43,26 +53,62 @@ led-effects/
    Runs `esp32-compile` to produce [outputs/app.esp32-s3.bin](outputs/app.esp32-s3.bin), then immediately flashes it via `esptool.py` running inside the container.
 
 ## Notes
-- The firmware builds the four effects, then loops rendering ~200 frames of each
-  (`rainbow` → `hue_rotate` → `breathe` → `color_fade`) at ~50 fps before
-  advancing. It emits one JSON line per effect change (`{"effect": <name>}`) plus
-  sensor diagnostics (`{"diag": "tof_ok"|"no_sensor"|"lock"|"unlock"|...}`); there
-  is no dashboard.
-- **The distance gauge.** Once a VL53L0X sees an object and the reading stays
-  within `HOLD_TOLERANCE_MM` (25 mm) for `HOLD_MS` (5 s), the strip blanks and a
-  single LED lights at the mapped position — the first LED is `MIN_DISTANCE_MM`
-  (50 mm) and the last LED is `MAX_DISTANCE_MM` (500 mm, the tunable "max
-  measurable distance"). Readings outside that range clamp to the nearest end.
-  While locked, the lit LED tracks the object live; once the object leaves range
-  for `RELEASE_MS` (5 s), `play_transition` sweeps once and the animations
-  resume. All of these are constants at the top of
-  [firmware/main.py](firmware/main.py) — change `MAX_DISTANCE_MM` to rescale the
-  gauge.
-- **The OLED.** A 128×64 I²C SSD1306 at address `0x3C` is cleared during
-  startup, receives `Hello world` at the top-left, and keeps that framebuffer
-  visible while the LED loop runs. Initialisation is retried three times; if the
-  display remains absent or faulty, an `oled_disabled` diagnostic is emitted
-  and the rest of the firmware continues.
+- **LED modes.** `random` (boot default) renders the current effect and picks one
+  of the four (`rainbow`, `hue_rotate`, `breathe`, `color_fade`) at random with
+  `os.urandom(1)` every 200 frames; `solid` renders one configured `RRGGBB` colour
+  on all 20 LEDs. The active mode is chosen over Wi-Fi (see Provisioning) and
+  persisted. It emits one JSON line per random-effect change (`{"effect": <name>}`),
+  the current mode (`{"diag": "led_mode", ...}`), sensor diagnostics
+  (`{"diag": "tof_ok"|"no_sensor"|"lock"|"unlock"|...}`), and redacted Wi-Fi status
+  (`{"diag": "wifi_up"|"wifi_rotate"|"wifi_config"|"wifi_disabled"|...}` — never a
+  credential, QR payload, or CSRF token). There is no dashboard.
+- **The distance gauge (LED display only).** Once a VL53L0X sees an object and the
+  reading stays within `HOLD_TOLERANCE_MM` (25 mm) for `HOLD_MS` (1 s), the strip
+  collapses to a soft glow at the mapped position — the first LED is
+  `MIN_DISTANCE_MM` (50 mm) and the last is `MAX_DISTANCE_MM` (500 mm, the tunable
+  "max measurable distance"). Readings outside that range clamp to the nearest end.
+  While locked the glow tracks the object live; once the object is *confirmed*
+  out of range for one continuous second (`RELEASE_MS` = 1 s), `play_transition`
+  sweeps once and the configured LED mode resumes (random/default, or the persisted
+  solid colour). Sensor errors preserve the current state — only confirmed
+  out-of-range samples advance the release timer. Gauge entry and exit change only
+  the LEDs; they never touch provisioning. All are constants at the top of
+  [firmware/main.py](firmware/main.py).
+- **The OLED.** A 128×64 I²C SSD1306 at address `0x3C` is cleared during startup
+  and shows `Hello world` briefly. When provisioning is available it then
+  continuously displays **only** the QR for the currently valid credentials
+  (redrawn on each rotation, no text or prompt). Initialisation is retried three
+  times; if the display remains absent or faulty, an `oled_disabled` diagnostic is
+  emitted, provisioning is skipped, and the effects and gauge continue.
+
+## Provisioning
+- **Continuous, from boot.** After clearing any stale AP (`wifi.quiesce()`), a
+  supported Wi-Fi port with a working OLED brings up a WPA2-PSK/CCMP access point
+  (`LEDFX-` + 8 hex, channel 6, `192.168.4.1/24`, alias `led-effects.test`) and
+  shows its QR. The AP broadcasts and accepts a client **continuously for the
+  device's entire uptime** — not only during a deliberate provisioning window.
+- **Rotation.** Every 10 minutes the credentials rotate: fresh SSID, password, and
+  CSRF token from one radio-backed `os.urandom` read, the AP restarts under them,
+  the QR is redrawn, and any connected client is dropped (it rejoins with the new
+  QR). Nothing is persisted about the session, so boot, crash, reset, and watchdog
+  recovery always start from fresh credentials and never resume old ones.
+- **Routes.** `GET /` serves one self-contained, no-JavaScript, no-CSS page with a
+  text field for an uppercase `RRGGBB` colour and separate POST forms. `POST /color`
+  sets a solid colour; `POST /random` returns to random mode. Both require a
+  matching CSRF token, an exact same-origin host, and
+  `Content-Type: application/x-www-form-urlencoded`; every response carries a strict
+  `Content-Security-Policy` and no-store/nosniff/no-referrer headers.
+- **Persistence.** The active mode is stored as a small JSON record with a
+  monotonic generation, written alternately to `/led-effects-0.json` and
+  `/led-effects-1.json` via a temp-file-and-rename commit (flush + `os.sync`), so a
+  power loss at any step keeps a valid generation. On boot the newest valid record
+  wins; a missing or corrupt pair falls back to random mode.
+- **Accepted risk.** Anyone who can see the OLED QR can configure the LEDs until
+  the next rotation — this exposure is **permanent while the OLED works**. On ports
+  that cannot enforce the one-client limit or client isolation (the Pico 2 W does
+  not; the ESP32-S3 enforces `max_clients=1` where the port allows), **more than one
+  client may control the LEDs at once**, and every associated client is fully
+  trusted. The plain RP2040 has no radio and never starts an AP.
 - The strip is fixed at 20 LEDs (`LED_COUNT` in [firmware/main.py](firmware/main.py));
   change it there and recompile to drive a longer strip.
 - Pins are project wiring — they live in the `BOARD` table in

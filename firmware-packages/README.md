@@ -22,6 +22,8 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [ssd1306](ssd1306/) | Framebuffer driver for SSD1306 monochrome OLED displays over I²C. |
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
 | [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
+| [wifi](wifi/) | Secure WPA2 captive-portal Wi-Fi provisioning (session + bounded DNS/HTTP + per-chip AP adapters). |
+| [qr_code](qr_code/) | Fixed Version 4 / level-M byte-mode QR code encoder. |
 
 
 ## Notes

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wifi"
+version = "0.1.0"
+description = "Secure WPA2 captive-portal Wi-Fi provisioning for MicroPython."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["wifi"]

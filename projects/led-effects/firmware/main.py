@@ -1,32 +1,35 @@
-"""MCU firmware entry point for the led-effects WS2812B and OLED demo.
+"""MCU firmware entry point for the led-effects WS2812B, OLED, and Wi-Fi demo.
 
-Cycles through four WS2812B animations — rainbow, hue rotation, breathing,
-and colour fade — until a VL53L0X time-of-flight sensor detects an object held
-steady above it. Holding an object at one distance for HOLD_MS collapses the
-strip to a soft glow whose position maps the measured distance onto the bar
-(first LED = MIN_DISTANCE_MM, last LED = MAX_DISTANCE_MM); the glow then
-live-tracks the object, easing smoothly between LEDs as the distance changes.
-Removing the object for RELEASE_MS plays a short transition and resumes the
-animations.
+Drives 20 WS2812B LEDs. In random mode it cycles four animations — rainbow, hue
+rotation, breathing, and colour fade — choosing the next at each 200-frame
+boundary; in solid mode it holds one configured colour. Holding an object steady
+above a VL53L0X time-of-flight sensor for HOLD_MS collapses the strip into a soft
+distance gauge that live-tracks the object; one continuous second (RELEASE_MS)
+without an object leaves the gauge and resumes the configured LED mode.
 
-At startup a 128x64 SSD1306 OLED displays ``Hello world``. The display and
-sensor use separate software-I²C pin pairs and are optional: if either is absent,
-the animations still run and only that peripheral's feature is inactive. Pin
-assignments live in this module's BOARD table (dispatched per chip by
-os.uname().machine); drivers take flat pins as constructor arguments, so this
-firmware builds unchanged for RP2040, RP2350, and ESP32-S3.
+Separately and continuously from boot, a 128x64 SSD1306 OLED shows a QR code for a
+locked-down WPA2 access point. Anyone who can see the QR can join and set the LED
+colour or mode from a tiny no-JavaScript page; the credentials rotate every ten
+minutes. The AP requires a working OLED; the sensor only affects the gauge. The
+gauge is fully decoupled from provisioning — neither starts, stops, nor gates the
+other. Pin assignments live in this module's BOARD table (dispatched per chip by
+os.uname().machine); the same firmware builds for RP2040 (no Wi-Fi — provisioning
+is an inert no-op), RP2350/Pico 2 W, and ESP32-S3.
 """
 
 import os
 import time
 from collections import namedtuple
 
+import settings
 import ujson
 from effects import Breathe, ColorFade, HueRotate, Rainbow
+from provisioning import PROV_CONFIG, Provisioner, hex_to_rgb
 from ssd1306 import SSD1306
 from ssd1306 import DeviceNotFoundError as OledNotFoundError
 from strip import Strip
 
+import wifi
 from boot_status_led import status
 from vl53l0x import VL53L0X, DeviceNotFoundError
 
@@ -47,7 +50,7 @@ else:
 
 LED_COUNT = 20
 FRAME_PERIOD_MS = 20  # ~50 fps render cadence; run() holds every frame to this
-FRAMES_PER_EFFECT = 200  # frames shown before advancing to the next effect
+FRAMES_PER_EFFECT = 200  # frames shown before choosing the next random effect
 
 OLED_WIDTH = 128
 OLED_HEIGHT = 64
@@ -64,7 +67,7 @@ OUT_OF_RANGE_MM = 8190  # sensor reports ~8190 mm (up to 65535) when nothing is 
 
 HOLD_TOLERANCE_MM = 25  # jitter band that still counts as "held at that distance"
 HOLD_MS = 1000  # object must stay within tolerance this long to lock the gauge
-RELEASE_MS = 5000  # object must stay out of range this long to leave the gauge
+RELEASE_MS = 1000  # object must stay confirmed out of range this long to leave the gauge
 
 TIMING_BUDGET_US = 20_000  # ~50 Hz; read() self-paces the loop at this cadence
 POSITION_COLOR = (0, 120, 255)  # base colour of the gauge glow
@@ -83,9 +86,46 @@ def emit(obj: dict) -> None:
 
     All firmware output must go through this helper; raw `print()` calls
     elsewhere pollute the serial stream and are silently dropped by the
-    viz JSON parser.
+    viz JSON parser. Never emit a credential, QR payload, or CSRF token.
     """
     print(ujson.dumps(obj))
+
+
+class LedState:
+    """Drives the non-gauge LED display: random effect cycling or a solid colour.
+
+    Holds the persisted LED mode. In random mode it renders the current effect
+    and, at each FRAMES_PER_EFFECT boundary, picks one of the four effects with
+    ``os.urandom(1)``; in solid mode it renders one fixed colour. The gauge does
+    not use this — on gauge exit the loop simply resumes calling ``frame()``.
+    """
+
+    def __init__(self, effects: tuple) -> None:
+        """Start in random mode with the supplied effects."""
+        self._effects = effects
+        self._mode = "random"
+        self._color = (0, 0, 0)
+        self._effect_idx = 0
+        self._frames_left = FRAMES_PER_EFFECT
+
+    def apply(self, record: dict) -> None:
+        """Adopt a persisted settings record (from settings.load/save)."""
+        self._mode = record["mode"]
+        if self._mode == "solid":
+            self._color = hex_to_rgb(record["color"])
+        emit({"diag": "led_mode", "mode": self._mode})
+
+    def frame(self) -> list:
+        """Return the next frame for the current mode."""
+        if self._mode == "solid":
+            return [self._color] * LED_COUNT
+        frame = self._effects[self._effect_idx][1].frame()
+        self._frames_left -= 1
+        if self._frames_left <= 0:
+            self._effect_idx = os.urandom(1)[0] % len(self._effects)
+            self._frames_left = FRAMES_PER_EFFECT
+            emit({"effect": self._effects[self._effect_idx][0]})
+        return frame
 
 
 def init_display() -> SSD1306 | None:
@@ -94,7 +134,7 @@ def init_display() -> SSD1306 | None:
     The display uses the dedicated OLED software-I²C pins in ``BOARD``. Missing
     or faulty display hardware is optional: after bounded retries this function
     emits ``oled_disabled`` and returns None so the LED effects and distance
-    sensor can still start.
+    sensor can still start. A working OLED is required to provision.
 
     Returns:
         The initialised SSD1306 displaying ``Hello world``, or None after all
@@ -164,25 +204,24 @@ def init_sensor() -> VL53L0X | None:
     return None
 
 
-def read_distance(tof: VL53L0X | None) -> int | None:
-    """Return the next in-range distance in mm, or None.
+def read_sample(tof: VL53L0X | None) -> tuple:
+    """Classify the latest sensor reading for the gauge state machine.
 
-    A single reading for the gesture tracker: `tof.read()` returns the latest
-    sample and returns None with no sensor attached. This no longer paces the
-    loop — `run()` holds each iteration to FRAME_PERIOD_MS so the animation
-    keeps main's fixed ~50 fps cadence no matter how fast the sensor samples.
-    Out-of-range readings and transient faults both return None (the caller
-    treats "no object" and "read failed" the same); a fault additionally
-    flashes read_err and restarts continuous mode, mirroring distance-stream.
+    Distinguishes three cases so the gauge can treat them differently: an
+    in-range object, a confirmed out-of-range reading, and a sensor error (or no
+    sensor). Only confirmed out-of-range samples should advance the gauge-release
+    timer; errors must preserve the current state. A fault flashes read_err and
+    restarts continuous mode, mirroring distance-stream.
 
     Args:
         tof: The VL53L0X driver, or None when running without a sensor.
 
     Returns:
-        Distance in mm for an in-range sample, else None.
+        ``("in", mm)`` for an in-range reading, ``("out", 0)`` for a confirmed
+        out-of-range reading, or ``("err", 0)`` for a fault or missing sensor.
     """
     if tof is None:
-        return None
+        return ("err", 0)
     try:
         distance_mm = tof.read()
     except (OSError, RuntimeError) as err:
@@ -195,10 +234,10 @@ def read_distance(tof: VL53L0X | None) -> int | None:
             pass
         time.sleep_ms(_READ_ERR_PAUSE_MS)
         status.streaming()
-        return None
+        return ("err", 0)
     if distance_mm >= OUT_OF_RANGE_MM:
-        return None
-    return distance_mm
+        return ("out", 0)
+    return ("in", distance_mm)
 
 
 def position_fraction(distance_mm: int) -> float:
@@ -238,8 +277,8 @@ def gauge_frame(position: float) -> list:
 def play_transition(strip: Strip) -> None:
     """Sweep the gauge glow across the strip, then blank it (~0.5 s).
 
-    Marks the return from the distance gauge to the cycling animations as a
-    deliberate gesture rather than an abrupt cut.
+    Marks the return from the distance gauge to the LED display as a deliberate
+    gesture rather than an abrupt cut.
     """
     for i in range(LED_COUNT):
         strip.render(gauge_frame(i))
@@ -251,8 +290,8 @@ def build_effects() -> tuple:
     """Return the demo's four effects, each fully parametrised at the call site.
 
     Returns:
-        ``(name, effect)`` pairs in display order; `name` is emitted as a
-        diagnostic when the effect becomes active.
+        ``(name, effect)`` pairs; `name` is emitted as a diagnostic when the
+        effect becomes active in random mode.
     """
     return (
         ("rainbow", Rainbow(LED_COUNT, brightness=0.3, step=0.01)),
@@ -267,51 +306,46 @@ def build_effects() -> tuple:
 
 def _step_unlocked(
     strip: Strip,
-    effects: tuple,
-    distance_mm: int | None,
+    led_state: LedState,
+    sample: tuple,
     now: int,
-    cycle: tuple,
     hold: tuple,
 ) -> tuple:
-    """Advance one cycling frame: track the hold, then render or lock.
+    """Advance one display frame: track the hold, then render or lock.
 
-    A reading held within HOLD_TOLERANCE_MM for HOLD_MS locks the gauge; until
-    then the current effect renders and advances after FRAMES_PER_EFFECT frames.
+    A reading held within HOLD_TOLERANCE_MM for HOLD_MS locks the gauge. A
+    confirmed out-of-range sample resets the hold; a sensor error preserves it.
 
     Args:
         strip: The WS2812B strip driver.
-        effects: ``(name, effect)`` pairs from build_effects().
-        distance_mm: Latest in-range reading, or None.
+        led_state: The LED display driver (random cycling or solid colour).
+        sample: ``read_sample`` result.
         now: Current ``ticks_ms()`` timestamp.
-        cycle: ``(effect_idx, frames_left)`` animation cursor.
         hold: ``(hold_candidate, hold_start)`` steady-hold tracker.
 
     Returns:
-        ``(locked, cycle, hold)`` with the updated state; `locked` is True once
-        the hold window elapses (no frame is rendered on the locking iteration).
+        ``(locked, hold)`` with the updated state; `locked` is True once the hold
+        window elapses (no frame is rendered on the locking iteration).
     """
-    effect_idx, frames_left = cycle
+    kind, mm = sample
     hold_candidate, hold_start = hold
-    if distance_mm is None:
+    if kind == "in":
+        if hold_candidate is None or abs(mm - hold_candidate) > HOLD_TOLERANCE_MM:
+            hold_candidate = mm
+            hold_start = now
+        elif time.ticks_diff(now, hold_start) >= HOLD_MS:
+            emit({"diag": "lock"})
+            return True, (None, hold_start)
+    elif kind == "out":
         hold_candidate = None
-    elif hold_candidate is None or abs(distance_mm - hold_candidate) > HOLD_TOLERANCE_MM:
-        hold_candidate = distance_mm
-        hold_start = now
-    elif time.ticks_diff(now, hold_start) >= HOLD_MS:
-        emit({"diag": "lock"})
-        return True, cycle, (None, hold_start)
-    strip.render(effects[effect_idx][1].frame())
-    frames_left -= 1
-    if frames_left <= 0:
-        effect_idx = (effect_idx + 1) % len(effects)
-        frames_left = FRAMES_PER_EFFECT
-        emit({"effect": effects[effect_idx][0]})
-    return False, (effect_idx, frames_left), (hold_candidate, hold_start)
+    # kind == "err": preserve the hold tracker unchanged.
+    strip.render(led_state.frame())
+    return False, (hold_candidate, hold_start)
 
 
 def _step_locked(
     strip: Strip,
-    distance_mm: int | None,
+    sample: tuple,
     now: int,
     release_start: int | None,
     position: float | None,
@@ -319,83 +353,120 @@ def _step_locked(
     """Advance one gauge frame: ease the glow toward the object, or count down.
 
     While the object is in range the glow eases a POSITION_SMOOTHING fraction of
-    the way toward its mapped position each frame, so distance changes cross-fade
-    smoothly across the strip instead of jumping; once the object is gone for
-    RELEASE_MS the unlock transition plays. The first in-range reading snaps the
-    glow straight to its position so it appears where the object is.
+    the way toward its mapped position each frame. Only a confirmed out-of-range
+    sample advances the RELEASE_MS release timer; a sensor error preserves the
+    current glow and timer. The first in-range reading snaps the glow to its
+    position.
 
     Args:
         strip: The WS2812B strip driver.
-        distance_mm: Latest in-range reading, or None.
+        sample: ``read_sample`` result.
         now: Current ``ticks_ms()`` timestamp.
-        release_start: When the object was first lost, or None.
+        release_start: When the object was first confirmed gone, or None.
         position: Eased fractional LED position of the glow, or None before the
-            first in-range reading. Held while briefly out of range.
+            first in-range reading.
 
     Returns:
         ``(unlock, release_start, position)`` with the updated state; `unlock`
-        is True once the object has been gone for RELEASE_MS.
+        is True once the object has been confirmed gone for RELEASE_MS.
     """
-    if distance_mm is not None:
-        target = position_fraction(distance_mm)
+    kind, mm = sample
+    if kind == "in":
+        target = position_fraction(mm)
         if position is None:
             position = target
         else:
             position += (target - position) * POSITION_SMOOTHING
         strip.render(gauge_frame(position))
         return False, None, position
-    if release_start is None:
-        release_start = now
-    elif time.ticks_diff(now, release_start) >= RELEASE_MS:
-        play_transition(strip)
-        return True, release_start, position
+    if kind == "out":
+        if release_start is None:
+            release_start = now
+        elif time.ticks_diff(now, release_start) >= RELEASE_MS:
+            play_transition(strip)
+            return True, release_start, position
+        if position is not None:
+            strip.render(gauge_frame(position))
+        return False, release_start, position
+    # kind == "err": preserve state; keep the current glow, do not count down.
     if position is not None:
         strip.render(gauge_frame(position))
     return False, release_start, position
 
 
-def run(strip: Strip, tof: VL53L0X | None, effects: tuple) -> None:
-    """Cycle animations, arming the distance gauge on a steady hold.
+def setup_provisioning(display: SSD1306 | None, led_state: LedState) -> Provisioner | None:
+    """Bring provisioning up as a background service, or disable it for the boot.
 
-    Runs one flat loop paced by `read_distance`, dispatching each frame to
-    `_step_unlocked` while cycling or `_step_locked` while the gauge is armed.
-    Losing the object for RELEASE_MS resumes cycling from the same effect.
+    Calls ``wifi.quiesce()`` once to clear any stale AP, then requires a
+    supported Wi-Fi port and a working OLED. If any precondition fails,
+    provisioning is skipped and the caller keeps running effects and the gauge.
+
+    Returns:
+        A started ``Provisioner`` (whose ``poll`` is a no-op if setup later
+        disabled it), or None when provisioning is unavailable this boot.
+    """
+    try:
+        wifi.quiesce()
+    except wifi.ProvisioningError as err:
+        emit({"diag": "wifi_disabled", "code": err.code})
+        return None
+    if not wifi.capabilities()["supported"]:
+        emit({"diag": "wifi_unsupported"})
+        return None
+    if display is None:
+        emit({"diag": "wifi_no_oled"})
+        return None
+    provisioner = Provisioner(PROV_CONFIG, display, led_state, emit)
+    provisioner.begin()
+    return provisioner
+
+
+def run(
+    strip: Strip,
+    tof: VL53L0X | None,
+    provisioner: Provisioner | None,
+    led_state: LedState,
+) -> None:
+    """Render the display, arm the gauge on a steady hold, and poll provisioning.
+
+    One flat loop paced to FRAME_PERIOD_MS. Each iteration samples the sensor,
+    polls the provisioning session (bounded, nonblocking), then renders either
+    the LED display (``_step_unlocked``) or the distance gauge (``_step_locked``).
+    Provisioning and the gauge are independent — neither gates the other.
 
     Args:
         strip: The WS2812B strip driver.
-        tof: The VL53L0X driver, or None to run animations without the gauge.
-        effects: ``(name, effect)`` pairs from build_effects().
+        tof: The VL53L0X driver, or None to run without the gauge.
+        provisioner: The provisioning service, or None when unavailable.
+        led_state: The LED display driver.
     """
-    cycle = (0, FRAMES_PER_EFFECT)
     hold = (None, 0)
     locked = False
     release_start = None
     position = None
-    emit({"effect": effects[0][0]})
     while True:
         frame_start = time.ticks_ms()
-        distance_mm = read_distance(tof)
+        sample = read_sample(tof)
         now = time.ticks_ms()
+        if provisioner is not None:
+            provisioner.poll(now)
         if not locked:
-            locked, cycle, hold = _step_unlocked(strip, effects, distance_mm, now, cycle, hold)
+            locked, hold = _step_unlocked(strip, led_state, sample, now, hold)
             if locked:
                 release_start = None
                 position = None
         else:
             unlock, release_start, position = _step_locked(
-                strip, distance_mm, now, release_start, position
+                strip, sample, now, release_start, position
             )
             if unlock:
                 locked = False
                 hold = (None, hold[1])
-                cycle = (cycle[0], FRAMES_PER_EFFECT)
                 emit({"diag": "unlock"})
-                emit({"effect": effects[cycle[0]][0]})
-        # Hold each iteration to the fixed frame period so the animation runs at
-        # main's ~50 fps regardless of how fast tof.read() returns; a longer
-        # iteration (e.g. play_transition) leaves the remainder negative and
-        # skips the sleep. Never spins: with no sensor the body is near-instant
-        # and this sleep paces the whole loop.
+        # Hold each iteration to the fixed frame period so the display runs at
+        # ~50 fps regardless of sensor timing; a longer iteration (transition,
+        # a one-off provisioning transition) leaves the remainder negative and
+        # skips the sleep. Never spins: the body is near-instant otherwise.
         elapsed = time.ticks_diff(time.ticks_ms(), frame_start)
         if elapsed < FRAME_PERIOD_MS:
             time.sleep_ms(FRAME_PERIOD_MS - elapsed)
@@ -407,14 +478,17 @@ def _dim(rgb: tuple, factor: float) -> tuple:
 
 
 def main() -> None:
-    """Run boot → build display, strip, and sensor → cycle."""
+    """Run boot → build display, strip, sensor, and provisioning → render."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
     strip = Strip(LED_COUNT, pin=BOARD.data_pin)
-    _display = init_display()
+    display = init_display()
     tof = init_sensor()
+    led_state = LedState(build_effects())
+    led_state.apply(settings.load())
+    provisioner = setup_provisioning(display, led_state)
     status.streaming()
-    run(strip, tof, build_effects())
+    run(strip, tof, provisioner, led_state)
 
 
 main()

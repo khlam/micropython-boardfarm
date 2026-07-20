@@ -10,6 +10,8 @@ dependencies = [
     "boot_status_led>=0.2.0",
     "ssd1306>=0.1.0",
     "vl53l0x>=0.1.0",
+    "wifi>=0.1.0",
+    "qr_code>=0.1.0",
 ]
 
 [tool.uv]
@@ -19,3 +21,5 @@ package = false
 boot_status_led = { index = "internal" }
 ssd1306 = { index = "internal" }
 vl53l0x = { index = "internal" }
+wifi = { index = "internal" }
+qr_code = { index = "internal" }

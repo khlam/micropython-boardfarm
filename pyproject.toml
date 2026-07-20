@@ -16,6 +16,8 @@ dependencies = [
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
+    "wifi>=0.1.0",
+    "qr_code>=0.1.0",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.2.0",
 ]
@@ -60,6 +62,8 @@ ssd1306 = { index = "internal" }
 smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
+wifi = { index = "internal" }
+qr_code = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -89,6 +93,8 @@ test = [
     "smoothing",
     "vl53l0x",
     "vl53l5cx",
+    "wifi",
+    "qr_code",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
@@ -261,6 +267,16 @@ unfixable = ["T201", "T203", "ERA001"]
 [tool.ruff.lint.per-file-ignores]
 # Firmware is flat-frozen; emit() owns print output.
 "projects/*/firmware/*" = ["T201", "INP001"]
+# MicroPython ships no pathlib and no frozen contextlib, so os.* file calls and
+# try/except/pass are the idiomatic forms for filesystem work and for
+# best-effort socket/radio cleanup that must never raise from a finally path.
+# The DNS/HTTP/QR routines are deliberately branchy: their safety comes from the
+# explicit byte and count limits they enforce, not from a low branch count.
+"firmware-packages/wifi/wifi/*" = ["SIM105", "S110", "C901", "PLR0911", "PLR0912", "PLR0915"]
+"firmware-packages/qr_code/qr_code/*" = ["C901", "PLR0911", "PLR0912", "PLR0915"]
+"projects/led-effects/firmware/*" = [
+  "SIM105", "S110", "PTH104", "PTH107", "PTH123", "C901", "PLR0911", "PLR0912",
+]
 "**/{tests}/*" = [
   "PLR2004", "S101", "TID252",
   "PLC2701", "D100", "D103", "ANN201", "ANN202",
@@ -288,6 +304,8 @@ known-first-party = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "wifi",
+  "qr_code",
   "serial_over_web",
   "micropython_stubs",
 ]
