@@ -80,6 +80,12 @@ class Response:
     def __init__(self, status: int, body: str, *, terminal: bool = False) -> None:
         """Validate and store the response.
 
+        Args:
+            status: The HTTP status code to send.
+            body: The complete HTML body.
+            terminal: Whether a 2xx reply should make ``poll`` report
+                ``complete``.
+
         Raises:
             ValueError: If the body exceeds the response budget once headers are
                 accounted for.
@@ -361,11 +367,14 @@ def dispatch(
 
 
 def _run_handler(handler, request: Request, csrf_token: str) -> tuple:  # noqa: ANN001
-    """Invoke the project handler and render its response, failing closed.
+    """Invoke the project handler on ``request``, rendering it and failing closed.
 
-    Returns:
-        ``(response_bytes, terminal_success)`` where ``terminal_success`` is True
-        only when the handler returned a terminal Response with a 2xx status.
+    ``handler(request, csrf_form_value) -> Response`` carries no type hint —
+    MicroPython has no ``typing`` module to name a callable with — which is why
+    this docstring keeps its notes as prose (see ``secrets.draw``).
+
+    Returns ``(response_bytes, terminal_success)`` where ``terminal_success`` is
+    True only when the handler returned a terminal Response with a 2xx status.
     """
     try:
         response = handler(request, csrf_token)

@@ -1,12 +1,16 @@
 """Wire the shared ``wifi`` provisioning service into the led-effects loop.
 
 The ``Provisioner`` runs provisioning as a continuous background service: it draws
-credentials, renders their QR to the OLED, brings up the AP, and drives the
-session's bounded ``poll`` once per frame. It rotates credentials every 10 minutes
-on the ``absolute_timeout`` signal, tearing the old session down through one
-guaranteed cleanup path — zeroing the QR bitmap and wiping secret buffers — before
-generating fresh ones. Only the OLED and the LED mode are touched here; the
-distance gauge and effects run independently.
+credentials, brings up the AP, and drives the session's bounded ``poll`` once per
+frame. It rotates credentials every 10 minutes on the ``absolute_timeout`` signal,
+tearing the old session down through one guaranteed cleanup path — zeroing the QR
+bitmap and wiping secret buffers — before generating fresh ones.
+
+The QR itself is shown only while the caller asks for it, via ``show_qr`` and
+``hide_qr``; the OLED is blank the rest of the time. led-effects ties that to the
+distance gauge, so the credentials are readable only while someone is standing at
+the device working the sensor. The AP runs regardless — hiding the QR narrows who
+can *learn* the credentials, not who may keep using ones already read.
 
 The HTTP handler owns only the page content and its route-field validation
 (exact fields, ``RRGGBB`` colour, atomic persistence). The ``wifi`` package owns
@@ -93,6 +97,12 @@ class Provisioner:
         self._led = led_state
         self._emit = emit
         self._session = None
+        # The live session's QR payload, kept so the code can be redrawn on
+        # demand. It is dropped on every teardown, before the next session's
+        # secrets are drawn; MicroPython cannot erase an immutable string, so
+        # releasing the reference is as far as this can go.
+        self._payload = None
+        self._visible = False
         self.enabled = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -128,18 +138,52 @@ class Provisioner:
         self._emit({"diag": "wifi_rotate", "reason": event})
         self._rotate()
 
+    def show_qr(self) -> None:
+        """Draw the live credentials' QR, if provisioning is running.
+
+        Idempotent, and a no-op when provisioning is disabled — the OLED then
+        simply stays blank. A draw or flush failure disables provisioning for the
+        boot rather than leaving a half-drawn or stale code on the panel: a QR the
+        display cannot be trusted to have rendered cannot be trusted to match the
+        credentials the AP is actually using.
+        """
+        if self._visible or not self.enabled or self._payload is None:
+            return
+        try:
+            self._draw_qr(self._payload)
+        except Exception as err:  # noqa: BLE001 - see _disable
+            self._disable({"diag": "wifi_fail", "err": type(err).__name__})
+            return
+        self._visible = True
+
+    def hide_qr(self) -> None:
+        """Blank the OLED and stop showing the QR. Idempotent."""
+        if not self._visible:
+            return
+        self._visible = False
+        self._blank_oled()
+
     def stop(self) -> None:
         """Final teardown: stop the session and blank the OLED."""
         self._quiet_teardown()
         self._blank_oled()
+        self._visible = False
         self.enabled = False
 
     # -- internal -----------------------------------------------------------
     def _new_session(self) -> None:
-        """Create a session, render its QR, and start it (drawing QR first)."""
+        """Create a session, start it, and redraw the QR if it is on screen.
+
+        The payload is taken before ``start`` because the session releases it on
+        leaving the ``NEW`` state. When the QR is visible it is redrawn first, so
+        a draw failure prevents the AP from coming up at all; when it is hidden
+        there is nothing on the panel that could go stale.
+        """
         session = wifi.create_session(self._config, self._handler)
         try:
-            self._draw_qr(session.qr_payload())  # a draw failure prevents start
+            payload = session.qr_payload()
+            if self._visible:
+                self._draw_qr(payload)  # a draw failure prevents start
             session.start()
         except BaseException:
             try:
@@ -148,6 +192,7 @@ class Provisioner:
                 pass
             raise
         self._session = session
+        self._payload = payload
         self._emit({"diag": "wifi_up"})
 
     def _rotate(self) -> None:
@@ -172,19 +217,22 @@ class Provisioner:
         self._emit(diag)
         self._quiet_teardown()
         self._blank_oled()
+        self._visible = False
         self.enabled = False
 
     def _teardown(self) -> None:
         """Guaranteed cleanup between sessions: stop, verify, scrub the bitmap.
 
-        The next session redraws the QR immediately, so the OLED is not blanked
-        here — only the secret-bearing framebuffer is zeroed.
+        When the QR is on screen the next session redraws it immediately, so the
+        panel is not blanked here — only the secret-bearing framebuffer is zeroed
+        and the payload reference dropped.
         """
         try:
             if self._session is not None:
                 self._session.stop()
         finally:
             self._session = None
+            self._payload = None
             self._zero_bitmap()
             try:
                 wifi.quiesce()
@@ -198,6 +246,7 @@ class Provisioner:
                 self._session.stop()
         finally:
             self._session = None
+            self._payload = None
             try:
                 wifi.quiesce()
             except wifi.ProvisioningError:
@@ -209,6 +258,9 @@ class Provisioner:
 
         The framed code is drawn as a lit (light) background with the dark
         modules unlit, so a camera sees correct QR polarity on the OLED.
+
+        Args:
+            payload: The QR payload string to encode.
 
         Raises:
             ValueError: If the framed size is not exactly 41x41 or does not fit.

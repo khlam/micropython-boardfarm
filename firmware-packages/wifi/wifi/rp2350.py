@@ -96,6 +96,13 @@ class Adapter:
     def start_ap(self, ssid: str, password: str, channel: int, ap_ip: str, netmask: str) -> None:
         """Configure and activate the WPA2-only AP, proving every setting.
 
+        Args:
+            ssid: The generated per-session SSID.
+            password: The generated per-session WPA2 passphrase.
+            channel: The 2.4 GHz channel to beacon on.
+            ap_ip: Dotted-quad address the AP interface must bind.
+            netmask: Dotted-quad netmask for the AP subnet.
+
         Raises:
             ProvisioningError: ``capability`` if exact WPA2-only mode, AP-address
                 binding, station counting, or DHCP DNS cannot be proven;

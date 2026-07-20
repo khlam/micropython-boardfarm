@@ -50,29 +50,25 @@ def capabilities() -> dict:
 def quiesce() -> None:
     """Idempotently force the AP and station interfaces down and verify.
 
-    Raises:
-        ProvisioningError: Code ``network`` if the interfaces cannot be confirmed
-            inactive. A no-op on the RP2040 no-op adapter.
+    Propagates the adapter's ``ProvisioningError`` with code ``network`` if the
+    interfaces cannot be confirmed inactive. A no-op on the RP2040 no-op adapter.
     """
     adapter.get().quiesce()
 
 
 def create_session(config: Config, handler) -> Session:  # noqa: ANN001
-    """Validate the config, draw radio-backed credentials, and build a session.
+    """Validate ``config``, draw radio-backed credentials, and build a session.
 
-    Args:
-        config: The immutable ``Config`` record.
-        handler: ``handler(request, csrf_form_value) -> Response``. The token is
-            supplied only for rendering the hidden GET form field and must never
-            be logged or retained after the call.
+    ``handler(request, csrf_form_value) -> Response`` renders the portal page;
+    the token is supplied only for rendering the hidden GET form field and must
+    never be logged or retained after the call. It carries no type hint —
+    MicroPython has no ``typing`` module to name a callable with — which is why
+    this docstring keeps its argument notes as prose (see ``secrets.draw``).
 
-    Returns:
-        A ``Session`` in the ``NEW`` state whose credentials are already drawn.
-
-    Raises:
-        ProvisioningError: ``unsupported`` on a non-Wi-Fi port, ``network`` for
-            an invalid config, or ``entropy`` if radio-backed randomness cannot
-            be obtained or validated.
+    Returns a ``Session`` in the ``NEW`` state whose credentials are already
+    drawn, or raises ``ProvisioningError``: ``unsupported`` on a non-Wi-Fi port,
+    ``network`` for an invalid config, or ``entropy`` if radio-backed randomness
+    cannot be obtained or validated.
     """
     _config.validate(config)
     active_adapter = adapter.get()

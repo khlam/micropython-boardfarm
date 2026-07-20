@@ -10,11 +10,13 @@ continuous second (`RELEASE_MS`) without an object sweeps once and resumes the
 configured LED mode. The gauge changes only the LED display.
 
 Separately and continuously from boot, the firmware runs **secure Wi-Fi
-provisioning** as a background service: a 128×64 SSD1306 OLED shows a QR code for
-a locked-down WPA2 access point, and anyone who can see the QR can join and set
-the LED colour or mode from a tiny no-JavaScript page. Credentials rotate every
-10 minutes. The gauge and provisioning are fully independent — neither starts,
-stops, nor gates the other. The strip driver and effects are local to this
+provisioning** as a background service: a locked-down WPA2 access point whose
+credentials rotate every 10 minutes, joinable by anyone who can read the QR code
+on the 128×64 SSD1306 OLED, from where they can set the LED colour or mode via a
+tiny no-JavaScript page. The QR is shown **only while the distance gauge is
+engaged** and the panel is blank the rest of the time, so the credentials are
+legible only to someone standing at the device working the sensor. The AP itself
+runs regardless of the gauge. The strip driver and effects are local to this
 project, and it ships no dashboard. Pin assignments live in the firmware's
 `BOARD` table (dispatched per chip by `os.uname().machine`), so the same firmware
 builds for RP2040 (no Wi-Fi — provisioning is an inert no-op), RP2350/Pico 2 W,
@@ -71,29 +73,33 @@ led-effects/
   out of range for one continuous second (`RELEASE_MS` = 1 s), `play_transition`
   sweeps once and the configured LED mode resumes (random/default, or the persisted
   solid colour). Sensor errors preserve the current state — only confirmed
-  out-of-range samples advance the release timer. Gauge entry and exit change only
-  the LEDs; they never touch provisioning. All are constants at the top of
-  [firmware/main.py](firmware/main.py).
-- **The OLED.** A 128×64 I²C SSD1306 at address `0x3C` is cleared during startup
-  and left blank — the QR is the only thing this project ever draws, so a startup
-  message would either be overwritten immediately or linger as a false signal that
-  provisioning came up. When provisioning is available the display then
-  continuously shows **only** the QR for the currently valid credentials
-  (redrawn on each rotation, no text or prompt). Initialisation is retried three
+  out-of-range samples advance the release timer. Gauge entry and exit change the
+  LEDs and draw or blank the OLED QR (below); they never start or stop the AP. All
+  are constants at the top of [firmware/main.py](firmware/main.py).
+- **The OLED.** A 128×64 I²C SSD1306 at address `0x3C`, blank except while the
+  gauge is locked. Locking the gauge draws **only** the QR for the currently valid
+  credentials — no text, prompt, or startup message — and releasing it blanks the
+  panel again; each transition costs roughly one frame of I²C flush. Rotation
+  redraws the QR if it is on screen at the time. Initialisation is retried three
   times; if the display remains absent or faulty, an `oled_disabled` diagnostic is
-  emitted, provisioning is skipped, and the effects and gauge continue.
+  emitted, provisioning is skipped, and the effects and gauge continue. **Without a
+  working VL53L0X the gauge never locks, so the QR is never shown and the AP,
+  though running, cannot be joined.**
 
 ## Provisioning
 - **Continuous, from boot.** After clearing any stale AP (`wifi.quiesce()`), a
   supported Wi-Fi port with a working OLED brings up a WPA2-PSK/CCMP access point
-  (`LEDFX-` + 8 hex, channel 6, `192.168.4.1/24`, alias `led-effects.test`) and
-  shows its QR. The AP broadcasts and accepts a client **continuously for the
-  device's entire uptime** — not only during a deliberate provisioning window.
+  (`LEDFX-` + 8 hex, channel 6, `192.168.4.1/24`, alias `led-effects.test`). The AP
+  broadcasts and accepts a client **continuously for the device's entire uptime** —
+  not only during a deliberate provisioning window — but its credentials are
+  displayed only while the gauge is locked.
 - **Rotation.** Every 10 minutes the credentials rotate: fresh SSID, password, and
   CSRF token from one radio-backed `os.urandom` read, the AP restarts under them,
-  the QR is redrawn, and any connected client is dropped (it rejoins with the new
-  QR). Nothing is persisted about the session, so boot, crash, reset, and watchdog
-  recovery always start from fresh credentials and never resume old ones.
+  and any connected client is dropped (it rejoins after reading the new QR). If the
+  QR is on screen when a rotation lands it is redrawn immediately; if it is not,
+  the next gauge lock draws the current one. Nothing is persisted about the
+  session, so boot, crash, reset, and watchdog recovery always start from fresh
+  credentials and never resume old ones.
 - **Routes.** `GET /` serves one self-contained, no-JavaScript, no-CSS page with a
   text field for an uppercase `RRGGBB` colour and separate POST forms. `POST /color`
   sets a solid colour; `POST /random` returns to random mode. Both require a
@@ -106,7 +112,10 @@ led-effects/
   power loss at any step keeps a valid generation. On boot the newest valid record
   wins; a missing or corrupt pair falls back to random mode.
 - **Accepted risk.** Anyone who can see the OLED QR can configure the LEDs until
-  the next rotation — this exposure is **permanent while the OLED works**. On ports
+  the next rotation. Gating the QR on the gauge shrinks the window in which the
+  credentials are *readable*, but it does not revoke them: whoever has read them
+  keeps full control until the next rotation, whatever the gauge and OLED are
+  doing, and the AP remains discoverable the whole time. On ports
   that cannot enforce the one-client limit or client isolation (the Pico 2 W does
   not; the ESP32-S3 enforces `max_clients=1` where the port allows), **more than one
   client may control the LEDs at once**, and every associated client is fully

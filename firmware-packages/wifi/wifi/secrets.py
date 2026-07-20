@@ -78,20 +78,18 @@ def _clean(value: str, length: int) -> bool:
 
 
 def draw(ssid_prefix: str, urandom) -> Secrets:  # noqa: ANN001
-    """Draw and validate one set of credentials.
+    """Draw and validate one set of credentials from ``ssid_prefix``.
 
-    Args:
-        ssid_prefix: The fixed SSID prefix (e.g. ``"LEDFX-"``).
-        urandom: A callable ``(n) -> bytes`` returning ``n`` random bytes; the
-            caller passes a radio-backed source (``os.urandom``) only after the
-            adapter has confirmed the RF subsystem is initialised.
+    ``urandom`` is a callable ``(n) -> bytes`` returning ``n`` random bytes; the
+    caller passes a radio-backed source (``os.urandom``) only after the adapter
+    has confirmed the RF subsystem is initialised. It carries no type hint —
+    MicroPython has no ``typing`` module to name a callable with — which is why
+    this docstring keeps its argument notes as prose rather than an ``Args:``
+    section pydoclint would then demand a signature hint for.
 
-    Returns:
-        A validated ``Secrets``.
-
-    Raises:
-        ProvisioningError: Code ``entropy`` for any entropy or validation
-            failure, so weak or malformed credentials can never be used.
+    Returns a validated ``Secrets``, or raises ``ProvisioningError`` with code
+    ``entropy`` for any entropy or validation failure, so weak or malformed
+    credentials can never be used.
     """
     try:
         result = urandom(_ENTROPY_LEN)

@@ -38,6 +38,10 @@ def _ip_bytes(ap_ip: str) -> bytes:
 def _read_name(packet: bytes, offset: int) -> tuple:
     """Parse an uncompressed DNS QNAME.
 
+    Args:
+        packet: The raw DNS query datagram.
+        offset: Index of the first label-length byte of the name.
+
     Returns:
         ``(name, next_offset)`` with ``name`` lowercased and dot-joined, or
         ``(None, -1)`` if the name is compressed, malformed, or runs past the

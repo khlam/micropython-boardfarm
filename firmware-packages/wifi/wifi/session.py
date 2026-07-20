@@ -157,6 +157,9 @@ class Session:
     def poll(self, now_ms: int) -> str | None:
         """Do one bounded, nonblocking unit of work.
 
+        Args:
+            now_ms: The caller's current ``time.ticks_ms()`` reading.
+
         Returns:
             ``"complete"`` (non-terminal) after a successful configuration POST;
             the terminal ``"absolute_timeout"``, ``"no_client_timeout"``, or

@@ -7,14 +7,15 @@ above a VL53L0X time-of-flight sensor for HOLD_MS collapses the strip into a sof
 distance gauge that live-tracks the object; one continuous second (RELEASE_MS)
 without an object leaves the gauge and resumes the configured LED mode.
 
-Separately and continuously from boot, a 128x64 SSD1306 OLED shows a QR code for a
-locked-down WPA2 access point. Anyone who can see the QR can join and set the LED
-colour or mode from a tiny no-JavaScript page; the credentials rotate every ten
-minutes. The AP requires a working OLED; the sensor only affects the gauge. The
-gauge is fully decoupled from provisioning — neither starts, stops, nor gates the
-other. Pin assignments live in this module's BOARD table (dispatched per chip by
-os.uname().machine); the same firmware builds for RP2040 (no Wi-Fi — provisioning
-is an inert no-op), RP2350/Pico 2 W, and ESP32-S3.
+Separately and continuously from boot, the device runs a locked-down WPA2 access
+point whose credentials rotate every ten minutes. Anyone who can join it can set
+the LED colour or mode from a tiny no-JavaScript page. Those credentials are only
+ever shown as a QR code on the 128x64 SSD1306 OLED, and only while the distance
+gauge is engaged; the panel is blank at every other moment. The AP itself keeps
+running either way — the gauge gates who can *read* the credentials, not who may
+keep using ones already read. Pin assignments live in this module's BOARD table
+(dispatched per chip by os.uname().machine); the same firmware builds for RP2040
+(no Wi-Fi — provisioning is an inert no-op), RP2350/Pico 2 W, and ESP32-S3.
 """
 
 import os
@@ -128,16 +129,16 @@ class LedState:
 
 
 def init_display() -> SSD1306 | None:
-    """Initialise the OLED and leave it blank, ready for the provisioning QR.
+    """Initialise the OLED and leave it blank, its resting state.
 
-    The display uses the dedicated OLED software-I²C pins in ``BOARD``. The panel
-    is cleared rather than given a startup message: the QR for the live
-    credentials is the only thing this project ever shows, so any other content
-    would either be overwritten immediately or — if provisioning never starts —
-    linger as a misleading indication that it did. Missing or faulty display
-    hardware is optional: after bounded retries this function emits
-    ``oled_disabled`` and returns None so the LED effects and distance sensor can
-    still start. A working OLED is required to provision.
+    The display uses the dedicated OLED software-I²C pins in ``BOARD``. Blank is
+    where this panel spends most of its life: the provisioning QR is the only
+    thing the project ever draws, and only while the distance gauge is engaged, so
+    a startup message would linger as the one persistent thing on screen and read
+    as status it cannot back up. Missing or faulty display hardware is optional:
+    after bounded retries this function emits ``oled_disabled`` and returns None so
+    the LED effects and distance sensor can still start. A working OLED is required
+    to provision.
 
     Returns:
         The initialised, blanked SSD1306, or None after all attempts fail.
@@ -404,6 +405,10 @@ def setup_provisioning(display: SSD1306 | None, led_state: LedState) -> Provisio
     reported and swallowed: provisioning is skipped for the boot and the caller
     keeps running effects and the gauge.
 
+    Args:
+        display: The OLED the QR is drawn on, or None if it never came up.
+        led_state: Shared LED state the provisioner drives while the portal runs.
+
     Returns:
         A started ``Provisioner`` (whose ``poll`` is a no-op if setup later
         disabled it), or None when provisioning is unavailable this boot.
@@ -438,7 +443,9 @@ def run(
     One flat loop paced to FRAME_PERIOD_MS. Each iteration samples the sensor,
     polls the provisioning session (bounded, nonblocking), then renders either
     the LED display (``_step_unlocked``) or the distance gauge (``_step_locked``).
-    Provisioning and the gauge are independent — neither gates the other.
+    The AP runs independently of the gauge; only the OLED is coupled to it — the
+    QR is drawn when the gauge locks and the panel blanked when it releases, so
+    the two transitions each cost one frame's worth of I²C flush.
 
     Args:
         strip: The WS2812B strip driver.
@@ -461,6 +468,8 @@ def run(
             if locked:
                 release_start = None
                 position = None
+                if provisioner is not None:
+                    provisioner.show_qr()
         else:
             unlock, release_start, position = _step_locked(
                 strip, sample, now, release_start, position
@@ -468,6 +477,8 @@ def run(
             if unlock:
                 locked = False
                 hold = (None, hold[1])
+                if provisioner is not None:
+                    provisioner.hide_qr()
                 emit({"diag": "unlock"})
         # Hold each iteration to the fixed frame period so the display runs at
         # ~50 fps regardless of sensor timing; a longer iteration (transition,

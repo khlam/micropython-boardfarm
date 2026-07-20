@@ -59,6 +59,9 @@ def _ascii_printable(value: str) -> bool:
 def validate(config: Config) -> None:
     """Validate a ``Config`` before any radio or socket setup.
 
+    Args:
+        config: The candidate configuration record.
+
     Raises:
         ProvisioningError: With code ``network`` if any field is missing, the
             wrong type, or out of range. Config errors are surfaced as a setup
