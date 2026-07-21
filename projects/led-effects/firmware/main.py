@@ -2,10 +2,10 @@
 
 Drives 20 WS2812B LEDs. In random mode it cycles four animations — rainbow, hue
 rotation, breathing, and colour fade — choosing the next at each 200-frame
-boundary; in solid mode it holds one configured colour. Holding an object steady
-above a VL53L0X time-of-flight sensor for HOLD_MS collapses the strip into a soft
-distance gauge that live-tracks the object; one continuous second (RELEASE_MS)
-without an object leaves the gauge and resumes the configured LED mode.
+boundary; in solid mode it holds one configured colour. Bringing an object into
+range of a VL53L0X time-of-flight sensor collapses the strip into a soft distance
+gauge that live-tracks the object; one continuous second (RELEASE_MS) without an
+object leaves the gauge and resumes the configured LED mode.
 
 Separately and continuously from boot, the device runs a locked-down WPA2 access
 point whose credentials rotate every ten minutes. Anyone who can join it can set

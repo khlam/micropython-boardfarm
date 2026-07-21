@@ -9,8 +9,8 @@ display) by injection, so a test drives them with fakes.
   classified distance samples: it reads only when GPIO1 has flagged a fresh
   sample and recovers from faults/stalls on a ticks deadline, never sleeping.
 - ``Gauge`` is the display → locked → transition state machine, stepped once per
-  rendered frame, that shows the LED effects and collapses to a live glow while
-  an object is held above the sensor.
+  rendered frame, that shows the LED effects and collapses to a live glow as soon
+  as an object comes into range of the sensor.
 """
 
 import utime
@@ -25,8 +25,6 @@ MIN_DISTANCE_MM = 50
 MAX_DISTANCE_MM = 500
 OUT_OF_RANGE_MM = 8190  # sensor reports ~8190 mm (up to 65535) when nothing is in range
 
-HOLD_TOLERANCE_MM = 25  # jitter band that still counts as "held at that distance"
-HOLD_MS = 500  # object must stay within tolerance this long to lock the gauge
 RELEASE_MS = 1000  # object must stay confirmed out of range this long to leave the gauge
 
 POSITION_COLOR = (0, 120, 255)  # base colour of the gauge glow
@@ -124,9 +122,9 @@ class Gauge:
     through. ``step`` renders exactly one frame and returns a transition event the
     loop reacts to:
 
-    - ``display``: shows the LED effects; a reading held within
-      ``HOLD_TOLERANCE_MM`` for ``HOLD_MS`` locks the gauge (returns ``"locked"``).
-      A confirmed out-of-range sample resets the hold; an error preserves it.
+    - ``display``: shows the LED effects; the first in-range reading locks the
+      gauge immediately (returns ``"locked"``). Out-of-range and error samples
+      keep the effects on screen.
     - ``locked``: eases a glow a ``POSITION_SMOOTHING`` fraction toward the
       ranged object each frame; a confirmed out-of-range reading for
       ``RELEASE_MS`` starts the release sweep. Errors preserve glow and timer.
@@ -142,8 +140,6 @@ class Gauge:
         self._count = led_count
         self._emit = emit
         self._state = "display"
-        self._hold_candidate = None
-        self._hold_start = 0
         self._position = None
         self._release_start = None
         self._sweep_i = 0
@@ -161,27 +157,20 @@ class Gauge:
             release sweep just finished, or ``None`` on an ordinary frame.
         """
         if self._state == "display":
-            return self._step_display(sample, now)
+            return self._step_display(sample)
         if self._state == "transition":
             return self._step_transition(now)
         return self._step_locked(sample, now)
 
-    def _step_display(self, sample: tuple, now: int) -> str | None:
-        """Track the steady hold, then render the display or lock the gauge."""
-        kind, mm = sample
-        if kind == "in":
-            if self._hold_candidate is None or abs(mm - self._hold_candidate) > HOLD_TOLERANCE_MM:
-                self._hold_candidate = mm
-                self._hold_start = now
-            elif utime.ticks_diff(now, self._hold_start) >= HOLD_MS:
-                self._emit({"diag": "lock"})
-                self._state = "locked"
-                self._position = None
-                self._release_start = None
-                return "locked"
-        elif kind == "out":
-            self._hold_candidate = None
-        # kind == "err": preserve the hold tracker unchanged.
+    def _step_display(self, sample: tuple) -> str | None:
+        """Lock the gauge as soon as an object is in range, else render the display."""
+        if sample[0] == "in":
+            self._emit({"diag": "lock"})
+            self._state = "locked"
+            self._position = None
+            self._release_start = None
+            return "locked"
+        # An out-of-range or error sample keeps the LED effects on screen.
         self._strip.render(self._led.frame())
         return None
 
@@ -218,7 +207,6 @@ class Gauge:
         if self._sweep_i >= self._count:
             self._strip.render([(0, 0, 0)] * self._count)
             self._state = "display"
-            self._hold_candidate = None
             self._position = None
             self._release_start = None
             return "unlocked"

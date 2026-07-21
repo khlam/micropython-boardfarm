@@ -53,6 +53,7 @@ class SSD1306(framebuf.FrameBuffer):
         height: int = 64,
         address: int = 0x3C,
         external_vcc: bool = False,
+        freq: int = 400_000,
     ) -> None:
         """Open the bus, verify the display, and initialise its framebuffer.
 
@@ -64,6 +65,11 @@ class SSD1306(framebuf.FrameBuffer):
             address: 7-bit I²C address, normally 0x3C.
             external_vcc: Whether the panel uses an external OLED voltage
                 instead of the controller's charge pump.
+            freq: I²C bus clock in Hz. Defaults to 400 kHz: unlike the ToF
+                sensors that force ``soft_i2c`` down to 100 kHz for clock
+                stretching, the SSD1306 does not clock-stretch, and ``show``
+                flushes the whole framebuffer, so the faster bus keeps that
+                full-frame write ~4x shorter.
 
         Raises:
             ValueError: The requested dimensions cannot form SSD1306 pages.
@@ -72,7 +78,7 @@ class SSD1306(framebuf.FrameBuffer):
         if width <= 0 or height <= 0 or height % 8:
             raise ValueError("SSD1306 dimensions must be positive and height divisible by 8")
 
-        i2c = soft_i2c(sda, scl)
+        i2c = soft_i2c(sda, scl, freq)
         if address not in i2c.scan():
             raise DeviceNotFoundError(f"SSD1306 not found at 0x{address:02x}")
 

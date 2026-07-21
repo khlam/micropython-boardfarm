@@ -85,19 +85,22 @@ def test_sensor_stall_triggers_reranging():
     assert events[-1]["diag"] == "sensor_stall"
 
 
-def test_gauge_locks_after_steady_hold_then_shows_glow():
-    """A reading held within tolerance for HOLD_MS locks and switches to the glow."""
+def test_gauge_locks_immediately_on_in_range_then_shows_glow():
+    """The first in-range reading locks on that frame and switches to the glow."""
     strip = _FakeStrip()
     events: list = []
     g = Gauge(strip, _FakeLed(), 4, events.append)
 
-    assert g.step(("in", 200), 0) is None  # display: renders the LED frame
+    # An out-of-range sample keeps the LED effects on screen.
+    assert g.step(("out", 0), 0) is None
     assert strip.frames[-1] == [(1, 2, 3)] * 4
-    assert g.step(("in", 200), gauge.HOLD_MS) == "locked"
+
+    # The very next in-range sample locks — no steady-hold wait.
+    assert g.step(("in", 200), 10) == "locked"
     assert any(e.get("diag") == "lock" for e in events)
 
     # Locked: an in-range sample renders a glow frame, not the LED display frame.
-    assert g.step(("in", 200), gauge.HOLD_MS + 10) is None
+    assert g.step(("in", 200), 20) is None
     assert strip.frames[-1] != [(1, 2, 3)] * 4
 
 
@@ -106,11 +109,10 @@ def test_gauge_transition_spreads_across_frames_without_blocking():
     strip = _FakeStrip()
     g = Gauge(strip, _FakeLed(), 4, [].append)
 
-    g.step(("in", 200), 0)
-    g.step(("in", 200), gauge.HOLD_MS)  # -> locked
-    g.step(("in", 200), gauge.HOLD_MS + 1)  # establish a glow position
+    g.step(("in", 200), 0)  # -> locked immediately
+    g.step(("in", 200), 1)  # establish a glow position
 
-    base = gauge.HOLD_MS + 1
+    base = 1
     assert g.step(("out", 0), base) is None  # release timer starts
     assert g.step(("out", 0), base + gauge.RELEASE_MS) is None  # enters the sweep
 
@@ -126,8 +128,9 @@ def test_gauge_transition_spreads_across_frames_without_blocking():
     assert result == "unlocked"
     assert len(strip.frames) > frames_before  # kept rendering throughout
     assert strip.frames[-1] == [(0, 0, 0)] * 4  # blanked on the way out
-    # Back to display: the next step resumes the LED effects.
-    assert g.step(("in", 100), t + 1) is None
+    # Back to display: an out-of-range sample resumes the LED effects (an in-range
+    # one would immediately re-lock).
+    assert g.step(("out", 0), t + 1) is None
     assert strip.frames[-1] == [(1, 2, 3)] * 4
 
 

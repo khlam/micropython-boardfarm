@@ -19,7 +19,7 @@ def test_constructor_opens_soft_bus_and_initialises_128_by_64_display():
     assert len(display.buffer) == 1024
     assert display.i2c.sda.id == 0
     assert display.i2c.scl.id == 1
-    assert display.i2c.freq == 100_000
+    assert display.i2c.freq == 400_000
     assert fake.writes[-1] == b"\x40" + bytes(1024)
 
 
