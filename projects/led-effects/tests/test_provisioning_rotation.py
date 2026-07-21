@@ -92,6 +92,32 @@ def test_rotation_wipes_the_old_session(prov, sessions):
     assert sessions[1].started
 
 
+def test_prerender_encodes_in_background_so_show_qr_only_blits(prov, sessions, monkeypatch):
+    """prerender() encodes once, off-screen; the later show_qr() re-encodes nothing."""
+    prov.begin()
+    expected = _expected_frame(_PAYLOAD_A)  # render independently before counting
+
+    calls = _count_encode_calls(monkeypatch)
+    prov.prerender()  # background: one encode into the off-screen buffer
+    assert calls["n"] == 1
+    assert prov.display.frames == []  # nothing flushed to the panel yet
+
+    prov.show_qr()  # lock transition: a blit only, no second encode
+    assert calls["n"] == 1
+    assert prov.display.frames[-1] == expected
+
+
+def test_prerender_is_idempotent_until_credentials_change(prov, sessions, monkeypatch):
+    """Repeat prerender() calls do not re-encode while the payload is unchanged."""
+    prov.begin()
+    calls = _count_encode_calls(monkeypatch)
+
+    prov.prerender()
+    prov.prerender()
+    prov.prerender()
+    assert calls["n"] == 1
+
+
 class _FakeDisplay:
     """Minimal SSD1306 stand-in that snapshots its framebuffer on ``show``."""
 
@@ -110,6 +136,11 @@ class _FakeDisplay:
 
     def pixel(self, x: int, y: int, value: int) -> None:
         self._buf[y][x] = value
+
+    def blit(self, source: object, x: int, y: int) -> None:
+        for yy in range(self.height):
+            for xx in range(self.width):
+                self._buf[y + yy][x + xx] = source.pixel(xx, yy)
 
     def show(self) -> None:
         if self.fail_shows > 0:
@@ -173,13 +204,26 @@ class _FakeLedState:
         raise AssertionError("rotation must not change the LED mode")
 
 
+def _count_encode_calls(monkeypatch) -> dict:
+    """Wrap ``qr_code.encode`` with a call counter that still returns real grids."""
+    calls = {"n": 0}
+    real = provisioning.qr_code.encode
+
+    def counting(text: str) -> list:
+        calls["n"] += 1
+        return real(text)
+
+    monkeypatch.setattr(provisioning.qr_code, "encode", counting)
+    return calls
+
+
 def _blank_frame() -> list[list[int]]:
     """Return the all-dark framebuffer snapshot."""
     return [[0] * _FakeDisplay.width for _ in range(_FakeDisplay.height)]
 
 
 def _expected_frame(payload: str) -> list[list[int]]:
-    """Independently render ``payload`` the way ``_draw_qr`` is specified to."""
+    """Independently render ``payload`` the way ``_render_qr`` is specified to."""
     grid = qr_code.encode(payload)
     dim = qr_code.SIZE + 2 * _QUIET
     bx = (_FakeDisplay.width - dim) // 2

@@ -1,10 +1,11 @@
 """Wire the shared ``wifi`` provisioning service into the led-effects loop.
 
-The ``Provisioner`` runs provisioning as a continuous background service: it draws
-credentials, brings up the AP, and drives the session's bounded ``poll`` once per
-frame. It rotates credentials every 10 minutes on the ``absolute_timeout`` signal,
-tearing the old session down through one guaranteed cleanup path — zeroing the QR
-bitmap and wiping secret buffers — before generating fresh ones.
+The ``Provisioner`` runs provisioning as a continuous background service: it
+pre-renders the credential QR off-screen, brings up the AP, and drives the
+session's bounded ``poll`` once per frame. It rotates credentials every 10 minutes
+on the ``absolute_timeout`` signal, tearing the old session down through one
+guaranteed cleanup path — zeroing the QR bitmap and wiping secret buffers — before
+generating fresh ones.
 
 The QR itself is shown only while the caller asks for it, via ``show_qr`` and
 ``hide_qr``; the OLED is blank the rest of the time. led-effects ties that to the
@@ -12,11 +13,17 @@ distance gauge, so the credentials are readable only while someone is standing a
 the device working the sensor. The AP runs regardless — hiding the QR narrows who
 can *learn* the credentials, not who may keep using ones already read.
 
+Encoding a QR is expensive, so ``prerender`` builds the code into an off-screen
+framebuffer from the loop's idle path — once per session, never on the lock
+transition that reveals it — leaving ``show_qr`` to do nothing but blit and flush,
+so engaging the gauge feels instant.
+
 The HTTP handler owns only the page content and its route-field validation
 (exact fields, ``RRGGBB`` colour, atomic persistence). The ``wifi`` package owns
 all HTTP framing, host/origin/CSRF checks, and credential generation.
 """
 
+import framebuf
 import settings
 
 import qr_code
@@ -102,6 +109,17 @@ class Provisioner:
         # secrets are drawn; MicroPython cannot erase an immutable string, so
         # releasing the reference is as far as this can go.
         self._payload = None
+        # Off-screen framebuffer the QR is pre-rendered into so show_qr() is a
+        # single blit + flush rather than an encode. It holds the live session's
+        # credentials as a bitmap for the same lifetime as _payload above, and is
+        # zeroed on every teardown before the next session's secrets are drawn.
+        self._scratch = framebuf.FrameBuffer(
+            bytearray(display.width * display.height // 8),
+            display.width,
+            display.height,
+            framebuf.MONO_VLSB,
+        )
+        self._rendered_payload = None
         self._visible = False
         self.enabled = False
 
@@ -139,22 +157,44 @@ class Provisioner:
         self._rotate()
 
     def show_qr(self) -> None:
-        """Draw the live credentials' QR, if provisioning is running.
+        """Blit the live credentials' QR to the panel, if provisioning is running.
 
         Idempotent, and a no-op when provisioning is disabled — the OLED then
-        simply stays blank. A draw or flush failure disables provisioning for the
-        boot rather than leaving a half-drawn or stale code on the panel: a QR the
+        simply stays blank. The code is normally already rendered off-screen by
+        ``prerender`` running in the loop's idle path, so this is a single blit; if
+        a lock lands before that background render finished, it renders here as a
+        fallback. A render or flush failure disables provisioning for the boot
+        rather than leaving a half-drawn or stale code on the panel: a QR the
         display cannot be trusted to have rendered cannot be trusted to match the
         credentials the AP is actually using.
         """
         if self._visible or not self.enabled or self._payload is None:
             return
         try:
-            self._draw_qr(self._payload)
+            if self._rendered_payload != self._payload:
+                self._render_qr(self._payload)  # background render has not run yet
+            self._blit_qr()
         except Exception as err:  # noqa: BLE001 - see _disable
             self._disable({"diag": "wifi_fail", "err": type(err).__name__})
             return
         self._visible = True
+
+    def prerender(self) -> None:
+        """Pre-render the live QR off-screen so ``show_qr`` never has to encode.
+
+        Driven once per loop tick from the render loop's idle path. It does real
+        work — the QR encode and pixel plot for the current credentials — only on
+        the first call after a session comes up (or after a rotation), then
+        early-returns until the credentials change. Keeping that cost here, off the
+        lock transition that reveals the QR, is what makes engaging the gauge feel
+        instant. A failure disables provisioning for the boot.
+        """
+        if not self.enabled or self._payload is None or self._rendered_payload == self._payload:
+            return
+        try:
+            self._render_qr(self._payload)
+        except Exception as err:  # noqa: BLE001 - see _disable
+            self._disable({"diag": "wifi_fail", "err": type(err).__name__})
 
     def hide_qr(self) -> None:
         """Blank the OLED and stop showing the QR. Idempotent."""
@@ -177,13 +217,15 @@ class Provisioner:
         The payload is taken before ``start`` because the session releases it on
         leaving the ``NEW`` state. When the QR is visible it is redrawn first, so
         a draw failure prevents the AP from coming up at all; when it is hidden
-        there is nothing on the panel that could go stale.
+        nothing is drawn — the code is pre-rendered off-screen in the background
+        instead (``prerender``).
         """
         session = wifi.create_session(self._config, self._handler)
         try:
             payload = session.qr_payload()
             if self._visible:
-                self._draw_qr(payload)  # a draw failure prevents start
+                self._render_qr(payload)
+                self._blit_qr()  # a flush failure prevents start
             session.start()
         except BaseException:
             try:
@@ -234,6 +276,7 @@ class Provisioner:
             self._session = None
             self._payload = None
             self._zero_bitmap()
+            self._scrub_scratch()
             try:
                 wifi.quiesce()
             except wifi.ProvisioningError:
@@ -247,17 +290,20 @@ class Provisioner:
         finally:
             self._session = None
             self._payload = None
+            self._scrub_scratch()
             try:
                 wifi.quiesce()
             except wifi.ProvisioningError:
                 pass
 
     # -- OLED ---------------------------------------------------------------
-    def _draw_qr(self, payload: str) -> None:
-        """Render the fixed 41x41 QR (33 modules + 4-module quiet zone) centred.
+    def _render_qr(self, payload: str) -> None:
+        """Render the fixed 41x41 QR (33 modules + 4-module quiet zone) off-screen.
 
-        The framed code is drawn as a lit (light) background with the dark
-        modules unlit, so a camera sees correct QR polarity on the OLED.
+        The framed code is drawn into the off-screen ``_scratch`` framebuffer as a
+        lit (light) background with the dark modules unlit, so a camera sees correct
+        QR polarity once the buffer is blitted. Does no I²C — it only fills the
+        buffer, leaving ``_blit_qr`` to flush it.
 
         Args:
             payload: The QR payload string to encode.
@@ -270,24 +316,29 @@ class Provisioner:
         dim = modules + 2 * _QUIET
         if dim != 41:
             raise ValueError("unexpected qr size")
-        display = self._display
-        width = display.width
-        height = display.height
+        fb = self._scratch
+        width = self._display.width
+        height = self._display.height
         if dim > width or dim > height:
             raise ValueError("qr does not fit")
         bx = (width - dim) // 2
         by = (height - dim) // 2
-        display.fill(0)
+        fb.fill(0)
         for yy in range(dim):
             for xx in range(dim):
-                display.pixel(bx + xx, by + yy, 1)
+                fb.pixel(bx + xx, by + yy, 1)
         for y in range(modules):
             row = grid[y]
             oy = by + _QUIET + y
             for x in range(modules):
                 if row[x]:
-                    display.pixel(bx + _QUIET + x, oy, 0)
-        display.show()
+                    fb.pixel(bx + _QUIET + x, oy, 0)
+        self._rendered_payload = payload
+
+    def _blit_qr(self) -> None:
+        """Flush the pre-rendered off-screen QR to the panel in one blit + write."""
+        self._display.blit(self._scratch, 0, 0)
+        self._display.show()
 
     def _zero_bitmap(self) -> None:
         """Zero the OLED framebuffer so the old QR's secrets do not linger."""
@@ -295,6 +346,14 @@ class Provisioner:
             self._display.fill(0)
         except Exception:  # noqa: BLE001
             pass
+
+    def _scrub_scratch(self) -> None:
+        """Zero the off-screen QR buffer so old credentials do not linger in RAM."""
+        try:
+            self._scratch.fill(0)
+        except Exception:  # noqa: BLE001
+            pass
+        self._rendered_payload = None
 
     def _blank_oled(self) -> None:
         """Best-effort clear and flush the OLED."""

@@ -264,9 +264,10 @@ def run(
     the strip. LED rendering is gated to FRAME_PERIOD_MS so the frame-count-driven
     effects and the glow easing keep their current ~50 fps look.
 
-    The AP runs independently of the gauge; only the OLED is coupled to it — the QR
-    is drawn when the gauge locks and the panel blanked when the release sweep ends,
-    so each transition costs one frame's worth of I²C flush.
+    The AP runs independently of the gauge; only the OLED is coupled to it. The QR
+    is pre-rendered off-screen in the idle path (``provisioner.prerender``), so
+    locking the gauge blits an already-built code and unlocking blanks the panel —
+    each costing one I²C flush, never an in-frame encode.
 
     Args:
         strip: The WS2812B strip driver.
@@ -282,6 +283,7 @@ def run(
         sample = sensor.poll(now)
         if provisioner is not None:
             provisioner.poll(now)
+            provisioner.prerender()  # build the QR off-screen before it is shown
         if time.ticks_diff(now, last_frame) >= FRAME_PERIOD_MS:
             last_frame = now
             event = gauge.step(sample, now)
