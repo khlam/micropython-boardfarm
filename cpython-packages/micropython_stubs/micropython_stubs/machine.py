@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
+_pin_irqs: dict[object, Callable[[object], object] | None] = {}
 
 
 def register_device(address: int, device: object) -> None:
@@ -18,17 +21,42 @@ def feed_uart(lines: list[bytes]) -> None:
     _uart_lines.extend(lines)
 
 
+def fire_irq(pin_id: object) -> None:
+    """Invoke the handler registered by Pin.irq() for `pin_id`, simulating an edge.
+
+    Tests use this to drive interrupt-flag code paths on the host. Passes a
+    lightweight object standing in for the triggering Pin, matching the
+    single-argument handler signature MicroPython uses.
+    """
+    handler = _pin_irqs.get(pin_id)
+    if handler is not None:
+        handler(_IrqSource(pin_id))
+
+
 def reset() -> None:
-    """Clear recorded pin constructions, the device registry, and UART queue."""
+    """Clear recorded pin constructions, IRQ handlers, devices, and UART queue."""
     pin_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
+    _pin_irqs.clear()
+
+
+class _IrqSource:
+    """Stand-in for the Pin passed to an IRQ handler on the host."""
+
+    def __init__(self, id: object) -> None:  # noqa: A002
+        """Record the id of the pin that fired."""
+        self.id = id
 
 
 class Pin:
-    """Fake `machine.Pin`. Records id + mode, supports value() get/set."""
+    """Fake `machine.Pin`. Records id + mode, supports value() get/set and irq()."""
 
     OUT = "OUT"
+    IN = "IN"
+    PULL_UP = "PULL_UP"
+    IRQ_FALLING = 1
+    IRQ_RISING = 2
 
     def __init__(
         self,
@@ -49,6 +77,19 @@ class Pin:
             return self._value
         self._value = int(bool(v))
         return None
+
+    def irq(
+        self,
+        handler: Callable[[object], object] | None = None,
+        trigger: object = None,  # noqa: ARG002
+        **_kwargs: object,
+    ) -> None:
+        """Register `handler` for this pin so tests can fire it via fire_irq(id).
+
+        `trigger` mirrors MicroPython's edge selector but is unused here: tests
+        drive the handler explicitly via fire_irq(), so the edge is irrelevant.
+        """
+        _pin_irqs[self.id] = handler
 
 
 class _I2CBase:

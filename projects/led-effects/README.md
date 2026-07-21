@@ -70,9 +70,9 @@ led-effects/
   `MIN_DISTANCE_MM` (50 mm) and the last is `MAX_DISTANCE_MM` (500 mm, the tunable
   "max measurable distance"). Readings outside that range clamp to the nearest end.
   While locked the glow tracks the object live; once the object is *confirmed*
-  out of range for one continuous second (`RELEASE_MS` = 1 s), `play_transition`
-  sweeps once and the configured LED mode resumes (random/default, or the persisted
-  solid colour). Sensor errors preserve the current state — only confirmed
+  out of range for one continuous second (`RELEASE_MS` = 1 s), the gauge sweeps
+  across the strip once and the configured LED mode resumes (random/default, or the
+  persisted solid colour). Sensor errors preserve the current state — only confirmed
   out-of-range samples advance the release timer. Gauge entry and exit change the
   LEDs and draw or blank the OLED QR (below); they never start or stop the AP. All
   are constants at the top of [firmware/main.py](firmware/main.py).
@@ -129,15 +129,16 @@ led-effects/
 - Pins are project wiring — they live in the `BOARD` table in
   [firmware/main.py](firmware/main.py), dispatched per chip by
   `os.uname().machine`. The data pin reaches the strip as `Strip(count, pin=...)`;
-  the I²C pins reach the sensor as `VL53L0X(sda=, scl=)`, which opens its own
-  bit-banged soft-I²C bus internally. The SSD1306 driver opens a separate
-  software-I²C bus on the OLED pins.
+  the I²C pins reach the sensor as `VL53L0X(sda=, scl=, int_pin=)`, which opens its
+  own bit-banged soft-I²C bus internally and attaches a falling-edge interrupt to
+  the `INT` pin so reads fire on the sensor's "new sample ready" signal instead of
+  blocking. The SSD1306 driver opens a separate software-I²C bus on the OLED pins.
 
-  | Board         | Strip data | VL53 SDA | VL53 SCL | OLED SDA | OLED SCL |
-  | ------------- | ---------- | -------- | -------- | -------- | -------- |
-  | RP2040-Zero   | `GP15`     | `GP0`    | `GP1`    | `GP2`    | `GP3`    |
-  | RP2350        | `GP15`     | `GP0`    | `GP1`    | `GP2`    | `GP3`    |
-  | ESP32-S3-Zero | `GPIO7`    | `GPIO1`  | `GPIO2`  | `GPIO8`  | `GPIO9`  |
+  | Board         | Strip data | VL53 SDA | VL53 SCL | VL53 INT | OLED SDA | OLED SCL |
+  | ------------- | ---------- | -------- | -------- | -------- | -------- | -------- |
+  | RP2040-Zero   | `GP15`     | `GP0`    | `GP1`    | `GP4`    | `GP2`    | `GP3`    |
+  | RP2350        | `GP15`     | `GP0`    | `GP1`    | `GP4`    | `GP2`    | `GP3`    |
+  | ESP32-S3-Zero | `GPIO7`    | `GPIO1`  | `GPIO2`  | `GPIO3`  | `GPIO8`  | `GPIO9`  |
 
   Every board drives the strip from a dedicated GPIO, separate from its on-board
   status indicator. RP2040-Zero and ESP32-S3-Zero use WS2812 LEDs on `GP16` and
@@ -171,12 +172,21 @@ off and the animations still run. Power both from the board's 3.3 V rail:
 | OLED SDA        | `GP2`       | `GP2`  | `GPIO8`       |
 | OLED SCL        | `GP3`       | `GP3`  | `GPIO9`       |
 
-| VL53L0X pin | RP2040-Zero | RP2350 | ESP32-S3-Zero |
-| ----------- | ----------- | ------ | ------------- |
-| VIN         | `3V3`       | `3V3`  | `3V3`         |
-| GND         | `GND`       | `GND`  | `GND`         |
-| SDA         | `GP0`       | `GP0`  | `GPIO1`       |
-| SCL         | `GP1`       | `GP1`  | `GPIO2`       |
+| VL53L0X pin    | RP2040-Zero | RP2350 | ESP32-S3-Zero |
+| -------------- | ----------- | ------ | ------------- |
+| VIN            | `3V3`       | `3V3`  | `3V3`         |
+| GND            | `GND`       | `GND`  | `GND`         |
+| SDA            | `GP0`       | `GP0`  | `GPIO1`       |
+| SCL            | `GP1`       | `GP1`  | `GPIO2`       |
+| `GPIO1` (INT)  | `GP4`       | `GP4`  | `GPIO3`       |
+
+> **The `INT` wire is required for the gauge.** The last row is the breakout's
+> **interrupt output** — silk-labelled `GPIO1` on the module, unrelated to the
+> MCU pin also named `GPIO1` on the ESP32-S3. It drives the sensor's "new sample
+> ready" signal into the MCU `int_pin` (configured input, pull-up, active-low), so
+> the firmware reads on the falling edge instead of blocking. Leave it off and no
+> samples reach the gauge — the strip runs its animations but never locks. (The
+> whole sensor stays optional: omit the module and the animations still run.)
 
 > ⚠️ **Power both I²C modules from `3V3`, not the 5V strip rail.** These MCUs'
 > GPIOs are not 5V-tolerant, and typical breakouts pull their I²C lines up to
@@ -193,7 +203,7 @@ off and the animations still run. Power both from the board's 3.3 V rail:
  OLED/VL53/STRIP GND ◄── GND ─┤                       ├─ 1 ───► VL53L0X SCL
       OLED/VL53 VCC ◄─── 3V3 ─┤                       ├─ 2 ───► OLED SDA
                           29 ─┤                       ├─ 3 ───► OLED SCL
-                          28 ─┤                       ├─ 4
+                          28 ─┤                       ├─ 4 ───► VL53L0X INT
                           27 ─┤  [BOOT] (●) [RESET]   ├─ 5
                           26 ─┤        WS2812         ├─ 6
         WS2812B DIN ◄───  15 ─┤        on GP16        ├─ 7
@@ -206,8 +216,8 @@ off and the animations still run. Power both from the board's 3.3 V rail:
 ```
 
 The strip's `DIN` goes to `GP15`, leaving the on-board WS2812 (boot status LED)
-on `GP16` free. The VL53L0X uses `GP0`/`GP1`; the OLED uses `GP2`/`GP3`.
-They share `3V3` and GND.
+on `GP16` free. The VL53L0X uses `GP0`/`GP1` for I²C and `GP4` for its `INT`
+(new-sample-ready) line; the OLED uses `GP2`/`GP3`. They share `3V3` and GND.
 
 ### ESP32-S3-Zero
 
@@ -219,7 +229,7 @@ They share `3V3` and GND.
      OLED/VL53 VCC ◄─ 3V3 OUT ─┤                           ├─ GPIO13
         VL53L0X SDA ◄── GPIO1 ─┤                           ├─ GPIO12
         VL53L0X SCL ◄── GPIO2 ─┤                           ├─ GPIO11
-                        GPIO3 ─┤   [BOOT]       [RESET]    ├─ GPIO10
+        VL53L0X INT ◄── GPIO3 ─┤   [BOOT]       [RESET]    ├─ GPIO10
                         GPIO4 ─┤    GPIO0          EN      ├─ GPIO9 ───► OLED SCL
                         GPIO5 ─┤                           ├─ GPIO8 ───► OLED SDA
                         GPIO6 ─┤    WS2812: GPIO21         ├─ GPIO7 ───► WS2812B DIN
@@ -229,8 +239,8 @@ They share `3V3` and GND.
 
 The strip's `DIN` goes to `GPIO7`, leaving the on-board WS2812 (boot status LED)
 on `GPIO21` free — the on-board pixel is never part of the strip chain. The
-VL53L0X uses `GPIO1`/`GPIO2`; the OLED uses `GPIO8`/`GPIO9`. They share `3V3`
-and GND.
+VL53L0X uses `GPIO1`/`GPIO2` for I²C and `GPIO3` for its `INT` (new-sample-ready)
+line; the OLED uses `GPIO8`/`GPIO9`. They share `3V3` and GND.
 
 ### RP2350
 
@@ -243,7 +253,7 @@ and GND.
         WS2812B GND ◄─── GND ─┤                                     ├─ GND
            OLED SDA ◄───   2 ─┤                                     ├─ 3V3_EN
            OLED SCL ◄───   3 ─┤                                     ├─ 3V3 ────► I²C VCC
-                           4 ─┤                                     ├─ ADC_VREF
+        VL53L0X INT ◄───   4 ─┤                                     ├─ ADC_VREF
                            5 ─┤                                     ├─ 28
                          GND ─┤   [BOOTSEL] (●) LED on WL_GPIO0     ├─ AGND
                            6 ─┤                                     ├─ 27
@@ -263,8 +273,9 @@ and GND.
 ```
 
 `VBUS` is the 5 V USB rail. The strip's `DIN` goes to `GP15`, separate from the
-single-colour boot status LED on CYW43 `WL_GPIO0`. The VL53L0X uses `GP0`/`GP1`;
-the OLED uses `GP2`/`GP3`. They share `3V3` and GND.
+single-colour boot status LED on CYW43 `WL_GPIO0`. The VL53L0X uses `GP0`/`GP1`
+for I²C and `GP4` for its `INT` (new-sample-ready) line; the OLED uses
+`GP2`/`GP3`. They share `3V3` and GND.
 
 **Power**
 - A WS2812B LED draws up to ~60 mA at full white. A handful of LEDs can run from

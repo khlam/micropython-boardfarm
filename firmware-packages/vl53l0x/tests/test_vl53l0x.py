@@ -96,3 +96,39 @@ def test_soft_reset_oserror_is_swallowed():
 
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     assert tof.address == 0x29
+
+
+def test_int_pin_wires_input_irq_and_data_ready_flows():
+    """int_pin adds an input Pin whose falling-edge IRQ raises data_ready.
+
+    Simulates the GPIO1 falling edge via the machine stub's fire_irq, then
+    confirms read() returns the distance and consumes (clears) the flag.
+    """
+    fake_tof = _register_fake()
+    tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07, int_pin=4)
+    tof.start()
+
+    assert (4, machine.Pin.IN) in machine.pin_constructions
+    assert tof.data_ready is False
+
+    machine.fire_irq(4)  # the chip signalled a new sample on GPIO1
+    assert tof.data_ready is True
+
+    fake_tof.set_distance(275)
+    assert tof.read() == 275
+    assert tof.data_ready is False  # read() consumed the flag
+
+
+def test_without_int_pin_data_ready_stays_false():
+    """No int_pin means no interrupt is wired, so data_ready never trips.
+
+    Such callers use the blocking read() instead; a stray fire_irq for an
+    unwired pin is a no-op.
+    """
+    _register_fake()
+    tof = VL53L0X(sda=0, scl=1, skip_spad_info=True)
+    tof.start()
+
+    assert tof.data_ready is False
+    machine.fire_irq(4)
+    assert tof.data_ready is False

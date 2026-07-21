@@ -17,14 +17,23 @@ vl53l0x/
 ```
 
 ## Public API
+The wrapper takes flat pin numbers and opens its own soft-I²C bus internally:
 ```python
-from machine import Pin, SoftI2C
 from vl53l0x import VL53L0X
 
-i2c = SoftI2C(sda=Pin(0), scl=Pin(1))
-tof = VL53L0X(i2c, skip_spad_info=True, interrupt_status_mask=0x07)
+tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
 tof.start()
-mm = tof.read()    # ≥ 8190 means OUT_OF_RANGE; otherwise distance in mm
+mm = tof.read()    # blocks ~1 timing budget; ≥ 8190 means OUT_OF_RANGE, else mm
+```
+
+Wire the chip's GPIO1 "new sample ready" output to `int_pin` for non-blocking,
+interrupt-driven reads — read only when a sample is ready, so the caller's loop
+never blocks on the sensor:
+```python
+tof = VL53L0X(sda=0, scl=1, int_pin=4)
+tof.start()
+if tof.data_ready:     # raised by the GPIO1 falling-edge ISR
+    mm = tof.read()    # returns immediately; clears the flag and re-arms the edge
 ```
 
 ## Notes
@@ -34,6 +43,11 @@ mm = tof.read()    # ≥ 8190 means OUT_OF_RANGE; otherwise distance in mm
 - `interrupt_status_mask` — bits in `RESULT_INTERRUPT_STATUS` (0x13) that
   signal "measurement ready". Default `0x07` works on RP2040/RP2350; pass
   `0xFF` on ESP32-S3, where the breakout signals via bit 6 only.
+- `int_pin` — optional GPIO wired to the chip's GPIO1 output (which `init()`
+  already configures as active-low new-sample-ready). When set, a falling-edge
+  interrupt raises `data_ready`; omit it to use the blocking `read()`.
+- `data_ready` — property, True once GPIO1 has flagged a fresh sample and until
+  `read()` consumes it. Always False when no `int_pin` was wired.
 
 ## Tests
 From the repo root:

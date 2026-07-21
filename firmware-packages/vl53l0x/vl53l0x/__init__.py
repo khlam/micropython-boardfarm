@@ -23,7 +23,7 @@ __all__ = ["VL53L0X", "DeviceNotFoundError"]
 
 
 class VL53L0X(_VendorVL53L0X):
-    """VL53L0X with bus management, device scan, and soft-reset.
+    """VL53L0X with bus management, device scan, soft-reset, and INT support.
 
     The vendored base class takes a ready-made ``i2c`` object with upstream
     defaults (``skip_spad_info=False``, ``interrupt_status_mask=0x07``).
@@ -31,6 +31,13 @@ class VL53L0X(_VendorVL53L0X):
     the chip is present, soft-resets it, then delegates to the vendor
     ``__init__`` with project defaults that work across RP2040/RP2350
     and ESP32-S3.
+
+    Optionally wires the chip's GPIO1 "new sample ready" output to an MCU pin
+    so a caller can read only when a measurement is ready, instead of blocking
+    inside ``read()``. init() already configures GPIO1 as active-low
+    new-sample-ready; this class attaches a falling-edge interrupt that sets
+    ``data_ready``, and ``read()`` clears it (the vendored ``read()`` clears the
+    chip interrupt, re-arming the edge for the next sample).
     """
 
     def __init__(
@@ -41,6 +48,7 @@ class VL53L0X(_VendorVL53L0X):
         address: int = 0x29,
         skip_spad_info: bool = True,
         interrupt_status_mask: int = 0xFF,
+        int_pin: int | None = None,
     ) -> None:
         """Create a VL53L0X driver from flat pin numbers.
 
@@ -51,6 +59,10 @@ class VL53L0X(_VendorVL53L0X):
             skip_spad_info: Bypass the SPAD-count read; default True.
             interrupt_status_mask: Mask for the interrupt-status poll; default
                 0xFF to cover both RP2040 (bits 0-2) and ESP32-S3 (bit 6).
+            int_pin: Optional GPIO number wired to the chip's GPIO1 output. When
+                given, ``data_ready`` reflects a falling-edge interrupt flag
+                instead of staying False. None means no interrupt is wired and
+                the caller must fall back to the blocking ``read()``.
 
         Raises:
             DeviceNotFoundError: Nothing ACKed at ``address`` on the scanned bus.
@@ -62,6 +74,55 @@ class VL53L0X(_VendorVL53L0X):
             raise DeviceNotFoundError(f"VL53L0X not found at 0x{address:02x}")
         _soft_reset(i2c, address)
         super().__init__(i2c, address, skip_spad_info, interrupt_status_mask)
+        # Always defined so read()'s clear is unconditional even without an INT.
+        self._data_ready = False
+        self._int = _init_int(int_pin, self._on_data_ready)
+
+    @property
+    def data_ready(self) -> bool:
+        """True once GPIO1 has signalled a new sample, until ``read()`` consumes it.
+
+        Always False when no ``int_pin`` was wired — such callers block in
+        ``read()`` instead.
+        """
+        return self._data_ready
+
+    def _on_data_ready(self, _pin: object) -> None:
+        """GPIO1 falling-edge ISR: flag a ready sample and return.
+
+        Runs in interrupt context, so it only stores the ``True`` singleton on
+        an existing attribute (allocation-free) and touches no I²C — the read
+        happens later from the main loop.
+        """
+        self._data_ready = True
+
+    def read(self) -> int:
+        """Return the latest distance in mm and clear the data-ready flag.
+
+        Delegates to the vendored blocking read (which writes INTERRUPT_CLEAR,
+        de-asserting GPIO1 and re-arming the edge). When an INT is wired the
+        caller has already confirmed readiness, so the vendored status poll
+        returns immediately.
+        """
+        value = super().read()
+        self._data_ready = False
+        return value
+
+
+def _init_int(int_pin: int | None, handler: object) -> object:
+    """Wrap an optional INT GPIO number as an input Pin with a falling-edge IRQ.
+
+    Returns None when no pin is supplied (the board without an INT wire). The
+    pin is pulled up because the chip's GPIO1 is open-drain active-low; the
+    handler fires on the high→low edge that marks a new sample.
+    """
+    if int_pin is None:
+        return None
+    from machine import Pin  # noqa: PLC0415
+
+    pin = Pin(int_pin, Pin.IN, Pin.PULL_UP)
+    pin.irq(handler=handler, trigger=Pin.IRQ_FALLING)
+    return pin
 
 
 def _soft_reset(i2c: object, address: int) -> None:
