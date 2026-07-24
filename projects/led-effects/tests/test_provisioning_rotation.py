@@ -20,9 +20,11 @@ import pytest  # noqa: E402
 
 import qr_code  # noqa: E402
 
-_PAYLOAD_A = "WIFI:T:WPA;S:LEDFX-AAAAAAAA;P:AAAAAAAAAAAAAAAAAAAAAAAB;;"
-_PAYLOAD_B = "WIFI:T:WPA;S:LEDFX-BBBBBBBB;P:BBBBBBBBBBBBBBBBBBBBBBBC;;"
-_QUIET = 4
+_PAYLOAD_A = "WIFI:T:WPA;S:LFX-AA;P:AAAAAAAA;;"
+_PAYLOAD_B = "WIFI:T:WPA;S:LFX-BB;P:BBBBBBBC;;"
+_SCALE = 2
+_QUIET_PIXELS = 7
+_FRAME_SIZE = 64
 
 
 def test_rotation_redraws_qr_while_visible(prov, sessions):
@@ -68,6 +70,20 @@ def test_complete_event_keeps_the_same_qr(prov, sessions):
 
     assert len(sessions) == 1
     assert prov.display.frames[-1] == _expected_frame(_PAYLOAD_A)
+
+
+def test_qr_uses_two_pixel_modules_and_fills_the_oled_height(prov, sessions):
+    """The compact QR uses 2x2 modules with a seven-pixel light border."""
+    prov.begin()
+    prov.show_qr()
+    frame = prov.display.frames[-1]
+
+    assert frame[0][31] == 0
+    assert frame[0][32] == 1
+    assert frame[6][39] == 1
+    assert frame[7][39] == 0
+    assert frame[8][40] == 0
+    assert frame[63][32] == 1
 
 
 def test_draw_failure_during_rotation_disables_and_blanks(prov, sessions):
@@ -177,7 +193,8 @@ def sessions(monkeypatch):
     created: list[_FakeSession] = []
     payloads = [_PAYLOAD_A, _PAYLOAD_B]
 
-    def _create(_config, _handler):
+    def _create(_config, _handler, **kwargs):
+        assert kwargs == {"ssid_bytes": 1, "password_bytes": 4}
         session = _FakeSession(payloads[len(created) % len(payloads)])
         created.append(session)
         return session
@@ -222,10 +239,17 @@ def _blank_frame() -> list[list[int]]:
     return [[0] * _FakeDisplay.width for _ in range(_FakeDisplay.height)]
 
 
+def _clear_module(frame: list[list[int]], top: int, left: int) -> None:
+    """Punch one _SCALE-by-_SCALE dark module into the light QR box at (top, left)."""
+    for dy in range(_SCALE):
+        for dx in range(_SCALE):
+            frame[top + dy][left + dx] = 0
+
+
 def _expected_frame(payload: str) -> list[list[int]]:
     """Independently render ``payload`` the way ``_render_qr`` is specified to."""
     grid = qr_code.encode(payload)
-    dim = qr_code.SIZE + 2 * _QUIET
+    dim = _FRAME_SIZE
     bx = (_FakeDisplay.width - dim) // 2
     by = (_FakeDisplay.height - dim) // 2
     frame = _blank_frame()
@@ -235,5 +259,7 @@ def _expected_frame(payload: str) -> list[list[int]]:
     for y in range(qr_code.SIZE):
         for x in range(qr_code.SIZE):
             if grid[y][x]:
-                frame[by + _QUIET + y][bx + _QUIET + x] = 0
+                _clear_module(
+                    frame, by + _QUIET_PIXELS + y * _SCALE, bx + _QUIET_PIXELS + x * _SCALE
+                )
     return frame

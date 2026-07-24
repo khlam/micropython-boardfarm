@@ -78,8 +78,10 @@ led-effects/
 - **The OLED.** A 128×64 I²C SSD1306 at address `0x3C`, blank except while the
   gauge is locked. Locking the gauge draws **only** the QR for the currently valid
   credentials — no text, prompt, or startup message — and releasing it blanks the
-  panel again; each transition costs roughly one frame of I²C flush. Rotation
-  redraws the QR if it is on screen at the time. Initialisation is retried three
+  panel again; the Version-2-L code is rendered at 2× module scale in a 64×64
+  frame with a seven-pixel light border, using the OLED's full height. Each
+  transition costs roughly one frame of I²C flush. Rotation redraws the QR if it
+  is on screen at the time. Initialisation is retried three
   times; if the display remains absent or faulty, an `oled_disabled` diagnostic is
   emitted, provisioning is skipped, and the effects and gauge continue. **Without a
   working VL53L0X the gauge never locks, so the QR is never shown and the AP,
@@ -88,7 +90,8 @@ led-effects/
 ## Provisioning
 - **Continuous, from boot.** After clearing any stale AP (`wifi.quiesce()`), a
   supported Wi-Fi port with a working OLED brings up a WPA2-PSK/CCMP access point
-  (`LEDFX-` + 8 hex, channel 6, `192.168.4.1/24`, alias `led-effects.test`). The AP
+  (`LFX-` + 2 hex, with an 8-character hexadecimal password, channel 6,
+  `192.168.4.1/24`, alias `led-effects.test`). The AP
   broadcasts and accepts a client **continuously for the device's entire uptime** —
   not only during a deliberate provisioning window — but its credentials are
   displayed only while the gauge is locked.

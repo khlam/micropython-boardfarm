@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "qr_code"
 version = "0.1.0"
-description = "Fixed Version 4 / level-M byte-mode QR code encoder for MicroPython."
+description = "Fixed Version 2 / level-L byte-mode QR code encoder for MicroPython."
 requires-python = ">=3.12"
 
 [tool.hatch.build.targets.wheel]

@@ -1,11 +1,11 @@
-"""Fixed-parameter QR encoder: Version 4, error-correction level M, byte mode.
+"""Fixed-parameter QR encoder: Version 2, error-correction level L, byte mode.
 
-This module deliberately supports exactly one QR geometry — Version 4 (a 33x33
-module grid), ECC level M, 8-bit byte mode — because the only caller renders a
-short fixed Wi-Fi credential string whose 56-byte payload fits the 62-byte byte
-capacity of V4-M. Anything that does not fit that single configuration raises
-``QRError`` rather than silently producing a differently sized code, so a
-consumer that draws a fixed-size bitmap can trust the output is always 33x33.
+This module deliberately supports exactly one QR geometry — Version 2 (a 25x25
+module grid), ECC level L, 8-bit byte mode — because the only caller renders a
+compact fixed Wi-Fi credential string whose 32-byte payload fits the V2-L byte
+capacity. Anything that does not fit that single configuration raises ``QRError``
+rather than silently producing a differently sized code, so a consumer that
+draws a fixed-size bitmap can trust the output is always 25x25.
 
 The algorithm is a faithful, specialised port of Project Nayuki's QR Code
 generator: finder/timing/alignment placement, Reed-Solomon over GF(256), the
@@ -17,23 +17,23 @@ a framebuffer's ``pixel(x, y)`` wants.
 
 Public API:
     from qr_code import encode, QRError
-    grid = encode("WIFI:T:WPA;S:...;;")   # -> list[bytearray], 33 rows x 33 cols
+    grid = encode("WIFI:T:WPA;S:...;;")   # -> list[bytearray], 25 rows x 25 cols
     #   grid[y][x] is 1 for a dark module, 0 for light. No quiet zone is added;
     #   the caller owns quiet-zone framing and pixel scaling.
 """
 
 __all__ = ["SIZE", "QRError", "encode"]
 
-# --- Fixed V4-M parameters --------------------------------------------------
-SIZE = 33  # modules per side for Version 4
-_VERSION = 4
-_ALIGN_POSITIONS = (6, 26)  # alignment-pattern centre coordinates for V4
-_NUM_BLOCKS = 2  # error-correction blocks for V4-M
-_ECC_PER_BLOCK = 18  # ECC codewords per block for V4-M
-_DATA_CODEWORDS = 64  # total data codewords for V4-M (2 blocks x 32)
-_RAW_CODEWORDS = 100  # data + ECC codewords placed in the matrix (V4)
-_BYTE_CAPACITY = 62  # maximum byte-mode characters for V4-M
-_ECL_FORMAT_BITS = 0  # level M format indicator (L=1, M=0, Q=3, H=2)
+# --- Fixed V2-L parameters --------------------------------------------------
+SIZE = 25  # modules per side for Version 2
+_VERSION = 2
+_ALIGN_POSITIONS = (6, 18)  # alignment-pattern centre coordinates for V2
+_NUM_BLOCKS = 1  # error-correction blocks for V2-L
+_ECC_PER_BLOCK = 10  # ECC codewords per block for V2-L
+_DATA_CODEWORDS = 34  # total data codewords for V2-L
+_RAW_CODEWORDS = 44  # data + ECC codewords placed in the matrix (V2)
+_BYTE_CAPACITY = 32  # maximum byte-mode characters for V2-L
+_ECL_FORMAT_BITS = 1  # level L format indicator (L=1, M=0, Q=3, H=2)
 
 # Penalty weights from the QR specification.
 _PENALTY_N1 = 3
@@ -43,10 +43,10 @@ _PENALTY_N4 = 10
 
 
 class QRError(Exception):
-    """The payload does not fit a Version 4 / level-M byte-mode QR code.
+    """The payload does not fit a Version 2 / level-L byte-mode QR code.
 
-    Raised (instead of returning a wrongly sized or truncated grid) so a caller
-    that draws a fixed 33x33 bitmap can treat any successful ``encode`` result as
+    Raised instead of returning a wrongly sized or truncated grid so a caller
+    that draws a fixed 25x25 bitmap can treat any successful ``encode`` result as
     exactly that size and fail closed otherwise.
     """
 
@@ -146,7 +146,7 @@ class _BitBuffer:
 
 # --- Encoding ---------------------------------------------------------------
 def _data_codewords(payload: bytes) -> bytearray:
-    """Build the 64 data codewords for the byte-mode payload."""
+    """Build the 34 data codewords for the byte-mode payload."""
     buf = _BitBuffer()
     buf.append(0b0100, 4)  # byte-mode indicator
     buf.append(len(payload), 8)  # character count (8 bits for V1-9 byte mode)
@@ -229,7 +229,7 @@ def _draw_function_patterns(grid: list, func: list) -> None:
             _draw_alignment(grid, func, px, py)
     # Reserve the format-info regions; the values are written per mask later.
     _draw_format(grid, func, 0, reserve_only=True)
-    # The dark module is always set for V4.
+    # The dark module is always set (row 4*version+9, column 8).
     _set_function(grid, func, 8, 4 * _VERSION + 9, 1)
 
 
@@ -378,21 +378,21 @@ def _penalty(grid: list) -> int:
 
 
 def encode(text: str) -> list:
-    """Encode ``text`` as a Version 4 / level-M byte-mode QR code.
+    """Encode ``text`` as a Version 2 / level-L byte-mode QR code.
 
     Args:
         text: The payload string; encoded as UTF-8 bytes (ASCII in practice).
 
     Returns:
-        A 33-row list of ``bytearray(33)`` where each entry is 1 for a dark
+        A 25-row list of ``bytearray(25)`` where each entry is 1 for a dark
         module and 0 for a light module. No quiet zone is included.
 
     Raises:
-        QRError: If the payload exceeds the 62-byte V4-M byte capacity.
+        QRError: If the payload exceeds the 32-byte V2-L byte capacity.
     """
     payload = text.encode()
     if len(payload) > _BYTE_CAPACITY:
-        raise QRError("payload exceeds Version 4-M byte capacity")
+        raise QRError("payload exceeds Version 2-L byte capacity")
 
     data = _interleave(_data_codewords(payload))
     grid = _new_grid()

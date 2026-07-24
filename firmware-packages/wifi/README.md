@@ -42,6 +42,11 @@ event = session.poll(now_ms)                # bounded, nonblocking, once per loo
 session.stop()                              # idempotent teardown -> STOPPED
 ```
 
+Callers that render the session as a compact QR can pass
+`ssid_bytes=1, password_bytes=4` to `create_session`; the `led-effects` project
+uses this profile. The default lengths remain eight SSID-suffix hex characters
+and 24 password hex characters.
+
 `handler(request, csrf_form_value) -> Response` renders the page and validates its
 own route-specific fields. The `csrf_form_value` is supplied only for the hidden
 GET form field and must never be logged or retained after the call.
@@ -90,11 +95,18 @@ detail, credential, or session field.
   `quiesce`, so every rotation) takes the AP back out of the mode, after which
   `ap.config` accepts a write that `active(True)` then discards. The Pico 2 W has
   no such window — the CYW43 driver accepts credentials while inactive.
-- **Fresh secrets, no persistence.** All three secrets come from one 32-byte
-  `os.urandom` read (SSID 4 B, password 12 B, CSRF 16 B), drawn only after the
-  adapter confirms radio-backed entropy. The draw fails closed on a missing API,
-  exception, wrong length, or an all-identical result. Nothing is persisted, so
-  boot, crash, reset, and watchdog recovery always start from fresh credentials.
+- **Fresh secrets, no persistence.** By default, all three secrets come from one
+  32-byte `os.urandom` read (SSID 4 B, password 12 B, CSRF 16 B), drawn only
+  after the adapter confirms radio-backed entropy. `create_session()` accepts
+  optional `ssid_bytes` and `password_bytes` arguments for callers that need a
+  smaller QR payload; the CSRF token remains 16 bytes. The draw fails closed on
+  a missing API, exception, wrong length, or an all-identical result. Nothing is
+  persisted, so boot, crash, reset, and watchdog recovery always start from fresh
+  credentials.
+- **Compact QR profile.** The `led-effects` project passes `ssid_bytes=1` and
+  `password_bytes=4`, producing an `LFX-` plus two-hex-character SSID and an
+  eight-character hexadecimal WPA2 password. This 32-byte `WIFI:` payload fits
+  the Version-2-L QR rendered at 2× module scale on its 128×64 OLED.
 - **Bounded work per poll.** At most three sockets (one UDP, one TCP listener with
   backlog 1, one accepted connection); at most one DNS datagram and one HTTP
   read/parse/write step per `poll`. Fixed global token buckets allow HTTP 4/s
@@ -114,9 +126,11 @@ detail, credential, or session field.
   imports safely for tooling.
 
 ## Tests
-No host tests ship with this iteration; the package is verified end-to-end on
-hardware (see the repository verification notes). When tests are added they follow
-the repo convention:
+Host tests cover the ESP32-S3 adapter and the credential draw — both the default
+lengths and the compact `ssid_bytes=1, password_bytes=4` profile, including its
+32-byte `WIFI:` payload and the WPA2 minimum-length guard. The rest of the package
+is verified end-to-end on hardware (see the repository verification notes). Run
+them the repo way, from the root:
 ```
 docker compose run --rm --build pytest /firmware-packages/wifi/tests
 ```

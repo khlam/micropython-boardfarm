@@ -1,10 +1,10 @@
 # qr_code
 
-A deliberately narrow QR encoder: **Version 4 (33×33 modules), error-correction
-level M, 8-bit byte mode only**. It exists to render one short fixed string — a
-Wi-Fi credential payload whose 56 bytes fit V4-M's 62-byte byte capacity — so it
+A deliberately narrow QR encoder: **Version 2 (25×25 modules), error-correction
+level L, 8-bit byte mode only**. It exists to render one compact fixed string — a
+Wi-Fi credential payload whose 32 bytes fit V2-L's 32-byte byte capacity — so it
 trades generality for a guarantee: every successful `encode` returns exactly a
-33×33 grid, and anything that does not fit raises `QRError`.
+25×25 grid, and anything that does not fit raises `QRError`.
 
 ## Layout
 ```
@@ -16,20 +16,20 @@ qr_code/
 
 ## Public API
 ```python
-from qr_code import encode, QRError, SIZE   # SIZE == 33
+from qr_code import encode, QRError, SIZE   # SIZE == 25
 
-grid = encode("WIFI:T:WPA;S:LEDFX-1A2B3C4D;P:...;;")
-# grid is a list of 33 bytearray(33) rows; grid[y][x] == 1 is a dark module.
+grid = encode("WIFI:T:WPA;S:LFX-1A;P:12345678;;")
+# grid is a list of 25 bytearray(25) rows; grid[y][x] == 1 is a dark module.
 # No quiet zone is added — the caller frames and scales the modules.
 ```
 
-`encode` raises `QRError` when the payload exceeds the 62-byte V4-M byte capacity.
+`encode` raises `QRError` when the payload exceeds the 32-byte V2-L byte capacity.
 
 ## Notes
 
 - **Fixed geometry on purpose.** Version, ECC level, and mode are constants. The
-  only caller draws a fixed-size bitmap and must be able to assume 33×33 always;
-  a variable-size encoder would defeat that.
+  only caller draws a scaled bitmap and must be able to assume 25×25 always; a
+  variable-size encoder would defeat that.
 - **Faithful algorithm.** Finder/timing/alignment placement, Reed-Solomon over
   GF(256), the eight data masks with full penalty scoring, and BCH format bits are
   a specialised port of Project Nayuki's QR Code generator. Coordinates follow that
@@ -40,9 +40,10 @@ grid = encode("WIFI:T:WPA;S:LEDFX-1A2B3C4D;P:...;;")
   per-frame operation.
 
 ## Tests
-No host tests ship with this iteration. The encoder is verified end-to-end by
-scanning the OLED QR produced by the `led-effects` project. When tests are added
-they follow the repo convention:
+Host tests cover the Version 2-L geometry, the 32-byte capacity boundary,
+overflow rejection, and function-pattern placement; the encoder is also verified
+end-to-end by scanning the OLED QR produced by the `led-effects` project. Run
+them the repo way, from the root:
 ```
 docker compose run --rm --build pytest /firmware-packages/qr_code/tests
 ```

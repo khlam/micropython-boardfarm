@@ -34,7 +34,7 @@ __all__ = ["PROV_CONFIG", "Provisioner", "hex_to_rgb", "is_hex6"]
 # The provisioning configuration. absolute_timeout_ms drives the 10-minute
 # rotation; the no-client timeout is disabled so the AP never stops on its own.
 PROV_CONFIG = wifi.Config(
-    ssid_prefix="LEDFX-",
+    ssid_prefix="LFX-",
     ap_ip="192.168.4.1",
     netmask="255.255.255.0",
     channel=6,
@@ -43,7 +43,9 @@ PROV_CONFIG = wifi.Config(
     no_client_timeout_ms=0,
 )
 
-_QUIET = 4  # QR quiet-zone width in modules; 33 + 2*4 = the fixed 41x41 bitmap
+_QR_QUIET_MODULES = 4
+_QR_SSID_BYTES = 1  # LFX- plus two hex characters -> a six-character SSID
+_QR_PASSWORD_BYTES = 4  # eight hex characters, the WPA2 minimum
 _HEXCHARS = "0123456789ABCDEF"
 
 # Self-contained, no-JavaScript, no-CSS pages. The strict CSP has no style-src,
@@ -220,7 +222,12 @@ class Provisioner:
         nothing is drawn — the code is pre-rendered off-screen in the background
         instead (``prerender``).
         """
-        session = wifi.create_session(self._config, self._handler)
+        session = wifi.create_session(
+            self._config,
+            self._handler,
+            ssid_bytes=_QR_SSID_BYTES,
+            password_bytes=_QR_PASSWORD_BYTES,
+        )
         try:
             payload = session.qr_payload()
             if self._visible:
@@ -298,28 +305,37 @@ class Provisioner:
 
     # -- OLED ---------------------------------------------------------------
     def _render_qr(self, payload: str) -> None:
-        """Render the fixed 41x41 QR (33 modules + 4-module quiet zone) off-screen.
+        """Render the compact QR into the off-screen OLED framebuffer.
 
-        The framed code is drawn into the off-screen ``_scratch`` framebuffer as a
-        lit (light) background with the dark modules unlit, so a camera sees correct
-        QR polarity once the buffer is blitted. Does no I²C — it only fills the
-        buffer, leaving ``_blit_qr`` to flush it.
+        The Version 2 QR is drawn with the largest integer module scale that fits
+        the display. On the 128x64 panel this produces 2x2-pixel modules, a 64x64
+        frame, and a seven-pixel light border. The border is one pixel short of a
+        literal four-module border on each side so the scaled code fits exactly;
+        no QR module is clipped. Does no I²C — it only fills the buffer, leaving
+        ``_blit_qr`` to flush it.
 
         Args:
             payload: The QR payload string to encode.
 
         Raises:
-            ValueError: If the framed size is not exactly 41x41 or does not fit.
+            ValueError: If the QR does not fit the display.
         """
         grid = qr_code.encode(payload)
         modules = qr_code.SIZE
-        dim = modules + 2 * _QUIET
-        if dim != 41:
-            raise ValueError("unexpected qr size")
         fb = self._scratch
         width = self._display.width
         height = self._display.height
-        if dim > width or dim > height:
+        scale = 0
+        quiet = 0
+        dim = 0
+        for candidate in range(1, min(width, height) + 1):
+            candidate_quiet = _QR_QUIET_MODULES * candidate - 1
+            candidate_dim = modules * candidate + 2 * candidate_quiet
+            if candidate_dim <= width and candidate_dim <= height:
+                scale = candidate
+                quiet = candidate_quiet
+                dim = candidate_dim
+        if scale == 0:
             raise ValueError("qr does not fit")
         bx = (width - dim) // 2
         by = (height - dim) // 2
@@ -329,10 +345,13 @@ class Provisioner:
                 fb.pixel(bx + xx, by + yy, 1)
         for y in range(modules):
             row = grid[y]
-            oy = by + _QUIET + y
+            oy = by + quiet + y * scale
             for x in range(modules):
                 if row[x]:
-                    fb.pixel(bx + _QUIET + x, oy, 0)
+                    ox = bx + quiet + x * scale
+                    for dy in range(scale):
+                        for dx in range(scale):
+                            fb.pixel(ox + dx, oy + dy, 0)
         self._rendered_payload = payload
 
     def _blit_qr(self) -> None:

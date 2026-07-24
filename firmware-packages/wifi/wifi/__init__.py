@@ -56,7 +56,12 @@ def quiesce() -> None:
     adapter.get().quiesce()
 
 
-def create_session(config: Config, handler) -> Session:  # noqa: ANN001
+def create_session(
+    config: Config,
+    handler,  # noqa: ANN001
+    ssid_bytes: int = 4,
+    password_bytes: int = 12,
+) -> Session:
     """Validate ``config``, draw radio-backed credentials, and build a session.
 
     ``handler(request, csrf_form_value) -> Response`` renders the portal page;
@@ -64,6 +69,11 @@ def create_session(config: Config, handler) -> Session:  # noqa: ANN001
     never be logged or retained after the call. It carries no type hint —
     MicroPython has no ``typing`` module to name a callable with — which is why
     this docstring keeps its argument notes as prose (see ``secrets.draw``).
+
+    ``ssid_bytes`` and ``password_bytes`` select the lengths of the generated
+    hexadecimal SSID suffix and password. The defaults preserve the package's
+    existing credential lengths; a QR-constrained caller can select a shorter
+    profile while retaining the full CSRF token.
 
     Returns a ``Session`` in the ``NEW`` state whose credentials are already
     drawn, or raises ``ProvisioningError``: ``unsupported`` on a non-Wi-Fi port,
@@ -74,5 +84,10 @@ def create_session(config: Config, handler) -> Session:  # noqa: ANN001
     active_adapter = adapter.get()
     if not active_adapter.SUPPORTED:
         raise ProvisioningError("unsupported")
-    session_secrets = _secrets.draw(config.ssid_prefix, active_adapter.random_bytes)
+    session_secrets = _secrets.draw(
+        config.ssid_prefix,
+        active_adapter.random_bytes,
+        ssid_bytes,
+        password_bytes,
+    )
     return Session(config, handler, session_secrets, active_adapter)
