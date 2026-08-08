@@ -607,7 +607,7 @@ wheels = [
 
 [[package]]
 name = "matter-example"
-version = "0.3.0"
+version = "0.3.1"
 source = { virtual = "projects/matter" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -627,7 +627,7 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.12.0"
+version = "0.12.1"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },

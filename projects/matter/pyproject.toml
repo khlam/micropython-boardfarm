@@ -1,6 +1,6 @@
 [project]
 name = "matter-example"
-version = "0.3.0"
+version = "0.3.1"
 description = "MicroPython-owned Matter application over a native ESP-Matter backend."
 readme = "README.md"
 requires-python = ">=3.12"

@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -66,9 +67,8 @@ _OUTPUT_NAMES = frozenset({_MERGED_NAME, _QR_NAME, _SETUP_NAME})
 # Hardware identity with no board-configuration source and no per-build
 # parameter. Discovery mode also reaches the onboarding check, which
 # cross-checks it: minting encodes it into the QR payload and the check
-# base38-decodes it back out. Vendor name, product name, serial number, and
-# firmware version are per-build instead -- see _parse_args and
-# _pyproject_to_product.
+# base38-decodes it back out. Vendor name, product name, and serial number are
+# per-build instead -- see _parse_args and _pyproject_to_model.
 _DISCOVERY_MODE = 2
 _HARDWARE_VERSION = 1
 _HARDWARE_VERSION_STRING = "development"
@@ -81,7 +81,6 @@ _SPAKE2P_ITERATION_COUNT = 10000
 _SPAKE2P_SALT_LEN = 32
 
 _FLASH_SIZE_RE = re.compile(r"^CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB$")
-_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 _BASE38 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
 
@@ -117,16 +116,13 @@ def main() -> int:
     passcode = int(args.passcode) if args.passcode else None
     manufacturer = args.manufacturer or _DEFAULT_MANUFACTURER
     serial_number = args.serial_number or _default_serial_number()
-    model, firmware_version = _pyproject_to_product(_PROJECT_TOML)
+    model = _pyproject_to_model(_PROJECT_TOML)
     identity = _board_to_identity(_BOARD_DIR, _DISCOVERY_MODE)
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         build_root = Path(scratch)
         _build_firmware(build_root)
-        factory, onboarding, qr = _mint_credentials(
-            build_root, identity, manufacturer, serial_number, model, firmware_version, passcode
-        )
-        manual, payload, discriminator = _validate_onboarding(
-            _read_onboarding(onboarding), identity
+        factory, qr, manual, payload, discriminator = _mint_credentials(
+            build_root, identity, manufacturer, serial_number, model, passcode
         )
         merged = _merge_image(build_root, factory, identity)
         _validate_merged_image(merged, factory, qr, identity)
@@ -225,47 +221,14 @@ def _config_to_flash_size(config: dict[str, str]) -> int:
     raise ValueError("board sdkconfig enables no CONFIG_ESPTOOLPY_FLASHSIZE_*MB key")
 
 
-def _pyproject_to_product(path: Path) -> tuple[str, str]:
-    """Read this build's model name and firmware version from the project's pyproject.toml.
-
-    Reads only the `[project]` table's `name` and `version` keys, so the
-    project's own package metadata is the single source of truth for both --
-    a project bumping its version in one file has that reach the commissioned
-    device without being restated here.
-    """
-    name = version = None
-    in_project = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped.startswith("["):
-            in_project = stripped == "[project]"
-            continue
-        if not in_project or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"')
-        if key == "name":
-            name = value
-        elif key == "version":
-            version = value
-    if name is None or version is None:
-        raise ValueError(f"{path} [project] table must set name and version")
-    return name, version
-
-
-def _version_to_number(version: str) -> int:
-    """Encode a strict MAJOR.MINOR.PATCH version string as a monotonic uint32.
-
-    Matter's SoftwareVersion attribute is the uint32 OTA compares to decide
-    whether an update is newer; this encoding stays monotonic as long as the
-    project's version is bumped normally (e.g. "0.3.0" -> 300, "1.2.3" -> 10203).
-    """
-    match = _SEMVER_RE.match(version)
-    if not match:
-        raise ValueError(f"version {version!r} must be MAJOR.MINOR.PATCH")
-    major, minor, patch = (int(part) for part in match.groups())
-    return major * 10000 + minor * 100 + patch
+def _pyproject_to_model(path: Path) -> str:
+    """Read this build's model name from the project's package metadata."""
+    with path.open("rb") as stream:
+        project = tomllib.load(stream).get("project")
+    name = project.get("name") if isinstance(project, dict) else None
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{path} [project] table must set a non-empty name")
+    return name
 
 
 def _default_serial_number() -> str:
@@ -318,9 +281,8 @@ def _mint_credentials(
     manufacturer: str,
     serial_number: str,
     model: str,
-    firmware_version: str,
     passcode: int | None = None,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, str, str, int]:
     """Generate one device's factory partition, onboarding codes and QR image.
 
     A caller-supplied passcode is minted into this device's credentials; when
@@ -351,8 +313,6 @@ def _mint_credentials(
             product_name=model,
             hardware_version=_HARDWARE_VERSION,
             hardware_version_string=_HARDWARE_VERSION_STRING,
-            software_version=_version_to_number(firmware_version),
-            software_version_string=firmware_version,
             serial_number=serial_number,
         ),
     )
@@ -361,16 +321,12 @@ def _mint_credentials(
         identity.vendor_id, identity.product_id, discriminator, passcode, identity.discovery_mode
     )
     manual = onboarding_codes.encode_manual_code(discriminator, passcode)
-    onboarding = outdir / "onb_codes.csv"
-    with onboarding.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(["qrcode", "manualcode", "discriminator", "passcode"])
-        writer.writerow([payload, manual, discriminator, passcode])
+    _validate_onboarding(payload, manual, discriminator, passcode, identity)
 
     qr = outdir / "qrcode.png"
     qr_image.render(payload, qr)
 
-    return factory, onboarding, qr
+    return factory, qr, manual, payload, discriminator
 
 
 def _random_passcode() -> int:
@@ -405,15 +361,6 @@ def _merge_image(build_root: Path, factory: Path, identity: _BuildIdentity) -> P
         cwd=build_root / "idf",
     )
     return merged
-
-
-def _read_onboarding(path: Path) -> dict[str, str]:
-    """Read the single onboarding row generated by the manufacturing tool."""
-    with path.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream))
-    if len(rows) != 1:
-        raise ValueError("expected exactly one onboarding record")
-    return rows[0]
 
 
 def _decode_qr_payload(payload: str) -> dict[str, int]:
@@ -470,13 +417,14 @@ def _decode_manual_code(code: str) -> dict[str, int]:
     }
 
 
-def _validate_onboarding(row: dict[str, str], identity: _BuildIdentity) -> tuple[str, str, int]:
+def _validate_onboarding(
+    payload: str,
+    manual: str,
+    discriminator: int,
+    passcode: int,
+    identity: _BuildIdentity,
+) -> None:
     """Cross-check the QR and manual code generated for one device."""
-    payload = row["qrcode"]
-    manual = row["manualcode"]
-    discriminator = int(row["discriminator"])
-    passcode = int(row["passcode"])
-
     qr_fields = _decode_qr_payload(payload)
     expected_qr = {
         "version": 0,
@@ -496,7 +444,6 @@ def _validate_onboarding(row: dict[str, str], identity: _BuildIdentity) -> tuple
         "passcode": passcode,
     }:
         raise ValueError("manual pairing code does not match QR payload")
-    return manual, payload, discriminator
 
 
 def _validate_merged_image(
@@ -536,7 +483,7 @@ def _validate_factory_identity(values: dict, discriminator: int, identity: _Buil
         raise ValueError("factory data must contain a verifier and no plaintext passcode")
 
 
-def _publish(merged: Path, qr: Path) -> Path:
+def _publish(merged: Path, qr: Path) -> None:
     """Copy the image and QR into /outputs and drop any stale setup file.
 
     The setup file is removed rather than overwritten so that a crash before it is
@@ -547,17 +494,15 @@ def _publish(merged: Path, qr: Path) -> Path:
     )
     if unexpected:
         raise ValueError("unexpected output artifacts: " + ", ".join(unexpected))
-    published = _install(merged, _OUTPUT_DIR / _MERGED_NAME)
+    _install(merged, _OUTPUT_DIR / _MERGED_NAME)
     _install(qr, _OUTPUT_DIR / _QR_NAME)
     (_OUTPUT_DIR / _SETUP_NAME).unlink(missing_ok=True)
-    return published
 
 
-def _install(source: Path, destination: Path) -> Path:
+def _install(source: Path, destination: Path) -> None:
     """Copy one artifact into place with a fixed, readable mode."""
     shutil.copyfile(source, destination)
     destination.chmod(_ARTIFACT_MODE)
-    return destination
 
 
 def _write_setup(manual: str, payload: str) -> None:

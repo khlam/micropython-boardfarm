@@ -90,7 +90,7 @@ def _capture(args: argparse.Namespace, started: float, deadline: float) -> None:
     """Read the device until the window closes, reopening across reboots."""
     # Only the first connection gets the keystrokes: a command that reboots the
     # board would otherwise fire again on every reconnect it causes.
-    pending = args.probe or bool(args.send)
+    pending = args.interrupt or args.probe or bool(args.send)
     while time.monotonic() < deadline:
         port = _open(args.port, args.baud, deadline)
         if port is None:

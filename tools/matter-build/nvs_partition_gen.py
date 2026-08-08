@@ -1,12 +1,9 @@
 """Generate the "chip-factory" NVS partition binary for one device.
 
-Wraps Espressif's own `esp-idf-nvs-partition-gen` PyPI package -- a standalone,
-actively maintained release of the same `nvs_partition_gen.py` ESP-IDF ships
-under `components/nvs_flash/nvs_partition_generator/` -- instead of shelling out
-to a third-party manufacturing tool. The field set and types below match what
-that manufacturing tool actually wrote for this project's device identity: a
-commissionable-data-only "chip-factory" namespace with no attestation
-certificate chain, since this project has never passed `--paa`/`--pai`/`--cert`.
+Espressif's `esp-idf-nvs-partition-gen` package serializes the commissionable
+secrets and device-instance fields consumed by ESP-Matter's factory providers.
+Attestation credentials are intentionally absent because this build uses the
+example DAC provider.
 """
 
 from __future__ import annotations
@@ -40,8 +37,6 @@ class DeviceIdentity:
     product_name: str
     hardware_version: int
     hardware_version_string: str
-    software_version: int
-    software_version_string: str
     serial_number: str
 
 
@@ -64,7 +59,7 @@ def write_factory_partition(
         iteration_count: SPAKE2+ PBKDF2 iteration count.
         salt: SPAKE2+ salt, 16 to 32 bytes.
         verifier: The 97-byte SPAKE2+ verifier from spake2p.generate_verifier.
-        identity: The device's vendor/product/hardware/software/serial labels.
+        identity: The device's vendor/product/hardware/serial labels.
 
     Returns:
         Path to the generated factory-partition.bin.
@@ -79,8 +74,6 @@ def write_factory_partition(
         ("product-name", "data", "string", identity.product_name),
         ("hardware-ver", "data", "u32", str(identity.hardware_version)),
         ("hw-ver-str", "data", "string", identity.hardware_version_string),
-        ("sw-ver", "data", "u32", str(identity.software_version)),
-        ("sw-ver-str", "data", "string", identity.software_version_string),
         ("serial-num", "data", "string", identity.serial_number),
         ("verifier", "data", "string", base64.b64encode(verifier).decode("ascii")),
     ]

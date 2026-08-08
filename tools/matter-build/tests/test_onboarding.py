@@ -96,10 +96,14 @@ def test_manual_code_rejects_the_custom_flow_bit():
         build._decode_manual_code(custom)
 
 
-def test_onboarding_accepts_a_matching_row(identity):
-    manual, payload, discriminator = build._validate_onboarding(onboarding_row(), identity)
-    assert (manual, payload) == (_KNOWN_MANUAL, _KNOWN_PAYLOAD)
-    assert discriminator == _KNOWN_DISCRIMINATOR
+def test_onboarding_accepts_matching_codes(identity):
+    build._validate_onboarding(
+        _KNOWN_PAYLOAD,
+        _KNOWN_MANUAL,
+        _KNOWN_DISCRIMINATOR,
+        _KNOWN_PASSCODE,
+        identity,
+    )
 
 
 @pytest.mark.parametrize(
@@ -112,19 +116,37 @@ def test_onboarding_accepts_a_matching_row(identity):
 )
 def test_onboarding_rejects_a_payload_disagreeing_with_the_board(identity, field, value):
     with pytest.raises(ValueError, match="do not match build identity"):
-        build._validate_onboarding(onboarding_row(), replace(identity, **{field: value}))
+        build._validate_onboarding(
+            _KNOWN_PAYLOAD,
+            _KNOWN_MANUAL,
+            _KNOWN_DISCRIMINATOR,
+            _KNOWN_PASSCODE,
+            replace(identity, **{field: value}),
+        )
 
 
-def test_onboarding_rejects_a_row_disagreeing_with_its_own_payload(identity):
+def test_onboarding_rejects_a_discriminator_disagreeing_with_the_payload(identity):
     with pytest.raises(ValueError, match="do not match build identity"):
-        build._validate_onboarding(onboarding_row(discriminator=3841), identity)
+        build._validate_onboarding(
+            _KNOWN_PAYLOAD,
+            _KNOWN_MANUAL,
+            3841,
+            _KNOWN_PASSCODE,
+            identity,
+        )
 
 
 def test_onboarding_rejects_a_manual_code_from_another_device(identity):
     # A manual code minted for a different passcode, beside the right QR payload.
     other = encode_manual_code(_KNOWN_DISCRIMINATOR >> 8, 12345678)
     with pytest.raises(ValueError, match="manual pairing code does not match"):
-        build._validate_onboarding(onboarding_row(manualcode=other), identity)
+        build._validate_onboarding(
+            _KNOWN_PAYLOAD,
+            other,
+            _KNOWN_DISCRIMINATOR,
+            _KNOWN_PASSCODE,
+            identity,
+        )
 
 
 def encode_qr_payload(
@@ -188,17 +210,6 @@ def encode_manual_code(short_discriminator: int, passcode: int) -> str:
     chunk2 = ((short_discriminator & 0x3) << 14) | (passcode & 0x3FFF)
     chunk3 = passcode >> 14
     return f"{chunk1:01d}{chunk2:05d}{chunk3:04d}0"
-
-
-def onboarding_row(**overrides):
-    """Return the manufacturing tool's CSV row for the published test device."""
-    row = {
-        "qrcode": _KNOWN_PAYLOAD,
-        "manualcode": _KNOWN_MANUAL,
-        "discriminator": str(_KNOWN_DISCRIMINATOR),
-        "passcode": str(_KNOWN_PASSCODE),
-    }
-    return {**row, **{key: str(value) for key, value in overrides.items()}}
 
 
 @pytest.fixture

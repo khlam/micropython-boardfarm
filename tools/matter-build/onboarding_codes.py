@@ -2,8 +2,8 @@
 
 The mirror image of build.py's `_decode_qr_payload`/`_decode_manual_code`: same
 bit widths, same field order, same Base38 alphabet, so a value encoded here and
-decoded there round-trips exactly. Standard commissioning flow only, matching
-what this project's onboarding data has ever contained.
+decoded there round-trips exactly. This project uses standard commissioning
+flow only.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ _VERHOEFF_P = (
 _VERHOEFF_INV = (0, 4, 3, 2, 1, 5, 6, 7, 8, 9)
 
 _DISCRIMINATOR_BITS = 0xFFF
-_STANDARD_FLOW = 0
 
 
 def encode_qr_payload(
@@ -58,15 +57,14 @@ def encode_qr_payload(
     """
     _check_discriminator(discriminator)
     _check_passcode(passcode)
+    # Version, standard commissioning flow, and padding are all zero, so only
+    # nonzero fields need to participate in the packed value.
     packed = (
-        0  # version
-        | (vendor_id << 3)
+        (vendor_id << 3)
         | (product_id << 19)
-        | (_STANDARD_FLOW << 35)
         | (discovery << 37)
         | (discriminator << 45)
         | (passcode << 57)
-        | (0 << 84)  # padding
     )
     return "MT:" + _base38_encode(packed.to_bytes(11, byteorder="little"))
 
