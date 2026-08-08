@@ -22,7 +22,6 @@
 #include "matter/bridge.h"
 #include "value_conversion.h"
 
-namespace Identify = chip::app::Clusters::Identify;
 using esp_matter::attribute_t;
 using esp_matter::endpoint_t;
 
@@ -101,10 +100,8 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
 }
 
 // Set an endpoint attribute's initial value before the Matter stack starts.
-// Most attributes are marked for deferred persistence so ESP-Matter can save
-// their state to flash without writing on every small change. IdentifyTime is
-// intentionally not persisted because it is temporary state used only while a
-// device is identifying itself; saving it would cause unnecessary flash wear.
+// Persistence policy belongs to endpoint construction, so whether an attribute
+// is deferred never depends on the caller overriding its initial value.
 extern "C" int matter_attribute_set_initial(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id,
                                              uint32_t value, uint8_t value_type)
 {
@@ -130,9 +127,6 @@ extern "C" int matter_attribute_set_initial(uint16_t endpoint_id, uint32_t clust
     // Treat both ESP_OK and that no-op result as success.
     if (result != ESP_OK && result != ESP_ERR_NOT_FINISHED) {
         return EIO;
-    }
-    if (cluster_id != Identify::Id) {
-        esp_matter::attribute::set_deferred_persistence(handle);
     }
     return 0;
 }

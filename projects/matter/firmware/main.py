@@ -32,10 +32,29 @@ if "ESP32S3" not in _machine:
 BOARD = Board(name="ESP32-S3-Zero", led_pin=21, pixel_count=1)
 
 BOOT_COLOR = (25, 25, 25)
+READY_COLOR = (0, 25, 0)
+WINDOW_COLOR = (25, 0, 25)
+SESSION_COLOR = (0, 25, 25)
+FAILED_COLOR = (25, 0, 0)
+OFF_COLOR = (0, 0, 0)
+
+_COMMISSIONING_COLORS = {
+    matter.Commissioning.STARTED: SESSION_COLOR,
+    matter.Commissioning.OPENED: WINDOW_COLOR,
+}
 
 # Tick the current colour was commanded on. Ordering only, never written to
 # flash. A list cell so `show()` below can update it without `global`.
 _stamp = [0]
+
+# Commissioning events can be delivered while Node.start() is still returning.
+# Mutable cells let the callback record that state without publishing through
+# an endpoint whose owning node is not marked started yet.
+_commissioned = [False]
+_commissioning_failed = [False]
+_last_commissioning_state = [None]
+_last_commissioning_stamp = [0]
+_pending_commissioned_off = [None]
 
 
 def render(color: tuple) -> None:
@@ -55,6 +74,8 @@ def show(color: tuple, stamp: int) -> None:
         stamp: `time.ticks_ms()` reading from when the colour was commanded.
             Equal stamps render, so the boot baseline still shows.
     """
+    if _commissioning_failed[0] and color != FAILED_COLOR:
+        return
     if time.ticks_diff(stamp, _stamp[0]) < 0:
         return
     _stamp[0] = stamp
@@ -91,17 +112,109 @@ def on_remote_write(_event: object) -> None:
     show(matter_to_triple(endpoint), time.ticks_ms())
 
 
+def _show_status(color: tuple, stamp: int) -> None:
+    """Render a status colour using the transition's original ordering stamp.
+
+    Args:
+        color: Static project-owned status colour.
+        stamp: Tick captured when the transition occurred.
+    """
+    show(color, stamp)
+
+
+def _finish_commissioning(stamp: int) -> None:
+    """Turn the newly commissioned accessory off locally and in Matter.
+
+    A completion event may arrive before :meth:`matter.Node.start` returns. In
+    that case the pixel can turn off immediately, while publication remains
+    pending until the node reports that it has started.
+    """
+    _pending_commissioned_off[0] = stamp
+    _show_status(OFF_COLOR, stamp)
+    if not node.started:
+        return
+    endpoint.on = False
+    _pending_commissioned_off[0] = None
+
+
+def _restore_after_window(stamp: int) -> None:
+    """Restore application state after a commissioning window closes.
+
+    Args:
+        stamp: Tick captured when the window closed.
+    """
+    if not node.started:
+        return
+    if _commissioned[0]:
+        _show_status(matter_to_triple(endpoint), stamp)
+    else:
+        _show_status(READY_COLOR, stamp)
+
+
+def _on_commissioning(event: object) -> None:
+    """Render one commissioning transition without letting failure be overwritten.
+
+    Args:
+        event: :class:`matter.CommissioningEvent` delivered by the node.
+    """
+    stamp = time.ticks_ms()
+    state = event.state
+    _last_commissioning_state[0] = state
+    _last_commissioning_stamp[0] = stamp
+    if state == matter.Commissioning.FAILED:
+        _commissioning_failed[0] = True
+        _show_status(FAILED_COLOR, stamp)
+        return
+    if _commissioning_failed[0]:
+        return
+    if state == matter.Commissioning.COMPLETE:
+        _commissioned[0] = True
+        _finish_commissioning(stamp)
+        return
+    color = _COMMISSIONING_COLORS.get(state)
+    if color is not None:
+        _show_status(color, stamp)
+    elif state == matter.Commissioning.CLOSED:
+        _restore_after_window(stamp)
+
+
+def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
+    """Reconcile queued commissioning events with restored Matter state.
+
+    Args:
+        has_fabric: Whether the started node belongs to at least one fabric.
+        startup_stamp: Tick captured before startup, keeping restoration older
+            than any controller or commissioning event delivered during it.
+    """
+    _commissioned[0] = has_fabric or _commissioned[0]
+    pending_stamp = _pending_commissioned_off[0]
+    if pending_stamp is not None:
+        _finish_commissioning(pending_stamp)
+        return
+    commissioning_stamp = _last_commissioning_stamp[0]
+    if _commissioning_failed[0]:
+        _show_status(FAILED_COLOR, commissioning_stamp)
+        return
+    state = _last_commissioning_state[0]
+    if state == matter.Commissioning.STARTED:
+        _show_status(SESSION_COLOR, commissioning_stamp)
+    elif state == matter.Commissioning.OPENED:
+        _show_status(WINDOW_COLOR, commissioning_stamp)
+    elif state == matter.Commissioning.CLOSED:
+        _restore_after_window(commissioning_stamp)
+    elif _commissioned[0]:
+        _show_status(matter_to_triple(endpoint), startup_stamp)
+    else:
+        _show_status(READY_COLOR, startup_stamp)
+
+
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pixel_count)
 
-# Nothing is painted yet. We can't know this board's colour until start()
-# finishes, and a guess now would just flash before the real colour lands.
-# Leaving the strip alone also means a soft reset keeps its last colour
-# through the restart.
-
-# Taken before start(), which can deliver queued controller writes before it
-# returns. Those writes get a later stamp, so they win over the restored
-# colour below.
-_stamp[0] = time.ticks_ms()
+# White is the only state known before the stack starts. Later commissioning
+# events and restored controller state replace it with their own newer stamps.
+_startup_stamp = time.ticks_ms()
+_stamp[0] = _startup_stamp
+show(BOOT_COLOR, _startup_stamp)
 
 # Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
 # stack.cpp matter_node_create() -> esp_matter::node::create(). Runs directly
@@ -121,20 +234,19 @@ endpoint = node.create_endpoint(matter.EndpointType.EXTENDED_COLOR_LIGHT)
 # Node._drain (ARCHITECTURE.md "A controller write coming in").
 endpoint.on_write(on_remote_write)
 
+# Queued transitions may be delivered before start() returns. The callback
+# records any action that requires a started node and _show_post_start_state()
+# completes it below.
+node.on_commissioning(_on_commissioning)
+
 # start() -> _matter.start() -> stack.cpp matter_stack_start() ->
 # esp_matter::start(): the CHIP task comes up here. After this line, native
 # calls schedule a Request onto that task and block on a semaphore
 # (native/src/request.cpp) instead of running directly.
 node.start()
 
-# Picks the boot colour. A commissioned board restores its last colour
-# (black if it was off). An uncommissioned board shows BOOT_COLOR instead, as
-# a sign it's waiting to be paired. Either way, a write that landed during
-# start() has a later stamp and wins.
-#
-# fabrics() takes the same request.cpp round trip as the writes above, just
-# reading the fabric table instead of publishing an attribute.
-if node.fabrics():
-    show(matter_to_triple(endpoint), _stamp[0])
-else:
-    show(BOOT_COLOR, _stamp[0])
+# A commissioned board restores its last controller-owned colour. An
+# uncommissioned board settles on green unless a queued window/session event
+# selected purple or cyan. fabrics() takes the same bounded request.cpp round
+# trip as the attribute writes above.
+_show_post_start_state(has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp)

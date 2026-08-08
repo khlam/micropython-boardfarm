@@ -21,8 +21,8 @@ follow a pairing attempt without a serial monitor attached:
 | --- | --- |
 | Dim white | Firmware running, ESP-Matter still starting |
 | Steady green | Uncommissioned and ready to pair |
-| Breathing purple | A commissioning window is open, nobody has engaged |
-| Breathing cyan | A commissioner is talking to the board |
+| Steady purple | A commissioning window is open, nobody has engaged |
+| Steady cyan | A commissioner is talking to the board |
 | Solid red | Commissioning failed — stays red until the board is reset |
 | Off | Commissioned; the pixel now belongs to the controller |
 
@@ -33,7 +33,10 @@ controller write renders at exactly the level it asks for.
 
 Commissioning succeeding turns the pixel off *and* publishes `OnOff` as false,
 so the accessory shows as off in the home rather than claiming to be lit while
-the board is dark.
+the board is dark. On later boots, a commissioned board restores the last
+controller-owned power, brightness, and colour instead of showing the
+commissioning indicator again. Opening a new commissioning window temporarily
+shows its status colour; closing it restores the controller-owned light state.
 
 ## Build and flash
 
@@ -86,10 +89,10 @@ can accept it.
 ## Add the light to Apple Home
 
 1. Power or reset the flashed board and leave it running. A board that has never
-   been paired settles on green, then breathes purple once it opens its window.
+   been paired settles on green, then turns purple once it opens its window.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
-   `outputs/app.esp32-s3.setup.txt`. The breath turns cyan when Home engages.
+   `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
    the light to a room. The pixel goes dark on success and the light appears in
    Home switched off — turn it on there to take the pixel over.

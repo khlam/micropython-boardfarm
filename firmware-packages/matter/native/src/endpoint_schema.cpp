@@ -5,6 +5,7 @@
 #include "matter/bridge.h"
 
 namespace ColorControl = chip::app::Clusters::ColorControl;
+namespace LevelControl = chip::app::Clusters::LevelControl;
 
 namespace matter_bridge {
 namespace {
@@ -17,6 +18,29 @@ constexpr uint8_t kDefaultLevel = 254;
 constexpr uint16_t kDefaultTemperatureMireds = 250;
 constexpr uint16_t kMinimumTemperatureMireds = 153;
 constexpr uint16_t kMaximumTemperatureMireds = 500;
+
+bool defer_persistence(esp_matter::endpoint_t *endpoint, uint32_t cluster_id, uint32_t attribute_id)
+{
+    const uint16_t endpoint_id = esp_matter::endpoint::get_id(endpoint);
+    esp_matter::attribute_t *attribute = esp_matter::attribute::get(endpoint_id, cluster_id, attribute_id);
+    return attribute != nullptr && esp_matter::attribute::set_deferred_persistence(attribute) == ESP_OK;
+}
+
+bool defer_dimmable_attributes(esp_matter::endpoint_t *endpoint)
+{
+    return defer_persistence(endpoint, LevelControl::Id, LevelControl::Attributes::CurrentLevel::Id);
+}
+
+bool defer_extended_color_attributes(esp_matter::endpoint_t *endpoint)
+{
+    return defer_dimmable_attributes(endpoint) &&
+           defer_persistence(endpoint, ColorControl::Id, ColorControl::Attributes::CurrentHue::Id) &&
+           defer_persistence(endpoint, ColorControl::Id, ColorControl::Attributes::CurrentSaturation::Id) &&
+           defer_persistence(endpoint, ColorControl::Id, ColorControl::Attributes::CurrentX::Id) &&
+           defer_persistence(endpoint, ColorControl::Id, ColorControl::Attributes::CurrentY::Id) &&
+           defer_persistence(endpoint, ColorControl::Id,
+                             ColorControl::Attributes::ColorTemperatureMireds::Id);
+}
 
 } // namespace
 
@@ -42,8 +66,12 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         config.level_control.current_level = kDefaultLevel;
         config.level_control.on_level = kDefaultLevel;
         config.level_control_lighting.start_up_current_level = nullptr;
-        return esp_matter::endpoint::dimmable_light::create(node, &config, esp_matter::ENDPOINT_FLAG_NONE,
-                                                            nullptr);
+        esp_matter::endpoint_t *endpoint = esp_matter::endpoint::dimmable_light::create(
+            node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+        if (endpoint == nullptr || !defer_dimmable_attributes(endpoint)) {
+            return nullptr;
+        }
+        return endpoint;
     }
     case MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT: {
         esp_matter::endpoint::extended_color_light::config_t config;
@@ -73,6 +101,9 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         hue_saturation.current_saturation = 0;
         if (esp_matter::cluster::color_control::feature::hue_saturation::add(color_cluster,
                                                                             &hue_saturation) != ESP_OK) {
+            return nullptr;
+        }
+        if (!defer_extended_color_attributes(endpoint)) {
             return nullptr;
         }
         return endpoint;

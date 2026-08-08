@@ -9,6 +9,42 @@ _ORIGIN_REMOTE = 0
 _ORIGIN_LOCAL = 1
 _IDENTIFY_CLUSTER = 0x0003
 _IDENTIFY_TIME_ATTRIBUTE = 0x0000
+_ON_OFF_CLUSTER = 0x0006
+_ON_OFF_ATTRIBUTE = 0x0000
+_LEVEL_CONTROL_CLUSTER = 0x0008
+_CURRENT_LEVEL_ATTRIBUTE = 0x0000
+_COLOR_CONTROL_CLUSTER = 0x0300
+_CURRENT_HUE_ATTRIBUTE = 0x0000
+_CURRENT_SATURATION_ATTRIBUTE = 0x0001
+_CURRENT_X_ATTRIBUTE = 0x0003
+_CURRENT_Y_ATTRIBUTE = 0x0004
+_COLOR_TEMPERATURE_ATTRIBUTE = 0x0007
+_COLOR_MODE_ATTRIBUTE = 0x0008
+_ENHANCED_COLOR_MODE_ATTRIBUTE = 0x4001
+
+_BASE_DEFAULTS = (
+    ((_IDENTIFY_CLUSTER, _IDENTIFY_TIME_ATTRIBUTE), 0),
+    ((_ON_OFF_CLUSTER, _ON_OFF_ATTRIBUTE), False),
+)
+_DIMMABLE_DEFAULTS = (
+    *_BASE_DEFAULTS,
+    ((_LEVEL_CONTROL_CLUSTER, _CURRENT_LEVEL_ATTRIBUTE), 254),
+)
+_EXTENDED_COLOR_DEFAULTS = (
+    *_DIMMABLE_DEFAULTS,
+    ((_COLOR_CONTROL_CLUSTER, _CURRENT_HUE_ATTRIBUTE), 0),
+    ((_COLOR_CONTROL_CLUSTER, _CURRENT_SATURATION_ATTRIBUTE), 0),
+    ((_COLOR_CONTROL_CLUSTER, _CURRENT_X_ATTRIBUTE), 20494),
+    ((_COLOR_CONTROL_CLUSTER, _CURRENT_Y_ATTRIBUTE), 21561),
+    ((_COLOR_CONTROL_CLUSTER, _COLOR_TEMPERATURE_ATTRIBUTE), 250),
+    ((_COLOR_CONTROL_CLUSTER, _COLOR_MODE_ATTRIBUTE), 2),
+    ((_COLOR_CONTROL_CLUSTER, _ENHANCED_COLOR_MODE_ATTRIBUTE), 2),
+)
+_ENDPOINT_DEFAULTS = (
+    _BASE_DEFAULTS,
+    _DIMMABLE_DEFAULTS,
+    _EXTENDED_COLOR_DEFAULTS,
+)
 
 
 class _State:
@@ -72,10 +108,13 @@ def endpoint_create(endpoint_type: int) -> int:
     _raise_failure("endpoint_create")
     if not _state.node_created or _state.started:
         raise OSError(errno.EINVAL, "endpoint creation is not allowed")
+    if not 0 <= endpoint_type < len(_ENDPOINT_DEFAULTS):
+        raise OSError(errno.EINVAL, "unsupported endpoint type")
     endpoint_id = _state.next_endpoint_id
     _state.next_endpoint_id += 1
     _state.endpoints[endpoint_id] = endpoint_type
-    _state.attributes[(endpoint_id, _IDENTIFY_CLUSTER, _IDENTIFY_TIME_ATTRIBUTE)] = 0
+    for (cluster_id, attribute_id), value in _ENDPOINT_DEFAULTS[endpoint_type]:
+        _state.attributes[(endpoint_id, cluster_id, attribute_id)] = value
     return endpoint_id
 
 
