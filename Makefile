@@ -65,7 +65,7 @@ precommit:
 		echo "[lint] pydoclint"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True . || fail=1; \
 		echo "[lint] ty check"; \
-		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro "$$image_typecheck" || fail=1; \
+		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro -v "$$repo_root/tools":/work/tools:ro "$$image_typecheck" || fail=1; \
 		exit "$$fail"; \
 	fi
 

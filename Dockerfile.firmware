@@ -80,7 +80,8 @@ ENTRYPOINT ["sh","-c", "\
 # SPIRAM_OCT, which assumes external Octal PSRAM and is wrong for the FH4R2's
 # embedded Quad PSRAM. The esp32-flash stage below writes the result to a board.
 # -----------------------------------------------------------------------------
-FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32-compile
+# renovate: datasource=docker depName=espressif/idf
+FROM espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2 AS esp32-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
 

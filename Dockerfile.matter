@@ -1,0 +1,139 @@
+# Native ESP-Matter toolchain for projects/matter. SDK and host utilities never
+# leave this image; only the three public build artifacts reach /outputs.
+
+# renovate: datasource=docker depName=espressif/idf
+ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+# renovate: datasource=git-refs depName=espressif/esp-matter
+ARG ESP_MATTER_COMMIT=2c125619610b9a16bb8e92f5ebbf55111638615e
+# renovate: datasource=git-refs depName=project-chip/connectedhomeip
+ARG CONNECTEDHOMEIP_COMMIT=d46cc8c2886cbefc338544bdb2e2f8128f3e9970
+# renovate: datasource=git-refs depName=micropython/micropython
+ARG MICROPYTHON_COMMIT=e0e9fbb17ed6fd06bb76e266ae554784c9c80804
+# renovate: datasource=pypi depName=cryptography
+ARG CRYPTOGRAPHY_VERSION=50.0.0
+# renovate: datasource=pypi depName=qrcode
+ARG QRCODE_VERSION=8.2
+# renovate: datasource=pypi depName=python-stdnum
+ARG PYTHON_STDNUM_VERSION=2.2
+# renovate: datasource=pypi depName=esp-idf-nvs-partition-gen
+ARG ESP_IDF_NVS_PARTITION_GEN_VERSION=0.3.0
+
+
+FROM ${ESP_IDF_IMAGE} AS matter-toolchain
+
+ARG ESP_MATTER_COMMIT
+ARG CONNECTEDHOMEIP_COMMIT
+ARG MICROPYTHON_COMMIT
+ARG CRYPTOGRAPHY_VERSION
+ARG QRCODE_VERSION
+ARG PYTHON_STDNUM_VERSION
+ARG ESP_IDF_NVS_PARTITION_GEN_VERSION
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ESP_MATTER_PATH=/opt/esp-matter \
+    MATTER_SDK_PATH=/opt/esp-matter/connectedhomeip/connectedhomeip \
+    MICROPYTHON_TOP=/opt/micropython
+
+# Pigweed pins a source-only cffi release while creating its isolated Python
+# environment, so the SDK image needs the Python and libffi headers at bootstrap.
+# python3-pip is not part of this base image's system Python and is needed
+# below to install the credential-minting dependencies.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libffi-dev python3-dev python3-pip \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN git init /opt/esp-matter \
+ && git -C /opt/esp-matter remote add origin https://github.com/espressif/esp-matter.git \
+ && git -C /opt/esp-matter fetch --depth 1 origin ${ESP_MATTER_COMMIT} \
+ && git -C /opt/esp-matter checkout --detach ${ESP_MATTER_COMMIT} \
+ && git -C /opt/esp-matter submodule update --init --depth 1 connectedhomeip/connectedhomeip \
+ && python3 /opt/esp-matter/connectedhomeip/connectedhomeip/scripts/checkout_submodules.py \
+      --platform esp32 --shallow --jobs 8 \
+ && test "$(git -C /opt/esp-matter/connectedhomeip/connectedhomeip rev-parse HEAD)" = "${CONNECTEDHOMEIP_COMMIT}"
+
+RUN git init /opt/micropython \
+ && git -C /opt/micropython remote add origin https://github.com/micropython/micropython.git \
+ && git -C /opt/micropython fetch --depth 1 origin ${MICROPYTHON_COMMIT} \
+ && git -C /opt/micropython checkout --detach ${MICROPYTHON_COMMIT}
+
+# mpy-cross compiles the frozen manifest; the esp32 port cannot configure until
+# its submodules are fetched.
+RUN make -C /opt/micropython/mpy-cross -j"$(nproc)" \
+ && IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
+ && make -C /opt/micropython/ports/esp32 submodules
+
+RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
+ && cd /opt/esp-matter \
+ && ./install.sh --no-host-tool
+
+# esp-matter's own install.sh pulls in esp-matter-mfg-tool via its
+# requirements.txt regardless of this Dockerfile -- entirely separate from the
+# explicit espressif/esp-matter-tools checkout this project used to add on top.
+# /matter-tools/build.py never calls it, so it's uninstalled here rather than
+# left as dead weight carrying its own dozen-package dependency graph (several
+# unmaintained) into the final image. Credential-minting dependencies for
+# build.py are then installed into whichever Python environment is active once
+# both export.sh scripts have run -- the same one the ENTRYPOINT activates
+# before exec'ing build.py -- rather than the bare system python3, since
+# Pigweed's install.sh replaces PATH's python3 with its own isolated
+# environment. --break-system-packages: this is a disposable, single-purpose
+# image with no system Python to protect.
+RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
+ && . /opt/esp-matter/export.sh \
+ && python3 -m pip uninstall -y esp-matter-mfg-tool \
+ && python3 -m pip install --no-cache-dir --break-system-packages \
+      cryptography==${CRYPTOGRAPHY_VERSION} \
+      "qrcode[pil]==${QRCODE_VERSION}" \
+      python-stdnum==${PYTHON_STDNUM_VERSION} \
+      esp-idf-nvs-partition-gen==${ESP_IDF_NVS_PARTITION_GEN_VERSION}
+
+RUN mkdir -p /outputs
+
+COPY manifest.py /manifest.py
+
+# export.sh mutates PATH and much else in the calling shell and cannot be sourced
+# from Python, so the shell here is only an environment prologue; the build itself
+# lives in /matter-tools/build.py.
+ENTRYPOINT ["bash", "-ceu", "\
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  . /opt/esp-matter/export.sh; \
+  exec python3 /matter-tools/build.py --passcode \"${PASSCODE:-}\" \
+"]
+
+
+FROM matter-toolchain AS matter-monitor
+
+ENTRYPOINT ["bash", "-ceu", "\
+  port=${SERIAL_PORT:-/dev/ttyACM0}; \
+  [[ -e $port ]] || { \
+    echo \"ERROR: serial port $port not found. Plug in the ESP32-S3.\" >&2; \
+    exit 1; \
+  }; \
+  if [[ ${MONITOR_RESET:-1} == 0 ]]; then reset_flag=--no-reset; else reset_flag=; fi; \
+  if [[ ${MONITOR_PROBE:-0} == 1 ]]; then probe_flag=--probe; else probe_flag=; fi; \
+  if [[ ${MONITOR_INTERRUPT:-0} == 1 ]]; then interrupt_flag=--interrupt; else interrupt_flag=; fi; \
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  exec python3 /matter-tools/serial_monitor.py \
+    --port \"$port\" \
+    --baud \"${MONITOR_BAUD:-115200}\" \
+    --seconds \"${MONITOR_SECONDS:-90}\" $reset_flag $probe_flag $interrupt_flag \
+    --send \"${MONITOR_SEND:-}\" \
+"]
+
+
+FROM matter-toolchain AS matter-flash
+
+ENTRYPOINT ["bash", "-ceu", "\
+  port=${SERIAL_PORT:-/dev/ttyACM0}; \
+  case $port in \
+    socket://*|rfc2217://*) reset='--before no_reset --after no_reset' ;; \
+    *) \
+      [[ -e $port ]] || { \
+        echo \"ERROR: serial port $port not found. Put the ESP32-S3 in bootloader mode.\" >&2; \
+        exit 1; \
+      }; \
+      reset= ;; \
+  esac; \
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  esptool.py --chip esp32s3 --port \"$port\" $reset write_flash -z 0x0 /outputs/app.esp32-s3.bin \
+"]

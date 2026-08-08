@@ -9,6 +9,7 @@ members = [
     "gps-stream",
     "gyro-stream",
     "led-effects",
+    "matter-example",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -596,6 +597,26 @@ wheels = [
 ]
 
 [[package]]
+name = "matter"
+version = "0.3.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/matter-0.3.0.tar.gz" }
+wheels = [
+    { path = "/wheels/matter-0.3.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "matter-example"
+version = "0.3.0"
+source = { virtual = "projects/matter" }
+dependencies = [
+    { name = "micropython-boardfarm" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -606,12 +627,13 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.9.0"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
+    { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "qmc5883p" },
@@ -637,6 +659,7 @@ test = [
     { name = "esp-idf-nvs-partition-gen" },
     { name = "httpx" },
     { name = "i2c-bus" },
+    { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "pytest" },
@@ -662,6 +685,7 @@ requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "matter", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -687,6 +711,7 @@ test = [
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
+    { name = "matter", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
@@ -705,11 +730,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.3.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.4.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.3.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.4.0-py3-none-any.whl" },
 ]
 
 [[package]]

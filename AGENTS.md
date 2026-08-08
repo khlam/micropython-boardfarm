@@ -12,6 +12,9 @@ Never install anything on the host machine. Docker is the only required host too
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
 
+### Testing policy
+Going forward, do not write tests until after the user confirms a feature is final.
+
 ### JSON output schema †
 Firmware runs MicroPython (`ujson` built-in); host tests run CPython, where `ujson` is a thin stub that re-exports `json.dumps`. Both sides produce identical compact JSON, so `emit()` is safe to call in either context — but raw `print()` bypasses that contract and silently corrupts the viz parser, which drops any line that isn't valid JSON.
 
@@ -38,9 +41,12 @@ Before changing anything, identify the area you're touching:
 | I²C bus (internal) | `firmware-packages/i2c_bus/i2c_bus/` | `__init__.py` — `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` + `DeviceNotFoundError`; consumed only by drivers, never by projects |
 | ToF driver | `firmware-packages/vl53l0x/vl53l0x/` | `vl53l0x.py` — `VL53L0X(sda=, scl=, skip_spad_info=True, interrupt_status_mask=0xFF)`; opens its own soft I²C, scans → `DeviceNotFoundError` |
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |
+| Matter interface | `firmware-packages/matter/` | `matter/schema.py` — attribute vocabulary + validation rules, nothing native; `matter/endpoint.py` — `Endpoint` and the named attribute accessors (`.on`/`.level`/`.hue`/…); `matter/node.py` — `Node` lifecycle and event drain; `matter/__init__.py` — re-export only; `native/` — ESP-Matter `_matter` bridge; `ARCHITECTURE.md` — mermaid call-path diagrams across the native boundary |
+| Matter build tooling | `tools/matter-build/` | `build.py` — the whole `esp32-compile` run: board-config parsing, compile, credential minting, merge, artifact validation, publish; `spake2p.py` — SPAKE2+ verifier via `cryptography` (no `ecdsa`); `onboarding_codes.py` — QR/manual pairing-code encoding, the mirror of `build.py`'s own decoders; `nvs_partition_gen.py` — writes the `chip-factory` NVS partition via the `esp-idf-nvs-partition-gen` package; `nvs_partition_read.py` — reads it back via ESP-IDF's `nvs_tool.py` for validation; `qr_image.py` — QR PNG rendering via `qrcode[pil]`; `serial_monitor.py` — bounded serial capture; `tests/` — host pytest coverage of the parsers, pairing-code decoders, and the structural factory-identity check (verifier/salt present, no plaintext passcode — not a cryptographic proof). Bind-mounted to `/matter-tools` for the build and `/tools` for pytest, never installed. |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
+| Matter compile | repo root | `Dockerfile.matter` — pinned native tests, ESP-Matter/MicroPython compile, commissioning artifacts, and flash-at-0x0 |
 | Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
 | Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
 | Image build graph | repo root | `docker-bake.hcl` — bake targets for the lint/typecheck + CVE-scan images; wires the wheels build context (`contexts = { wheels = "target:wheels" }`) |
@@ -79,6 +85,11 @@ docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/v
 | --- | --- |
 | `outputs/app.rp2040.rp2350.uf2` | covers RP2040 and RP2350 only — each bootloader skips foreign-family blocks. |
 | `outputs/app.esp32-s3.bin` | is a separate ESP-IDF image flashed via `esptool.py`. Never concatenate them. |
+
+### ESP-Matter boundary †
+`firmware-packages/matter` exists exclusively to connect MicroPython applications to ESP-Matter. Native ESP-Matter owns endpoint schemas, secure sessions, BLE/Wi-Fi commissioning, fabrics, persistence, controller commands, and attribute transport. The public MicroPython interface owns attribute validation, endpoint mirrors, callback routing, local publication, and administration calls.
+
+Projects own product state derived from that interface, board mappings, color conversion, brightness decisions, GPIO/NeoPixel access, and hardware lifecycle. Do not put a product-specific runtime, color renderer, fixed pin, or hardware helper in the `matter` package or its native bridge. CHIP tasks reach Python only through the bounded native event queue and the MicroPython scheduler; Python never runs on a CHIP task or interrupt.
 
 ---
 

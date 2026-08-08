@@ -21,6 +21,7 @@ services:
       - ./firmware-packages:/firmware-packages:ro
       - ./projects:/projects:ro
       - ./cpython-packages/serial_over_web:/cpython-packages/serial_over_web:ro
+      - ./tools:/tools:ro
       # Linux-only optional Pylance venv.
       # - ./.venv:/work/.venv
 
@@ -35,6 +36,7 @@ services:
       - ./firmware-packages:/work/firmware-packages:ro
       - ./cpython-packages:/work/cpython-packages:ro
       - ./projects:/work/projects:ro
+      - ./tools:/work/tools:ro
 
   uv:
     build:
