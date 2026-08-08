@@ -32,6 +32,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import nvs_partition_gen
@@ -45,6 +46,7 @@ _MANIFEST = Path("/manifest.py")
 _MATTER_NATIVE = Path("/firmware-packages/matter/native")
 _MICROPYTHON_PORT = Path("/opt/micropython/ports/esp32")
 _OUTPUT_DIR = Path("/outputs")
+_PROJECT_TOML = Path("/project/pyproject.toml")
 
 # /outputs is bind-mounted from the host, so the artifacts are written as root
 # unless they are handed back to whoever owns the equally bind-mounted source.
@@ -61,21 +63,25 @@ _SETUP_NAME = "app.esp32-s3.setup.txt"
 # The complete set of files allowed to exist in /outputs.
 _OUTPUT_NAMES = frozenset({_MERGED_NAME, _QR_NAME, _SETUP_NAME})
 
-# Product identity with no board-configuration source. These reach both minting
-# and the onboarding check, which still cross-checks them: minting encodes them
-# into the QR payload and the check base38-decodes them back out.
+# Hardware identity with no board-configuration source and no per-build
+# parameter. Discovery mode also reaches the onboarding check, which
+# cross-checks it: minting encodes it into the QR payload and the check
+# base38-decodes it back out. Vendor name, product name, serial number, and
+# firmware version are per-build instead -- see _parse_args and
+# _pyproject_to_product.
 _DISCOVERY_MODE = 2
-_VENDOR_NAME = "micropython-boardfarm"
-_PRODUCT_NAME = "MicroPython-Matter"
 _HARDWARE_VERSION = 1
 _HARDWARE_VERSION_STRING = "development"
+
+# Manufacturer default when --manufacturer/MANUFACTURER is not supplied.
+_DEFAULT_MANUFACTURER = "kinholam.com"
 
 # esp-matter-mfg-tool's own default when neither was passed on its CLI.
 _SPAKE2P_ITERATION_COUNT = 10000
 _SPAKE2P_SALT_LEN = 32
-_SERIAL_NUMBER_LEN = 16
 
 _FLASH_SIZE_RE = re.compile(r"^CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB$")
+_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 _BASE38 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
 
@@ -109,11 +115,16 @@ def main() -> int:
     """
     args = _parse_args()
     passcode = int(args.passcode) if args.passcode else None
+    manufacturer = args.manufacturer or _DEFAULT_MANUFACTURER
+    serial_number = args.serial_number or _default_serial_number()
+    model, firmware_version = _pyproject_to_product(_PROJECT_TOML)
     identity = _board_to_identity(_BOARD_DIR, _DISCOVERY_MODE)
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         build_root = Path(scratch)
         _build_firmware(build_root)
-        factory, onboarding, qr = _mint_credentials(build_root, identity, passcode)
+        factory, onboarding, qr = _mint_credentials(
+            build_root, identity, manufacturer, serial_number, model, firmware_version, passcode
+        )
         manual, payload, discriminator = _validate_onboarding(
             _read_onboarding(onboarding), identity
         )
@@ -138,6 +149,17 @@ def _parse_args() -> argparse.Namespace:
         "--passcode",
         default="",
         help="setup passcode to mint into this build's credentials; random if omitted",
+    )
+    parser.add_argument(
+        "--manufacturer",
+        default="",
+        help=f"vendor name to mint into this build's credentials; "
+        f"{_DEFAULT_MANUFACTURER!r} if omitted",
+    )
+    parser.add_argument(
+        "--serial-number",
+        default="",
+        help="serial number to mint into this build's credentials; a build timestamp if omitted",
     )
     return parser.parse_args()
 
@@ -203,6 +225,54 @@ def _config_to_flash_size(config: dict[str, str]) -> int:
     raise ValueError("board sdkconfig enables no CONFIG_ESPTOOLPY_FLASHSIZE_*MB key")
 
 
+def _pyproject_to_product(path: Path) -> tuple[str, str]:
+    """Read this build's model name and firmware version from the project's pyproject.toml.
+
+    Reads only the `[project]` table's `name` and `version` keys, so the
+    project's own package metadata is the single source of truth for both --
+    a project bumping its version in one file has that reach the commissioned
+    device without being restated here.
+    """
+    name = version = None
+    in_project = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_project = stripped == "[project]"
+            continue
+        if not in_project or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"')
+        if key == "name":
+            name = value
+        elif key == "version":
+            version = value
+    if name is None or version is None:
+        raise ValueError(f"{path} [project] table must set name and version")
+    return name, version
+
+
+def _version_to_number(version: str) -> int:
+    """Encode a strict MAJOR.MINOR.PATCH version string as a monotonic uint32.
+
+    Matter's SoftwareVersion attribute is the uint32 OTA compares to decide
+    whether an update is newer; this encoding stays monotonic as long as the
+    project's version is bumped normally (e.g. "0.3.0" -> 300, "1.2.3" -> 10203).
+    """
+    match = _SEMVER_RE.match(version)
+    if not match:
+        raise ValueError(f"version {version!r} must be MAJOR.MINOR.PATCH")
+    major, minor, patch = (int(part) for part in match.groups())
+    return major * 10000 + minor * 100 + patch
+
+
+def _default_serial_number() -> str:
+    """Mint a build-timestamp serial number when none is supplied."""
+    return datetime.now(UTC).strftime("%m.%d.%y.%H.%M.%S")
+
+
 def _run(
     command: Sequence[str], cwd: Path | None = None, env: dict[str, str] | None = None
 ) -> None:
@@ -243,7 +313,13 @@ def _build_firmware(build_root: Path) -> None:
 
 
 def _mint_credentials(
-    build_root: Path, identity: _BuildIdentity, passcode: int | None = None
+    build_root: Path,
+    identity: _BuildIdentity,
+    manufacturer: str,
+    serial_number: str,
+    model: str,
+    firmware_version: str,
+    passcode: int | None = None,
 ) -> tuple[Path, Path, Path]:
     """Generate one device's factory partition, onboarding codes and QR image.
 
@@ -270,12 +346,14 @@ def _mint_credentials(
         verifier=verifier,
         identity=nvs_partition_gen.DeviceIdentity(
             vendor_id=identity.vendor_id,
-            vendor_name=_VENDOR_NAME,
+            vendor_name=manufacturer,
             product_id=identity.product_id,
-            product_name=_PRODUCT_NAME,
+            product_name=model,
             hardware_version=_HARDWARE_VERSION,
             hardware_version_string=_HARDWARE_VERSION_STRING,
-            serial_number=secrets.token_hex(_SERIAL_NUMBER_LEN),
+            software_version=_version_to_number(firmware_version),
+            software_version_string=firmware_version,
+            serial_number=serial_number,
         ),
     )
 

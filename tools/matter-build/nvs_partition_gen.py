@@ -40,6 +40,8 @@ class DeviceIdentity:
     product_name: str
     hardware_version: int
     hardware_version_string: str
+    software_version: int
+    software_version_string: str
     serial_number: str
 
 
@@ -62,7 +64,7 @@ def write_factory_partition(
         iteration_count: SPAKE2+ PBKDF2 iteration count.
         salt: SPAKE2+ salt, 16 to 32 bytes.
         verifier: The 97-byte SPAKE2+ verifier from spake2p.generate_verifier.
-        identity: The device's vendor/product/hardware/serial labels.
+        identity: The device's vendor/product/hardware/software/serial labels.
 
     Returns:
         Path to the generated factory-partition.bin.
@@ -77,6 +79,8 @@ def write_factory_partition(
         ("product-name", "data", "string", identity.product_name),
         ("hardware-ver", "data", "u32", str(identity.hardware_version)),
         ("hw-ver-str", "data", "string", identity.hardware_version_string),
+        ("sw-ver", "data", "u32", str(identity.software_version)),
+        ("sw-ver-str", "data", "string", identity.software_version_string),
         ("serial-num", "data", "string", identity.serial_number),
         ("verifier", "data", "string", base64.b64encode(verifier).decode("ascii")),
     ]

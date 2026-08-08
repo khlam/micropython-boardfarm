@@ -97,7 +97,10 @@ COPY manifest.py /manifest.py
 ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   . /opt/esp-matter/export.sh; \
-  exec python3 /matter-tools/build.py --passcode \"${PASSCODE:-}\" \
+  exec python3 /matter-tools/build.py \
+    --passcode \"${PASSCODE:-}\" \
+    --manufacturer \"${MANUFACTURER:-}\" \
+    --serial-number \"${SERIAL_NUMBER:-}\" \
 "]
 
 

@@ -60,7 +60,9 @@ def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
 
 
 def test_mint_credentials_passes_the_board_identity(recorder, minted, tmp_path):
-    factory, onboarding, qr = build._mint_credentials(tmp_path, _IDENTITY)
+    factory, onboarding, qr = build._mint_credentials(
+        tmp_path, _IDENTITY, "Acme", "SN0001", "Color Light", "1.0.0"
+    )
 
     command, _ = recorder[0]
     assert command[0] == "esp-matter-mfg-tool"

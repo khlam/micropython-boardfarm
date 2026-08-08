@@ -6,12 +6,15 @@ services:
       target: matter-toolchain
     environment:
       - PASSCODE=${PASSCODE:-}
+      - MANUFACTURER=${MANUFACTURER:-}
+      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
       # manifest.py hardcodes /firmware-packages and /firmware.
       - ../../firmware-packages:/firmware-packages:ro
       - ../../tools/matter-build:/matter-tools:ro
       - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
       - ./outputs:/outputs
 
   # Reads the board without rebuilding or reflashing, so it can be pointed at
