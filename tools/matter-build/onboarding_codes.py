@@ -9,10 +9,33 @@ what this project's onboarding data has ever contained.
 from __future__ import annotations
 
 from spake2p import MAX_PASSCODE, MIN_PASSCODE
-from stdnum.verhoeff import calc_check_digit
 
 _BASE38 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
 _BASE38_CHARS_PER_CHUNK = {1: 2, 2: 4, 3: 5}
+
+_VERHOEFF_D = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
+    (2, 3, 4, 0, 1, 7, 8, 9, 5, 6),
+    (3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
+    (4, 0, 1, 2, 3, 9, 5, 6, 7, 8),
+    (5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
+    (6, 5, 9, 8, 7, 1, 0, 4, 3, 2),
+    (7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
+    (8, 7, 6, 5, 9, 3, 2, 1, 0, 4),
+    (9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+)
+_VERHOEFF_P = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    (1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
+    (5, 8, 0, 3, 7, 9, 6, 1, 4, 2),
+    (8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
+    (9, 4, 5, 3, 1, 2, 6, 8, 7, 0),
+    (4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
+    (2, 7, 9, 3, 8, 0, 6, 4, 1, 5),
+    (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
+)
+_VERHOEFF_INV = (0, 4, 3, 2, 1, 5, 6, 7, 8, 9)
 
 _DISCRIMINATOR_BITS = 0xFFF
 _STANDARD_FLOW = 0
@@ -65,7 +88,7 @@ def encode_manual_code(discriminator: int, passcode: int) -> str:
     chunk2 = ((short_discriminator & 0x3) << 14) | (passcode & 0x3FFF)
     chunk3 = passcode >> 14
     body = f"{chunk1:01d}{chunk2:05d}{chunk3:04d}"
-    return body + calc_check_digit(body)
+    return body + _verhoeff_check_digit(body)
 
 
 def _base38_encode(raw: bytes) -> str:
@@ -79,6 +102,22 @@ def _base38_encode(raw: bytes) -> str:
             value, digit = divmod(value, 38)
             encoded.append(_BASE38[digit])
     return "".join(encoded)
+
+
+def _verhoeff_check_digit(body: str) -> str:
+    """Return the check digit required for interoperability with Matter commissioners.
+
+    Args:
+        body: Decimal digits preceding the check digit.
+
+    Returns:
+        The single decimal Verhoeff check digit.
+    """
+    checksum = 0
+    for position, digit in enumerate(reversed(body)):
+        permutation = _VERHOEFF_P[(position + 1) % len(_VERHOEFF_P)][int(digit)]
+        checksum = _VERHOEFF_D[checksum][permutation]
+    return str(_VERHOEFF_INV[checksum])
 
 
 def _check_discriminator(discriminator: int) -> None:

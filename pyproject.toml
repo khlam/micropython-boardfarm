@@ -96,7 +96,6 @@ test = [
     "httpx>=0.28.1",
     "cryptography>=50.0.0",
     "qrcode[pil]>=8.2",
-    "python-stdnum>=2.2",
     "esp-idf-nvs-partition-gen>=0.3.0",
 ]
 

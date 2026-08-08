@@ -13,8 +13,6 @@ ARG MICROPYTHON_COMMIT=e0e9fbb17ed6fd06bb76e266ae554784c9c80804
 ARG CRYPTOGRAPHY_VERSION=50.0.0
 # renovate: datasource=pypi depName=qrcode
 ARG QRCODE_VERSION=8.2
-# renovate: datasource=pypi depName=python-stdnum
-ARG PYTHON_STDNUM_VERSION=2.2
 # renovate: datasource=pypi depName=esp-idf-nvs-partition-gen
 ARG ESP_IDF_NVS_PARTITION_GEN_VERSION=0.3.0
 
@@ -26,7 +24,6 @@ ARG CONNECTEDHOMEIP_COMMIT
 ARG MICROPYTHON_COMMIT
 ARG CRYPTOGRAPHY_VERSION
 ARG QRCODE_VERSION
-ARG PYTHON_STDNUM_VERSION
 ARG ESP_IDF_NVS_PARTITION_GEN_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -84,7 +81,6 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
  && python3 -m pip install --no-cache-dir --break-system-packages \
       cryptography==${CRYPTOGRAPHY_VERSION} \
       "qrcode[pil]==${QRCODE_VERSION}" \
-      python-stdnum==${PYTHON_STDNUM_VERSION} \
       esp-idf-nvs-partition-gen==${ESP_IDF_NVS_PARTITION_GEN_VERSION}
 
 RUN mkdir -p /outputs
