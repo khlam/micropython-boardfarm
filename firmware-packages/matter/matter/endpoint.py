@@ -186,7 +186,11 @@ class Endpoint:
         """
         state = self._state
         for path in state:
-            state[path] = _matter.attribute_get(self.id, path[0], path[1])
+            value = _matter.attribute_get(self.id, path[0], path[1])
+            try:
+                state[path] = self._validate(path, value)
+            except (TypeError, ValueError):
+                emit_error("python_validation", "restored value rejected by schema")
 
     def _accept_remote(self, cluster: int, attribute: int, value: object) -> None:
         """Apply one controller-originated write to the Python copy, then notify.
@@ -200,7 +204,12 @@ class Endpoint:
         path = (cluster, attribute)
         if path not in self._state:
             return
-        self._state[path] = self._validate(path, value)
+        try:
+            value = self._validate(path, value)
+        except (TypeError, ValueError):
+            emit_error("python_validation", "remote value rejected by schema")
+            return
+        self._state[path] = value
         callback = self._callback
         if callback is None:
             return

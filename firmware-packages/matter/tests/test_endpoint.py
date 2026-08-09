@@ -177,6 +177,33 @@ def test_remote_callback_exception_is_json_and_delivery_continues(capsys):
     ]
 
 
+def test_remote_write_outside_schema_is_reported_and_dropped(capsys):
+    node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
+    received = []
+    endpoint.on_write(received.append)
+    node.start()
+    capsys.readouterr()
+
+    _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 255)
+
+    assert endpoint.level == 254
+    assert received == []
+    assert _output(capsys) == [
+        {
+            "event": "error",
+            "component": "python_validation",
+            "message": "remote value rejected by schema",
+        }
+    ]
+
+    # The rejected value did not corrupt drain state; a later, valid write
+    # is still delivered normally.
+    _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 10)
+
+    assert endpoint.level == 10
+    assert [event.value for event in received] == [10]
+
+
 def test_unknown_paths_are_ignored_during_remote_accept(capsys):
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     received = []
@@ -221,6 +248,25 @@ def test_restore_hydrates_state_without_remote_callback(capsys):
     assert endpoint.on is True
     assert received == []
     assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+
+
+def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
+    _matter.reset(
+        persisted={(1, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL): 255},
+    )
+    node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
+
+    node.start()
+
+    assert endpoint.level == 254
+    assert _output(capsys) == [
+        {
+            "event": "error",
+            "component": "python_validation",
+            "message": "restored value rejected by schema",
+        },
+        {"event": "matter", "state": "ready"},
+    ]
 
 
 def _endpoint(endpoint_type):
