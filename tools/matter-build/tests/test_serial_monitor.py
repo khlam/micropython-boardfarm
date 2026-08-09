@@ -81,7 +81,7 @@ class _FakePort:
     def __enter__(self) -> "_FakePort":
         return self
 
-    def __exit__(self, *exc_info: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self.closed = True
 
     def write(self, data: bytes) -> None:
