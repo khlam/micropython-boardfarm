@@ -5,8 +5,9 @@ from __future__ import annotations
 import errno
 
 _EVENT_ATTRIBUTE = 0
+_EVENT_COMMISSIONING = 1
 _ORIGIN_REMOTE = 0
-_ORIGIN_LOCAL = 1
+_EVENT_QUEUE_DEPTH = 32
 _IDENTIFY_CLUSTER = 0x0003
 _IDENTIFY_TIME_ATTRIBUTE = 0x0000
 _ON_OFF_CLUSTER = 0x0006
@@ -59,8 +60,10 @@ class _State:
         self.endpoints: dict[int, int] = {}
         self.attributes: dict[tuple[int, int, int], object] = {}
         self.persisted: dict[tuple[int, int, int], object] = {}
-        self.events: list[tuple] = []
-        self.overflow = False
+        self.attribute_events: list[tuple] = []
+        self.commissioning_events: list[tuple] = []
+        self.overflow_generation = 0
+        self.next_event_sequence = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
         self.commissioning_windows: list[int] = []
@@ -82,8 +85,10 @@ def reset(*, persisted: dict | None = None) -> None:
     _state.persisted.clear()
     if persisted is not None:
         _state.persisted.update(persisted)
-    _state.events.clear()
-    _state.overflow = False
+    _state.attribute_events.clear()
+    _state.commissioning_events.clear()
+    _state.overflow_generation = 0
+    _state.next_event_sequence = 0
     _state.failures.clear()
     _state.fabrics.clear()
     _state.commissioning_windows.clear()
@@ -126,7 +131,9 @@ def attribute_set_initial(
     _require_endpoint(endpoint_id)
     if _state.started:
         raise OSError(errno.EINVAL, "initial attributes are locked")
-    _state.attributes[(endpoint_id, cluster_id, attribute_id)] = value
+    path = (endpoint_id, cluster_id, attribute_id)
+    _state.attributes[path] = value
+    _state.persisted[path] = value
 
 
 def start() -> None:
@@ -151,28 +158,45 @@ def attribute_get(endpoint_id: int, cluster_id: int, attribute_id: int) -> objec
 
 
 def attribute_publish(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
-    """Publish a Python-originated value and queue its local mirror echo."""
+    """Publish a Python-originated value without queuing its suppressed echo."""
     _raise_failure("attribute_publish")
-    _set_attribute(endpoint_id, cluster_id, attribute_id, value, _ORIGIN_LOCAL)
+    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
 
 
 def inject_remote_write(
     endpoint_id: int, cluster_id: int, attribute_id: int, value: object
 ) -> None:
     """Inject a controller write for host tests."""
-    _set_attribute(endpoint_id, cluster_id, attribute_id, value, _ORIGIN_REMOTE)
+    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
+    event = (_EVENT_ATTRIBUTE, endpoint_id, cluster_id, attribute_id, value, _ORIGIN_REMOTE)
+    _queue_event(_state.attribute_events, event, attribute=True)
+
+
+def inject_commissioning_event(state_code: int) -> None:
+    """Inject one native commissioning transition for host tests."""
+    _require_started()
+    event = (_EVENT_COMMISSIONING, 0, 0, 0, state_code, 0)
+    _queue_event(_state.commissioning_events, event, attribute=False)
 
 
 def next_event() -> tuple | None:
-    """Pop the oldest queued native event."""
-    return _state.events.pop(0) if _state.events else None
+    """Pop the oldest event across the two protected native queues."""
+    attributes = _state.attribute_events
+    commissioning = _state.commissioning_events
+    if attributes and commissioning:
+        queue = (
+            commissioning
+            if _sequence_precedes(commissioning[0][0], attributes[0][0])
+            else attributes
+        )
+    else:
+        queue = commissioning or attributes
+    return queue.pop(0)[1] if queue else None
 
 
-def overflowed() -> bool:
-    """Return and clear the queue-overflow indicator."""
-    value = _state.overflow
-    _state.overflow = False
-    return value
+def overflow_generation() -> int:
+    """Return the non-consuming attribute-queue overflow generation."""
+    return _state.overflow_generation
 
 
 def on_event(callback: object) -> None:
@@ -226,24 +250,33 @@ def factory_reset_was_requested() -> bool:
     return _state.factory_reset_requested
 
 
-def _set_attribute(
-    endpoint_id: int, cluster_id: int, attribute_id: int, value: object, origin: int
-) -> None:
-    """Update the mirror and queue one bounded attribute event."""
+def _store_attribute(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
+    """Update the fake native and persistent attribute mirrors."""
     _require_started()
     path = (endpoint_id, cluster_id, attribute_id)
     if path not in _state.attributes:
         raise OSError(errno.ENOENT, "attribute does not exist")
     _state.attributes[path] = value
     _state.persisted[path] = value
-    event = (_EVENT_ATTRIBUTE, endpoint_id, cluster_id, attribute_id, value, origin)
-    if len(_state.events) >= 32:
-        _state.events.pop(0)
-        _state.overflow = True
-    _state.events.append(event)
+
+
+def _queue_event(queue: list[tuple], event: tuple, *, attribute: bool) -> None:
+    """Append to one bounded queue, dropping its oldest event when full."""
+    sequence = _state.next_event_sequence
+    _state.next_event_sequence = (sequence + 1) & 0xFFFFFFFF
+    if len(queue) >= _EVENT_QUEUE_DEPTH:
+        queue.pop(0)
+        if attribute:
+            _state.overflow_generation = (_state.overflow_generation + 1) & 0xFFFFFFFF
+    queue.append((sequence, event))
     callback = _state.callback
     if callback is not None:
         callback()  # ty: ignore[call-non-callable]
+
+
+def _sequence_precedes(left: int, right: int) -> bool:
+    """Compare uint32 sequence values whose distance is less than half-range."""
+    return (right - left) & 0xFFFFFFFF < 0x80000000
 
 
 def _raise_failure(operation: str) -> None:

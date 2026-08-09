@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import os
 import re
 import secrets
@@ -31,7 +32,8 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,6 +65,7 @@ _SETUP_NAME = "app.esp32-s3.setup.txt"
 
 # The complete set of files allowed to exist in /outputs.
 _OUTPUT_NAMES = frozenset({_MERGED_NAME, _QR_NAME, _SETUP_NAME})
+_STAGING_NAMES = frozenset(f".matter-build.{name}.new" for name in _OUTPUT_NAMES)
 
 # Hardware identity with no board-configuration source and no per-build
 # parameter. Discovery mode also reaches the onboarding check, which
@@ -131,8 +134,7 @@ def main() -> int:
             discriminator,
             identity,
         )
-        _publish(merged, qr)
-        _write_setup(manual, payload)
+        _publish(merged, qr, manual, payload)
         _hand_outputs_to_owner()
     sys.stdout.write(f"{_OUTPUT_DIR / _MERGED_NAME} and matching commissioning artifacts ready\n")
     return 0
@@ -483,20 +485,52 @@ def _validate_factory_identity(values: dict, discriminator: int, identity: _Buil
         raise ValueError("factory data must contain a verifier and no plaintext passcode")
 
 
-def _publish(merged: Path, qr: Path) -> None:
-    """Copy the image and QR into /outputs and drop any stale setup file.
+def _publish(merged: Path, qr: Path, manual: str, payload: str) -> None:
+    """Publish one matched artifact generation with a fail-closed cutover.
 
-    The setup file is removed rather than overwritten so that a crash before it is
-    rewritten cannot leave a pairing code sitting beside an image it no longer opens.
+    All three files are staged on the output filesystem before the public pairing
+    material is removed. During cutover, the binary is replaced before its matching
+    QR and setup text, so an interrupted build never exposes stale credentials beside
+    a new image. An advisory lock on the output directory serializes live build
+    processes without adding a fourth artifact that could itself become stale.
     """
-    unexpected = sorted(
-        path.name for path in _OUTPUT_DIR.iterdir() if path.name not in _OUTPUT_NAMES
-    )
-    if unexpected:
-        raise ValueError("unexpected output artifacts: " + ", ".join(unexpected))
-    _install(merged, _OUTPUT_DIR / _MERGED_NAME)
-    _install(qr, _OUTPUT_DIR / _QR_NAME)
-    (_OUTPUT_DIR / _SETUP_NAME).unlink(missing_ok=True)
+    with _publication_lock():
+        unexpected = sorted(
+            path.name
+            for path in _OUTPUT_DIR.iterdir()
+            if path.name not in _OUTPUT_NAMES and path.name not in _STAGING_NAMES
+        )
+        if unexpected:
+            raise ValueError("unexpected output artifacts: " + ", ".join(unexpected))
+
+        destinations = {name: _OUTPUT_DIR / name for name in _OUTPUT_NAMES}
+        staged = {name: _OUTPUT_DIR / f".matter-build.{name}.new" for name in _OUTPUT_NAMES}
+        for path in staged.values():
+            path.unlink(missing_ok=True)
+
+        try:
+            _install(merged, staged[_MERGED_NAME])
+            _install(qr, staged[_QR_NAME])
+            _write_setup(staged[_SETUP_NAME], manual, payload)
+
+            destinations[_SETUP_NAME].unlink(missing_ok=True)
+            destinations[_QR_NAME].unlink(missing_ok=True)
+            for name in (_MERGED_NAME, _QR_NAME, _SETUP_NAME):
+                _commit_staged(staged[name], destinations[name])
+        finally:
+            for path in staged.values():
+                path.unlink(missing_ok=True)
+
+
+@contextmanager
+def _publication_lock() -> Iterator[None]:
+    """Hold the output directory's advisory lock for one publication transaction."""
+    descriptor = os.open(_OUTPUT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def _install(source: Path, destination: Path) -> None:
@@ -505,14 +539,18 @@ def _install(source: Path, destination: Path) -> None:
     destination.chmod(_ARTIFACT_MODE)
 
 
-def _write_setup(manual: str, payload: str) -> None:
-    """Write the two-line public setup file naming this build's pairing codes."""
-    setup = _OUTPUT_DIR / _SETUP_NAME
-    setup.write_text(
+def _write_setup(path: Path, manual: str, payload: str) -> None:
+    """Write the two-line setup file naming this build's pairing codes."""
+    path.write_text(
         f"manual_pairing_code={manual}\nsetup_payload={payload}\n",
         encoding="utf-8",
     )
-    setup.chmod(_ARTIFACT_MODE)
+    path.chmod(_ARTIFACT_MODE)
+
+
+def _commit_staged(source: Path, destination: Path) -> None:
+    """Atomically expose one staged artifact under its public name."""
+    source.replace(destination)
 
 
 def _hand_outputs_to_owner() -> None:

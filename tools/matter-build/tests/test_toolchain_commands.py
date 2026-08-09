@@ -1,9 +1,8 @@
-"""Host tests for the toolchain commands build.py assembles.
+"""Host tests for the external toolchain commands build.py assembles.
 
-None of idf.py, esp-matter-mfg-tool or esptool.py exists outside the
-matter-toolchain image, so `_run` is exercised against a stub executable on a
-throwaway PATH, and the three build steps run with `_run` swapped for a recorder
-that captures the argv they would have executed.
+Neither idf.py nor esptool.py exists outside the matter-toolchain image, so
+`_run` is exercised against a stub executable on a throwaway PATH and the build
+steps run with `_run` swapped for a recorder that captures their argv.
 """
 
 import os
@@ -59,20 +58,6 @@ def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
     assert kwargs["env"]["PATH"] == os.environ["PATH"]
 
 
-def test_mint_credentials_passes_the_board_identity(recorder, minted, tmp_path):
-    factory, onboarding, qr = build._mint_credentials(
-        tmp_path, _IDENTITY, "Acme", "SN0001", "Color Light", "1.0.0"
-    )
-
-    command, _ = recorder[0]
-    assert command[0] == "esp-matter-mfg-tool"
-    assert command[command.index("--size") + 1] == "0x6000"
-    assert command[command.index("-v") + 1] == "0xfff1"
-    assert command[command.index("-p") + 1] == "0x8001"
-    assert command[command.index("--discovery-mode") + 1] == "2"
-    assert (factory.name, onboarding.name, qr.name) == minted
-
-
 def test_merge_image_appends_the_factory_partition(recorder, tmp_path):
     factory = tmp_path / "factory-partition.bin"
     merged = build._merge_image(tmp_path, factory, _IDENTITY)
@@ -83,18 +68,6 @@ def test_merge_image_appends_the_factory_partition(recorder, tmp_path):
     assert command[command.index("-o") + 1] == str(merged)
     # @flash_args names the bootloader and app relative to the IDF build directory.
     assert kwargs["cwd"] == tmp_path / "idf"
-
-
-def test_find_one_reports_a_missing_output(tmp_path):
-    with pytest.raises(ValueError, match="is missing from"):
-        build._find_one(tmp_path, "*-partition.bin")
-
-
-def test_find_one_reports_an_ambiguous_output(tmp_path):
-    for name in ("a-partition.bin", "b-partition.bin"):
-        (tmp_path / name).write_bytes(b"")
-    with pytest.raises(ValueError, match="is ambiguous in"):
-        build._find_one(tmp_path, "*-partition.bin")
 
 
 @pytest.fixture
@@ -121,14 +94,3 @@ def recorder(monkeypatch):
 
     monkeypatch.setattr(build, "_run", record)
     return calls
-
-
-@pytest.fixture
-def minted(tmp_path):
-    """Lay out the files esp-matter-mfg-tool leaves under its nested output dir."""
-    names = ("fff1_8001-partition.bin", "fff1_8001-onb_codes.csv", "fff1_8001-qrcode.png")
-    outdir = tmp_path / "manufacturing" / "fff1_8001" / "0001"
-    outdir.mkdir(parents=True)
-    for name in names:
-        (outdir / name).write_bytes(b"")
-    return names

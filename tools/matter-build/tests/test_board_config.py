@@ -67,6 +67,29 @@ def test_flash_size_ignores_a_disabled_key():
         build._config_to_flash_size({"CONFIG_ESPTOOLPY_FLASHSIZE_8MB": "n"})
 
 
+def test_pyproject_reads_the_model_name(tmp_path):
+    metadata = tmp_path / "pyproject.toml"
+    metadata.write_text('[project]\nname = "Color Light"\n', encoding="utf-8")
+
+    assert build._pyproject_to_model(metadata) == "Color Light"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        '[project]\nname = ""\n',
+        "[project]\nname = 123\n",
+        '[tool.example]\nname = "Color Light"\n',
+    ],
+)
+def test_pyproject_rejects_an_invalid_model_name(tmp_path, contents):
+    metadata = tmp_path / "pyproject.toml"
+    metadata.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must set a non-empty name"):
+        build._pyproject_to_model(metadata)
+
+
 def test_board_to_identity_reads_the_fixture_board():
     identity = build._board_to_identity(_FIXTURES, discovery_mode=2)
     assert identity == build._BuildIdentity(

@@ -177,13 +177,13 @@ static mp_obj_t next_event(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(next_event_obj, next_event);
 
-// Report whether the queue dropped an event since the last call, consuming the
-// flag so one overflow costs one resynchronization.
-static mp_obj_t overflowed(void)
+// Return the attribute queue's non-consuming overflow generation. The frozen
+// Python package records it only after a successful resynchronization.
+static mp_obj_t overflow_generation(void)
 {
-    return mp_obj_new_bool(matter_take_overflow());
+    return mp_obj_new_int_from_uint(matter_overflow_generation());
 }
-static MP_DEFINE_CONST_FUN_OBJ_0(overflowed_obj, overflowed);
+static MP_DEFINE_CONST_FUN_OBJ_0(overflow_generation_obj, overflow_generation);
 
 // Register the drain callback the stack schedules onto the VM task, or clear it
 // with None. Callability is checked here so a bad argument fails at
@@ -259,7 +259,7 @@ static const mp_rom_map_elem_t native_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_attribute_get), MP_ROM_PTR(&attribute_get_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_publish), MP_ROM_PTR(&attribute_publish_obj)},
     {MP_ROM_QSTR(MP_QSTR_next_event), MP_ROM_PTR(&next_event_obj)},
-    {MP_ROM_QSTR(MP_QSTR_overflowed), MP_ROM_PTR(&overflowed_obj)},
+    {MP_ROM_QSTR(MP_QSTR_overflow_generation), MP_ROM_PTR(&overflow_generation_obj)},
     {MP_ROM_QSTR(MP_QSTR_on_event), MP_ROM_PTR(&on_event_obj)},
     {MP_ROM_QSTR(MP_QSTR_open_commissioning_window), MP_ROM_PTR(&open_commissioning_window_obj)},
     {MP_ROM_QSTR(MP_QSTR_fabrics), MP_ROM_PTR(&fabrics_obj)},

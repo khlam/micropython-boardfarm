@@ -72,7 +72,11 @@ extern "C" int matter_node_create(void)
     }
     esp_matter::node::config_t config;
     matter_node = esp_matter::node::create(&config, attribute_callback, identify_callback);
-    return matter_node == nullptr ? EIO : 0;
+    if (matter_node == nullptr) {
+        destroy_event_queues();
+        return EIO;
+    }
+    return 0;
 }
 
 // Add one logical light endpoint to the Matter node before the stack starts.

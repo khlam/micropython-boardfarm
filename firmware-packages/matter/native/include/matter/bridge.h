@@ -130,9 +130,10 @@ int matter_attribute_publish(uint16_t endpoint_id, uint32_t cluster_id, uint32_t
 // Pop one queued event without waiting, returning false when the queue is dry.
 bool matter_next_event(struct matter_event *event);
 
-// Report whether the queue dropped an event, clearing the flag as it reads, so
-// one overflow provokes exactly one resynchronization.
-bool matter_take_overflow(void);
+// Return the attribute queue's overflow generation without consuming it.
+// Python records a generation only after it successfully re-reads state, so a
+// failed resynchronization remains pending. Natural uint32 wrap is allowed.
+uint32_t matter_overflow_generation(void);
 
 // Reopen pairing for `timeout_s`. Returns EALREADY when a window is already
 // open, or the scheduling errnos matter_attribute_get lists.

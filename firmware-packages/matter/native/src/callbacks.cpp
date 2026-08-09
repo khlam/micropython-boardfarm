@@ -47,7 +47,7 @@ esp_err_t attribute_callback(esp_matter::attribute::callback_type_t type, uint16
     event.cluster_id = cluster_id;
     event.attribute_id = attribute_id;
     event.origin = MATTER_ORIGIN_REMOTE;
-    publish_event(event);
+    publish_attribute_event(event);
     return ESP_OK;
 }
 

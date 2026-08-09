@@ -37,6 +37,13 @@ _ORIGIN_REMOTE = const(0)
 _RESTORE_ATTEMPTS = const(40)
 _RESTORE_PAUSE_S = 0.25
 
+# Overflow recovery is shorter than startup restoration because it runs from
+# the scheduler callback after the stack is already healthy. A transient CHIP
+# request timeout gets two immediate retries without pinning the VM task for the
+# roughly twenty seconds reserved for boot.
+_RESYNCHRONIZE_ATTEMPTS = const(3)
+_RESYNCHRONIZE_PAUSE_S = 0.05
+
 # Indexed by the native commissioning state code. Built from the public
 # constants so the decode table and the names subscribers compare against
 # cannot drift, and pre-built so no event costs an allocation.
@@ -65,6 +72,7 @@ class Node:
         self._endpoints = {}
         self._started = False
         self._commissioning = None
+        self._overflow_generation = _matter.overflow_generation()
         _active_node[0] = self
 
     @property
@@ -198,8 +206,7 @@ class Node:
             if event is None:
                 break
             self._handle(event)
-        if _matter.overflowed():
-            self._resynchronize()
+        self._recover_overflow()
 
     def _handle(self, event: tuple) -> None:
         """Route one native event without allowing it to escape the VM task."""
@@ -230,6 +237,33 @@ class Node:
         """Recover latest remote values after the bounded queue overflows."""
         for endpoint in self._endpoints.values():
             endpoint._resynchronize()  # noqa: SLF001 - Node owns its Endpoint instances
+
+    def _recover_overflow(self) -> None:
+        """Resynchronize every unacknowledged attribute-queue generation.
+
+        Native exposes a monotonic generation rather than a consuming flag. The
+        captured generation is committed only after a complete successful pass,
+        so an exception leaves the same work visible to a later drain. If CHIP
+        drops another attribute while Python is reading, the outer loop observes
+        the newer generation and performs one more full pass.
+
+        Raises:
+            OSError: Three consecutive resynchronization attempts failed.
+        """
+        while True:
+            generation = _matter.overflow_generation()
+            if generation == self._overflow_generation:
+                return
+            for attempt in range(_RESYNCHRONIZE_ATTEMPTS):
+                try:
+                    self._resynchronize()
+                except OSError:
+                    if attempt == _RESYNCHRONIZE_ATTEMPTS - 1:
+                        raise
+                    time.sleep(_RESYNCHRONIZE_PAUSE_S)
+                else:
+                    self._overflow_generation = generation
+                    break
 
 
 def _require_started(started: object) -> None:

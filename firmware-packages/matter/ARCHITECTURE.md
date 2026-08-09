@@ -25,7 +25,7 @@ flowchart TB
     mod -->|"matter_* C ABI from native/include/matter/bridge.h"| stack
     stack -->|"PlatformMgr ScheduleWork, or direct pre-start calls"| esp
     esp -.->|"attribute_callback / device_event_callback"| stack
-    stack -.->|"FreeRTOS queue + mp_sched_schedule_node"| mod
+    stack -.->|"FreeRTOS queues + mp_sched_schedule_node"| mod
     mod -.->|"registered drain callback"| pkg
     pkg -.->|"WriteEvent / CommissioningEvent"| app
 ```
@@ -44,7 +44,7 @@ of state, and which task is allowed to touch it.
 | --- | --- |
 | `src/stack.cpp` | the one node, the endpoint registry, the `started` barrier, and the pre-start C API |
 | `src/endpoint_schema.cpp` | the on/off, dimmable and extended-colour endpoint configs handed to ESP-Matter |
-| `src/event_queue.cpp` | the 32-deep queue, its overflow flag, and the drain C API that empties it |
+| `src/event_queue.cpp` | separate 32-deep attribute and commissioning queues, their shared ordering sequence, the attribute overflow generation, and their drain C API |
 | `src/callbacks.cpp` | everything ESP-Matter and CHIP call into, and the window in which a local echo is suppressed |
 | `src/request.cpp` | Request allocation, refcounting, scheduling, and the bounded-request C API |
 | `src/chip_operations.cpp` | the operation bodies that run on the CHIP task — nothing here may block |
@@ -62,10 +62,13 @@ owns the state each one guards.
 | --- | --- | --- | --- |
 | Pre-start setup | `node_create`, `endpoint_create`, `attribute_set_initial`, `start` | VM task, directly against `esp_matter` before the stack runs | none |
 | Bounded request | `attribute_get`, `attribute_publish`, `open_commissioning_window`, `fabrics`, `remove_fabric`, `factory_reset` | body runs on the CHIP task via `ScheduleWork`; VM task waits on a semaphore | ≤ 250 ms (`MATTER_REQUEST_TIMEOUT_MS`) |
-| Queue drain | `next_event`, `overflowed` | VM task, non-blocking `xQueueReceive` | none |
+| Queue drain | `next_event`, `overflow_generation` | VM task, non-blocking `xQueuePeek` / `xQueueReceive` | none |
 
 Setup calls are guarded by the `started` flag in `stack.cpp`, so they can only
 touch `esp_matter` structures while nothing else is running against them.
+Node creation owns both queues: if ESP-Matter cannot create the node after they
+are allocated, the failure path deletes them before returning so a retry cannot
+leak or inherit stale events.
 
 ## Boot
 
@@ -81,7 +84,7 @@ sequenceDiagram
     app->>py: matter.Node()
     py->>mod: node_create()
     mod->>st: matter_node_create()
-    st->>st: event_queue.cpp — xQueueCreate, depth 32
+    st->>st: event_queue.cpp — xQueueCreate, two queues of depth 32
     st->>esp: esp_matter node create + callbacks.cpp attribute_callback / identify_callback
 
     app->>py: create_endpoint(EXTENDED_COLOR_LIGHT, initial)
@@ -177,9 +180,9 @@ sequenceDiagram
     ctl->>esp: write OnOff / CurrentHue / …
     esp->>st: attribute_callback(POST_UPDATE, endpoint, cluster, attribute, value)
     st->>st: endpoint_exists + encode_value — unknown endpoints and unsupported<br/>value types are dropped; an unmirrored (cluster, attribute)<br/>path is dropped later, in Python's _accept_remote
-    st->>st: publish_event() → xQueueSend
-    alt queue full
-        st->>st: discard oldest, send, set queue_overflowed
+    st->>st: publish_attribute_event() → attribute xQueueSend
+    alt attribute queue full
+        st->>st: discard oldest, send, increment overflow_generation
     end
     st->>mod: matter_bridge_notify_event()
     mod->>mod: mp_sched_schedule_node(matter_event_node, dispatch_event)
@@ -188,23 +191,28 @@ sequenceDiagram
     mod->>py: dispatch_event calls the registered callback under nlr_push
     loop until next_event() returns None
         py->>mod: next_event()
-        mod->>st: matter_next_event() → xQueueReceive, no wait
+        mod->>st: matter_next_event() → peek both queue heads,<br/>receive the lower shared sequence; no wait
         st-->>py: (kind, endpoint_id, cluster, attribute, value, origin)
         py->>py: _handle — remote attribute events only
         py->>py: _accept_remote — validate, update mirror
         py->>app: on_write(WriteEvent)
         app->>app: render the pixel
     end
-    py->>mod: overflowed()
-    alt overflow flag was set
-        py->>py: _resynchronize — attribute_get every path,<br/>replay whatever differs
+    py->>mod: overflow_generation()
+    alt generation differs from the last successful pass
+        py->>py: _resynchronize — retry attribute_get for every path,<br/>replay whatever differs
+        py->>py: record the generation only after every read succeeds
     end
 ```
 
-Commissioning events take the same path from `device_event_callback`, arriving
-as `MATTER_EVENT_COMMISSIONING` and decoding to a `CommissioningEvent` in
-`_COMMISSIONING_STATES`. When the last fabric is removed, `callbacks.cpp`
-reopens a basic commissioning window itself so the device stays pairable.
+Commissioning events enter their own 32-deep queue from
+`device_event_callback`, arriving as `MATTER_EVENT_COMMISSIONING` and decoding
+to a `CommissioningEvent` in `_COMMISSIONING_STATES`. A shared uint32 sequence
+on the two queues' internal envelopes preserves arrival order without allowing
+an attribute burst to evict a lifecycle transition. The commissioning queue
+itself stays bounded and drop-oldest if more than 32 of its own transitions
+remain undrained. When the last fabric is removed, `callbacks.cpp` reopens a
+basic commissioning window itself so the device stays pairable.
 
 A callback exception is contained on both sides — `dispatch_event` catches it
 with `nlr_push` and prints a JSON error, and Python catches subscriber
@@ -244,10 +252,12 @@ frozen separately by `manifest.py`.
 ## Invariants worth keeping
 
 - Python never runs on a CHIP task or in an interrupt. The only upward path is
-  the bounded queue plus `mp_sched_schedule_node`.
+  the bounded queues plus `mp_sched_schedule_node`.
 - Every Python-originated mutation is scheduled onto the CHIP event loop and
   bounded at 250 ms, so a stalled stack surfaces as `ETIMEDOUT`, not a hang.
-- The event queue is lossy by design: 32 deep, drop-oldest, with an overflow
-  flag that makes Python re-read state rather than trust a gap.
+- The attribute queue is lossy by design: 32 deep and drop-oldest, with a
+  non-consuming overflow generation that makes Python re-read state rather than
+  trust a gap. Commissioning has a separate 32-deep queue, and a shared sequence
+  preserves ordering between the two.
 - No product behaviour lives below `main.py` — the `native/src` sources and
   `matter_module.c` know nothing about pixels, pins, or colour.

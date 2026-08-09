@@ -10,6 +10,12 @@ services:
       target: wheels
     command: ["true"]
 
+  matter-native-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+      target: matter-native-test
+
   pytest:
     build:
       context: .

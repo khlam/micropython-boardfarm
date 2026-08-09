@@ -66,12 +66,14 @@ jobs:
           )
           ./.githooks/run-linters.sh "${files[@]}"
   test:
-    name: Pytest (full suite + 90% coverage gate)
+    name: Tests (native + pytest with 90% coverage gate)
     needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Run native Matter queue tests
+        run: docker compose up matter-native-test --build --exit-code-from matter-native-test
       - name: Run pytest
         run: docker compose up pytest --build --exit-code-from pytest
   compile-firmware:
