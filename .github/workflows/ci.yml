@@ -89,10 +89,16 @@ jobs:
           - gps
           - gyro-stream
           - led-effects
+          - matter
           - multizone-ranging
         target:
           - rp
           - esp32
+        exclude:
+          # Matter is ESP32-S3-only — projects/matter/docker-compose.yaml has
+          # no pi-compile service.
+          - project: matter
+            target: rp
         include:
           # max_bytes: per-artifact size budgets (cloud-only). See CI.md
           # "Firmware size budgets" for the rationale and how to bump them.
@@ -106,6 +112,16 @@ jobs:
             label: ESP32-S3
             pattern: outputs/*.bin
             max_bytes: 2097152  # 2 MiB per .bin
+          # Matter's merged image carries ESP-Matter plus a minted factory-NVS
+          # partition, deterministically padded to that partition's end offset
+          # (native/board/ESP32_S3_MATTER/partitions.csv) regardless of app
+          # code size — far bigger than the plain-MicroPython esp32 budget
+          # above. build.py's own _validate_merged_image already enforces the
+          # 4 MiB flash-size cap; this check exists only for parity with the
+          # other projects' artifact-size gate.
+          - project: matter
+            target: esp32
+            max_bytes: 4194304  # 4 MiB (board flash size)
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -142,16 +158,6 @@ jobs:
             echo "- \`$f\` — ${size} B / ${MAX_BYTES} B budget" >> "$GITHUB_STEP_SUMMARY"
           done
           [[ $fail -eq 0 ]]
-  matter-firmware:
-    name: Matter ESP32-S3
-    needs: version-check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Compile and validate merged Matter image
-        working-directory: projects/matter
-        run: docker compose up --build --exit-code-from esp32-compile esp32-compile
   vuln-check:
     name: Dependency vulnerability scan
     needs: version-check
@@ -193,7 +199,7 @@ jobs:
   all-checks-pass:
     name: All checks pass
     runs-on: ubuntu-latest
-    needs: [version-check, lint, test, compile-firmware, matter-firmware, vuln-check, cve-scan]
+    needs: [version-check, lint, test, compile-firmware, vuln-check, cve-scan]
     if: always()
     steps:
       - name: Verify all jobs succeeded
@@ -204,7 +210,6 @@ jobs:
             [lint]="${{ needs.lint.result }}"
             [test]="${{ needs.test.result }}"
             [compile-firmware]="${{ needs.compile-firmware.result }}"
-            [matter-firmware]="${{ needs.matter-firmware.result }}"
             [vuln-check]="${{ needs.vuln-check.result }}"
             [cve-scan]="${{ needs.cve-scan.result }}"
           )
