@@ -179,11 +179,7 @@ def validate_value(schema: dict, path: tuple, value: object) -> object:
         if not isinstance(value, bool):
             raise TypeError("boolean Matter attribute requires bool")
         return value
-    if not _is_plain_int(value):
-        raise TypeError("integer Matter attribute requires int")
-    if not minimum <= value <= maximum:
-        raise ValueError(f"attribute value must be between {minimum} and {maximum}")
-    return value
+    return bounded_integer("attribute value", value, minimum, maximum)
 
 
 def bounded_integer(name: str, value: object, minimum: int, maximum: int) -> int:

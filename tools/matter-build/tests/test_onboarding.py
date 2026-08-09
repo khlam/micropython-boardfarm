@@ -32,6 +32,16 @@ def test_decodes_the_published_test_payload():
     }
 
 
+def test_discovery_mode_advertises_ble_and_on_network():
+    # firmware-packages/matter/native's chip_operations.cpp
+    # (open_commissioning_window) and callbacks.cpp (the automatic reopen once
+    # the last fabric is removed) both reopen commissioning windows in
+    # kDnssdOnly mode, never BLE, so the minted QR must claim on-IP-network
+    # capability alongside BLE or a commissioner trusting the BLE-only bit
+    # finds nothing when a reopened window is on-network only.
+    assert build._DISCOVERY_MODE == build._DISCOVERY_BLE | build._DISCOVERY_ON_NETWORK
+
+
 def test_decodes_every_field_at_its_boundary():
     fields = {
         "version": 0x7,
@@ -91,9 +101,25 @@ def test_manual_code_needs_eleven_digits(code):
 
 def test_manual_code_rejects_the_custom_flow_bit():
     # Bit 2 of the leading digit marks a custom commissioning flow.
-    custom = str(int(_KNOWN_MANUAL[0]) | 0x4) + _KNOWN_MANUAL[1:]
+    body = str(int(_KNOWN_MANUAL[0]) | 0x4) + _KNOWN_MANUAL[1:10]
+    custom = body + build._verhoeff_check_digit(body)
     with pytest.raises(ValueError, match="only standard commissioning flow"):
         build._decode_manual_code(custom)
+
+
+def test_verhoeff_check_digit_matches_the_published_test_vector():
+    # Pins build._verhoeff_check_digit itself against the same published CHIP
+    # test-device manual code the rest of this module anchors to, so a broken
+    # table or digit-position offset shows up here rather than only inside a
+    # decode that happens to also fail for some other reason.
+    assert build._verhoeff_check_digit(_KNOWN_MANUAL[:-1]) == _KNOWN_MANUAL[-1]
+
+
+def test_manual_code_rejects_a_corrupted_check_digit():
+    corrupted_digit = str((int(_KNOWN_MANUAL[-1]) + 1) % 10)
+    corrupted = _KNOWN_MANUAL[:-1] + corrupted_digit
+    with pytest.raises(ValueError, match="check digit does not match"):
+        build._decode_manual_code(corrupted)
 
 
 def test_onboarding_accepts_matching_codes(identity):
@@ -197,7 +223,7 @@ def encode_qr_payload(
 
 
 def encode_manual_code(short_discriminator: int, passcode: int) -> str:
-    """Build an 11-digit manual pairing code; the trailing check digit is a filler.
+    """Build an 11-digit manual pairing code with a real Verhoeff check digit.
 
     Args:
         short_discriminator: Top 4 bits of the discriminator.
@@ -209,7 +235,8 @@ def encode_manual_code(short_discriminator: int, passcode: int) -> str:
     chunk1 = (short_discriminator >> 2) & 0x3
     chunk2 = ((short_discriminator & 0x3) << 14) | (passcode & 0x3FFF)
     chunk3 = passcode >> 14
-    return f"{chunk1:01d}{chunk2:05d}{chunk3:04d}0"
+    body = f"{chunk1:01d}{chunk2:05d}{chunk3:04d}"
+    return body + build._verhoeff_check_digit(body)
 
 
 @pytest.fixture

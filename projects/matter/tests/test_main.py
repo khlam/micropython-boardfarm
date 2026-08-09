@@ -82,6 +82,25 @@ def test_set_color_does_not_republish_power_when_already_on(load_main, monkeypat
     assert module.endpoint.on is True
 
 
+def test_set_color_black_does_not_force_power_on(load_main):
+    module = load_main().module
+
+    module.set_color((0, 0, 0))
+
+    assert module.endpoint.level == 0
+    assert module.endpoint.on is False
+
+
+def test_set_color_black_turns_off_an_already_lit_endpoint(load_main):
+    module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
+    module.pixel.writes.clear()
+
+    module.set_color(module.OFF_COLOR)
+
+    assert module.endpoint.on is False
+    assert module.pixel.writes == [module.OFF_COLOR]
+
+
 def test_remote_writes_render_the_complete_endpoint_state(load_main):
     module = load_main().module
     module.pixel.writes.clear()
@@ -93,6 +112,31 @@ def test_remote_writes_render_the_complete_endpoint_state(load_main):
     _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
 
     assert module.pixel.writes[-1] == (0, 25, 0)
+
+
+def test_on_remote_write_skips_repeating_the_last_rendered_colour(load_main):
+    module = load_main().module
+    module.pixel.writes.clear()
+
+    module.on_remote_write(None)
+    module.pixel.writes.clear()
+    module.on_remote_write(None)  # nothing on the endpoint changed in between
+
+    assert module.pixel.writes == []
+
+
+def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main):
+    module = load_main().module
+    module.pixel.writes.clear()
+
+    _matter.inject_remote_write(module.endpoint.id, *Paths.ON_OFF, True)
+    _matter.inject_remote_write(module.endpoint.id, *Paths.HUE, 85)
+    _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
+    _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
+    _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
+
+    assert module.pixel.writes[-1] == (0, 25, 0)
+    assert len(module.pixel.writes) == 3
 
 
 @pytest.mark.parametrize(
@@ -127,6 +171,26 @@ def test_startup_commissioning_events_win_over_boot_state(load_main, state_code,
     assert boot.module.pixel.writes[-1] == expected
     assert boot.lines[0]["event"] in {"commissioning", "commissioning_window"}
     assert boot.lines[-1] == {"event": "matter", "state": "ready"}
+
+
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        (matter.Commissioning.STARTED, (0, 25, 25)),
+        (matter.Commissioning.OPENED, (25, 0, 25)),
+    ],
+)
+def test_show_post_start_state_maps_commissioning_colors_from_the_shared_table(
+    load_main, state, expected
+):
+    module = load_main().module
+    module.pixel.writes.clear()
+    module._last_commissioning_state[0] = state
+    module._last_commissioning_stamp[0] = 999
+
+    module._show_post_start_state(has_fabric=False, startup_stamp=0)
+
+    assert module.pixel.writes[-1] == expected
 
 
 def test_completion_during_start_is_published_after_node_is_started(load_main):

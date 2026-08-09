@@ -56,6 +56,23 @@ def test_create_endpoint_validates_type_and_initial_mapping():
         node.create_endpoint(EndpointType.ON_OFF_LIGHT, initial=[])
 
 
+def test_create_endpoint_tracks_native_endpoint_despite_initial_attribute_failure():
+    node = Node()
+    _matter.fail_next("attribute_set_initial")
+
+    with pytest.raises(OSError, match="injected attribute_set_initial failure"):
+        node.create_endpoint(EndpointType.ON_OFF_LIGHT, initial={Paths.ON_OFF: True})
+
+    endpoint = node._endpoints[1]
+    received = []
+    endpoint.on_write(received.append)
+
+    node._handle((0, 1, *Paths.ON_OFF, False, 0))
+
+    assert received[0].value is False
+    assert endpoint.on is False
+
+
 def test_create_endpoint_is_forbidden_after_start(capsys):
     node = Node()
     node.start()
@@ -295,6 +312,7 @@ def test_invalid_native_events_are_ignored(capsys):
     node._handle((0, 99, *Paths.ON_OFF, True, 0))
     node._handle((0, endpoint.id, *Paths.ON_OFF, True, 1))
     node._handle((1, 0, 0, 0, 5, 0))
+    node._handle((1, 0, 0, 0, -1, 0))
     node._handle((99, 0, 0, 0, 0, 0))
 
     assert endpoint.on is False

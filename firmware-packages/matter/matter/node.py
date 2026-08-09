@@ -101,7 +101,7 @@ class Node:
             The new Python endpoint object.
 
         Raises:
-            OSError: The node has already started.
+            OSError: The node has already started, or a native call failed.
             TypeError: ``initial`` is not a dictionary.
             ValueError: The endpoint type, path, or value is unsupported.
         """
@@ -115,6 +115,12 @@ class Node:
         state = default_state(endpoint_type)
         state.update(requested)
         endpoint_id = _matter.endpoint_create(endpoint_type)
+
+        # Registered before the initial-attribute loop below, not after it, so
+        # a raise partway through the loop still leaves this endpoint tracked.
+        endpoint = Endpoint(self, endpoint_id, endpoint_type, state)
+        self._endpoints[endpoint_id] = endpoint
+
         for (cluster, attribute), value in requested.items():
             # IdentifyTime is transient CHIP cluster state, not an application
             # default or persistent attribute. Its endpoint constructor owns
@@ -122,8 +128,6 @@ class Node:
             if (cluster, attribute) == Paths.IDENTIFY:
                 continue
             _matter.attribute_set_initial(endpoint_id, cluster, attribute, value)
-        endpoint = Endpoint(self, endpoint_id, endpoint_type, state)
-        self._endpoints[endpoint_id] = endpoint
         return endpoint
 
     def start(self) -> None:
@@ -219,7 +223,7 @@ class Node:
                 cluster, attribute, value
             )
             return
-        if kind == _EVENT_COMMISSIONING and value < len(_COMMISSIONING_STATES):
+        if kind == _EVENT_COMMISSIONING and 0 <= value < len(_COMMISSIONING_STATES):
             self._dispatch_commissioning(_COMMISSIONING_STATES[value])
 
     def _dispatch_commissioning(self, event: tuple) -> None:

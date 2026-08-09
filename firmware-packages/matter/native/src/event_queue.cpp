@@ -15,8 +15,8 @@ namespace matter_bridge {
 // limit. Attribute updates are recoverable from native state and therefore use
 // a lossy queue. Commissioning transitions have their own queue so attribute
 // traffic cannot displace lifecycle events.
-constexpr UBaseType_t kEventQueueDepth = 32;
-constexpr uint32_t kHalfSequenceRange = UINT32_MAX / 2U + 1U;
+constexpr UBaseType_t EVENT_QUEUE_DEPTH = 32;
+constexpr uint32_t HALF_SEQUENCE_RANGE = UINT32_MAX / 2U + 1U;
 
 // Sequence stays native-only: FreeRTOS copies this envelope, while the public C
 // boundary continues to expose the stable matter_event payload. At most 64
@@ -37,9 +37,15 @@ static QueueHandle_t commissioning_events = nullptr;
 static std::atomic<uint32_t> overflow_generation{0U};
 static std::atomic<uint32_t> next_sequence{0U};
 
+// Guards the two composite queue sequences that must not interleave;
+// A spinlock (rather than a mutex) is used because these sections are
+// short, non-blocking, and may run from either CHIP-task or VM-task context on
+// either core.
+static portMUX_TYPE event_queue_lock = portMUX_INITIALIZER_UNLOCKED;
+
 bool sequence_precedes(uint32_t left, uint32_t right)
 {
-    return right - left < kHalfSequenceRange;
+    return right - left < HALF_SEQUENCE_RANGE;
 }
 
 int create_event_queue(void)
@@ -49,11 +55,11 @@ int create_event_queue(void)
     }
     overflow_generation.store(0U);
     next_sequence.store(0U);
-    attribute_events = xQueueCreate(kEventQueueDepth, sizeof(QueuedEvent));
+    attribute_events = xQueueCreate(EVENT_QUEUE_DEPTH, sizeof(QueuedEvent));
     if (attribute_events == nullptr) {
         return ENOMEM;
     }
-    commissioning_events = xQueueCreate(kEventQueueDepth, sizeof(QueuedEvent));
+    commissioning_events = xQueueCreate(EVENT_QUEUE_DEPTH, sizeof(QueuedEvent));
     if (commissioning_events == nullptr) {
         destroy_event_queues();
         return ENOMEM;
@@ -82,10 +88,12 @@ void publish_attribute_event(const matter_event &event)
     }
     const QueuedEvent queued{next_sequence.fetch_add(1U), event};
     if (xQueueSend(attribute_events, &queued, 0) != pdTRUE) {
+        portENTER_CRITICAL(&event_queue_lock);
         QueuedEvent discarded;
         xQueueReceive(attribute_events, &discarded, 0);
         xQueueSend(attribute_events, &queued, 0);
         overflow_generation.fetch_add(1U);
+        portEXIT_CRITICAL(&event_queue_lock);
     }
     matter_bridge_notify_event();
 }
@@ -106,9 +114,11 @@ void publish_commissioning(matter_commissioning_state state)
     }
     const QueuedEvent queued{next_sequence.fetch_add(1U), event};
     if (xQueueSend(commissioning_events, &queued, 0) != pdTRUE) {
+        portENTER_CRITICAL(&event_queue_lock);
         QueuedEvent discarded;
         xQueueReceive(commissioning_events, &discarded, 0);
         xQueueSend(commissioning_events, &queued, 0);
+        portEXIT_CRITICAL(&event_queue_lock);
     }
     matter_bridge_notify_event();
 }
@@ -127,20 +137,27 @@ extern "C" bool matter_next_event(matter_event *event)
     }
     QueuedEvent attribute{};
     QueuedEvent commissioning{};
+    QueuedEvent queued{};
+    
+    // Peeking both heads, deciding which queue is globally next, and receiving
+    // from it must happen as one atomic step
+    portENTER_CRITICAL(&event_queue_lock);
+    
     const bool has_attribute =
         attribute_events != nullptr && xQueuePeek(attribute_events, &attribute, 0) == pdTRUE;
     const bool has_commissioning =
         commissioning_events != nullptr && xQueuePeek(commissioning_events, &commissioning, 0) == pdTRUE;
-    if (!has_attribute && !has_commissioning) {
-        return false;
+    bool received = false;
+    if (has_attribute || has_commissioning) {
+        QueueHandle_t selected = attribute_events;
+        if (!has_attribute ||
+            (has_commissioning && sequence_precedes(commissioning.sequence, attribute.sequence))) {
+            selected = commissioning_events;
+        }
+        received = xQueueReceive(selected, &queued, 0) == pdTRUE;
     }
-    QueueHandle_t selected = attribute_events;
-    if (!has_attribute ||
-        (has_commissioning && sequence_precedes(commissioning.sequence, attribute.sequence))) {
-        selected = commissioning_events;
-    }
-    QueuedEvent queued{};
-    if (xQueueReceive(selected, &queued, 0) != pdTRUE) {
+    portEXIT_CRITICAL(&event_queue_lock);
+    if (!received) {
         return false;
     }
     *event = queued.event;

@@ -29,13 +29,13 @@ namespace matter_bridge {
 
 // The endpoint count is capped so the callback code can quickly check whether
 // an update belongs to this bridge.
-constexpr size_t kMaximumEndpoints = 16;
+constexpr size_t MAXIMUM_ENDPOINTS = 16;
 
 // Private to this file, but `static` rather than an unnamed namespace because
 // the C entry points below reach them through a using-directive. Only the VM
 // task writes them, and only before the stack starts.
 static esp_matter::node_t *matter_node = nullptr;
-static uint16_t endpoint_ids[kMaximumEndpoints]{};
+static uint16_t endpoint_ids[MAXIMUM_ENDPOINTS]{};
 static size_t endpoint_count = 0;
 static bool started = false;
 
@@ -88,7 +88,7 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
     if (endpoint_id == nullptr || matter_node == nullptr || started) {
         return EINVAL;
     }
-    if (endpoint_count >= kMaximumEndpoints) {
+    if (endpoint_count >= MAXIMUM_ENDPOINTS) {
         return ENOSPC;
     }
     if (endpoint_type > MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT) {

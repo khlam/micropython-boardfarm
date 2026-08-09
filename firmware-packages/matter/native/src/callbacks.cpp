@@ -17,7 +17,7 @@ namespace {
 
 // If the device loses its last Matter fabric, this bridge reopens pairing for
 // five minutes so the device does not become unreachable.
-constexpr uint32_t kCommissioningWindowSeconds = 300;
+constexpr uint32_t COMMISSIONING_WINDOW_SECONDS = 300;
 
 // Written by the task publishing a local update and read by the callback that
 // would otherwise queue the echo, so it crosses tasks and must be atomic.
@@ -83,7 +83,7 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         if (chip::Server::GetInstance().GetFabricTable().FabricCount() == 0) {
             auto &manager = chip::Server::GetInstance().GetCommissioningWindowManager();
             if (!manager.IsCommissioningWindowOpen()) {
-                manager.OpenBasicCommissioningWindow(chip::System::Clock::Seconds16(kCommissioningWindowSeconds),
+                manager.OpenBasicCommissioningWindow(chip::System::Clock::Seconds16(COMMISSIONING_WINDOW_SECONDS),
                                                      chip::CommissioningWindowAdvertisement::kDnssdOnly);
             }
         }

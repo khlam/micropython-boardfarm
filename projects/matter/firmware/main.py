@@ -56,6 +56,9 @@ _last_commissioning_state = [None]
 _last_commissioning_stamp = [0]
 _pending_commissioned_off = [None]
 
+# Last colour on_remote_write actually rendered
+_last_remote_color = [None]
+
 
 def render(color: tuple) -> None:
     """Drive the strip. Every hardware touch in this project is these two lines."""
@@ -96,20 +99,27 @@ def set_color(color: tuple) -> None:
     # matter_attribute_publish -- a bounded round trip onto the CHIP task
     # (ARCHITECTURE.md "A local change going out").
     publish_triple(endpoint, color)
-    if not endpoint.on:
-        endpoint.on = True
+    lit = endpoint.level != 0
+    if endpoint.on != lit:
+        endpoint.on = lit
 
 
 def on_remote_write(_event: object) -> None:
-    """Show the colour a controller just wrote.
+    """Show the colour a controller just wrote, unless it repeats the last one shown.
 
     The event only names the one attribute that changed, so the full colour
-    is read back from the endpoint instead of computed from the event.
+    is read back from the endpoint instead of computed from the event. Comparing
+    against the last colour actually rendered drops a repeat before it
+    reaches the bit-banged NeoPixel write.
 
     Args:
         _event: Unused. Only wakes this callback.
     """
-    show(matter_to_triple(endpoint), time.ticks_ms())
+    color = matter_to_triple(endpoint)
+    if color == _last_remote_color[0]:
+        return
+    _last_remote_color[0] = color
+    show(color, time.ticks_ms())
 
 
 def _show_status(color: tuple, stamp: int) -> None:
@@ -197,10 +207,9 @@ def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
         _show_status(FAILED_COLOR, commissioning_stamp)
         return
     state = _last_commissioning_state[0]
-    if state == matter.Commissioning.STARTED:
-        _show_status(SESSION_COLOR, commissioning_stamp)
-    elif state == matter.Commissioning.OPENED:
-        _show_status(WINDOW_COLOR, commissioning_stamp)
+    color = _COMMISSIONING_COLORS.get(state)
+    if color is not None:
+        _show_status(color, commissioning_stamp)
     elif state == matter.Commissioning.CLOSED:
         _restore_after_window(commissioning_stamp)
     elif _commissioned[0]:

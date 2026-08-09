@@ -111,6 +111,7 @@ source = [
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
   "/projects/matter/firmware",
+  "/tools/matter-build",
 ]
 source_pkgs = [
   "boot_status_led",

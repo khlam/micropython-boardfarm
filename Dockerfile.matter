@@ -122,19 +122,26 @@ ENTRYPOINT ["bash", "-ceu", "\
 "]
 
 
+# Stage: matter-flash — flashes app.esp32-s3.bin to $SERIAL_PORT.
+#
+# Keep this in sync with Dockerfile.firmware's esp32-flash stage.
 FROM matter-toolchain AS matter-flash
 
-ENTRYPOINT ["bash", "-ceu", "\
-  port=${SERIAL_PORT:-/dev/ttyACM0}; \
-  case $port in \
-    socket://*|rfc2217://*) reset='--before no_reset --after no_reset' ;; \
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
+  PORT=${SERIAL_PORT:-/dev/ttyACM0}; \
+  case $PORT in \
+    socket://*|rfc2217://*) \
+      RESET='--before no_reset --after no_reset' ;; \
     *) \
-      [[ -e $port ]] || { \
-        echo \"ERROR: serial port $port not found. Put the ESP32-S3 in bootloader mode.\" >&2; \
+      if [ ! -e $PORT ]; then \
+        echo ERROR: serial port $PORT not found. >&2; \
+        echo 'Plug in the ESP32-S3 in bootloader mode (hold BOOT, tap RESET).' >&2; \
+        echo 'On macOS: run tools/serial-bridge.sh and export SERIAL_PORT=socket://host.docker.internal:5555' >&2; \
         exit 1; \
-      }; \
-      reset= ;; \
+      fi; \
+      RESET= ;; \
   esac; \
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
-  esptool.py --chip esp32s3 --port \"$port\" $reset write_flash -z 0x0 /outputs/app.esp32-s3.bin \
-"]
+  esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \
+    /outputs/app.esp32-s3.bin"]

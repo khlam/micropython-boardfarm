@@ -73,7 +73,10 @@ _STAGING_NAMES = frozenset(f".matter-build.{name}.new" for name in _OUTPUT_NAMES
 # cross-checks it: minting encodes it into the QR payload and the check
 # base38-decodes it back out. Vendor name, product name, and serial number are
 # per-build instead -- see _parse_args and _pyproject_to_model.
-_DISCOVERY_MODE = 2
+
+_DISCOVERY_BLE = 2
+_DISCOVERY_ON_NETWORK = 4
+_DISCOVERY_MODE = _DISCOVERY_BLE | _DISCOVERY_ON_NETWORK
 _HARDWARE_VERSION = 1
 _HARDWARE_VERSION_STRING = "development"
 
@@ -87,6 +90,34 @@ _SPAKE2P_SALT_LEN = 32
 _FLASH_SIZE_RE = re.compile(r"^CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB$")
 
 _BASE38 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
+
+# Verhoeff algorithm's multiplication,
+# permutation, and inverse tables,
+# used by _verhoeff_check_digit
+
+_VERHOEFF_D = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
+    (2, 3, 4, 0, 1, 7, 8, 9, 5, 6),
+    (3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
+    (4, 0, 1, 2, 3, 9, 5, 6, 7, 8),
+    (5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
+    (6, 5, 9, 8, 7, 1, 0, 4, 3, 2),
+    (7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
+    (8, 7, 6, 5, 9, 3, 2, 1, 0, 4),
+    (9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+)
+_VERHOEFF_P = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    (1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
+    (5, 8, 0, 3, 7, 9, 6, 1, 4, 2),
+    (8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
+    (9, 4, 5, 3, 1, 2, 6, 8, 7, 0),
+    (4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
+    (2, 7, 9, 3, 8, 0, 6, 4, 1, 5),
+    (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
+)
+_VERHOEFF_INV = (0, 4, 3, 2, 1, 5, 6, 7, 8, 9)
 
 
 @dataclass(frozen=True)
@@ -418,11 +449,26 @@ def _decode_qr_payload(payload: str) -> dict[str, int]:
 
 
 def _decode_manual_code(code: str) -> dict[str, int]:
-    """Decode passcode and short discriminator from a standard manual code."""
+    """Decode passcode and short discriminator from a standard manual code.
+
+    Args:
+        code: The 11-digit manual pairing code, digits only or grouped with
+            dashes.
+
+    Returns:
+        A dict with the decoded "short_discriminator" and "passcode".
+
+    Raises:
+        ValueError: If code is malformed, its trailing digit is not the
+            Verhoeff check digit its body requires, or it marks a
+            non-standard commissioning flow.
+    """
     digits = code.replace("-", "")
     if len(digits) != 11 or not digits.isdigit():
         raise ValueError("manual pairing code must contain 11 digits")
-    body = digits[:-1]
+    body, check_digit = digits[:-1], digits[-1]
+    if check_digit != _verhoeff_check_digit(body):
+        raise ValueError("manual pairing code check digit does not match its body")
     chunk1 = int(body[0])
     chunk2 = int(body[1:6])
     chunk3 = int(body[6:10])
@@ -432,6 +478,24 @@ def _decode_manual_code(code: str) -> dict[str, int]:
         "short_discriminator": ((chunk1 & 0x3) << 2) | ((chunk2 >> 14) & 0x3),
         "passcode": (chunk2 & 0x3FFF) | (chunk3 << 14),
     }
+
+
+def _verhoeff_check_digit(body: str) -> str:
+    """Recompute the Verhoeff check digit a manual code's leading digits require.
+
+    Kept independent of onboarding_codes._verhoeff_check_digit
+
+    Args:
+        body: The 10 decimal digits preceding the check digit.
+
+    Returns:
+        The single decimal Verhoeff check digit body requires.
+    """
+    checksum = 0
+    for position, digit in enumerate(reversed(body)):
+        permutation = _VERHOEFF_P[(position + 1) % len(_VERHOEFF_P)][int(digit)]
+        checksum = _VERHOEFF_D[checksum][permutation]
+    return str(_VERHOEFF_INV[checksum])
 
 
 def _validate_onboarding(

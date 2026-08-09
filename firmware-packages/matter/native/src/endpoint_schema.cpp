@@ -14,10 +14,10 @@ namespace {
 // brightness uses 0-254; color temperature is stored in mireds, and this
 // bridge supports 153-500 mireds. MicroPython can replace these defaults
 // with application-specific values.
-constexpr uint8_t kDefaultLevel = 254;
-constexpr uint16_t kDefaultTemperatureMireds = 250;
-constexpr uint16_t kMinimumTemperatureMireds = 153;
-constexpr uint16_t kMaximumTemperatureMireds = 500;
+constexpr uint8_t DEFAULT_LEVEL = 254;
+constexpr uint16_t DEFAULT_TEMPERATURE_MIREDS = 250;
+constexpr uint16_t MINIMUM_TEMPERATURE_MIREDS = 153;
+constexpr uint16_t MAXIMUM_TEMPERATURE_MIREDS = 500;
 
 bool defer_persistence(esp_matter::endpoint_t *endpoint, uint32_t cluster_id, uint32_t attribute_id)
 {
@@ -72,8 +72,8 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         esp_matter::endpoint::dimmable_light::config_t config;
         config.on_off.on_off = false;
         config.on_off_lighting.start_up_on_off = nullptr;
-        config.level_control.current_level = kDefaultLevel;
-        config.level_control.on_level = kDefaultLevel;
+        config.level_control.current_level = DEFAULT_LEVEL;
+        config.level_control.on_level = DEFAULT_LEVEL;
         config.level_control_lighting.start_up_current_level = nullptr;
         esp_matter::endpoint_t *endpoint = esp_matter::endpoint::dimmable_light::create(
             node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
@@ -89,15 +89,15 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         esp_matter::endpoint::extended_color_light::config_t config;
         config.on_off.on_off = false;
         config.on_off_lighting.start_up_on_off = nullptr;
-        config.level_control.current_level = kDefaultLevel;
-        config.level_control.on_level = kDefaultLevel;
+        config.level_control.current_level = DEFAULT_LEVEL;
+        config.level_control.on_level = DEFAULT_LEVEL;
         config.level_control_lighting.start_up_current_level = nullptr;
         config.color_control.color_mode = static_cast<uint8_t>(ColorControl::ColorMode::kColorTemperature);
         config.color_control.enhanced_color_mode =
             static_cast<uint8_t>(ColorControl::ColorMode::kColorTemperature);
-        config.color_control_color_temperature.color_temperature_mireds = kDefaultTemperatureMireds;
-        config.color_control_color_temperature.color_temp_physical_min_mireds = kMinimumTemperatureMireds;
-        config.color_control_color_temperature.color_temp_physical_max_mireds = kMaximumTemperatureMireds;
+        config.color_control_color_temperature.color_temperature_mireds = DEFAULT_TEMPERATURE_MIREDS;
+        config.color_control_color_temperature.color_temp_physical_min_mireds = MINIMUM_TEMPERATURE_MIREDS;
+        config.color_control_color_temperature.color_temp_physical_max_mireds = MAXIMUM_TEMPERATURE_MIREDS;
         config.color_control_color_temperature.start_up_color_temperature_mireds = nullptr;
         esp_matter::endpoint_t *endpoint = esp_matter::endpoint::extended_color_light::create(
             node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);

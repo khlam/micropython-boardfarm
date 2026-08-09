@@ -9,7 +9,7 @@ namespace {
 
 // Not a matter_value_type code: the classifier's way of saying the bridge
 // refuses this Matter type rather than carrying it.
-constexpr uint8_t kUnsupportedKind = 0xFF;
+constexpr uint8_t UNSUPPORTED_KIND = 0xFF;
 
 // The one place the carried Matter types are listed. Both directions classify
 // through here, so a width can be added without two lists drifting apart.
@@ -29,7 +29,7 @@ uint8_t attribute_type_to_value_kind(esp_matter_val_type_t type)
     case ESP_MATTER_VAL_TYPE_BITMAP16:
         return MATTER_VALUE_UINT16;
     default:
-        return kUnsupportedKind;
+        return UNSUPPORTED_KIND;
     }
 }
 

@@ -100,7 +100,7 @@ def test_boolean_attribute_requires_bool(value):
 
 @pytest.mark.parametrize("value", [True, 1.5, "1", None])
 def test_integer_attribute_requires_plain_int(value):
-    with pytest.raises(TypeError, match="requires int"):
+    with pytest.raises(TypeError, match="attribute value must be int"):
         validate_value(SCHEMAS[EndpointType.DIMMABLE_LIGHT], Paths.LEVEL, value)
 
 

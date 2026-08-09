@@ -97,10 +97,10 @@ def _capture(args: argparse.Namespace, started: float, deadline: float) -> None:
             _write(started, "-- no serial device appeared before the capture window closed --")
             return
         with port:
-            if pending:
-                _send(port, args.send, interrupt=args.interrupt)
-                pending = False
             try:
+                if pending:
+                    _send(port, args.send, interrupt=args.interrupt)
+                    pending = False
                 _read_lines(port, started, deadline)
             except serial.SerialException:
                 _write(started, "-- serial link dropped, reopening --")

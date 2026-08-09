@@ -127,6 +127,9 @@ ENTRYPOINT ["sh","-c", "\
 # (default /dev/ttyACM0; a socket:// URL on macOS via tools/serial-bridge.sh).
 # Inherits esp32-compile so esptool.py and the IDF environment are already
 # present; the compose esp32-flash service runs esp32-compile first.
+#
+# Real stage-sharing across the two Dockerfiles isn't safe here. Keep this in sync with
+# Dockerfile.matter's matter-flash stage.
 # -----------------------------------------------------------------------------
 FROM esp32-compile AS esp32-flash
 
