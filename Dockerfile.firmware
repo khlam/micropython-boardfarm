@@ -80,6 +80,11 @@ ENTRYPOINT ["sh","-c", "\
 # SPIRAM_OCT, which assumes external Octal PSRAM and is wrong for the FH4R2's
 # embedded Quad PSRAM. The esp32-flash stage below writes the result to a board.
 # -----------------------------------------------------------------------------
+# NimBLE in MICROPYTHON_REF's modbluetooth_nimble.c doesn't compile against
+# IDF >= v5.5.2's restructured ble_hs_state_ctx macros; pinned back until
+# MicroPython catches up. Dockerfile.matter disables the MicroPython BLE
+# bindings so it isn't affected and can track v5.5.5 independently.
+# renovate: datasource=docker depName=espressif/idf
 FROM espressif/idf:v5.5.1@sha256:dfa2d076c796769c07c155eba6c672b9f395aec943b2ba3701b73379b5f9e884 AS esp32-compile
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -122,6 +127,9 @@ ENTRYPOINT ["sh","-c", "\
 # (default /dev/ttyACM0; a socket:// URL on macOS via tools/serial-bridge.sh).
 # Inherits esp32-compile so esptool.py and the IDF environment are already
 # present; the compose esp32-flash service runs esp32-compile first.
+#
+# Real stage-sharing across the two Dockerfiles isn't safe here. Keep this in sync with
+# Dockerfile.matter's matter-flash stage.
 # -----------------------------------------------------------------------------
 FROM esp32-compile AS esp32-flash
 

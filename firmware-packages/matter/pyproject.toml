@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matter"
+version = "0.1.0"
+description = "Thread-safe MicroPython facade and native support code for Matter devices."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["matter"]

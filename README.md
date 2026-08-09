@@ -42,6 +42,7 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 - [cpython-packages/ 💻](cpython-packages/) contains shared CPython code. CPython runs on a computer, not on the MCU.
 - [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython code; the microcontroller's I²C bus, status LED, sensor drivers etc. Stubs enable tests to run with CPython.
 - [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
+- [MicroPython Matter Node](projects/matter/) uses MicroPython for product behavior over a native ESP-Matter ESP32-S3 backend.
 
 **Makefile**
 - Quality-gate helpers; see [CI.md](CI.md) for the full CI and pre-commit details.

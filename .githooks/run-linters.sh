@@ -66,6 +66,7 @@ if (( ${#py_files[@]} > 0 )); then
     -v "$PWD/firmware-packages":/work/firmware-packages:ro \
     -v "$PWD/cpython-packages":/work/cpython-packages:ro \
     -v "$PWD/projects":/work/projects:ro \
+    -v "$PWD/tools":/work/tools:ro \
     "$IMAGE_TAG_TYPECHECK" || fail=1
 fi
 

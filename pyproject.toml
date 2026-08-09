@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.9.0"
+version = "0.13.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,11 +17,15 @@ dependencies = [
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.2.0",
+    "matter>=0.1.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
+# tools/matter-build is there for the opposite reason: build.py is a bind-mounted
+# script rather than an installed package, so its tests need the directory itself.
 [tool.pytest.ini_options]
 pythonpath = [
+    "/tools/matter-build",
     "/firmware-packages/atgm336h/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
@@ -57,6 +61,7 @@ qmc5883p = { index = "internal" }
 smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
+matter = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -85,9 +90,13 @@ test = [
     "smoothing",
     "vl53l0x",
     "vl53l5cx",
+    "matter",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
+    "cryptography>=50.0.0",
+    "qrcode[pil]>=8.2",
+    "esp-idf-nvs-partition-gen>=0.3.0",
 ]
 
 # Packages install from wheels into site-packages, so measure them by import
@@ -101,6 +110,8 @@ source = [
   "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/multizone-ranging/firmware",
+  "/projects/matter/firmware",
+  "/tools/matter-build",
 ]
 source_pkgs = [
   "boot_status_led",
@@ -111,6 +122,7 @@ source_pkgs = [
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "matter",
   "serial_over_web",
 ]
 omit = [
@@ -142,11 +154,18 @@ exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-package
 min_confidence = 70
 exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
 
+# tools/matter-build runs as scripts from a bind mount, so build.py imports its
+# siblings by bare name off sys.path[0]. Nothing installs them, so ty needs the
+# directory named explicitly to resolve those imports.
+[tool.ty.environment]
+extra-paths = ["tools/matter-build"]
+
 [tool.ty.src]
 include = [
   "firmware-packages",
   "cpython-packages",
   "projects",
+  "tools",
 ]
 exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
@@ -256,6 +275,9 @@ unfixable = ["T201", "T203", "ERA001"]
 [tool.ruff.lint.per-file-ignores]
 # Firmware is flat-frozen; emit() owns print output.
 "projects/*/firmware/*" = ["T201", "INP001"]
+# Docker-only helpers, executed by path from a bind mount rather than imported,
+# so they are deliberately loose scripts instead of an installable package.
+"tools/*/*" = ["INP001"]
 "**/{tests}/*" = [
   "PLR2004", "S101", "TID252",
   "PLC2701", "D100", "D103", "ANN201", "ANN202",
@@ -285,6 +307,7 @@ known-first-party = [
   "vl53l5cx",
   "serial_over_web",
   "micropython_stubs",
+  "matter",
 ]
 
 [tool.ruff.lint.mccabe]

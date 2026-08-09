@@ -66,12 +66,14 @@ jobs:
           )
           ./.githooks/run-linters.sh "${files[@]}"
   test:
-    name: Pytest (full suite + 90% coverage gate)
+    name: Tests (native + pytest with 90% coverage gate)
     needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Run native Matter queue tests
+        run: docker compose up matter-native-test --build --exit-code-from matter-native-test
       - name: Run pytest
         run: docker compose up pytest --build --exit-code-from pytest
   compile-firmware:
@@ -87,10 +89,16 @@ jobs:
           - gps
           - gyro-stream
           - led-effects
+          - matter
           - multizone-ranging
         target:
           - rp
           - esp32
+        exclude:
+          # Matter is ESP32-S3-only — projects/matter/docker-compose.yaml has
+          # no pi-compile service.
+          - project: matter
+            target: rp
         include:
           # max_bytes: per-artifact size budgets (cloud-only). See CI.md
           # "Firmware size budgets" for the rationale and how to bump them.
@@ -104,6 +112,10 @@ jobs:
             label: ESP32-S3
             pattern: outputs/*.bin
             max_bytes: 2097152  # 2 MiB per .bin
+          # esp32-matter's build.py enforces 4 MiB flash-size cap
+          - project: matter
+            target: esp32
+            max_bytes: 4194304  # 4 MiB (board flash size)
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6

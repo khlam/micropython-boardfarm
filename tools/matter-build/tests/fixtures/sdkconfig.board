@@ -1,0 +1,12 @@
+# Trimmed stand-in for a board sdkconfig fragment. Every shape the parser has to
+# survive appears at least once: a comment, a blank line, a bare token with no
+# "=", indentation, a quoted value, and a FLASHSIZE key that is set to n.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=n
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+NOT_A_SETTING
+    CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL="fctry"
+CONFIG_DEVICE_VENDOR_ID=0xFFF1
+CONFIG_DEVICE_PRODUCT_ID=0x8001
