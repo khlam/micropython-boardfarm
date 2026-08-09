@@ -16,6 +16,7 @@ services:
       - ./native/board:/matter-board:ro
       - ./pyproject.toml:/project/pyproject.toml:ro
       - ./outputs:/outputs
+      - matter-build-cache:/build-cache
 
   # Reads the board without rebuilding or reflashing, so it can be pointed at
   # whatever image is already running.
@@ -55,3 +56,6 @@ services:
       - c 166:* rmw
     extra_hosts:
       - host.docker.internal:host-gateway
+
+volumes:
+  matter-build-cache:

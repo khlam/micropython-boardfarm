@@ -27,7 +27,9 @@ ARG QRCODE_VERSION
 ARG ESP_IDF_NVS_PARTITION_GEN_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive \
+    CCACHE_DIR=/build-cache/ccache \
     ESP_MATTER_PATH=/opt/esp-matter \
+    IDF_CCACHE_ENABLE=1 \
     MATTER_SDK_PATH=/opt/esp-matter/connectedhomeip/connectedhomeip \
     MICROPYTHON_TOP=/opt/micropython
 
@@ -36,7 +38,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # python3-pip is not part of this base image's system Python and is needed
 # below to install the credential-minting dependencies.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libffi-dev python3-dev python3-pip \
+ && apt-get install -y --no-install-recommends ccache libffi-dev python3-dev python3-pip \
  && rm -rf /var/lib/apt/lists/*
 
 RUN git init /opt/esp-matter \
@@ -83,7 +85,7 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
       "qrcode[pil]==${QRCODE_VERSION}" \
       esp-idf-nvs-partition-gen==${ESP_IDF_NVS_PARTITION_GEN_VERSION}
 
-RUN mkdir -p /outputs
+RUN mkdir -p /build-cache /outputs
 
 COPY manifest.py /manifest.py
 

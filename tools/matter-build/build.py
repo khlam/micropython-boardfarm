@@ -45,6 +45,7 @@ import qr_image
 import spake2p
 
 _BOARD_DIR = Path("/matter-board/ESP32_S3_MATTER")
+_BUILD_CACHE = Path("/build-cache")
 _MANIFEST = Path("/manifest.py")
 _MATTER_NATIVE = Path("/firmware-packages/matter/native")
 _MICROPYTHON_PORT = Path("/opt/micropython/ports/esp32")
@@ -122,12 +123,18 @@ def main() -> int:
     model = _pyproject_to_model(_PROJECT_TOML)
     identity = _board_to_identity(_BOARD_DIR, _DISCOVERY_MODE)
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
-        build_root = Path(scratch)
-        _build_firmware(build_root)
+        staging_root = Path(scratch)
+        _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
+        _build_firmware(_BUILD_CACHE)
         factory, qr, manual, payload, discriminator = _mint_credentials(
-            build_root, identity, manufacturer, serial_number, model, passcode
+            staging_root, identity, manufacturer, serial_number, model, passcode
         )
-        merged = _merge_image(build_root, factory, identity)
+        merged = _merge_image(
+            _BUILD_CACHE,
+            factory,
+            identity,
+            artifact_root=staging_root,
+        )
         _validate_merged_image(merged, factory, qr, identity)
         _validate_factory_identity(
             nvs_partition_read.read_factory_partition(factory, nvs_partition_gen.NAMESPACE),
@@ -341,13 +348,21 @@ def _random_passcode() -> int:
             return passcode
 
 
-def _merge_image(build_root: Path, factory: Path, identity: _BuildIdentity) -> Path:
+def _merge_image(
+    build_root: Path,
+    factory: Path,
+    identity: _BuildIdentity,
+    *,
+    artifact_root: Path | None = None,
+) -> Path:
     """Combine the IDF build and the factory partition into one flashable image.
 
     Runs from the IDF build directory because @flash_args names the bootloader,
-    partition table and application by paths relative to it.
+    partition table and application by paths relative to it. The merged image can
+    be staged outside the persistent compilation tree so per-device artifacts do
+    not become build-cache state.
     """
-    merged = build_root / _MERGED_NAME
+    merged = (artifact_root if artifact_root is not None else build_root) / _MERGED_NAME
     _run(
         [
             "esptool.py",

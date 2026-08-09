@@ -47,6 +47,12 @@ firmware and its matching commissioning artifacts:
 docker compose up --build --exit-code-from esp32-compile esp32-compile
 ```
 
+Compose keeps the IDF/Ninja build tree and compiler cache in the named
+`matter-build-cache` volume. Rebuilding the toolchain image does not discard that
+volume, so a firmware-only edit recompiles only the affected sources. To force a
+fully clean compile, remove the cache with `docker compose down --volumes` before
+running the build again.
+
 The build produces three files under `outputs/`:
 
 - `app.esp32-s3.bin` is the merged firmware and factory-data image.
