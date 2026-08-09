@@ -42,6 +42,15 @@ bool defer_extended_color_attributes(esp_matter::endpoint_t *endpoint)
                              ColorControl::Attributes::ColorTemperatureMireds::Id);
 }
 
+// Every post-create failure path funnels through here so a half-configured
+// endpoint is torn down rather than left attached to the node with no
+// Python-side ID ever recorded.
+esp_matter::endpoint_t *destroy_and_fail(esp_matter::node_t *node, esp_matter::endpoint_t *endpoint)
+{
+    esp_matter::endpoint::destroy(node, endpoint);
+    return nullptr;
+}
+
 } // namespace
 
 // The `start_up_*` fields are left null so ESP-Matter can restore values saved
@@ -68,8 +77,11 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         config.level_control_lighting.start_up_current_level = nullptr;
         esp_matter::endpoint_t *endpoint = esp_matter::endpoint::dimmable_light::create(
             node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
-        if (endpoint == nullptr || !defer_dimmable_attributes(endpoint)) {
+        if (endpoint == nullptr) {
             return nullptr;
+        }
+        if (!defer_dimmable_attributes(endpoint)) {
+            return destroy_and_fail(node, endpoint);
         }
         return endpoint;
     }
@@ -94,17 +106,17 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         }
         esp_matter::cluster_t *color_cluster = esp_matter::cluster::get(endpoint, ColorControl::Id);
         if (color_cluster == nullptr) {
-            return nullptr;
+            return destroy_and_fail(node, endpoint);
         }
         esp_matter::cluster::color_control::feature::hue_saturation::config_t hue_saturation;
         hue_saturation.current_hue = 0;
         hue_saturation.current_saturation = 0;
         if (esp_matter::cluster::color_control::feature::hue_saturation::add(color_cluster,
                                                                             &hue_saturation) != ESP_OK) {
-            return nullptr;
+            return destroy_and_fail(node, endpoint);
         }
         if (!defer_extended_color_attributes(endpoint)) {
-            return nullptr;
+            return destroy_and_fail(node, endpoint);
         }
         return endpoint;
     }
