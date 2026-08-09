@@ -112,13 +112,7 @@ jobs:
             label: ESP32-S3
             pattern: outputs/*.bin
             max_bytes: 2097152  # 2 MiB per .bin
-          # Matter's merged image carries ESP-Matter plus a minted factory-NVS
-          # partition, deterministically padded to that partition's end offset
-          # (native/board/ESP32_S3_MATTER/partitions.csv) regardless of app
-          # code size — far bigger than the plain-MicroPython esp32 budget
-          # above. build.py's own _validate_merged_image already enforces the
-          # 4 MiB flash-size cap; this check exists only for parity with the
-          # other projects' artifact-size gate.
+          # esp32-matter's build.py enforces 4 MiB flash-size cap
           - project: matter
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
