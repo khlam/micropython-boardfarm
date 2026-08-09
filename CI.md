@@ -74,15 +74,9 @@ The UF2 check is per-file by design: a project emits one universal
 one grows too large — each is then checked against the same budget independently.
 Bump `max_bytes` deliberately when a size increase is justified.
 
-The `matter` budget is the odd one out: it equals the board's flash size exactly
-rather than following the ~10–15%-headroom rule. `tools/matter-build/build.py`
-merges the compiled app with a freshly minted factory-NVS partition at a fixed
-offset from the board's partition table, so the merged image is deterministically
-padded to the same size on every build regardless of application code size —
-`build.py`'s own `_validate_merged_image` already refuses to publish an image
-past the flash-size cap. This CI check exists for parity with the other
-projects' artifact-size gate and mainly catches truncation/corruption, not
-code-size growth.
+The `matter` image is deterministically padded to the same size on every build
+regardless of application code size — `build.py`'s own `_validate_merged_image` 
+also checks flash-size. This CI check exists for parity.
 
 ### Renovate
 
