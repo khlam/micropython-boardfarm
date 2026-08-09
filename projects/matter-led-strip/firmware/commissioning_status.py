@@ -17,8 +17,9 @@ endpoint it needs are handed in explicitly:
 
 import time
 
-import matter
 from color import matter_to_triple
+
+import matter
 
 BOOT_COLOR = (25, 25, 25)
 READY_COLOR = (0, 25, 0)
@@ -105,7 +106,7 @@ def show(color: tuple, stamp: int) -> None:
     if color == _last_shown[0]:
         return
     _last_shown[0] = color
-    _render[0](color)
+    _render[0](color)  # ty: ignore[call-non-callable]
 
 
 def on_commissioning(event: object) -> None:

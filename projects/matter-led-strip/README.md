@@ -15,7 +15,7 @@ where the service is set up.
 
 ## Wiring
 
-`DIN` goes to `GPIO7`. Common ground is mandatory: board `GND`, strip `GND`,
+`DIN` goes to `GPIO4`. Common ground is mandatory: board `GND`, strip `GND`,
 and the 5V supply must share a ground or the data line has no reference.
 
 ```
@@ -28,10 +28,10 @@ and the 5V supply must share a ground or the data line has no reference.
                            1 ─┤                       ├─ 10
                            2 ─┤                       ├─ 9
                            3 ─┤  [BOOT] (●) [RESET]   ├─ 8
-                           4 ─┤        WS2812         ├─ 43
+        WS2812B DIN ◄───   4 ─┤        WS2812         ├─ 43
                            5 ─┤        on GPIO21      ├─ 44
                            6 ─┤                       ├─ 14
-        WS2812B DIN ◄───   7 ─┤   ESP32-S3-Zero       ├─ 15
+                           7 ─┤   ESP32-S3-Zero       ├─ 15
                               │                       │
                               └─┬────┬────┬────┬────┬─┘
                                 │    │    │    │    │

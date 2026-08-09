@@ -273,8 +273,9 @@ fixable = ["ALL"]
 unfixable = ["T201", "T203", "ERA001"]
 
 [tool.ruff.lint.per-file-ignores]
-# Firmware is flat-frozen; emit() owns print output.
-"projects/*/firmware/*" = ["T201", "INP001"]
+# Firmware is flat-frozen; emit() owns print output. MicroPython has no
+# pathlib, so `open()` is the only file API available on-device.
+"projects/*/firmware/*" = ["T201", "INP001", "PTH"]
 # Docker-only helpers, executed by path from a bind mount rather than imported,
 # so they are deliberately loose scripts instead of an installable package.
 "tools/*/*" = ["INP001"]

@@ -36,11 +36,9 @@ def load() -> dict | None:
     try:
         with open(_CACHE_PATH) as cache_file:
             data = ujson.load(cache_file)
-        if not isinstance(data, dict) or len(data.get("color", ())) != 3:
-            raise ValueError("malformed boot cache")
-    except OSError:
+    except (OSError, ValueError):
         return None
-    except ValueError:
+    if not isinstance(data, dict) or len(data.get("color", ())) != 3:
         return None
     return data
 
@@ -58,12 +56,7 @@ def save(*, on: bool, color: tuple) -> None:
 
 
 def _mount() -> None:
-    """Mount the cache partition, formatting it on first boot.
-
-    Raises:
-        OSError: The `boot_cache` partition is missing from the flashed
-            partition table.
-    """
+    """Mount the cache partition, formatting it on first boot."""
     if _mounted[0]:
         return
     partition = esp32.Partition.find(esp32.Partition.TYPE_DATA, label=_PARTITION_LABEL)[0]

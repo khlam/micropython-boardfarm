@@ -20,12 +20,12 @@ import os
 import time
 from collections import namedtuple
 
+import boot_cache
+import commissioning_status
 import machine
 import neopixel
 from color import matter_to_triple, publish_triple
 
-import boot_cache
-import commissioning_status
 import matter
 
 # data_pin is the external strip's data line, kept separate from the onboard
@@ -34,7 +34,7 @@ Board = namedtuple("Board", ("name", "data_pin"))
 _machine = os.uname().machine
 if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
-BOARD = Board(name="ESP32-S3-Zero", data_pin=7)
+BOARD = Board(name="ESP32-S3-Zero", data_pin=4)
 
 LED_COUNT = 20
 
@@ -122,4 +122,6 @@ node.start()
 # uniformly across the strip. An uncommissioned board settles on green unless
 # a queued window/session event selected purple or cyan. fabrics() takes the
 # same bounded request.cpp round trip as the attribute writes above.
-commissioning_status.show_post_start_state(has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp)
+commissioning_status.show_post_start_state(
+    has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp
+)
