@@ -5,11 +5,12 @@ then drops to the REPL with `strip`, `node`, `endpoint`, and the functions
 below still in scope, so a serial session can drive the light and administer
 the node.
 
-The commissioning-status light show (boot/ready/pairing/failure colours) and
-the boot-cache read/write live in `commissioning_status.py` and
-`boot_cache.py`; this file owns the strip hardware and the two paths that set
-a real, controller-meaningful colour: `set_color` (local/REPL) and
-`on_remote_write` (a controller write).
+The commissioning-status light show (boot/ready/pairing/failure colours, shown
+on the onboard WS2812) and the boot-cache read/write live in
+`commissioning_status.py` and `boot_cache.py`; this file owns both pieces of
+hardware and the two paths that set a real, controller-meaningful colour on
+the external strip: `set_color` (local/REPL) and `on_remote_write` (a
+controller write).
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code that drives ESP-Matter/CHIP; see
@@ -37,16 +38,23 @@ if "ESP32S3" not in _machine:
 BOARD = Board(name="ESP32-S3-Zero", data_pin=4)
 
 LED_COUNT = 20
+STATUS_LED_PIN = 21  # ESP32-S3-Zero onboard WS2812
 
 # Last colour on_remote_write actually rendered
 _last_remote_color = [None]
 
 
 def render(color: tuple) -> None:
-    """Drive the strip. Every hardware touch in this project is these two lines."""
+    """Drive the external strip. See `render_status` for the onboard WS2812."""
     for i in range(LED_COUNT):
         strip[i] = color
     strip.write()
+
+
+def render_status(color: tuple) -> None:
+    """Drive the onboard WS2812. The only other hardware touch in this project."""
+    status_led[0] = color
+    status_led.write()
 
 
 def set_color(color: tuple) -> None:
@@ -58,7 +66,7 @@ def set_color(color: tuple) -> None:
     Args:
         color: Red, green, and blue channel values in the range 0-255.
     """
-    commissioning_status.show(color, time.ticks_ms())
+    commissioning_status.show_strip(color, time.ticks_ms())
     # Below: Endpoint.publish -> _matter.attribute_publish -> request.cpp
     # matter_attribute_publish -- a bounded round trip onto the CHIP task
     # (ARCHITECTURE.md "A local change going out").
@@ -85,22 +93,27 @@ def on_remote_write(_event: object) -> None:
     if color == _last_remote_color[0]:
         return
     _last_remote_color[0] = color
-    commissioning_status.show(color, time.ticks_ms())
+    commissioning_status.show_strip(color, time.ticks_ms())
     if commissioning_status.is_commissioned():
         boot_cache.save(on=endpoint.on, color=color)
 
 
 strip = neopixel.NeoPixel(machine.Pin(BOARD.data_pin, machine.Pin.OUT), LED_COUNT)
-commissioning_status.bind_render(render)
+status_led = neopixel.NeoPixel(machine.Pin(STATUS_LED_PIN, machine.Pin.OUT), 1)
+commissioning_status.bind_strip_render(render)
+commissioning_status.bind_status_render(render_status)
 
 # A previously-commissioned board that has shown a real colour restores that
-# colour immediately, before Matter's own (much slower) native restore is even
-# reachable -- see commissioning_status.py's module docstring. Everything else
-# still sees today's dim-white boot colour.
+# colour on the strip immediately, before Matter's own (much slower) native
+# restore is even reachable -- see commissioning_status.py's module
+# docstring. Everything else leaves the strip dark and shows today's
+# dim-white boot colour on the onboard status LED instead.
 _startup_stamp = time.ticks_ms()
 _cached = boot_cache.load()
-_boot_color = tuple(_cached["color"]) if _cached is not None else commissioning_status.BOOT_COLOR
-commissioning_status.show(_boot_color, _startup_stamp)
+if _cached is not None:
+    commissioning_status.show_strip(tuple(_cached["color"]), _startup_stamp)
+else:
+    commissioning_status.show_status(commissioning_status.BOOT_COLOR, _startup_stamp)
 
 node = matter.Node()
 
@@ -119,9 +132,10 @@ node.on_commissioning(commissioning_status.on_commissioning)
 node.start()
 
 # A commissioned board restores its last controller-owned colour, applied
-# uniformly across the strip. An uncommissioned board settles on green unless
-# a queued window/session event selected purple or cyan. fabrics() takes the
-# same bounded request.cpp round trip as the attribute writes above.
+# uniformly across the strip. An uncommissioned board settles on a green
+# onboard status LED unless a queued window/session event selected purple or
+# cyan. fabrics() takes the same bounded request.cpp round trip as the
+# attribute writes above.
 commissioning_status.show_post_start_state(
     has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp
 )

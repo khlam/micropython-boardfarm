@@ -1,18 +1,24 @@
-"""Commissioning-status light show for the strip: boot/ready/pairing/failure colours.
+"""Commissioning-status light show for the onboard and external strip LEDs.
 
-`main.py` owns the strip hardware and the two real colour-setting paths
+Boot/ready/pairing/failure colours on the onboard WS2812, real colour changes
+on the external strip.
+
+`main.py` owns both pieces of hardware and the two real colour-setting paths
 (`set_color`, `on_remote_write`); this module owns only the decision of what
-the strip should show while ESP-Matter is starting up or commissioning, plus
-the shared stamp-ordered render gate both sides funnel through so a status
-transition and a controller write can never race each other out of order.
+each LED should show while ESP-Matter is starting up or commissioning, plus
+two independent stamp-ordered render gates -- one per LED, so a status
+transition can never race another status transition, and a controller write
+can never race another controller write, out of order on the hardware each
+one owns.
 
 This module never touches `machine`/`neopixel` directly and has no reference
-to `main.py`'s globals, so the strip's render callback and the Matter node/
-endpoint it needs are handed in explicitly:
+to `main.py`'s globals, so the render callbacks and the Matter node/endpoint
+it needs are handed in explicitly:
 
-    commissioning_status.bind_render(render)      # as soon as `strip` exists
+    commissioning_status.bind_status_render(render_status)  # onboard WS2812
+    commissioning_status.bind_strip_render(render)           # external strip
     ...
-    commissioning_status.bind_node(node, endpoint) # as soon as they exist
+    commissioning_status.bind_node(node, endpoint)           # as soon as they exist
 """
 
 import time
@@ -33,22 +39,27 @@ _COMMISSIONING_COLORS = {
     matter.Commissioning.OPENED: WINDOW_COLOR,
 }
 
-# Injected dependencies. List cells so bind_render()/bind_node() can set them
-# without `global`, matching the mutable-cell idiom used for the state below.
-_render = [None]
+# Injected dependencies. List cells so the bind_*()/bind_node() calls can set
+# them without `global`, matching the mutable-cell idiom used for the state
+# below.
+_status_render = [None]
+_strip_render = [None]
 _node = [None]
 _endpoint = [None]
 
-# Tick the current colour was commanded on. Ordering only, never written to
-# flash. A list cell so `show()` below can update it without `global`.
-_stamp = [0]
+# Tick the current colour was commanded on, one per gate since the two LEDs
+# are driven independently. Ordering only, never written to flash. List cells
+# so show_status()/show_strip() below can update them without `global`.
+_status_stamp = [0]
+_strip_stamp = [0]
 
-# Last colour actually rendered, regardless of who commanded it. Distinct from
-# `_stamp`: two calls can legitimately share a stamp (the post-start
-# reconciliation reuses the pre-start boot stamp) without that meaning the
-# colour changed, so this stops the second call from repeating a hardware
-# write `show()` already made.
-_last_shown = [None]
+# Last colour actually rendered on each LED, regardless of who commanded it.
+# Distinct from the stamps above: two calls can legitimately share a stamp
+# (the post-start reconciliation reuses the pre-start boot stamp) without that
+# meaning the colour changed, so this stops the second call from repeating a
+# hardware write its gate already made.
+_last_status_shown = [None]
+_last_strip_shown = [None]
 
 # Commissioning events can be delivered while Node.start() is still returning.
 # Mutable cells let the callback record that state without publishing through
@@ -60,13 +71,23 @@ _last_commissioning_stamp = [0]
 _pending_commissioned_off = [None]
 
 
-def bind_render(render: object) -> None:
-    """Wire up the hardware write callback. Call as soon as the strip exists.
+def bind_status_render(render: object) -> None:
+    """Wire up the onboard status LED's write callback.
+
+    Args:
+        render: Callable accepting one RGB byte triple and driving the
+            onboard WS2812.
+    """
+    _status_render[0] = render
+
+
+def bind_strip_render(render: object) -> None:
+    """Wire up the external strip's write callback. Call as soon as `strip` exists.
 
     Args:
         render: Callable accepting one RGB byte triple and driving the strip.
     """
-    _render[0] = render
+    _strip_render[0] = render
 
 
 def bind_node(node: object, endpoint: object) -> None:
@@ -85,28 +106,42 @@ def is_commissioned() -> bool:
     return _commissioned[0]
 
 
-def show(color: tuple, stamp: int) -> None:
-    """Render a colour unless a newer one was already commanded or it repeats.
+def _gate(
+    color: tuple, stamp: int, stamp_cell: list, last_shown_cell: list, render: object
+) -> None:
+    """Render on one LED unless a newer command already won or this one repeats.
 
-    Callbacks can run out of order, so an older decision could otherwise
-    overwrite a newer one. Comparing stamps stops that. Comparing against the
-    last colour actually rendered stops a same-stamp repeat (the post-start
-    reconciliation call) from bit-banging the strip twice for one colour.
+    Shared by `show_status` and `show_strip`, each passing its own cells so
+    the two LEDs are gated independently -- callbacks can run out of order,
+    and a same-stamp repeat (the post-start reconciliation call) must not
+    bit-bang the LED twice.
 
     Args:
-        color: Red, green, and blue channel values in the range 0-255.
-        stamp: `time.ticks_ms()` reading from when the colour was commanded.
-            Equal stamps render, so the boot baseline still shows.
+        color: RGB byte triple to render.
+        stamp: Tick the colour was commanded on, for ordering against gate.
+        stamp_cell: This LED's one-element `[stamp]` ordering cell.
+        last_shown_cell: This LED's one-element `[colour]` de-dup cell.
+        render: Callable accepting one RGB byte triple and driving the LED.
     """
+    if time.ticks_diff(stamp, stamp_cell[0]) < 0:
+        return
+    stamp_cell[0] = stamp
+    if color == last_shown_cell[0]:
+        return
+    last_shown_cell[0] = color
+    render(color)  # ty: ignore[call-non-callable]
+
+
+def show_status(color: tuple, stamp: int) -> None:
+    """Render a status colour on the onboard LED unless a newer one already won."""
     if _commissioning_failed[0] and color != FAILED_COLOR:
         return
-    if time.ticks_diff(stamp, _stamp[0]) < 0:
-        return
-    _stamp[0] = stamp
-    if color == _last_shown[0]:
-        return
-    _last_shown[0] = color
-    _render[0](color)  # ty: ignore[call-non-callable]
+    _gate(color, stamp, _status_stamp, _last_status_shown, _status_render[0])
+
+
+def show_strip(color: tuple, stamp: int) -> None:
+    """Render a real colour on the external strip unless a newer one already won."""
+    _gate(color, stamp, _strip_stamp, _last_strip_shown, _strip_render[0])
 
 
 def on_commissioning(event: object) -> None:
@@ -121,20 +156,15 @@ def on_commissioning(event: object) -> None:
     _last_commissioning_stamp[0] = stamp
     if state == matter.Commissioning.FAILED:
         _commissioning_failed[0] = True
-        _show_status(FAILED_COLOR, stamp)
+        show_status(FAILED_COLOR, stamp)
         return
     if state == matter.Commissioning.COMPLETE:
         _commissioning_failed[0] = False
         _commissioned[0] = True
         _finish_commissioning(stamp)
         return
-    if _commissioning_failed[0]:
-        return
-    color = _COMMISSIONING_COLORS.get(state)
-    if color is not None:
-        _show_status(color, stamp)
-    elif state == matter.Commissioning.CLOSED:
-        _restore_after_window(stamp)
+    if not _commissioning_failed[0]:
+        _show_commissioning_color(state, stamp)
 
 
 def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
@@ -152,28 +182,38 @@ def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
         return
     commissioning_stamp = _last_commissioning_stamp[0]
     if _commissioning_failed[0]:
-        _show_status(FAILED_COLOR, commissioning_stamp)
+        show_status(FAILED_COLOR, commissioning_stamp)
         return
-    state = _last_commissioning_state[0]
-    color = _COMMISSIONING_COLORS.get(state)
-    if color is not None:
-        _show_status(color, commissioning_stamp)
-    elif state == matter.Commissioning.CLOSED:
-        _restore_after_window(commissioning_stamp)
-    elif _commissioned[0]:
-        _show_status(matter_to_triple(_endpoint[0]), startup_stamp)
+    if _show_commissioning_color(_last_commissioning_state[0], commissioning_stamp):
+        return
+    if _commissioned[0]:
+        show_strip(matter_to_triple(_endpoint[0]), startup_stamp)
     else:
-        _show_status(READY_COLOR, startup_stamp)
+        show_status(READY_COLOR, startup_stamp)
 
 
-def _show_status(color: tuple, stamp: int) -> None:
-    """Render a status colour using the transition's original ordering stamp.
+def _show_commissioning_color(state: object, stamp: int) -> bool:
+    """Show `state`'s status colour, or restore after a closed window.
+
+    Shared by `on_commissioning` and `show_post_start_state`: the same state
+    maps to the same action whether handled live or reconciled after
+    `Node.start()` returns.
 
     Args:
-        color: Static project-owned status colour.
-        stamp: Tick captured when the transition occurred.
+        state: The commissioning state to render, or `None`.
+        stamp: Tick the state was observed on, for gate ordering.
+
+    Returns:
+        Whether `state` was recognised and handled.
     """
-    show(color, stamp)
+    color = _COMMISSIONING_COLORS.get(state)
+    if color is not None:
+        show_status(color, stamp)
+        return True
+    if state == matter.Commissioning.CLOSED:
+        _restore_after_window(stamp)
+        return True
+    return False
 
 
 def _finish_commissioning(stamp: int) -> None:
@@ -184,7 +224,7 @@ def _finish_commissioning(stamp: int) -> None:
     pending until the node reports that it has started.
     """
     _pending_commissioned_off[0] = stamp
-    _show_status(OFF_COLOR, stamp)
+    show_strip(OFF_COLOR, stamp)
     node = _node[0]
     if not node.started:
         return
@@ -202,6 +242,6 @@ def _restore_after_window(stamp: int) -> None:
     if not node.started:
         return
     if _commissioned[0]:
-        _show_status(matter_to_triple(_endpoint[0]), stamp)
+        show_strip(matter_to_triple(_endpoint[0]), stamp)
     else:
-        _show_status(READY_COLOR, stamp)
+        show_status(READY_COLOR, stamp)

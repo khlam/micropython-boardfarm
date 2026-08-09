@@ -38,45 +38,50 @@ and the 5V supply must share a ground or the data line has no reference.
                                 16   17   18   21   45
 ```
 
-## What the strip is telling you
+## What the onboard status LED is telling you
 
-Until the board is paired the strip is a commissioning indicator, so you can
-follow a pairing attempt without a serial monitor attached:
+Until the board is paired, the onboard WS2812 (GPIO21) is a commissioning
+indicator, so you can follow a pairing attempt without a serial monitor
+attached. The external strip never shows these colours — it is reserved for
+the real, controller-meaningful light state:
 
-| Strip | Meaning |
+| Onboard LED | Meaning |
 | --- | --- |
 | Dim white | Firmware running, ESP-Matter still starting |
 | Steady green | Uncommissioned and ready to pair |
 | Steady purple | A commissioning window is open, nobody has engaged |
 | Steady cyan | A commissioner is talking to the board |
 | Solid red | Commissioning failed — stays red until the board is reset |
-| Off | Commissioned; the strip now belongs to the controller |
 
 Every colour the firmware picks for itself is capped at ten percent of full
 scale, because a status light has no business being the brightest thing in the
-room. Only a controller-commanded level is allowed to reach maximum, and a
-controller write renders at exactly the level it asks for.
+room. Only a controller-commanded level is allowed to reach maximum on the
+strip, and a controller write renders at exactly the level it asks for.
 
 Commissioning succeeding turns the strip off *and* publishes `OnOff` as false,
 so the accessory shows as off in the home rather than claiming to be lit while
 the board is dark. On later boots, a commissioned board restores the last
-controller-owned power, brightness, and colour instead of showing the
-commissioning indicator again. Opening a new commissioning window temporarily
-shows its status colour; closing it restores the controller-owned light state.
+controller-owned power, brightness, and colour on the strip directly, without
+ever lighting the boot/ready indicator. Opening a new commissioning window
+shows its status colour on the onboard LED; closing it restores the
+controller-owned light state on the strip, or leaves the strip dark and the
+onboard LED green if the board still isn't commissioned.
 
 ## Boot-cache behaviour
 
 Once the strip has shown a real controller-owned colour while commissioned, a
-power cycle shows that exact colour immediately — no dim-white boot flash, no
-green "ready" flash — and holds it until ESP-Matter's own restore confirms it
-(the normal case, silent) or a genuine new remote write arrives. This is
-separate from ESP-Matter's own persistence: `firmware/boot_cache.py` keeps a
-small local copy of the last colour in a dedicated flash partition
-(`boot_cache` in `native/board/ESP32_S3_MATTER/partitions.csv`) precisely
-because ESP-Matter's own store isn't readable until `node.start()` returns,
+power cycle shows that exact colour on the strip immediately — the onboard
+status LED never lights its dim-white boot or green "ready" colour at all —
+and holds it until ESP-Matter's own restore confirms it (the normal case,
+silent) or a genuine new remote write arrives. This is separate from
+ESP-Matter's own persistence: `firmware/boot_cache.py` keeps a small local
+copy of the last colour in a dedicated flash partition (`boot_cache` in
+`native/board/ESP32_S3_MATTER/partitions.csv`) precisely because ESP-Matter's
+own store isn't readable until `node.start()` returns,
 which is the one thing this behaviour needs to happen before. A board that has
 never been commissioned, or has been commissioned but never yet given a real
-colour command, still shows the ordinary boot flash above.
+colour command, still shows the ordinary boot indicator on the onboard LED
+above, with the strip dark.
 
 ## Build and flash
 
@@ -135,18 +140,20 @@ can accept it.
 ## Add the light to Apple Home
 
 1. Power or reset the flashed board and leave it running. A board that has never
-   been paired settles on green, then turns purple once it opens its window.
+   been paired settles on a green onboard LED, then turns purple once it opens
+   its window.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
-   `outputs/app.esp32-s3.setup.txt`. The strip turns cyan when Home engages.
+   `outputs/app.esp32-s3.setup.txt`. The onboard LED turns cyan when Home
+   engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
-   the light to a room. The strip goes dark on success and the light appears in
-   Home switched off — turn it on there to take the strip over.
+   the light to a room. The onboard LED goes dark on success and the light
+   appears in Home switched off — turn it on there to take the strip over.
 
 Once the light is on, whichever side wrote most recently is what the strip
 shows. Both directions are plain functions in `firmware/main.py` that funnel
-through `firmware/commissioning_status.py`'s `show()`, which is the only path
-to `render()` — the one function that touches
+through `firmware/commissioning_status.py`'s `show_strip()`, which is the only
+path to `render()` — the one function that touches
 `strip[i] = color; strip.write()`:
 
 - A color, brightness or power change from a controller wakes
