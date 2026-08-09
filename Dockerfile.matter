@@ -33,10 +33,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     MATTER_SDK_PATH=/opt/esp-matter/connectedhomeip/connectedhomeip \
     MICROPYTHON_TOP=/opt/micropython
 
-# Pigweed pins a source-only cffi release while creating its isolated Python
-# environment, so the SDK image needs the Python and libffi headers at bootstrap.
-# python3-pip is not part of this base image's system Python and is needed
-# below to install the credential-minting dependencies.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ccache libffi-dev python3-dev python3-pip \
  && rm -rf /var/lib/apt/lists/*
@@ -77,9 +73,6 @@ RUN mkdir -p /build-cache /outputs
 
 COPY manifest.py /manifest.py
 
-# export.sh mutates PATH and much else in the calling shell and cannot be sourced
-# from Python, so the shell here is only an environment prologue; the build itself
-# lives in /matter-tools/build.py.
 ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   . /opt/esp-matter/export.sh; \
