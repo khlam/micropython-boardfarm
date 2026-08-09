@@ -102,18 +102,22 @@ strip = neopixel.NeoPixel(machine.Pin(BOARD.data_pin, machine.Pin.OUT), LED_COUN
 status_led = neopixel.NeoPixel(machine.Pin(STATUS_LED_PIN, machine.Pin.OUT), 1)
 commissioning_status.bind_strip_render(render)
 commissioning_status.bind_status_render(render_status)
+commissioning_status.start_animator()
 
 # A previously-commissioned board that has shown a real colour restores that
 # colour on the strip immediately, before Matter's own (much slower) native
 # restore is even reachable -- see commissioning_status.py's module
-# docstring. Everything else leaves the strip dark and shows today's
-# dim-white boot colour on the onboard status LED instead.
+# docstring. Everything else shows today's dim-white boot colour on the
+# onboard status LED and explicitly holds the strip off, since a warm reset
+# (no power cycle) would otherwise leave a WS2812 strip showing whatever it
+# was last driven to.
 _startup_stamp = time.ticks_ms()
 _cached = boot_cache.load()
 if _cached is not None:
     commissioning_status.show_strip(tuple(_cached["color"]), _startup_stamp)
 else:
     commissioning_status.show_status(commissioning_status.BOOT_COLOR, _startup_stamp)
+    commissioning_status.show_strip(commissioning_status.OFF_COLOR, _startup_stamp)
 
 node = matter.Node()
 
@@ -132,10 +136,10 @@ node.on_commissioning(commissioning_status.on_commissioning)
 node.start()
 
 # A commissioned board restores its last controller-owned colour, applied
-# uniformly across the strip. An uncommissioned board settles on a green
-# onboard status LED unless a queued window/session event selected purple or
-# cyan. fabrics() takes the same bounded request.cpp round trip as the
-# attribute writes above.
+# uniformly across the strip, and shows dim green on the onboard LED. An
+# uncommissioned board settles on steady cyan across both LEDs unless a
+# queued window/session event is still pending. fabrics() takes the same
+# bounded request.cpp round trip as the attribute writes above.
 commissioning_status.show_post_start_state(
     has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp
 )

@@ -1,7 +1,8 @@
 """Commissioning-status light show for the onboard and external strip LEDs.
 
-Boot/ready/pairing/failure colours on the onboard WS2812, real colour changes
-on the external strip.
+Boot/ready/pairing/failure colours and patterns on the onboard WS2812, mirrored
+onto the external strip while the board is uncommissioned; real controller
+colour changes on the external strip once it is commissioned.
 
 `main.py` owns both pieces of hardware and the two real colour-setting paths
 (`set_color`, `on_remote_write`); this module owns only the decision of what
@@ -11,33 +12,48 @@ transition can never race another status transition, and a controller write
 can never race another controller write, out of order on the hardware each
 one owns.
 
-This module never touches `machine`/`neopixel` directly and has no reference
-to `main.py`'s globals, so the render callbacks and the Matter node/endpoint
-it needs are handed in explicitly:
+This module never touches `neopixel` or claims a GPIO pin directly -- `main.py`
+still owns every pin assignment -- and has no reference to `main.py`'s
+globals, so the render callbacks and the Matter node/endpoint it needs are
+handed in explicitly:
 
     commissioning_status.bind_status_render(render_status)  # onboard WS2812
     commissioning_status.bind_strip_render(render)           # external strip
     ...
     commissioning_status.bind_node(node, endpoint)           # as soon as they exist
+    commissioning_status.start_animator()                    # arms the pattern ticker
+
+It does own ESP32 hardware timer 0, with a soft callback dispatched through
+the MicroPython scheduler, to drive the "breathe" and "blink" patterns below.
 """
 
+import math
 import time
 
+import machine
+import micropython
 from color import matter_to_triple
 
 import matter
 
 BOOT_COLOR = (25, 25, 25)
-READY_COLOR = (0, 25, 0)
-WINDOW_COLOR = (25, 0, 25)
-SESSION_COLOR = (0, 25, 25)
+CYAN_COLOR = (0, 25, 25)
+COMMISSIONED_COLOR = (0, 25, 0)
 FAILED_COLOR = (25, 0, 0)
 OFF_COLOR = (0, 0, 0)
 
-_COMMISSIONING_COLORS = {
-    matter.Commissioning.STARTED: SESSION_COLOR,
-    matter.Commissioning.OPENED: WINDOW_COLOR,
+# Animation tick rate and the two pattern periods it drives. Chosen so both
+# period lengths are exact multiples of the tick, keeping blink edges crisp.
+_TICK_MS = micropython.const(50)
+_BREATHE_PERIOD_MS = micropython.const(3000)
+_BLINK_PERIOD_MS = micropython.const(3000)
+_BLINK_ON_MS = micropython.const(500)
+
+_COMMISSIONING_PATTERNS = {
+    matter.Commissioning.STARTED: (("breathe", CYAN_COLOR), ("breathe", CYAN_COLOR)),
+    matter.Commissioning.OPENED: (("steady", CYAN_COLOR), ("steady", CYAN_COLOR)),
 }
+_READY_PATTERN = (("steady", CYAN_COLOR), ("steady", CYAN_COLOR))
 
 # Injected dependencies. List cells so the bind_*()/bind_node() calls can set
 # them without `global`, matching the mutable-cell idiom used for the state
@@ -69,6 +85,16 @@ _commissioning_failed = [False]
 _last_commissioning_state = [None]
 _last_commissioning_stamp = [0]
 _pending_commissioned_off = [None]
+
+# The active (mode, color) pattern per LED, or None while that LED is
+# steady. Both share one stamp: every frame of the current animation carries
+# the stamp of the state transition that started it, so a genuinely newer
+# transition -- which advances the gate's stamp cell -- automatically
+# outraces any stale in-flight frame without extra bookkeeping.
+_onboard_anim = [None]
+_ring_anim = [None]
+_anim_stamp = [0]
+_timer = [None]
 
 
 def bind_status_render(render: object) -> None:
@@ -104,6 +130,81 @@ def bind_node(node: object, endpoint: object) -> None:
 def is_commissioned() -> bool:
     """Return whether this boot has observed the board as commissioned."""
     return _commissioned[0]
+
+
+def start_animator() -> None:
+    """Arm the periodic ticker that drives "breathe" and "blink" patterns.
+
+    Call once during boot, after both render callbacks are bound. ESP32's
+    MicroPython port exposes only physical timers, numbered from zero; its
+    default soft callback is made explicit so NeoPixel writes run on the VM
+    task rather than in interrupt context. The `Timer` is kept in a module
+    cell so it isn't garbage-collected once armed.
+    """
+    _timer[0] = machine.Timer(0)
+    _timer[0].init(
+        mode=machine.Timer.PERIODIC,
+        period=_TICK_MS,
+        callback=_render_tick,
+        hard=False,
+    )
+
+
+def _frame_color(mode: str, color: tuple, elapsed_ms: int) -> tuple:
+    """Compute one animation frame for `mode` at `elapsed_ms` into its cycle.
+
+    Args:
+        mode: `"steady"`, `"breathe"`, or `"blink"`.
+        color: The pattern's peak colour.
+        elapsed_ms: Milliseconds since the pattern started.
+
+    Returns:
+        The RGB byte triple to render this frame.
+    """
+    if mode == "breathe":
+        phase = (elapsed_ms % _BREATHE_PERIOD_MS) / _BREATHE_PERIOD_MS
+        factor = (1 - math.cos(2 * math.pi * phase)) / 2
+        return tuple(round(channel * factor) for channel in color)
+    if mode == "blink":
+        return color if elapsed_ms % _BLINK_PERIOD_MS < _BLINK_ON_MS else OFF_COLOR
+    return color
+
+
+def _apply(onboard: tuple, ring: tuple, stamp: int) -> None:
+    """Render or animate both LEDs for one state transition.
+
+    The single choke point for every commissioning-state transition: renders
+    frame 0 immediately (so there's no flash-of-black waiting for the next
+    tick), then arms or clears the per-LED animation cells so `_render_tick`
+    picks up "breathe"/"blink" patterns on subsequent ticks.
+
+    Args:
+        onboard: `(mode, color)` for the onboard LED.
+        ring: `(mode, color)` for the external strip.
+        stamp: Tick this transition was commanded on.
+    """
+    _anim_stamp[0] = stamp
+    _onboard_anim[0] = onboard if onboard[0] != "steady" else None
+    _ring_anim[0] = ring if ring[0] != "steady" else None
+    show_status(_frame_color(onboard[0], onboard[1], 0), stamp)
+    show_strip(_frame_color(ring[0], ring[1], 0), stamp)
+
+
+def _render_tick(_arg: object) -> None:
+    """Render the current animation frame from the timer's soft callback.
+
+    Args:
+        _arg: The firing `machine.Timer`. Unused.
+    """
+    if _onboard_anim[0] is None and _ring_anim[0] is None:
+        return
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), _anim_stamp[0])
+    onboard = _onboard_anim[0]
+    if onboard is not None:
+        show_status(_frame_color(onboard[0], onboard[1], elapsed_ms), _anim_stamp[0])
+    ring = _ring_anim[0]
+    if ring is not None:
+        show_strip(_frame_color(ring[0], ring[1], elapsed_ms), _anim_stamp[0])
 
 
 def _gate(
@@ -156,7 +257,7 @@ def on_commissioning(event: object) -> None:
     _last_commissioning_stamp[0] = stamp
     if state == matter.Commissioning.FAILED:
         _commissioning_failed[0] = True
-        show_status(FAILED_COLOR, stamp)
+        _apply(("steady", FAILED_COLOR), ("blink", FAILED_COLOR), stamp)
         return
     if state == matter.Commissioning.COMPLETE:
         _commissioning_failed[0] = False
@@ -164,7 +265,7 @@ def on_commissioning(event: object) -> None:
         _finish_commissioning(stamp)
         return
     if not _commissioning_failed[0]:
-        _show_commissioning_color(state, stamp)
+        _show_commissioning_pattern(state, stamp)
 
 
 def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
@@ -182,18 +283,22 @@ def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
         return
     commissioning_stamp = _last_commissioning_stamp[0]
     if _commissioning_failed[0]:
-        show_status(FAILED_COLOR, commissioning_stamp)
+        _apply(("steady", FAILED_COLOR), ("blink", FAILED_COLOR), commissioning_stamp)
         return
-    if _show_commissioning_color(_last_commissioning_state[0], commissioning_stamp):
+    if _show_commissioning_pattern(_last_commissioning_state[0], commissioning_stamp):
         return
     if _commissioned[0]:
-        show_strip(matter_to_triple(_endpoint[0]), startup_stamp)
+        _apply(
+            ("steady", COMMISSIONED_COLOR),
+            ("steady", matter_to_triple(_endpoint[0])),
+            startup_stamp,
+        )
     else:
-        show_status(READY_COLOR, startup_stamp)
+        _apply(*_READY_PATTERN, startup_stamp)
 
 
-def _show_commissioning_color(state: object, stamp: int) -> bool:
-    """Show `state`'s status colour, or restore after a closed window.
+def _show_commissioning_pattern(state: object, stamp: int) -> bool:
+    """Show `state`'s status pattern, or restore after a closed window.
 
     Shared by `on_commissioning` and `show_post_start_state`: the same state
     maps to the same action whether handled live or reconciled after
@@ -206,9 +311,9 @@ def _show_commissioning_color(state: object, stamp: int) -> bool:
     Returns:
         Whether `state` was recognised and handled.
     """
-    color = _COMMISSIONING_COLORS.get(state)
-    if color is not None:
-        show_status(color, stamp)
+    pair = _COMMISSIONING_PATTERNS.get(state)
+    if pair is not None:
+        _apply(*pair, stamp)
         return True
     if state == matter.Commissioning.CLOSED:
         _restore_after_window(stamp)
@@ -224,7 +329,7 @@ def _finish_commissioning(stamp: int) -> None:
     pending until the node reports that it has started.
     """
     _pending_commissioned_off[0] = stamp
-    show_strip(OFF_COLOR, stamp)
+    _apply(("steady", COMMISSIONED_COLOR), ("steady", OFF_COLOR), stamp)
     node = _node[0]
     if not node.started:
         return
@@ -242,6 +347,6 @@ def _restore_after_window(stamp: int) -> None:
     if not node.started:
         return
     if _commissioned[0]:
-        show_strip(matter_to_triple(_endpoint[0]), stamp)
+        _apply(("steady", COMMISSIONED_COLOR), ("steady", matter_to_triple(_endpoint[0])), stamp)
     else:
-        show_status(READY_COLOR, stamp)
+        _apply(*_READY_PATTERN, stamp)
