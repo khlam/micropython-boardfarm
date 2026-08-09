@@ -65,18 +65,6 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
  && cd /opt/esp-matter \
  && ./install.sh --no-host-tool
 
-# esp-matter's own install.sh pulls in esp-matter-mfg-tool via its
-# requirements.txt regardless of this Dockerfile -- entirely separate from the
-# explicit espressif/esp-matter-tools checkout this project used to add on top.
-# /matter-tools/build.py never calls it, so it's uninstalled here rather than
-# left as dead weight carrying its own dozen-package dependency graph (several
-# unmaintained) into the final image. Credential-minting dependencies for
-# build.py are then installed into whichever Python environment is active once
-# both export.sh scripts have run -- the same one the ENTRYPOINT activates
-# before exec'ing build.py -- rather than the bare system python3, since
-# Pigweed's install.sh replaces PATH's python3 with its own isolated
-# environment. --break-system-packages: this is a disposable, single-purpose
-# image with no system Python to protect.
 RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
  && . /opt/esp-matter/export.sh \
  && python3 -m pip uninstall -y esp-matter-mfg-tool \
