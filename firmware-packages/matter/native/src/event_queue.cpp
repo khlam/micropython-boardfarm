@@ -43,6 +43,27 @@ static std::atomic<uint32_t> next_sequence{0U};
 // either core.
 static portMUX_TYPE event_queue_lock = portMUX_INITIALIZER_UNLOCKED;
 
+// Send `event` into `queue`, dropping the oldest queued event and retrying if
+// full, then notify MicroPython.
+static void enqueue_event(QueueHandle_t queue, const matter_event &event, bool count_overflow)
+{
+    if (queue == nullptr) {
+        return;
+    }
+    const QueuedEvent queued{next_sequence.fetch_add(1U), event};
+    if (xQueueSend(queue, &queued, 0) != pdTRUE) {
+        portENTER_CRITICAL(&event_queue_lock);
+        QueuedEvent discarded;
+        xQueueReceive(queue, &discarded, 0);
+        xQueueSend(queue, &queued, 0);
+        if (count_overflow) {
+            overflow_generation.fetch_add(1U);
+        }
+        portEXIT_CRITICAL(&event_queue_lock);
+    }
+    matter_bridge_notify_event();
+}
+
 bool sequence_precedes(uint32_t left, uint32_t right)
 {
     return right - left < HALF_SEQUENCE_RANGE;
@@ -83,19 +104,7 @@ void destroy_event_queues(void)
 
 void publish_attribute_event(const matter_event &event)
 {
-    if (attribute_events == nullptr) {
-        return;
-    }
-    const QueuedEvent queued{next_sequence.fetch_add(1U), event};
-    if (xQueueSend(attribute_events, &queued, 0) != pdTRUE) {
-        portENTER_CRITICAL(&event_queue_lock);
-        QueuedEvent discarded;
-        xQueueReceive(attribute_events, &discarded, 0);
-        xQueueSend(attribute_events, &queued, 0);
-        overflow_generation.fetch_add(1U);
-        portEXIT_CRITICAL(&event_queue_lock);
-    }
-    matter_bridge_notify_event();
+    enqueue_event(attribute_events, event, true);
 }
 
 void publish_commissioning(matter_commissioning_state state)
@@ -109,18 +118,7 @@ void publish_commissioning(matter_commissioning_state state)
         MATTER_VALUE_UINT8,
         MATTER_ORIGIN_REMOTE,
     };
-    if (commissioning_events == nullptr) {
-        return;
-    }
-    const QueuedEvent queued{next_sequence.fetch_add(1U), event};
-    if (xQueueSend(commissioning_events, &queued, 0) != pdTRUE) {
-        portENTER_CRITICAL(&event_queue_lock);
-        QueuedEvent discarded;
-        xQueueReceive(commissioning_events, &discarded, 0);
-        xQueueSend(commissioning_events, &queued, 0);
-        portEXIT_CRITICAL(&event_queue_lock);
-    }
-    matter_bridge_notify_event();
+    enqueue_event(commissioning_events, event, false);
 }
 
 } // namespace matter_bridge
