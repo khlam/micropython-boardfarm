@@ -26,8 +26,25 @@ node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 ```
 
-`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, and `EXTENDED_COLOR_LIGHT` endpoints are
-supported, including multiple endpoints on one node. `get()` reads the
+`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, and `MODE_SELECT`
+endpoints are supported, including multiple endpoints on one node. A Mode
+Select endpoint takes a controller-facing description plus 1-16 ordered,
+unique labels; each label's index is its mode value:
+
+```python
+pattern = node.create_endpoint(
+    matter.EndpointType.MODE_SELECT,
+    description="Pattern",
+    modes=("None", "Breathe", "Rainbow"),
+)
+```
+
+Controllers change `pattern.mode` through the standard Mode Select command,
+and a local assignment publishes the new CurrentMode to subscribers. The
+controller decides whether that endpoint appears as a dropdown, picker, or no
+visible control.
+
+`get()` reads the
 Python-owned state, which is automatically hydrated from ESP-Matter persistence
 during `Node.start()`. Restoration does not invoke callbacks.
 

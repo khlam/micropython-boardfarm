@@ -8,6 +8,13 @@
 # There is no hardware-output dependency: product behavior belongs to project
 # firmware, not this protocol component.
 
+# Mode Select is an app-config-dependent CHIP cluster. ESP-Matter exposes its
+# endpoint factory but does not add the server implementation to its component,
+# so the bridge attaches that source to ESP-Matter whenever it offers the endpoint.
+set(MATTER_MODE_SELECT_SERVER
+    "${MATTER_SDK_PATH}/src/app/clusters/mode-select-server/mode-select-server.cpp"
+)
+
 idf_component_register(
     SRCS
         "src/callbacks.cpp"
@@ -22,4 +29,6 @@ idf_component_register(
     REQUIRES esp_matter
 )
 
+idf_component_get_property(ESP_MATTER_LIB esp_matter COMPONENT_LIB)
+target_sources(${ESP_MATTER_LIB} PRIVATE "${MATTER_MODE_SELECT_SERVER}")
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

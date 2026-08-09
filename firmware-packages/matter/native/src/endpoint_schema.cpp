@@ -2,10 +2,15 @@
 // SPDX-License-Identifier: MIT
 #include "endpoint_schema.h"
 
+#include <cstring>
+
+#include <app/clusters/mode-select-server/supported-modes-manager.h>
+
 #include "matter/bridge.h"
 
 namespace ColorControl = chip::app::Clusters::ColorControl;
 namespace LevelControl = chip::app::Clusters::LevelControl;
+namespace ModeSelect = chip::app::Clusters::ModeSelect;
 
 namespace matter_bridge {
 namespace {
@@ -18,6 +23,59 @@ constexpr uint8_t DEFAULT_LEVEL = 254;
 constexpr uint16_t DEFAULT_TEMPERATURE_MIREDS = 250;
 constexpr uint16_t MINIMUM_TEMPERATURE_MIREDS = 153;
 constexpr uint16_t MAXIMUM_TEMPERATURE_MIREDS = 500;
+
+class ModeOptionsManager final : public ModeSelect::SupportedModesManager {
+public:
+    void configure(const matter_mode_option *options, size_t option_count)
+    {
+        count = option_count;
+        for (size_t index = 0; index < option_count; ++index) {
+            const size_t length = std::strlen(options[index].label);
+            std::memcpy(labels[index], options[index].label, length + 1);
+            mode_options[index].label = chip::CharSpan(labels[index], length);
+            mode_options[index].mode = options[index].mode;
+            mode_options[index].semanticTags = {};
+        }
+    }
+
+    void bind(uint16_t endpoint)
+    {
+        endpoint_id = endpoint;
+    }
+
+    ModeOptionsProvider getModeOptionsProvider(chip::EndpointId endpoint) const override
+    {
+        if (endpoint != endpoint_id) {
+            return {};
+        }
+        return ModeOptionsProvider(mode_options, mode_options + count);
+    }
+
+    chip::Protocols::InteractionModel::Status
+    getModeOptionByMode(chip::EndpointId endpoint, uint8_t mode,
+                        const ModeSelect::Structs::ModeOptionStruct::Type **option) const override
+    {
+        using chip::Protocols::InteractionModel::Status;
+        if (endpoint != endpoint_id || option == nullptr) {
+            return Status::InvalidCommand;
+        }
+        for (size_t index = 0; index < count; ++index) {
+            if (mode_options[index].mode == mode) {
+                *option = &mode_options[index];
+                return Status::Success;
+            }
+        }
+        return Status::InvalidCommand;
+    }
+
+private:
+    char labels[MATTER_MAX_MODE_OPTIONS][MATTER_MODE_TEXT_SIZE]{};
+    ModeSelect::Structs::ModeOptionStruct::Type mode_options[MATTER_MAX_MODE_OPTIONS]{};
+    size_t count = 0;
+    uint16_t endpoint_id = 0;
+};
+
+ModeOptionsManager mode_options_manager;
 
 bool defer_persistence(esp_matter::endpoint_t *endpoint, uint32_t cluster_id, uint32_t attribute_id)
 {
@@ -52,6 +110,23 @@ esp_matter::endpoint_t *destroy_and_fail(esp_matter::node_t *node, esp_matter::e
 }
 
 } // namespace
+
+esp_matter::endpoint_t *mode_select_endpoint(esp_matter::node_t *node, const char *description,
+                                             const matter_mode_option *options, size_t option_count)
+{
+    mode_options_manager.configure(options, option_count);
+    esp_matter::endpoint::mode_select::config_t config;
+    const size_t description_length = std::strlen(description);
+    std::memcpy(config.mode_select.description, description, description_length + 1);
+    config.mode_select.current_mode = options[0].mode;
+    config.mode_select.delegate = &mode_options_manager;
+    esp_matter::endpoint_t *endpoint = esp_matter::endpoint::mode_select::create(
+        node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (endpoint != nullptr) {
+        mode_options_manager.bind(esp_matter::endpoint::get_id(endpoint));
+    }
+    return endpoint;
+}
 
 // The `start_up_*` fields are left null so ESP-Matter can restore values saved
 // from an earlier boot instead of forcing these constructor defaults every

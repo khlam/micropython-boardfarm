@@ -22,6 +22,7 @@ from matter.schema import (
     Commissioning,
     EndpointType,
     Origin,
+    Paths,
 )
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "Fabric",
     "Node",
     "Origin",
+    "Paths",
     "WriteEvent",
 ]

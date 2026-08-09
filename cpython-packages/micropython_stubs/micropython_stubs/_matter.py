@@ -14,6 +14,8 @@ _ON_OFF_CLUSTER = 0x0006
 _ON_OFF_ATTRIBUTE = 0x0000
 _LEVEL_CONTROL_CLUSTER = 0x0008
 _CURRENT_LEVEL_ATTRIBUTE = 0x0000
+_MODE_SELECT_CLUSTER = 0x0050
+_CURRENT_MODE_ATTRIBUTE = 0x0003
 _COLOR_CONTROL_CLUSTER = 0x0300
 _CURRENT_HUE_ATTRIBUTE = 0x0000
 _CURRENT_SATURATION_ATTRIBUTE = 0x0001
@@ -41,10 +43,12 @@ _EXTENDED_COLOR_DEFAULTS = (
     ((_COLOR_CONTROL_CLUSTER, _COLOR_MODE_ATTRIBUTE), 2),
     ((_COLOR_CONTROL_CLUSTER, _ENHANCED_COLOR_MODE_ATTRIBUTE), 2),
 )
+_MODE_SELECT_DEFAULTS = (((_MODE_SELECT_CLUSTER, _CURRENT_MODE_ATTRIBUTE), 0),)
 _ENDPOINT_DEFAULTS = (
     _BASE_DEFAULTS,
     _DIMMABLE_DEFAULTS,
     _EXTENDED_COLOR_DEFAULTS,
+    _MODE_SELECT_DEFAULTS,
 )
 
 
@@ -58,6 +62,7 @@ class _State:
         self.started = False
         self.next_endpoint_id = 1
         self.endpoints: dict[int, int] = {}
+        self.mode_options: dict[int, tuple] = {}
         self.attributes: dict[tuple[int, int, int], object] = {}
         self.persisted: dict[tuple[int, int, int], object] = {}
         self.attribute_events: list[tuple] = []
@@ -81,6 +86,7 @@ def reset(*, persisted: dict | None = None) -> None:
     _state.started = False
     _state.next_endpoint_id = 1
     _state.endpoints.clear()
+    _state.mode_options.clear()
     _state.attributes.clear()
     _state.persisted.clear()
     if persisted is not None:
@@ -108,16 +114,23 @@ def node_create() -> None:
     _state.node_created = True
 
 
-def endpoint_create(endpoint_type: int) -> int:
+def endpoint_create(
+    endpoint_type: int,
+    description: str | None = None,
+    modes: tuple | None = None,
+) -> int:
     """Create an endpoint and return a deterministic endpoint ID."""
     _raise_failure("endpoint_create")
     if not _state.node_created or _state.started:
         raise OSError(errno.EINVAL, "endpoint creation is not allowed")
     if not 0 <= endpoint_type < len(_ENDPOINT_DEFAULTS):
         raise OSError(errno.EINVAL, "unsupported endpoint type")
+    _validate_endpoint_metadata(endpoint_type, description, modes)
     endpoint_id = _state.next_endpoint_id
     _state.next_endpoint_id += 1
     _state.endpoints[endpoint_id] = endpoint_type
+    if modes is not None:
+        _state.mode_options[endpoint_id] = modes
     for (cluster_id, attribute_id), value in _ENDPOINT_DEFAULTS[endpoint_type]:
         _state.attributes[(endpoint_id, cluster_id, attribute_id)] = value
     return endpoint_id
@@ -258,6 +271,15 @@ def _store_attribute(endpoint_id: int, cluster_id: int, attribute_id: int, value
         raise OSError(errno.ENOENT, "attribute does not exist")
     _state.attributes[path] = value
     _state.persisted[path] = value
+
+
+def _validate_endpoint_metadata(endpoint_type: int, description: object, modes: object) -> None:
+    """Enforce the native adapter's endpoint metadata contract."""
+    if endpoint_type == 3:
+        if not isinstance(description, str) or not isinstance(modes, tuple):
+            raise OSError(errno.EINVAL, "Mode Select metadata is required")
+    elif description is not None or modes is not None:
+        raise OSError(errno.EINVAL, "endpoint metadata is unsupported")
 
 
 def _queue_event(queue: list[tuple], event: tuple, *, attribute: bool) -> None:

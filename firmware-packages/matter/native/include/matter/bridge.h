@@ -21,6 +21,16 @@ enum matter_endpoint_type {
     MATTER_ENDPOINT_ON_OFF_LIGHT = 0,
     MATTER_ENDPOINT_DIMMABLE_LIGHT = 1,
     MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT = 2,
+    MATTER_ENDPOINT_MODE_SELECT = 3,
+};
+
+// Bounded setup metadata copied into native storage before the stack starts.
+// Labels use the Matter Mode Select limit plus a C terminator.
+enum { MATTER_MAX_MODE_OPTIONS = 16, MATTER_MODE_TEXT_SIZE = 65 };
+
+struct matter_mode_option {
+    uint8_t mode;
+    char label[MATTER_MODE_TEXT_SIZE];
 };
 
 // Which fields of a queued event carry meaning. An attribute event fills the
@@ -99,6 +109,12 @@ int matter_node_create(void);
 // Returns EINVAL for an unknown type, before a node exists, or after start;
 // ENOSPC past the endpoint ceiling; or EIO.
 int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_id);
+
+// Add the sole Mode Select endpoint with positional, application-owned labels.
+// Returns EINVAL for malformed metadata, EALREADY after one Mode Select
+// endpoint exists, ENOSPC at either endpoint ceiling, or EIO.
+int matter_mode_select_endpoint_create(const char *description, const struct matter_mode_option *options,
+                                       size_t option_count, uint16_t *endpoint_id);
 
 // Seed one attribute before the stack starts, so the value lands on what the
 // stack will restore from flash rather than on a running mirror.

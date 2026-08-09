@@ -1,16 +1,13 @@
 """Commissioning-status light show for the onboard and external strip LEDs.
 
-Boot/ready/pairing/failure colours and patterns on the onboard WS2812, mirrored
-onto the external strip while the board is uncommissioned; real controller
-colour changes on the external strip once it is commissioned.
+Boot/ready/pairing/failure colours and patterns appear on the onboard WS2812
+and reserve the external strip while ESP-Matter is starting or commissioning.
+Once released, the project pattern renderer owns the strip again.
 
-`main.py` owns both pieces of hardware and the two real colour-setting paths
-(`set_color`, `on_remote_write`); this module owns only the decision of what
-each LED should show while ESP-Matter is starting up or commissioning, plus
-two independent stamp-ordered render gates -- one per LED, so a status
-transition can never race another status transition, and a controller write
-can never race another controller write, out of order on the hardware each
-one owns.
+`main.py` owns both pieces of hardware; this module owns only the decision of
+what each LED should show during a status overlay, plus two independent
+stamp-ordered render gates -- one per LED -- so status transitions cannot
+reach either piece of hardware out of order.
 
 This module never touches `neopixel` or claims a GPIO pin directly -- `main.py`
 still owns every pin assignment -- and has no reference to `main.py`'s
@@ -58,6 +55,7 @@ _READY_PATTERN = (("steady", CYAN_COLOR), ("steady", CYAN_COLOR))
 # below.
 _status_render = [None]
 _strip_render = [None]
+_strip_release = [None]
 _node = [None]
 _endpoint = [None]
 
@@ -83,6 +81,7 @@ _commissioning_failed = [False]
 _last_commissioning_state = [None]
 _last_commissioning_stamp = [0]
 _pending_commissioned_off = [None]
+_strip_reserved = [True]
 
 # The active (mode, color) pattern per LED, or None while that LED is
 # steady. Both share one stamp: every frame of the current animation carries
@@ -114,6 +113,15 @@ def bind_strip_render(render: object) -> None:
     _strip_render[0] = render
 
 
+def bind_strip_release(callback: object) -> None:
+    """Wire the callback that restores application output after an overlay.
+
+    Args:
+        callback: Callable restarting the application-owned strip renderer.
+    """
+    _strip_release[0] = callback
+
+
 def bind_node(node: object, endpoint: object) -> None:
     """Wire up the Matter node/endpoint. Call as soon as they're constructed.
 
@@ -128,6 +136,11 @@ def bind_node(node: object, endpoint: object) -> None:
 def is_commissioned() -> bool:
     """Return whether this boot has observed the board as commissioned."""
     return _commissioned[0]
+
+
+def strip_available() -> bool:
+    """Return whether application output currently owns the external strip."""
+    return not _strip_reserved[0]
 
 
 def start_animator() -> None:
@@ -235,7 +248,7 @@ def show_status(color: tuple, stamp: int) -> None:
 
 
 def show_strip(color: tuple, stamp: int) -> None:
-    """Render a real colour on the external strip unless a newer one already won."""
+    """Render a status overlay on the strip unless a newer one already won."""
     _gate(color, stamp, _strip_stamp, _last_strip_shown, _strip_render[0])
 
 
@@ -251,6 +264,7 @@ def on_commissioning(event: object) -> None:
     _last_commissioning_stamp[0] = stamp
     if state == matter.Commissioning.FAILED:
         _commissioning_failed[0] = True
+        _reserve_strip()
         _apply(("steady", FAILED_COLOR), ("blink", FAILED_COLOR), stamp)
         return
     if state == matter.Commissioning.COMPLETE:
@@ -277,6 +291,7 @@ def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
         return
     commissioning_stamp = _last_commissioning_stamp[0]
     if _commissioning_failed[0]:
+        _reserve_strip()
         _apply(("steady", FAILED_COLOR), ("blink", FAILED_COLOR), commissioning_stamp)
         return
     if _show_commissioning_pattern(_last_commissioning_state[0], commissioning_stamp):
@@ -287,7 +302,9 @@ def show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
             ("steady", matter_to_triple(_endpoint[0])),
             startup_stamp,
         )
+        _release_strip()
     else:
+        _reserve_strip()
         _apply(*_READY_PATTERN, startup_stamp)
 
 
@@ -307,6 +324,7 @@ def _show_commissioning_pattern(state: object, stamp: int) -> bool:
     """
     pair = _COMMISSIONING_PATTERNS.get(state)
     if pair is not None:
+        _reserve_strip()
         _apply(*pair, stamp)
         return True
     if state == matter.Commissioning.CLOSED:
@@ -322,6 +340,7 @@ def _finish_commissioning(stamp: int) -> None:
     that case the strip can turn off immediately, while publication remains
     pending until the node reports that it has started.
     """
+    _reserve_strip()
     _pending_commissioned_off[0] = stamp
     _apply(("steady", COMMISSIONED_COLOR), ("steady", OFF_COLOR), stamp)
     node = _node[0]
@@ -329,6 +348,7 @@ def _finish_commissioning(stamp: int) -> None:
         return
     _endpoint[0].on = False
     _pending_commissioned_off[0] = None
+    _release_strip()
 
 
 def _restore_after_window(stamp: int) -> None:
@@ -342,5 +362,26 @@ def _restore_after_window(stamp: int) -> None:
         return
     if _commissioned[0]:
         _apply(("steady", COMMISSIONED_COLOR), ("steady", matter_to_triple(_endpoint[0])), stamp)
+        _release_strip()
     else:
+        _reserve_strip()
         _apply(*_READY_PATTERN, stamp)
+
+
+def _reserve_strip() -> None:
+    """Give the commissioning overlay exclusive access to the strip."""
+    if not _strip_reserved[0]:
+        # Application patterns bypass the overlay's de-duplication cache, so
+        # the first overlay frame must be treated as new after every handoff.
+        _last_strip_shown[0] = None
+    _strip_reserved[0] = True
+
+
+def _release_strip() -> None:
+    """Return strip ownership to the application and restart its renderer."""
+    if not _strip_reserved[0]:
+        return
+    _strip_reserved[0] = False
+    callback = _strip_release[0]
+    if callback is not None:
+        callback()

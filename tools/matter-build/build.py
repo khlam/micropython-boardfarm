@@ -293,14 +293,23 @@ def _run(
 
 
 def _build_firmware(build_root: Path) -> None:
-    """Compile MicroPython with the ESP-Matter native module into build_root."""
+    """Compile MicroPython with the ESP-Matter native module into build_root.
+
+    ESP-IDF treats an existing generated sdkconfig as authoritative and uses
+    SDKCONFIG_DEFAULTS only for keys that file does not already contain. Remove
+    only those generated configuration snapshots before configuring so board
+    default changes take effect without discarding compiled objects or ccache.
+    """
+    idf_build = build_root / "idf"
+    for generated_config in (idf_build / "sdkconfig", idf_build / "sdkconfig.old"):
+        generated_config.unlink(missing_ok=True)
     _run(
         [
             "idf.py",
             "-C",
             str(_MICROPYTHON_PORT),
             "-B",
-            str(build_root / "idf"),
+            str(idf_build),
             "-D",
             f"MICROPY_BOARD={_BOARD_NAME}",
             "-D",

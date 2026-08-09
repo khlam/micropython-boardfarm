@@ -87,14 +87,58 @@ static mp_obj_t node_create(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(node_create_obj, node_create);
 
-// Add one endpoint of the given type and return the ID the stack assigned.
-static mp_obj_t endpoint_create(mp_obj_t endpoint_type_in)
+// Add one endpoint and return the ID the stack assigned. Mode Select receives
+// its bounded description and positional labels as the second and third args.
+static mp_obj_t endpoint_create(size_t argument_count, const mp_obj_t *arguments)
 {
+    const uint8_t endpoint_type = (uint8_t)mp_obj_get_int(arguments[0]);
     uint16_t endpoint_id = 0;
-    check(matter_endpoint_create((uint8_t)mp_obj_get_int(endpoint_type_in), &endpoint_id));
+    if (endpoint_type != MATTER_ENDPOINT_MODE_SELECT) {
+        if (argument_count > 1 && arguments[1] != mp_const_none) {
+            mp_raise_ValueError(MP_ERROR_TEXT("endpoint metadata is unsupported"));
+        }
+        if (argument_count > 2 && arguments[2] != mp_const_none) {
+            mp_raise_ValueError(MP_ERROR_TEXT("endpoint metadata is unsupported"));
+        }
+        check(matter_endpoint_create(endpoint_type, &endpoint_id));
+        return mp_obj_new_int_from_uint(endpoint_id);
+    }
+    if (argument_count != 3 || !mp_obj_is_str(arguments[1])) {
+        mp_raise_TypeError(MP_ERROR_TEXT("Mode Select metadata is required"));
+    }
+    size_t description_length = 0;
+    const char *description_in = mp_obj_str_get_data(arguments[1], &description_length);
+    if (description_length == 0 || description_length >= MATTER_MODE_TEXT_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Mode Select description is out of range"));
+    }
+    char description[MATTER_MODE_TEXT_SIZE];
+    memcpy(description, description_in, description_length);
+    description[description_length] = '\0';
+
+    size_t option_count = 0;
+    mp_obj_t *mode_objects = NULL;
+    mp_obj_get_array(arguments[2], &option_count, &mode_objects);
+    if (option_count == 0 || option_count > MATTER_MAX_MODE_OPTIONS) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Mode Select option count is out of range"));
+    }
+    struct matter_mode_option options[MATTER_MAX_MODE_OPTIONS] = {0};
+    for (size_t index = 0; index < option_count; ++index) {
+        if (!mp_obj_is_str(mode_objects[index])) {
+            mp_raise_TypeError(MP_ERROR_TEXT("Mode Select labels must be str"));
+        }
+        size_t label_length = 0;
+        const char *label = mp_obj_str_get_data(mode_objects[index], &label_length);
+        if (label_length == 0 || label_length >= MATTER_MODE_TEXT_SIZE) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Mode Select label is out of range"));
+        }
+        options[index].mode = (uint8_t)index;
+        memcpy(options[index].label, label, label_length);
+        options[index].label[label_length] = '\0';
+    }
+    check(matter_mode_select_endpoint_create(description, options, option_count, &endpoint_id));
     return mp_obj_new_int_from_uint(endpoint_id);
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(endpoint_create_obj, endpoint_create);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(endpoint_create_obj, 1, 3, endpoint_create);
 
 // Seed one attribute before the stack starts, taking
 // (endpoint_id, cluster, attribute, value) positionally.

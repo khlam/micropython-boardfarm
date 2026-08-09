@@ -12,6 +12,7 @@
 #include "stack.h"
 
 #include <cerrno>
+#include <cstring>
 
 #include <esp_matter.h>
 #include <esp_matter_core.h>
@@ -38,6 +39,7 @@ static esp_matter::node_t *matter_node = nullptr;
 static uint16_t endpoint_ids[MAXIMUM_ENDPOINTS]{};
 static size_t endpoint_count = 0;
 static bool started = false;
+static bool mode_select_created = false;
 
 bool endpoint_exists(uint16_t endpoint_id)
 {
@@ -100,6 +102,45 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
     }
     *endpoint_id = esp_matter::endpoint::get_id(endpoint);
     endpoint_ids[endpoint_count++] = *endpoint_id;
+    return 0;
+}
+
+extern "C" int matter_mode_select_endpoint_create(const char *description,
+                                                   const matter_mode_option *options,
+                                                   size_t option_count, uint16_t *endpoint_id)
+{
+    if (description == nullptr || options == nullptr || endpoint_id == nullptr || matter_node == nullptr ||
+        started || option_count == 0 || option_count > MATTER_MAX_MODE_OPTIONS) {
+        return EINVAL;
+    }
+    if (mode_select_created) {
+        return EALREADY;
+    }
+    if (endpoint_count >= MAXIMUM_ENDPOINTS) {
+        return ENOSPC;
+    }
+    const size_t description_length = strnlen(description, MATTER_MODE_TEXT_SIZE);
+    if (description_length == 0 || description_length >= MATTER_MODE_TEXT_SIZE) {
+        return EINVAL;
+    }
+    for (size_t index = 0; index < option_count; ++index) {
+        const size_t label_length = strnlen(options[index].label, MATTER_MODE_TEXT_SIZE);
+        if (options[index].mode != index || label_length == 0 || label_length >= MATTER_MODE_TEXT_SIZE) {
+            return EINVAL;
+        }
+        for (size_t previous = 0; previous < index; ++previous) {
+            if (std::strcmp(options[index].label, options[previous].label) == 0) {
+                return EINVAL;
+            }
+        }
+    }
+    endpoint_t *endpoint = mode_select_endpoint(matter_node, description, options, option_count);
+    if (endpoint == nullptr) {
+        return EIO;
+    }
+    *endpoint_id = esp_matter::endpoint::get_id(endpoint);
+    endpoint_ids[endpoint_count++] = *endpoint_id;
+    mode_select_created = true;
     return 0;
 }
 

@@ -1,16 +1,14 @@
-"""Expose an external WS2812B strip through ESP-Matter as one Extended Color Light.
+"""Expose a WS2812B strip as a Matter color light with pattern switches.
 
 Definitions first, boot sequence at the bottom. The module runs once at boot,
 then drops to the REPL with `strip`, `node`, `endpoint`, and the functions
 below still in scope, so a serial session can drive the light and administer
 the node.
 
-The commissioning-status light show (boot/ready/pairing/failure colours, shown
-on the onboard WS2812) and the boot-cache read/write live in
-`commissioning_status.py` and `boot_cache.py`; this file owns both pieces of
-hardware and the two paths that set a real, controller-meaningful colour on
-the external strip: `set_color` (local/REPL) and `on_remote_write` (a
-controller write).
+The commissioning-status light show and boot-cache read/write live in
+`commissioning_status.py` and `boot_cache.py`; `patterns.py` owns animation
+state without claiming hardware. This file owns both NeoPixel devices and
+routes local RGB, light-attribute, and virtual On/Off writes to those helpers.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code that drives ESP-Matter/CHIP; see
@@ -25,6 +23,7 @@ import boot_cache
 import commissioning_status
 import machine
 import neopixel
+import patterns
 from color import matter_to_triple, publish_triple
 
 import matter
@@ -40,8 +39,15 @@ BOARD = Board(name="ESP32-S3-Zero", data_pin=4)
 LED_COUNT = 20
 STATUS_LED_PIN = 21  # ESP32-S3-Zero onboard WS2812
 
-# Last colour on_remote_write actually rendered
-_last_remote_color = [None]
+_COLOR_ATTRIBUTES = (
+    matter.Attributes.CURRENT_HUE,
+    matter.Attributes.CURRENT_SATURATION,
+    matter.Attributes.CURRENT_X,
+    matter.Attributes.CURRENT_Y,
+    matter.Attributes.COLOR_TEMPERATURE_MIREDS,
+    matter.Attributes.COLOR_MODE,
+    matter.Attributes.ENHANCED_COLOR_MODE,
+)
 
 
 def render(color: tuple) -> None:
@@ -66,7 +72,7 @@ def set_color(color: tuple) -> None:
     Args:
         color: Red, green, and blue channel values in the range 0-255.
     """
-    commissioning_status.show_strip(color, time.ticks_ms())
+    patterns.reset_color(color)
     # Below: Endpoint.publish -> _matter.attribute_publish -> request.cpp
     # matter_attribute_publish -- a bounded round trip onto the CHIP task
     # (ARCHITECTURE.md "A local change going out").
@@ -78,22 +84,26 @@ def set_color(color: tuple) -> None:
         boot_cache.save(on=lit, color=color)
 
 
-def on_remote_write(_event: object) -> None:
-    """Show the colour a controller just wrote, unless it repeats the last one shown.
+def on_remote_write(event: object) -> None:
+    """Apply a controller light write without discarding brightness patterns.
 
-    The event only names the one attribute that changed, so the full colour
-    is read back from the endpoint instead of computed from the event. Comparing
-    against the last colour actually rendered drops a repeat before it
-    reaches the bit-banged NeoPixel write.
+    Color Control writes select a steady light even when the resulting RGB
+    triple repeats. Power and level writes refresh the selected pattern, with
+    an off-to-on transition restarting its phase.
 
     Args:
-        _event: Unused. Only wakes this callback.
+        event: Controller-originated Matter attribute write.
     """
     color = matter_to_triple(endpoint)
-    if color == _last_remote_color[0]:
-        return
-    _last_remote_color[0] = color
-    commissioning_status.show_strip(color, time.ticks_ms())
+    if event.cluster == matter.Clusters.COLOR_CONTROL and event.attribute in _COLOR_ATTRIBUTES:
+        patterns.reset_color()
+    else:
+        restarted = (
+            event.cluster == matter.Clusters.ON_OFF
+            and event.attribute == matter.Attributes.ON_OFF
+            and endpoint.on
+        )
+        patterns.refresh(restart=restarted)
     if commissioning_status.is_commissioned():
         boot_cache.save(on=endpoint.on, color=color)
 
@@ -124,9 +134,26 @@ node = matter.Node()
 # No initial state passed: every attribute here is one a controller owns, and
 # pinning one now would overwrite what persistence is about to restore.
 endpoint = node.create_endpoint(matter.EndpointType.EXTENDED_COLOR_LIGHT)
+pattern_endpoints = tuple(
+    node.create_endpoint(matter.EndpointType.ON_OFF_LIGHT) for _label in patterns.PATTERN_LABELS
+)
 commissioning_status.bind_node(node, endpoint)
 
+patterns.bind(
+    light=endpoint,
+    switches=pattern_endpoints,
+    buffer=strip.buf,
+    order=strip.ORDER,
+    write=strip.write,
+    available=commissioning_status.strip_available,
+    pixel_count=LED_COUNT,
+)
+commissioning_status.bind_strip_release(patterns.resume)
+patterns.start()
+
 endpoint.on_write(on_remote_write)
+for pattern_endpoint in pattern_endpoints:
+    pattern_endpoint.on_write(patterns.select_remote)
 
 # Queued transitions may be delivered before start() returns. The callback
 # records any action that requires a started node and show_post_start_state()
@@ -134,6 +161,11 @@ endpoint.on_write(on_remote_write)
 node.on_commissioning(commissioning_status.on_commissioning)
 
 node.start()
+
+# Restore a persisted pattern only for a light that also restored on. This
+# runs before commissioning releases its strip overlay, so the first
+# application-owned frame already reflects the reconciled mode.
+patterns.restore()
 
 # A commissioned board restores its last controller-owned colour, applied
 # uniformly across the strip, and shows dim green on the onboard LED. An

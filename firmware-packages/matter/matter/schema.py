@@ -37,6 +37,7 @@ class EndpointType:
     ON_OFF_LIGHT = 0
     DIMMABLE_LIGHT = 1
     EXTENDED_COLOR_LIGHT = 2
+    MODE_SELECT = 3
 
 
 class Clusters:
@@ -45,6 +46,7 @@ class Clusters:
     IDENTIFY = 0x0003
     ON_OFF = 0x0006
     LEVEL_CONTROL = 0x0008
+    MODE_SELECT = 0x0050
     COLOR_CONTROL = 0x0300
 
 
@@ -54,6 +56,7 @@ class Attributes:
     IDENTIFY_TIME = 0x0000
     ON_OFF = 0x0000
     CURRENT_LEVEL = 0x0000
+    CURRENT_MODE = 0x0003
     CURRENT_HUE = 0x0000
     CURRENT_SATURATION = 0x0001
     CURRENT_X = 0x0003
@@ -107,6 +110,7 @@ class Paths:
     IDENTIFY = (Clusters.IDENTIFY, Attributes.IDENTIFY_TIME)
     ON_OFF = (Clusters.ON_OFF, Attributes.ON_OFF)
     LEVEL = (Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL)
+    MODE = (Clusters.MODE_SELECT, Attributes.CURRENT_MODE)
     HUE = (Clusters.COLOR_CONTROL, Attributes.CURRENT_HUE)
     SATURATION = (Clusters.COLOR_CONTROL, Attributes.CURRENT_SATURATION)
     X = (Clusters.COLOR_CONTROL, Attributes.CURRENT_X)
@@ -138,6 +142,7 @@ SCHEMAS = {
     EndpointType.ON_OFF_LIGHT: _BASE_SCHEMA,
     EndpointType.DIMMABLE_LIGHT: _DIMMABLE_SCHEMA,
     EndpointType.EXTENDED_COLOR_LIGHT: _EXTENDED_COLOR_SCHEMA,
+    EndpointType.MODE_SELECT: {Paths.MODE: (_TYPE_UINT8, 0, 255, 0)},
 }
 
 

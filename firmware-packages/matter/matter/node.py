@@ -12,6 +12,7 @@ from matter.endpoint import Endpoint
 from matter.schema import (
     SCHEMAS,
     Commissioning,
+    EndpointType,
     Paths,
     bounded_integer,
     default_state,
@@ -43,6 +44,9 @@ _RESTORE_PAUSE_S = 0.25
 # roughly twenty seconds reserved for boot.
 _RESYNCHRONIZE_ATTEMPTS = const(3)
 _RESYNCHRONIZE_PAUSE_S = 0.05
+
+_MAXIMUM_MODE_OPTIONS = const(16)
+_MAXIMUM_MODE_TEXT_BYTES = const(64)
 
 # Indexed by the native commissioning state code. Built from the public
 # constants so the decode table and the names subscribers compare against
@@ -80,7 +84,14 @@ class Node:
         """Return whether the native stack completed startup."""
         return self._started
 
-    def create_endpoint(self, endpoint_type: int, initial: dict | None = None) -> Endpoint:
+    def create_endpoint(
+        self,
+        endpoint_type: int,
+        initial: dict | None = None,
+        *,
+        description: str | None = None,
+        modes: tuple | None = None,
+    ) -> Endpoint:
         """Create a supported endpoint before the Matter stack starts.
 
         Only the attributes ``initial`` names are written to the native store,
@@ -96,6 +107,8 @@ class Node:
             initial: Optional ``(cluster, attribute)`` to value mapping. Naming
                 an attribute here overrides persistence for it on every boot, so
                 pass only the ones the application must pin.
+            description: Mode Select purpose shown to a controller.
+            modes: Ordered Mode Select labels, whose indexes become mode values.
 
         Returns:
             The new Python endpoint object.
@@ -111,14 +124,23 @@ class Node:
             raise ValueError("unsupported Matter endpoint type")
         if initial is not None and not isinstance(initial, dict):
             raise TypeError("initial must be a dict or None")
+        mode_count = _validate_mode_select(endpoint_type, description, modes)
+        _reject_duplicate_mode_select(endpoint_type, self._endpoints)
         requested = requested_state(endpoint_type, initial)
+        _validate_initial_mode(requested, mode_count)
         state = default_state(endpoint_type)
         state.update(requested)
-        endpoint_id = _matter.endpoint_create(endpoint_type)
+        endpoint_id = _matter.endpoint_create(endpoint_type, description, modes)
 
         # Registered before the initial-attribute loop below, not after it, so
         # a raise partway through the loop still leaves this endpoint tracked.
-        endpoint = Endpoint(self, endpoint_id, endpoint_type, state)
+        endpoint = Endpoint(
+            self,
+            endpoint_id,
+            endpoint_type,
+            state,
+            mode_count if endpoint_type == EndpointType.MODE_SELECT else None,
+        )
         self._endpoints[endpoint_id] = endpoint
 
         for (cluster, attribute), value in requested.items():
@@ -274,3 +296,58 @@ def _require_started(started: object) -> None:
     """Raise when a node administration call precedes startup."""
     if not started:
         raise OSError(22, "Matter node is not started")
+
+
+def _validate_mode_select(endpoint_type: int, description: object, modes: object) -> int:
+    """Validate Mode Select metadata and return its number of choices."""
+    if endpoint_type != EndpointType.MODE_SELECT:
+        if description is not None or modes is not None:
+            raise ValueError("description and modes require a Mode Select endpoint")
+        return 0
+    _validate_mode_text(
+        description,
+        "description must be str",
+        "description must contain 1-64 UTF-8 bytes",
+    )
+    return _validate_mode_labels(modes)
+
+
+def _validate_mode_labels(modes: object) -> int:
+    """Validate an ordered collection of Mode Select labels."""
+    if not isinstance(modes, tuple):
+        raise TypeError("modes must be a tuple")
+    if not 1 <= len(modes) <= _MAXIMUM_MODE_OPTIONS:
+        raise ValueError("modes must contain 1-16 labels")
+    seen = set()
+    for label in modes:
+        _validate_mode_text(
+            label,
+            "mode labels must be str",
+            "mode labels must contain 1-64 UTF-8 bytes",
+        )
+        if label in seen:
+            raise ValueError("mode labels must be unique")
+        seen.add(label)
+    return len(modes)
+
+
+def _validate_mode_text(value: object, type_message: str, value_message: str) -> None:
+    """Validate one bounded, nonempty UTF-8 Mode Select string."""
+    if not isinstance(value, str):
+        raise TypeError(type_message)
+    if not value or len(value.encode()) > _MAXIMUM_MODE_TEXT_BYTES:
+        raise ValueError(value_message)
+
+
+def _reject_duplicate_mode_select(endpoint_type: int, endpoints: dict) -> None:
+    """Reject a second Mode Select endpoint before native allocation."""
+    if endpoint_type == EndpointType.MODE_SELECT and any(
+        endpoint.type == EndpointType.MODE_SELECT for endpoint in endpoints.values()
+    ):
+        raise OSError(114, "only one Mode Select endpoint is supported")
+
+
+def _validate_initial_mode(requested: dict, mode_count: int) -> None:
+    """Reject an initial mode outside the endpoint's declared choices."""
+    if Paths.MODE in requested and requested[Paths.MODE] >= mode_count:
+        raise ValueError("mode is not supported by this endpoint")

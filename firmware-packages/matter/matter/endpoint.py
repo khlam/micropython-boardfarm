@@ -78,6 +78,7 @@ class Endpoint:
     identify_time = _attribute_property(Paths.IDENTIFY)
     on = _attribute_property(Paths.ON_OFF)
     level = _attribute_property(Paths.LEVEL)
+    mode = _attribute_property(Paths.MODE)
     hue = _attribute_property(Paths.HUE)
     saturation = _attribute_property(Paths.SATURATION)
     x = _attribute_property(Paths.X)
@@ -86,7 +87,14 @@ class Endpoint:
     color_mode = _attribute_property(Paths.COLOR_MODE)
     enhanced_color_mode = _attribute_property(Paths.ENHANCED_COLOR_MODE)
 
-    def __init__(self, node: object, endpoint_id: int, endpoint_type: int, state: dict) -> None:
+    def __init__(
+        self,
+        node: object,
+        endpoint_id: int,
+        endpoint_type: int,
+        state: dict,
+        mode_count: int | None = None,
+    ) -> None:
         """Bind a native endpoint ID to its validated Python state.
 
         Args:
@@ -96,12 +104,14 @@ class Endpoint:
             endpoint_type: Value from :class:`matter.schema.EndpointType`.
             state: Validated Python copy of the endpoint's attributes; this
                 endpoint takes ownership of it.
+            mode_count: Number of positional choices on a Mode Select endpoint.
         """
         self.id = endpoint_id
         self.type = endpoint_type
         self._node = node
         self._state = state
         self._schema = SCHEMAS[endpoint_type]
+        self._mode_count = mode_count
         self._callback = None
 
     def get(self, cluster: int, attribute: int) -> object:
@@ -173,7 +183,10 @@ class Endpoint:
         checked the same way regardless of whether it originated locally or
         from a remote controller.
         """
-        return validate_value(self._schema, path, value)
+        value = validate_value(self._schema, path, value)
+        if path == Paths.MODE and self._mode_count is not None and value >= self._mode_count:
+            raise ValueError("mode is not supported by this endpoint")
+        return value
 
     def _restore(self) -> None:
         """Overwrite the Python copy with whatever native currently holds.

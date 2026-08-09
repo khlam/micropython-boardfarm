@@ -1,7 +1,8 @@
 # ESP32-S3-Zero Matter LED Strip
 
 This project exposes an external WS2812B 20-LED strip wired to the
-ESP32-S3-Zero as a Matter Extended Color Light. ESP-Matter handles
+ESP32-S3-Zero as a Matter Extended Color Light plus seven virtual On/Off
+pattern lights. ESP-Matter handles
 commissioning and protocol state; `firmware/main.py` sets up the node and
 owns the strip, and `firmware/color/` turns the endpoint into a plain RGB
 colour, so setting the strip is one call:
@@ -161,9 +162,8 @@ can accept it.
 
 Once the light is on, whichever side wrote most recently is what the strip
 shows. Both directions are plain functions in `firmware/main.py` that funnel
-through `firmware/commissioning_status.py`'s `show_strip()`, which is the only
-path to `render()` — the one function that touches
-`strip[i] = color; strip.write()`:
+through the project renderer; commissioning owns the strip while its status
+overlay is active, then releases it back to the selected application pattern:
 
 - A color, brightness or power change from a controller wakes
   `on_remote_write()`, which reads the colour back off the endpoint and drives
@@ -171,6 +171,38 @@ path to `render()` — the one function that touches
 - `set_color(rgb)` drives the strip and then publishes the same color back,
   turning the light on. A local write shows exactly the bytes written, while the
   endpoint holds the nearest color its hue, saturation and level can represent.
+
+## Pattern switches
+
+Matter controllers expose seven additional On/Off light endpoints in this
+order: **Random**, **Breathe**, **Wave**, **Alternate**, **Rainbow**, **Chase**,
+and **Twinkle**. Turn one on to select it; the firmware turns every other
+pattern endpoint off. Turn the active endpoint off to select **None** and show
+the steady selected color. Controllers choose the initial tile names, so rename
+the seven services in that order when their generated names are not descriptive.
+
+| Mode | Behavior |
+| --- | --- |
+| None | Steady selected color |
+| Random | New saturated color on every pixel every 500 ms |
+| Breathe | Three-second selected-color pulse |
+| Wave | Selected-color brightness wave traveling across the strip every 2.5 seconds |
+| Alternate | Selected-color and black pixels swap every 600 ms |
+| Rainbow | Full-strip hue gradient scrolling every four seconds |
+| Chase | Three-pixel selected-color trail advancing every 100 ms |
+| Twinkle | Selected-color sparkles every 150 ms with a 750 ms fade |
+
+Every pattern obeys the primary light's ordinary On/Off and brightness controls.
+Changing brightness retains the selected pattern and changes its maximum
+output. Turning the light off remembers the selection for the current boot;
+turning it on restarts the animation. Setting hue, saturation, XY, color
+temperature, or a local RGB value selects None and shows that steady color at
+the requested brightness.
+
+The active virtual switch is restored from ESP-Matter persistence when the
+primary light also restores on. If the light restores off, firmware turns all
+pattern switches off instead. The boot cache remains a steady-color fast path,
+so a restored animation begins after native Matter state becomes available.
 
 `main.py` runs top to bottom at boot and then drops to the REPL, so `set_color`,
 `node`, `endpoint` and `strip` are all still in scope over serial:
@@ -188,6 +220,9 @@ every boot. From the MicroPython REPL, remove an individual fabric with
 ```python
 node.factory_reset()
 ```
+
+Factory-reset and recommission after installing the pattern switches so the
+controller discovers the device's new endpoint list.
 
 After rebuilding or factory-resetting, use the commissioning artifacts that
 match the flashed image.
