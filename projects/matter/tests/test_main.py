@@ -150,6 +150,17 @@ def test_commissioning_failure_is_sticky(load_main):
     assert module.pixel.writes == [module.FAILED_COLOR]
 
 
+def test_successful_retry_after_a_failure_clears_the_latch(load_main):
+    module = load_main().module
+    module.pixel.writes.clear()
+
+    _matter.inject_commissioning_event(2)  # SESSION FAILED
+    _matter.inject_commissioning_event(1)  # SESSION COMPLETE
+
+    assert module._commissioning_failed[0] is False
+    assert module.pixel.writes == [module.FAILED_COLOR, module.OFF_COLOR]
+
+
 def test_closed_window_restores_commissioned_controller_state(load_main):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     module.pixel.writes.clear()

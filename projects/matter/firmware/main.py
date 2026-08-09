@@ -165,11 +165,12 @@ def _on_commissioning(event: object) -> None:
         _commissioning_failed[0] = True
         _show_status(FAILED_COLOR, stamp)
         return
-    if _commissioning_failed[0]:
-        return
     if state == matter.Commissioning.COMPLETE:
+        _commissioning_failed[0] = False
         _commissioned[0] = True
         _finish_commissioning(stamp)
+        return
+    if _commissioning_failed[0]:
         return
     color = _COMMISSIONING_COLORS.get(state)
     if color is not None:

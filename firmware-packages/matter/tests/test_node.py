@@ -113,7 +113,7 @@ def test_start_retries_transient_restore_failure(monkeypatch, capsys):
 
 def test_start_raises_after_restore_retry_budget(monkeypatch):
     node = Node()
-    node.create_endpoint(EndpointType.ON_OFF_LIGHT)
+    endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     sleeps = []
     monkeypatch.setattr(node_module, "_RESTORE_ATTEMPTS", 2)
     monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
@@ -123,6 +123,9 @@ def test_start_raises_after_restore_retry_budget(monkeypatch):
         node.start()
 
     assert sleeps == [0.25]
+    assert node.started is False
+    with pytest.raises(OSError, match="not started"):
+        endpoint.on = True
 
 
 def test_node_cannot_start_twice(capsys):

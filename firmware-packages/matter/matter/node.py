@@ -132,8 +132,8 @@ class Node:
             raise OSError(114, "Matter node is already started")
         _matter.on_event(self._drain)
         _matter.start()
-        self._started = True
         self._restore_endpoints()
+        self._started = True
         self._drain()
         emit_event("matter", "ready")
 
