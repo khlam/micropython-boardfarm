@@ -10,6 +10,7 @@ members = [
     "gyro-stream",
     "led-effects",
     "matter-example",
+    "matter-led-strip",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -609,6 +610,17 @@ wheels = [
 name = "matter-example"
 version = "0.1.0"
 source = { virtual = "projects/matter" }
+dependencies = [
+    { name = "micropython-boardfarm" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "matter-led-strip"
+version = "0.1.0"
+source = { virtual = "projects/matter-led-strip" }
 dependencies = [
     { name = "micropython-boardfarm" },
 ]

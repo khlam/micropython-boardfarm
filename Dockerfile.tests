@@ -44,6 +44,7 @@ COPY projects/gps/pyproject.toml ./projects/gps/pyproject.toml
 COPY projects/gyro-stream/pyproject.toml ./projects/gyro-stream/pyproject.toml
 COPY projects/led-effects/pyproject.toml ./projects/led-effects/pyproject.toml
 COPY projects/matter/pyproject.toml ./projects/matter/pyproject.toml
+COPY projects/matter-led-strip/pyproject.toml ./projects/matter-led-strip/pyproject.toml
 COPY projects/multizone-ranging/pyproject.toml ./projects/multizone-ranging/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-project --group test
 ENV PATH=/work/.venv/bin:${PATH}
