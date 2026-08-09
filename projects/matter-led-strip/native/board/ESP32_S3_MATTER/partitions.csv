@@ -5,3 +5,4 @@ nvs_keys,         data, nvs_keys,  ,         0x1000, encrypted
 phy_init,         data, phy,       ,         0x1000,
 factory,          app,  factory,   0x20000,  0x3B0000,
 fctry,            data, nvs,       0x3D0000, 0x6000,
+boot_cache,       data, fat,       0x3D6000, 0x4000,
