@@ -221,7 +221,13 @@ Do not hand-edit or reformat generated firmware/configuration blobs.
 
 # Tests
 
-Behavior changes require tests.
+Behavior changes require tests before the change is complete. Per AGENTS.md's testing
+policy, do not write those tests until the user confirms the feature is final — write them
+while finalizing the change, not speculatively while its behavior is still taking shape. A
+change is not complete, and should not be merged, until it has tests and passes the coverage
+gate; open a PR, or push past draft, only once you've reached that point, since CI's gated
+full suite (`--cov-fail-under=90`) runs on every push to a PR branch and on every push to
+main.
 
 Firmware packages should be testable under CPython using the shared MicroPython stubs and deterministic fake devices where practical.
 
@@ -236,7 +242,7 @@ Tests should cover relevant success and failure cases, including:
 
 Do not make production APIs worse merely to simplify mocking.
 
-Maintain the repository's configured coverage threshold.
+Once a feature is confirmed final, maintain the repository's configured coverage threshold.
 
 # Dependencies and checks
 
