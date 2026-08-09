@@ -51,12 +51,12 @@ colours below only ever appear on it before that point:
 | Firmware running, ESP-Matter still starting | Dim white (steady) | Off |
 | Uncommissioned, ready to pair | Dim cyan (steady) | Dim cyan (steady) |
 | A commissioning window is open, nobody has engaged | Dim cyan (steady) | Dim cyan (steady) |
-| A commissioner is talking to the board | Dim cyan (breathing) | Cyan (breathing, synced with the onboard LED) |
+| A commissioner is talking to the board | Dim cyan (steady) | Dim cyan (steady) |
 | Commissioning failed — onboard stays red until the board is reset | Solid red (steady) | Red, blinking 0.5s on every 3s |
 | Commissioned | Dim green (steady) | Last colour a controller set (see below) |
 
-Ready and window-open are intentionally identical — both are just "nothing is
-happening yet."
+Ready, window-open, and commissioner-session indications are intentionally
+identical.
 
 Every colour the firmware picks for itself is capped at ten percent of full
 scale, because a status light has no business being the brightest thing in the
@@ -152,7 +152,7 @@ can accept it.
    opens its window.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
-   `outputs/app.esp32-s3.setup.txt`. Both LEDs start breathing cyan when Home
+   `outputs/app.esp32-s3.setup.txt`. Both LEDs remain dim cyan while Home
    engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
    the light to a room. The onboard LED settles on dim green on success and

@@ -24,10 +24,9 @@ handed in explicitly:
     commissioning_status.start_animator()                    # arms the pattern ticker
 
 It does own ESP32 hardware timer 0, with a soft callback dispatched through
-the MicroPython scheduler, to drive the "breathe" and "blink" patterns below.
+the MicroPython scheduler, to drive the failure blink pattern below.
 """
 
-import math
 import time
 
 import machine
@@ -42,15 +41,14 @@ COMMISSIONED_COLOR = (0, 25, 0)
 FAILED_COLOR = (25, 0, 0)
 OFF_COLOR = (0, 0, 0)
 
-# Animation tick rate and the two pattern periods it drives. Chosen so both
-# period lengths are exact multiples of the tick, keeping blink edges crisp.
+# Animation tick rate and blink period. Chosen so the period length is an
+# exact multiple of the tick, keeping blink edges crisp.
 _TICK_MS = micropython.const(50)
-_BREATHE_PERIOD_MS = micropython.const(3000)
 _BLINK_PERIOD_MS = micropython.const(3000)
 _BLINK_ON_MS = micropython.const(500)
 
 _COMMISSIONING_PATTERNS = {
-    matter.Commissioning.STARTED: (("breathe", CYAN_COLOR), ("breathe", CYAN_COLOR)),
+    matter.Commissioning.STARTED: (("steady", CYAN_COLOR), ("steady", CYAN_COLOR)),
     matter.Commissioning.OPENED: (("steady", CYAN_COLOR), ("steady", CYAN_COLOR)),
 }
 _READY_PATTERN = (("steady", CYAN_COLOR), ("steady", CYAN_COLOR))
@@ -133,7 +131,7 @@ def is_commissioned() -> bool:
 
 
 def start_animator() -> None:
-    """Arm the periodic ticker that drives "breathe" and "blink" patterns.
+    """Arm the periodic ticker that drives the failure blink pattern.
 
     Call once during boot, after both render callbacks are bound. ESP32's
     MicroPython port exposes only physical timers, numbered from zero; its
@@ -154,17 +152,13 @@ def _frame_color(mode: str, color: tuple, elapsed_ms: int) -> tuple:
     """Compute one animation frame for `mode` at `elapsed_ms` into its cycle.
 
     Args:
-        mode: `"steady"`, `"breathe"`, or `"blink"`.
+        mode: `"steady"` or `"blink"`.
         color: The pattern's peak colour.
         elapsed_ms: Milliseconds since the pattern started.
 
     Returns:
         The RGB byte triple to render this frame.
     """
-    if mode == "breathe":
-        phase = (elapsed_ms % _BREATHE_PERIOD_MS) / _BREATHE_PERIOD_MS
-        factor = (1 - math.cos(2 * math.pi * phase)) / 2
-        return tuple(round(channel * factor) for channel in color)
     if mode == "blink":
         return color if elapsed_ms % _BLINK_PERIOD_MS < _BLINK_ON_MS else OFF_COLOR
     return color
@@ -176,7 +170,7 @@ def _apply(onboard: tuple, ring: tuple, stamp: int) -> None:
     The single choke point for every commissioning-state transition: renders
     frame 0 immediately (so there's no flash-of-black waiting for the next
     tick), then arms or clears the per-LED animation cells so `_render_tick`
-    picks up "breathe"/"blink" patterns on subsequent ticks.
+    picks up the blink pattern on subsequent ticks.
 
     Args:
         onboard: `(mode, color)` for the onboard LED.
