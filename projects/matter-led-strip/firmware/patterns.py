@@ -42,6 +42,8 @@ _TWINKLE_DECAY = micropython.const(51)
 _BYTE_MAXIMUM = micropython.const(255)
 _BYTE_RANGE = micropython.const(256)
 _MATTER_MAXIMUM = micropython.const(254)
+_MINIMUM_PIXEL_COUNT = micropython.const(1)
+_MAXIMUM_PIXEL_COUNT = micropython.const(25)
 
 _light = [None]
 _switches = [()]
@@ -50,6 +52,7 @@ _order = [(0, 1, 2)]
 _write = [None]
 _available = [None]
 _pixel_count = [0]
+_maximum_pixel_count = [0]
 _timer = [None]
 
 _base_color = [(0, 0, 0)]
@@ -79,7 +82,7 @@ def bind(
         order: Buffer offsets for red, green, and blue channels.
         write: Callable flushing the buffer to the strip.
         available: Callable reporting whether commissioning releases the strip.
-        pixel_count: Number of pixels in the external strip.
+        pixel_count: Initial number of active pixels in the external strip.
     """
     _light[0] = light
     _switches[0] = switches
@@ -87,8 +90,32 @@ def bind(
     _order[0] = order
     _write[0] = write
     _available[0] = available
+    _pixel_count[0] = 0
+    _maximum_pixel_count[0] = len(buffer) // 3
+    _twinkle_levels[0] = bytearray(_maximum_pixel_count[0])
+    set_pixel_count(pixel_count)
+
+
+def set_pixel_count(pixel_count: int) -> None:
+    """Select how many external LEDs animation frames may illuminate.
+
+    Args:
+        pixel_count: Active prefix length in the inclusive range 1-25.
+
+    Raises:
+        TypeError: The count is not a plain integer.
+        ValueError: The count is outside 1-25 or exceeds the bound buffer.
+    """
+    if not isinstance(pixel_count, int) or isinstance(pixel_count, bool):
+        raise TypeError("pixel_count must be int")
+    if not _MINIMUM_PIXEL_COUNT <= pixel_count <= _MAXIMUM_PIXEL_COUNT:
+        raise ValueError("pixel_count must be between 1 and 25")
+    if pixel_count > _maximum_pixel_count[0]:
+        raise ValueError("pixel_count exceeds the bound buffer")
+    if pixel_count == _pixel_count[0]:
+        return
     _pixel_count[0] = pixel_count
-    _twinkle_levels[0] = bytearray(pixel_count)
+    _restart()
 
 
 def start() -> None:
@@ -386,5 +413,7 @@ def _next_random() -> int:
 
 
 def _flush() -> None:
-    """Flush the current preallocated frame to the hardware."""
+    """Hold the inactive suffix black, then flush the preallocated frame."""
+    for index in range(_pixel_count[0], _maximum_pixel_count[0]):
+        _set_pixel(index, 0, 0, 0)
     _write[0]()  # ty: ignore[call-non-callable]

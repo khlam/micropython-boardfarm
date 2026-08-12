@@ -1,7 +1,7 @@
 [project]
 name = "matter-led-strip"
 version = "0.1.0"
-description = "External WS2812B 20-LED strip exposed as a Matter Extended Color Light over a native ESP-Matter backend."
+description = "External WS2812B strip of up to 25 LEDs exposed as a Matter Extended Color Light over a native ESP-Matter backend."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

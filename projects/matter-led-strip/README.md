@@ -1,8 +1,8 @@
 # ESP32-S3-Zero Matter LED Strip
 
-This project exposes an external WS2812B 20-LED strip wired to the
-ESP32-S3-Zero as a Matter Extended Color Light plus seven virtual On/Off
-pattern lights. ESP-Matter handles
+This project exposes an external WS2812B strip of up to 25 LEDs wired to the
+ESP32-S3-Zero as a Matter Extended Color Light, seven virtual On/Off pattern
+lights, and a virtual dimmer that selects the active LED count. ESP-Matter handles
 commissioning and protocol state; `firmware/main.py` sets up the node and
 owns the strip, and `firmware/color/` turns the endpoint into a plain RGB
 colour, so setting the strip is one call:
@@ -78,7 +78,7 @@ still isn't commissioned.
 ## Boot-cache behaviour
 
 Once the strip has shown a real controller-owned colour while commissioned, a
-power cycle shows that exact colour on the strip immediately — the onboard
+power cycle shows that exact colour on the configured LED prefix immediately — the onboard
 status LED never lights its dim-white boot or dim-cyan "ready" colour, going
 straight to its dim-green "commissioned" colour once `node.start()` confirms
 the fabric — and holds it until ESP-Matter's own restore confirms it (the
@@ -87,7 +87,9 @@ from ESP-Matter's own persistence: `firmware/boot_cache.py` keeps a small
 local copy of the last colour in a dedicated flash partition (`boot_cache` in
 `native/board/ESP32_S3_MATTER/partitions.csv`) precisely because ESP-Matter's
 own store isn't readable until `node.start()` returns,
-which is the one thing this behaviour needs to happen before. A board that has
+which is the one thing this behaviour needs to happen before. The same cache
+holds the active external LED count, defaulting to 20 when reading cache data
+that does not yet contain it. A board that has
 never been commissioned, or has been commissioned but never yet given a real
 colour command, still shows the ordinary boot indicator above, with the ring
 held off.
@@ -159,6 +161,9 @@ can accept it.
    the light to a room. The onboard LED settles on dim green on success and
    the light appears in Home switched off — turn it on there to take the
    strip over.
+5. Find the additional dimmable-light service after the seven pattern lights
+   and rename it **LED Count**. Apple Home chooses generated service names, so
+   the firmware cannot assign that tile name itself.
 
 Once the light is on, whichever side wrote most recently is what the strip
 shows. Both directions are plain functions in `firmware/main.py` that funnel
@@ -171,6 +176,21 @@ overlay is active, then releases it back to the selected application pattern:
 - `set_color(rgb)` drives the strip and then publishes the same color back,
   turning the light on. A local write shows exactly the bytes written, while the
   endpoint holds the nearest color its hue, saturation and level can represent.
+
+## LED count slider
+
+The **LED Count** virtual dimmer selects an active prefix of 1-25 external LEDs.
+Its full brightness range is divided evenly into 25 positions: the bottom
+selects one LED, the midpoint selects 13, and the top selects 25. The firmware
+snaps the Matter level to the nearest position, so the selection persists across
+reboots even though Apple Home displays a percentage rather than an LED count.
+The initial selection is 20 LEDs.
+
+The selector cannot be disabled. Turning its light tile off preserves the
+current count and the firmware publishes it on again. Reducing the count writes
+black to every LED above the selected prefix before flushing the strip, including
+while a pattern is active. The onboard status WS2812 on GPIO21 is a separate
+device and is never included in this count.
 
 ## Pattern switches
 
@@ -205,7 +225,7 @@ pattern switches off instead. The boot cache remains a steady-color fast path,
 so a restored animation begins after native Matter state becomes available.
 
 `main.py` runs top to bottom at boot and then drops to the REPL, so `set_color`,
-`node`, `endpoint` and `strip` are all still in scope over serial:
+`node`, `endpoint`, `led_count_endpoint`, and `strip` are all still in scope over serial:
 
 ```console
 MONITOR_INTERRUPT=1 MONITOR_SEND='set_color((0, 25, 0))' docker compose run --rm esp32-monitor
@@ -221,8 +241,8 @@ every boot. From the MicroPython REPL, remove an individual fabric with
 node.factory_reset()
 ```
 
-Factory-reset and recommission after installing the pattern switches so the
-controller discovers the device's new endpoint list.
+Factory-reset and recommission after installing the pattern switches or LED
+count selector so the controller discovers the device's new endpoint list.
 
 After rebuilding or factory-resetting, use the commissioning artifacts that
 match the flashed image.
