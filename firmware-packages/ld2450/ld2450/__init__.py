@@ -114,7 +114,11 @@ class LD2450:
         """Keep enough recent input for resynchronization without unbounded growth."""
         overflow = len(self._buffer) - _MAX_BUFFER_LEN
         if overflow > 0:
-            del self._buffer[:overflow]
+            self._discard_prefix(overflow)
+
+    def _discard_prefix(self, count: int) -> None:
+        """Drop consumed bytes using slicing supported by MicroPython bytearray."""
+        self._buffer = self._buffer[count:]
 
     def _extract_frame(self) -> bytes | None:
         """Remove and return the next valid frame currently in the receive buffer."""
@@ -122,20 +126,19 @@ class LD2450:
             header_at = self._buffer.find(_HEADER)
             if header_at < 0:
                 keep = min(len(self._buffer), len(_HEADER) - 1)
-                if keep:
-                    del self._buffer[:-keep]
-                else:
-                    del self._buffer[:]
+                discard = len(self._buffer) - keep
+                if discard:
+                    self._discard_prefix(discard)
                 return None
             if header_at:
-                del self._buffer[:header_at]
+                self._discard_prefix(header_at)
             if len(self._buffer) < _FRAME_LEN:
                 return None
             if self._buffer[_FRAME_LEN - len(_TRAILER) : _FRAME_LEN] != _TRAILER:
-                del self._buffer[0]
+                self._discard_prefix(1)
                 continue
             frame = bytes(self._buffer[:_FRAME_LEN])
-            del self._buffer[:_FRAME_LEN]
+            self._discard_prefix(_FRAME_LEN)
             return frame
 
 

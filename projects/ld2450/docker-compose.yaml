@@ -9,8 +9,8 @@ services:
       target: wheels
     command: ["true"]
 
-  # Produces separate RP2040 and RP2350 UF2s. This demo deliberately runs only
-  # on RP2040; the RP2350 image reports unsupported_mcu at runtime.
+  # Produces the repository's universal RP UF2. This demo deliberately runs
+  # only on its RP2040 member; RP2350 reports unsupported_mcu at runtime.
   pi-compile:
     build:
       context: ../..
@@ -20,9 +20,6 @@ services:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
-    environment:
-      - RP_UF2_MODE=separate
-
   # FastAPI/WebSocket dashboard on :18501, fed by MCU JSON over USB-CDC.
   viz:
     build:

@@ -28,13 +28,10 @@ Run commands from this directory.
 docker compose up --build pi-compile
 ```
 
-This produces `outputs/app.rp2040.uf2` and `outputs/app.rp2350.uf2`. This project
-runs only on RP2040; the RP2350 image emits `unsupported_mcu`. Put the
-RP2040-Zero in [bootloader mode](../microcontrollers.md#bootloader-mode), then
-drag `outputs/app.rp2040.uf2` onto the `RPI-RP2` drive.
-
-The project selects `RP_UF2_MODE=separate` in Compose. The shared compiler's
-default remains the existing universal UF2 for projects that do not set it.
+This produces the repository's universal RP artifact at
+`outputs/app.rp2040.rp2350.uf2`; this project runs only on its RP2040 member.
+Put the RP2040-Zero in [bootloader mode](../microcontrollers.md#bootloader-mode),
+then drag the UF2 onto the `RPI-RP2` drive.
 
 ### Launch the dashboard
 
