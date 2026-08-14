@@ -8,6 +8,7 @@ consumed by the host dashboard.
 import os
 import time
 from collections import namedtuple
+from math import atan2, degrees, sqrt
 
 import ujson
 
@@ -97,13 +98,19 @@ def main() -> None:
 
 
 def _target_dict(target: object) -> dict:
-    """Convert one immutable driver record to the project's JSON schema."""
+    """Convert one immutable driver record to the project's JSON schema.
+
+    Distance and bearing are derived here, on the MCU, so consumers get
+    ready-to-plot polar values instead of recomputing them from x/y per frame.
+    """
     return {
         "slot": target.slot,
         "x_mm": target.x_mm,
         "y_mm": target.y_mm,
         "speed_cm_s": target.speed_cm_s,
         "resolution_mm": target.resolution_mm,
+        "distance_mm": round(sqrt(target.x_mm * target.x_mm + target.y_mm * target.y_mm)),
+        "angle_deg": round(degrees(atan2(target.x_mm, target.y_mm))),
     }
 
 

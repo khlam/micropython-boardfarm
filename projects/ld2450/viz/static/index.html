@@ -282,16 +282,14 @@
         return;
       }
       container.innerHTML = currentTargets.map((target) => {
-        const distance = Math.hypot(target.x_mm, target.y_mm) / 1000;
-        const angle = Math.atan2(target.x_mm, target.y_mm) * 180 / Math.PI;
         const color = COLORS[target.slot - 1];
         return `<article class="target-card" style="--slot-color:${color}">
           <div class="target-head"><strong>Slot ${target.slot}</strong><span>current report slot</span></div>
           <div class="target-values">
             <div>X <b>${(target.x_mm / 1000).toFixed(2)} m</b></div>
             <div>Y <b>${(target.y_mm / 1000).toFixed(2)} m</b></div>
-            <div>Distance <b>${distance.toFixed(2)} m</b></div>
-            <div>Angle <b>${angle.toFixed(1)}°</b></div>
+            <div>Distance <b>${(target.distance_mm / 1000).toFixed(2)} m</b></div>
+            <div>Angle <b>${target.angle_deg}°</b></div>
             <div>Speed <b>${target.speed_cm_s} cm/s</b></div>
             <div>Resolution <b>${target.resolution_mm} mm</b></div>
           </div>
@@ -331,13 +329,6 @@
       });
     }
 
-    function normalizeTargets(targets) {
-      return targets.map((target) => ({
-        ...target,
-        distance_mm: Math.hypot(target.x_mm, target.y_mm),
-      }));
-    }
-
     function updateRate(now) {
       frameTimes.push(now);
       while (frameTimes.length && frameTimes[0] < now - 5_000) frameTimes.shift();
@@ -356,7 +347,7 @@
       }
       lastFirmwareT = obj.t;
       const now = Date.now();
-      currentTargets = normalizeTargets(obj.targets);
+      currentTargets = obj.targets;
       gapOpen = false;
       appendHistory(currentTargets, now);
       lastFrameAt = now;

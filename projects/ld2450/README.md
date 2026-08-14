@@ -44,10 +44,13 @@ person identities.
 
 ## JSON stream
 
-The freshest available report is emitted, including reports with no active targets:
+The freshest available report is emitted, including reports with no active targets.
+`distance_mm` and `angle_deg` are derived from `x_mm`/`y_mm` on the MCU so the
+dashboard and any other consumer plot ready-to-use polar values instead of
+recomputing them per frame:
 
 ```json
-{"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
+{"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320,"distance_mm":1884,"angle_deg":-24}]}
 ```
 
 `targets` contains zero to three objects. Buffered older reports are discarded
