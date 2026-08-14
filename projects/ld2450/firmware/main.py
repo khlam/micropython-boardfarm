@@ -24,7 +24,6 @@ else:
 _BOOT_PAUSE_MS = 300
 _RETRY_PAUSE_MS = 1_000
 _READ_ERR_PAUSE_MS = 200
-_UNSUPPORTED_PAUSE_MS = 1_000
 
 
 def emit(obj: dict) -> None:
@@ -93,9 +92,8 @@ def main() -> None:
     if BOARD is None:
         emit({"diag": "unsupported_mcu", "machine": _machine})
         while True:
-            time.sleep_ms(_UNSUPPORTED_PAUSE_MS)
-    radar = init_sensor()
-    stream(radar)
+            time.sleep_ms(_RETRY_PAUSE_MS)
+    stream(init_sensor())
 
 
 def _target_dict(target: object) -> dict:

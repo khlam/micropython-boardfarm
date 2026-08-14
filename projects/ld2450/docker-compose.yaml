@@ -1,7 +1,5 @@
 ---
 services:
-  # Builds internal wheels so the viz stage installs serial_over_web from the
-  # repository's file:// index.
   wheels:
     build:
       context: ../..
@@ -9,8 +7,6 @@ services:
       target: wheels
     command: ["true"]
 
-  # Produces the repository's universal RP UF2. This demo deliberately runs
-  # only on its RP2040 member; RP2350 reports unsupported_mcu at runtime.
   pi-compile:
     build:
       context: ../..
@@ -20,7 +16,6 @@ services:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
-  # FastAPI/WebSocket dashboard on :18501, fed by MCU JSON over USB-CDC.
   viz:
     build:
       context: ../..

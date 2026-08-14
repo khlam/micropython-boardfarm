@@ -17,7 +17,6 @@ _FRAME_LEN = const(30)
 _TARGET_LEN = const(8)
 _TARGET_COUNT = const(3)
 _POLL_MS = const(10)
-_MAX_BUFFER_LEN = const(120)
 _HEADER = b"\xaa\xff\x03\x00"
 _TRAILER = b"\x55\xcc"
 
@@ -94,34 +93,24 @@ class LD2450:
         """Wait up to ``timeout_ms`` for one complete report and decode it."""
         started_ms = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), started_ms) < timeout_ms:
-            frame = self._extract_frame()
-            if frame is not None:
-                return _decode_targets(frame)
+            targets = self._extract_targets()
+            if targets is not None:
+                return targets
 
-            available = self._uart.any()
-            if available:
-                chunk = self._uart.read(available)
-                if chunk:
-                    self._buffer.extend(chunk)
-                    self._bound_buffer()
-                    continue
+            chunk = self._uart.read()
+            if chunk:
+                self._buffer.extend(chunk)
+                continue
             utime.sleep_ms(_POLL_MS)
 
-        frame = self._extract_frame()
-        return None if frame is None else _decode_targets(frame)
-
-    def _bound_buffer(self) -> None:
-        """Keep enough recent input for resynchronization without unbounded growth."""
-        overflow = len(self._buffer) - _MAX_BUFFER_LEN
-        if overflow > 0:
-            self._discard_prefix(overflow)
+        return self._extract_targets()
 
     def _discard_prefix(self, count: int) -> None:
         """Drop consumed bytes using slicing supported by MicroPython bytearray."""
         self._buffer = self._buffer[count:]
 
-    def _extract_frame(self) -> bytes | None:
-        """Remove and return the next valid frame currently in the receive buffer."""
+    def _extract_targets(self) -> tuple | None:
+        """Decode and remove the next valid report currently in the receive buffer."""
         while True:
             header_at = self._buffer.find(_HEADER)
             if header_at < 0:
@@ -137,32 +126,35 @@ class LD2450:
             if self._buffer[_FRAME_LEN - len(_TRAILER) : _FRAME_LEN] != _TRAILER:
                 self._discard_prefix(1)
                 continue
-            frame = bytes(self._buffer[:_FRAME_LEN])
+            targets = _decode_targets(self._buffer)
             self._discard_prefix(_FRAME_LEN)
-            return frame
+            return targets
 
 
-def _decode_targets(frame: bytes) -> tuple:
+def _decode_targets(frame: bytes | bytearray) -> tuple:
     """Decode the three target slots in a validated report frame."""
     targets = []
     for index in range(_TARGET_COUNT):
         start = len(_HEADER) + index * _TARGET_LEN
-        slot_data = frame[start : start + _TARGET_LEN]
-        if not any(slot_data):
+        x = _u16(frame, start)
+        y = _u16(frame, start + 2)
+        speed = _u16(frame, start + 4)
+        resolution = _u16(frame, start + 6)
+        if not (x or y or speed or resolution):
             continue
         targets.append(
             Target(
                 index + 1,
-                _decode_signed_magnitude(_u16(slot_data, 0)),
-                _decode_signed_magnitude(_u16(slot_data, 2)),
-                _decode_signed_magnitude(_u16(slot_data, 4)),
-                _u16(slot_data, 6),
+                _decode_signed_magnitude(x),
+                _decode_signed_magnitude(y),
+                _decode_signed_magnitude(speed),
+                resolution,
             )
         )
     return tuple(targets)
 
 
-def _u16(data: bytes, offset: int) -> int:
+def _u16(data: bytes | bytearray, offset: int) -> int:
     """Decode one little-endian unsigned 16-bit value without allocating."""
     return data[offset] | data[offset + 1] << 8
 
