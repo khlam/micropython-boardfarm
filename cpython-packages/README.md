@@ -48,8 +48,9 @@ micropython_stubs/
 Replacement module behavior:
 - `machine.py` records every `Pin(...)` construction in
   `pin_constructions`, routes I2C reads and writes to devices registered
-  with `machine.register_device(addr, dev)`, and feeds `UART.readline()`
-  from byte lines queued with `machine.feed_uart(...)`.
+  with `machine.register_device(addr, dev)`, feeds `UART.readline()` from byte
+  lines queued with `machine.feed_uart(...)`, and feeds non-blocking
+  `UART.any()` / `UART.read()` from `machine.feed_uart_bytes(...)`.
 - `neopixel.py` records `NeoPixel` instances and appends the current LED 0
   color to `writes` on each `write()`.
 - `ujson.py` and `ustruct.py` re-export CPython's `json` and `struct`

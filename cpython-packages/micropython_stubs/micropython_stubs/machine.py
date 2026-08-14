@@ -6,6 +6,7 @@ from __future__ import annotations
 pin_constructions: list[tuple] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
+_uart_bytes = bytearray()
 
 
 def register_device(address: int, device: object) -> None:
@@ -18,11 +19,17 @@ def feed_uart(lines: list[bytes]) -> None:
     _uart_lines.extend(lines)
 
 
+def feed_uart_bytes(data: bytes) -> None:
+    """Append binary UART data for non-blocking any()/read() consumers."""
+    _uart_bytes.extend(data)
+
+
 def reset() -> None:
     """Clear recorded pin constructions, the device registry, and UART queue."""
     pin_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
+    _uart_bytes.clear()
 
 
 class Pin:
@@ -109,7 +116,7 @@ class SoftI2C(_I2CBase):
 
 
 class UART:
-    """Fake `machine.UART` backed by a queued byte-line reader."""
+    """Fake `machine.UART` backed by line and binary receive queues."""
 
     def __init__(
         self,
@@ -131,3 +138,16 @@ class UART:
     def readline(self) -> bytes | None:
         """Return the next queued byte line, or None when the queue is empty."""
         return _uart_lines.pop(0) if _uart_lines else None
+
+    def any(self) -> int:
+        """Return the number of bytes available to read without blocking."""
+        return len(_uart_bytes)
+
+    def read(self, nbytes: int | None = None) -> bytes | None:
+        """Remove and return up to ``nbytes`` binary bytes, or None when empty."""
+        if not _uart_bytes:
+            return None
+        count = len(_uart_bytes) if nbytes is None else min(nbytes, len(_uart_bytes))
+        data = bytes(_uart_bytes[:count])
+        del _uart_bytes[:count]
+        return data

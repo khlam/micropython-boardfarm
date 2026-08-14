@@ -8,6 +8,7 @@ members = [
     "distance-stream",
     "gps-stream",
     "gyro-stream",
+    "ld2450-demo",
     "led-effects",
     "matter-example",
     "micropython-boardfarm",
@@ -574,6 +575,30 @@ wheels = [
 ]
 
 [[package]]
+name = "ld2450"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/ld2450-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/ld2450-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "ld2450-demo"
+version = "0.1.0"
+source = { virtual = "projects/ld2450" }
+dependencies = [
+    { name = "boot-status-led" },
+    { name = "ld2450" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "ld2450", specifier = ">=0.1.0", index = "file:///wheels" },
+]
+
+[[package]]
 name = "led-effects"
 version = "0.1.0"
 source = { virtual = "projects/led-effects" }
@@ -627,12 +652,13 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.13.0"
+version = "0.14.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
+    { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
@@ -659,6 +685,7 @@ test = [
     { name = "esp-idf-nvs-partition-gen" },
     { name = "httpx" },
     { name = "i2c-bus" },
+    { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
@@ -684,8 +711,9 @@ requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "ld2450", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.5.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -710,6 +738,7 @@ test = [
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
+    { name = "ld2450", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
@@ -728,11 +757,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.4.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.5.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.4.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.5.0-py3-none-any.whl" },
 ]
 
 [[package]]

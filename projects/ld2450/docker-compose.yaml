@@ -1,0 +1,43 @@
+---
+services:
+  # Builds internal wheels so the viz stage installs serial_over_web from the
+  # repository's file:// index.
+  wheels:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
+  # Produces the repository's universal RP UF2. This demo deliberately runs
+  # only on its RP2040 member; RP2350 reports unsupported_mcu at runtime.
+  pi-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: pi-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  # FastAPI/WebSocket dashboard on :18501, fed by MCU JSON over USB-CDC.
+  viz:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: viz
+      additional_contexts:
+        wheels: service:wheels
+      args:
+        VIZ_DIR: projects/ld2450/viz
+    volumes:
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    ports:
+      - 18501:18501
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
