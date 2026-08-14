@@ -1,22 +1,40 @@
 # HLK-LD2450 live radar
 
-RP2040-Zero demo for the Hi-Link HLK-LD2450. The reusable driver decodes the
-radar's 10 Hz binary UART stream, firmware emits compact JSON over USB-CDC, and
-the shared FastAPI service publishes it to a live Plotly dashboard. The project
-supports RP2040-Zero; the driver accepts reusable UART identifiers and pins.
+Multi-board demo for the Hi-Link HLK-LD2450, supporting RP2040-Zero, RP2350,
+and ESP32-S3-Zero. The reusable driver decodes the radar's 10 Hz binary UART
+stream, firmware emits compact JSON over USB-CDC, and the shared FastAPI
+service publishes it to a live Plotly dashboard. The driver accepts reusable
+UART identifiers and pins; each project owns its own board's pin map.
 
 ## Usage
 
-Run commands from this directory. Compile the universal RP2040/RP2350 image:
+Run commands from this directory.
+
+### RP2040-Zero / RP2350
+
+Compile the universal image:
 
 ```bash
 docker compose up --build pi-compile
 ```
 
-Use `outputs/app.rp2040.rp2350.uf2` on the RP2040-Zero. The RP2350 member emits
-`unsupported_mcu`. Put the board in
+Use `outputs/app.rp2040.rp2350.uf2` on either board. Put the board in
 [bootloader mode](../microcontrollers.md#bootloader-mode), then copy the UF2 to
 the `RPI-RP2` drive.
+
+### ESP32-S3-Zero
+
+Put the board in [bootloader mode](../microcontrollers.md#bootloader-mode) —
+the service fails fast if `/dev/ttyACM0` isn't present. Compile and flash:
+
+```bash
+docker compose run --rm --build esp32-flash
+```
+
+Runs `esp32-compile` to produce `outputs/app.esp32-s3.bin`, then immediately
+flashes it via `esptool.py` running inside the container.
+
+### Web dashboard
 
 With the flashed board connected, launch the dashboard and open
 <http://localhost:18501>:
@@ -68,7 +86,12 @@ uses `read_err` for UART failures.
 ## Wiring
 
 The authoritative mapping is the `BOARD` table in `firmware/main.py`. UART TX
-and RX cross between the devices.
+and RX cross between the devices. Supply the radar from 5 V with more than
+200 mA available; do not use a `3V3` pin. The radar's UART uses 3.3 V logic,
+so none of the three boards need a level shifter. If using a separate
+regulated supply, join its ground to the MCU's `GND`.
+
+### RP2040-Zero
 
 | RP2040-Zero | UART role | HLK-LD2450 | Purpose |
 | --- | --- | --- | --- |
@@ -77,9 +100,23 @@ and RX cross between the devices.
 | `GP4` | UART1 TX | `RX` | MCU to radar |
 | `GP5` | UART1 RX | `TX` | Radar reports to MCU |
 
-Supply the radar from 5 V with more than 200 mA available; do not use the
-board's `3V3` pin. Its UART uses 3.3 V logic, so GP4/GP5 need no level shifter.
-If using a separate regulated supply, join its ground to RP2040-Zero `GND`.
+### RP2350
+
+| RP2350 | UART role | HLK-LD2450 | Purpose |
+| --- | --- | --- | --- |
+| `VBUS` | — | `5V` | Radar power |
+| `GND` | — | `GND` | Common power and signal ground |
+| `GP0` | UART0 TX | `RX` | MCU to radar |
+| `GP1` | UART0 RX | `TX` | Radar reports to MCU |
+
+### ESP32-S3-Zero
+
+| ESP32-S3-Zero | UART role | HLK-LD2450 | Purpose |
+| --- | --- | --- | --- |
+| `5V` | — | `5V` | Radar power |
+| `GND` | — | `GND` | Common power and signal ground |
+| `GPIO17` | UART1 TX | `RX` | MCU to radar |
+| `GPIO18` | UART1 RX | `TX` | Radar reports to MCU |
 
 The demo expects the factory 256000-baud, 8-N-1 setting and never changes radar
 configuration. See the

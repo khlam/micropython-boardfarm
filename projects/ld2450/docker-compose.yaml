@@ -16,6 +16,35 @@ services:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
       - ./outputs:/outputs
+
+  esp32-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  esp32-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-flash
+    depends_on:
+      esp32-compile:
+        condition: service_completed_successfully
+    volumes:
+      - ./outputs:/outputs:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+
   viz:
     build:
       context: ../..

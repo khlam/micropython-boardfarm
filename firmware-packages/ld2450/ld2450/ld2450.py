@@ -97,43 +97,27 @@ class LD2450:
         Returns:
             Zero to three ``Target`` records, or ``None`` on timeout.
         """
-        pending = self._pending
-        self._pending = None
-
         chunk = self._uart.read()
         if chunk:
             self._buffer.extend(chunk)
         targets = self._extract_latest_targets()
         if targets is not None:
+            self._pending = None
             return targets
-        if pending is not None:
+        if self._pending is not None:
+            pending = self._pending
+            self._pending = None
             return pending
         return self._read_latest_targets(self._frame_timeout_ms)
 
-    def _read_targets(self, timeout_ms: int) -> tuple | None:
-        """Wait up to ``timeout_ms`` for one complete report and decode it."""
-        started_ms = utime.ticks_ms()
-        while utime.ticks_diff(utime.ticks_ms(), started_ms) < timeout_ms:
-            targets = self._extract_targets()
-            if targets is not None:
-                return targets
-
-            chunk = self._uart.read()
-            if chunk:
-                self._buffer.extend(chunk)
-                continue
-            utime.sleep_ms(_POLL_MS)
-
-        return self._extract_targets()
-
-    def _read_latest_targets(self, timeout_ms: int) -> tuple | None:
-        """Wait up to ``timeout_ms`` and return only the freshest report."""
+    def _poll(self, timeout_ms: int, extract: object) -> tuple | None:
+        """Poll the UART until ``extract()`` succeeds or ``timeout_ms`` elapses."""
         started_ms = utime.ticks_ms()
         while utime.ticks_diff(utime.ticks_ms(), started_ms) < timeout_ms:
             chunk = self._uart.read()
             if chunk:
                 self._buffer.extend(chunk)
-            targets = self._extract_latest_targets()
+            targets = extract()  # ty: ignore[call-non-callable]
             if targets is not None:
                 return targets
             utime.sleep_ms(_POLL_MS)
@@ -141,11 +125,19 @@ class LD2450:
         chunk = self._uart.read()
         if chunk:
             self._buffer.extend(chunk)
-        return self._extract_latest_targets()
+        return extract()  # ty: ignore[call-non-callable]
+
+    def _read_targets(self, timeout_ms: int) -> tuple | None:
+        """Wait up to ``timeout_ms`` for one complete report and decode it."""
+        return self._poll(timeout_ms, self._extract_targets)
+
+    def _read_latest_targets(self, timeout_ms: int) -> tuple | None:
+        """Wait up to ``timeout_ms`` and return only the freshest report."""
+        return self._poll(timeout_ms, self._extract_latest_targets)
 
     def _discard_prefix(self, count: int) -> None:
-        """Drop consumed bytes using slicing supported by MicroPython bytearray."""
-        self._buffer = self._buffer[count:]
+        """Drop consumed bytes in place, without reallocating the whole buffer."""
+        del self._buffer[:count]
 
     def _extract_targets(self) -> tuple | None:
         """Decode and remove the next valid report currently in the receive buffer."""

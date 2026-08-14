@@ -1,6 +1,6 @@
-"""RP2040-Zero firmware for HLK-LD2450 target telemetry.
+"""MicroPython firmware for HLK-LD2450 target telemetry.
 
-The radar driver receives 256000-baud binary reports on UART1. This project
+The radar driver receives 256000-baud binary reports over UART. This project
 converts each valid report to compact JSON on the independent USB-CDC console
 consumed by the host dashboard.
 """
@@ -15,12 +15,18 @@ import ujson
 from boot_status_led import status
 from ld2450 import LD2450, DeviceNotFoundError
 
+# Per-chip pin map — the authoritative wiring for this project, plain GPIO
+# numbers. uart_id selects the UART peripheral the driver opens; tx drives
+# the radar RX line, rx carries the report stream. Filled per chip by
+# os.uname().machine dispatch at import.
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx"))
 _machine = os.uname().machine
-if "RP2040" in _machine and "RP2350" not in _machine:
-    BOARD = Board(name="RP2040-Zero", uart_id=1, tx=4, rx=5)
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=17, rx=18)
+elif "RP2350" in _machine:
+    BOARD = Board(name="RP2350", uart_id=0, tx=0, rx=1)
 else:
-    BOARD = None
+    BOARD = Board(name="RP2040-Zero", uart_id=1, tx=4, rx=5)
 
 _BOOT_PAUSE_MS = 300
 _RETRY_PAUSE_MS = 1_000
@@ -50,7 +56,7 @@ def init_sensor() -> LD2450:
             status.no_device()
             emit({"diag": "no_device", "err": str(err)})
             time.sleep_ms(_RETRY_PAUSE_MS)
-        except (OSError, ValueError) as err:
+        except OSError as err:
             status.init_err()
             emit({"diag": "init_err", "err": str(err)})
             time.sleep_ms(_RETRY_PAUSE_MS)
@@ -71,6 +77,7 @@ def stream(radar: LD2450) -> None:
             emit({"diag": "read_err", "err": str(err)})
             time.sleep_ms(_READ_ERR_PAUSE_MS)
             status.streaming()
+            timed_out = False
             continue
 
         if targets is None:
@@ -87,13 +94,9 @@ def stream(radar: LD2450) -> None:
 
 
 def main() -> None:
-    """Run boot, validate the supported MCU, initialize the radar, and stream."""
+    """Run boot, initialize the radar, and stream."""
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
-    if BOARD is None:
-        emit({"diag": "unsupported_mcu", "machine": _machine})
-        while True:
-            time.sleep_ms(_RETRY_PAUSE_MS)
     stream(init_sensor())
 
 

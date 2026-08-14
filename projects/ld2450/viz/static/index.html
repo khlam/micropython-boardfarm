@@ -129,14 +129,13 @@
     let connected = false;
     let frameCount = 0;
     let lastFrameAt = null;
-    let lastFirmwareT = null;
     let currentTargets = [];
     let history = [];
     let frameTimes = [];
     let gapOpen = false;
     let liveRenderPending = false;
 
-    function coverageTrace() {
+    function buildCoverageTrace() {
       const x = [0];
       const y = [0];
       for (let degree = -60; degree <= 60; degree += 3) {
@@ -157,6 +156,8 @@
         showlegend: false,
       };
     }
+
+    const COVERAGE_TRACE = buildCoverageTrace();
 
     const radarLayout = {
       paper_bgcolor: PANEL,
@@ -194,7 +195,7 @@
       };
     }
 
-    Plotly.newPlot("radar", [coverageTrace()], radarLayout, config);
+    Plotly.newPlot("radar", [COVERAGE_TRACE], radarLayout, config);
     Plotly.newPlot("target-count", [], axisLayout("Targets"), config);
     Plotly.newPlot("distance", [], axisLayout("m"), config);
     Plotly.newPlot("speed", [], axisLayout("cm/s"), config);
@@ -240,7 +241,7 @@
 
     function renderRadar() {
       const now = Date.now();
-      const traces = [coverageTrace()];
+      const traces = [COVERAGE_TRACE];
       for (let slot = 1; slot <= 3; slot++) {
         const points = [];
         history.forEach((sample) => {
@@ -313,9 +314,13 @@
       Plotly.react("speed", [1, 2, 3].map((slot) => slotTrace(slot, "speed_cm_s", 1, "cm/s")), axisLayout("cm/s"), config);
     }
 
-    function renderAll() {
+    function renderLive() {
       renderRadar();
       renderCards();
+    }
+
+    function renderAll() {
+      renderLive();
       renderAnalytics();
     }
 
@@ -324,8 +329,7 @@
       liveRenderPending = true;
       requestAnimationFrame(() => {
         liveRenderPending = false;
-        renderRadar();
-        renderCards();
+        renderLive();
       });
     }
 
@@ -337,15 +341,15 @@
         return;
       }
       const seconds = (frameTimes[frameTimes.length - 1] - frameTimes[0]) / 1000;
+      if (seconds <= 0) return;
       $("rate").textContent = ((frameTimes.length - 1) / seconds).toFixed(1) + " Hz";
     }
 
     function onFrame(obj) {
       if (!Array.isArray(obj.targets) || typeof obj.t !== "number") return;
-      if (lastFirmwareT !== null && obj.t < lastFirmwareT) {
-        resetTelemetry("Firmware clock reset; history restarted");
-      }
-      lastFirmwareT = obj.t;
+      // obj.t (raw firmware ticks_ms) is intentionally unused for reboot
+      // detection — it wraps periodically and is indistinguishable from a
+      // real reset. setConnection()/markGap() already handle disconnects.
       const now = Date.now();
       currentTargets = obj.targets;
       gapOpen = false;
@@ -397,7 +401,6 @@
           init_err: "Radar UART initialization failed",
           read_err: "Radar UART read failed",
           frame_timeout: "Radar frame timeout",
-          unsupported_mcu: "This demo requires an RP2040",
         };
         $("diag").textContent = labels[obj.diag] || obj.diag;
         if (obj.diag === "frame_timeout" || obj.diag === "read_err") markGap($("diag").textContent);
