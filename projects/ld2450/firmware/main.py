@@ -1,6 +1,6 @@
 """RP2040-Zero firmware for HLK-LD2450 target telemetry.
 
-The radar driver receives 256000-baud binary reports on UART0. This project
+The radar driver receives 256000-baud binary reports on UART1. This project
 converts each valid report to compact JSON on the independent USB-CDC console
 consumed by the host dashboard.
 """
@@ -17,7 +17,7 @@ from ld2450 import LD2450, DeviceNotFoundError
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx"))
 _machine = os.uname().machine
 if "RP2040" in _machine and "RP2350" not in _machine:
-    BOARD = Board(name="RP2040-Zero", uart_id=0, tx=0, rx=1)
+    BOARD = Board(name="RP2040-Zero", uart_id=1, tx=4, rx=5)
 else:
     BOARD = None
 

@@ -11,7 +11,7 @@ UART identifiers and pins and can be reused by other MicroPython projects.
 ## Data path
 
 ```text
-LD2450 @ 256000 baud ──UART0──► RP2040-Zero ──USB-CDC JSON──► FastAPI/WebSocket ──► browser
+LD2450 @ 256000 baud ──UART1──► RP2040-Zero ──USB-CDC JSON──► FastAPI/WebSocket ──► browser
 ```
 
 The radar-side UART and host-side USB serial connection are independent. The
@@ -28,10 +28,13 @@ Run commands from this directory.
 docker compose up --build pi-compile
 ```
 
-This produces the repository's universal RP artifact at
-`outputs/app.rp2040.rp2350.uf2`; this project runs only on its RP2040 member.
-Put the RP2040-Zero in [bootloader mode](../microcontrollers.md#bootloader-mode),
-then drag the UF2 onto the `RPI-RP2` drive.
+This produces `outputs/app.rp2040.uf2` and `outputs/app.rp2350.uf2`. This project
+runs only on RP2040; the RP2350 image emits `unsupported_mcu`. Put the
+RP2040-Zero in [bootloader mode](../microcontrollers.md#bootloader-mode), then
+drag `outputs/app.rp2040.uf2` onto the `RPI-RP2` drive.
+
+The project selects `RP_UF2_MODE=separate` in Compose. The shared compiler's
+default remains the existing universal UF2 for projects that do not set it.
 
 ### Launch the dashboard
 
@@ -95,8 +98,8 @@ UART lines cross because each TX connects to the other device's RX.
 | --- | --- | --- | --- |
 | `5V` | — | `5V` | Radar power |
 | `GND` | — | `GND` | Common power and signal ground |
-| `GP0` | UART0 TX | `RX` | MCU to radar; retained for future commands |
-| `GP1` | UART0 RX | `TX` | Radar target reports to MCU |
+| `GP4` | UART1 TX | `RX` | MCU to radar; retained for future commands |
+| `GP5` | UART1 RX | `TX` | Radar target reports to MCU |
 
 ```text
                  Waveshare RP2040-Zero                 HLK-LD2450
@@ -105,13 +108,13 @@ UART lines cross because each TX connects to the other device's RX.
                     ┌───────────┐                    ┌───────────┐
  USB 5 V rail   5V ─┤           ├───────────────────►│ 5V        │
  Common ground GND ─┤           ├───────────────────►│ GND       │
- UART0 TX       GP0 ┤           ├───────────────────►│ RX        │
- UART0 RX       GP1 ┤           ├◄───────────────────│ TX        │
+ UART1 TX       GP4 ┤           ├───────────────────►│ RX        │
+ UART1 RX       GP5 ┤           ├◄───────────────────│ TX        │
                     └───────────┘                    └───────────┘
 ```
 
 The LD2450 requires 5 V with more than 200 mA available. Its UART uses 3.3 V
-logic, so GP0 and GP1 connect directly without a level shifter. Do not power the
+logic, so GP4 and GP5 connect directly without a level shifter. Do not power the
 radar from the board's `3V3` pin. If a separate regulated 5 V supply is used,
 join its ground to RP2040-Zero `GND`.
 
