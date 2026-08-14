@@ -118,6 +118,7 @@
     const HISTORY_MS = 60_000;
     const TRAIL_MS = 5_000;
     const STALE_MS = 1_000;
+    const ANALYTICS_REFRESH_MS = 1_000;
     const COLORS = ["#22c55e", "#38bdf8", "#f97316"];
     const PANEL = "#131722";
     const GRID = "#263041";
@@ -133,6 +134,7 @@
     let history = [];
     let frameTimes = [];
     let gapOpen = false;
+    let liveRenderPending = false;
 
     function coverageTrace() {
       const x = [0];
@@ -319,6 +321,16 @@
       renderAnalytics();
     }
 
+    function scheduleLiveRender() {
+      if (liveRenderPending) return;
+      liveRenderPending = true;
+      requestAnimationFrame(() => {
+        liveRenderPending = false;
+        renderRadar();
+        renderCards();
+      });
+    }
+
     function normalizeTargets(targets) {
       return targets.map((target) => ({
         ...target,
@@ -352,7 +364,7 @@
       $("frames").textContent = frameCount;
       $("diag").textContent = "";
       updateRate(now);
-      renderAll();
+      scheduleLiveRender();
     }
 
     function markGap(message) {
@@ -426,6 +438,7 @@
     }
 
     setInterval(refreshFreshness, 250);
+    setInterval(renderAnalytics, ANALYTICS_REFRESH_MS);
     connect();
   })();
   </script>

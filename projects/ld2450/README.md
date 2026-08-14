@@ -44,13 +44,15 @@ person identities.
 
 ## JSON stream
 
-Every valid report is emitted, including reports with no active targets:
+The freshest available report is emitted, including reports with no active targets:
 
 ```json
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
 ```
 
-`targets` contains zero to three objects. Diagnostics use a separate shape:
+`targets` contains zero to three objects. Buffered older reports are discarded
+if the consumer falls behind so the visualization stays current. Diagnostics
+use a separate shape:
 
 ```json
 {"diag":"frame_timeout","t":1734}

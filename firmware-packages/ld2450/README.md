@@ -20,6 +20,10 @@ report. `read()` waits up to `frame_timeout_ms` and returns:
 - An empty tuple for a valid report with no targets.
 - `None` when no complete report arrives before the timeout.
 
+Live visualizations should use `read_latest()`. It has the same return shapes
+but discards buffered older reports so a slow consumer resumes at the radar's
+current position instead of replaying stale positions.
+
 The parser validates the `AA FF 03 00` header and `55 CC` trailer and propagates
 UART failures as `OSError`. It never changes tracking mode, baud rate,
 Bluetooth, detection zones, or other persistent configuration. See the

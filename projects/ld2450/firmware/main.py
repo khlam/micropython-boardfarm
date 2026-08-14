@@ -59,12 +59,12 @@ def init_sensor() -> LD2450:
 
 
 def stream(radar: LD2450) -> None:
-    """Emit every valid target frame and recover from timeouts and UART faults."""
+    """Emit fresh target frames and recover from timeouts and UART faults."""
     timed_out = False
     status.streaming()
     while True:
         try:
-            targets = radar.read()
+            targets = radar.read_latest()
         except OSError as err:
             status.read_err()
             emit({"diag": "read_err", "err": str(err)})

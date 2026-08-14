@@ -89,6 +89,29 @@ class LD2450:
             return targets
         return self._read_targets(self._frame_timeout_ms)
 
+    def read_latest(self) -> tuple | None:
+        """Return targets from the freshest complete report available.
+
+        Buffered older reports are discarded so a temporarily slow consumer
+        catches up to the radar instead of replaying stale positions. If no
+        complete report is buffered, this waits up to ``frame_timeout_ms``.
+
+        Returns:
+            Zero to three ``Target`` records, or ``None`` on timeout.
+        """
+        pending = self._pending
+        self._pending = None
+
+        chunk = self._uart.read()
+        if chunk:
+            self._buffer.extend(chunk)
+        targets = self._extract_latest_targets()
+        if targets is not None:
+            return targets
+        if pending is not None:
+            return pending
+        return self._read_latest_targets(self._frame_timeout_ms)
+
     def _read_targets(self, timeout_ms: int) -> tuple | None:
         """Wait up to ``timeout_ms`` for one complete report and decode it."""
         started_ms = utime.ticks_ms()
@@ -104,6 +127,23 @@ class LD2450:
             utime.sleep_ms(_POLL_MS)
 
         return self._extract_targets()
+
+    def _read_latest_targets(self, timeout_ms: int) -> tuple | None:
+        """Wait up to ``timeout_ms`` and return only the freshest report."""
+        started_ms = utime.ticks_ms()
+        while utime.ticks_diff(utime.ticks_ms(), started_ms) < timeout_ms:
+            chunk = self._uart.read()
+            if chunk:
+                self._buffer.extend(chunk)
+            targets = self._extract_latest_targets()
+            if targets is not None:
+                return targets
+            utime.sleep_ms(_POLL_MS)
+
+        chunk = self._uart.read()
+        if chunk:
+            self._buffer.extend(chunk)
+        return self._extract_latest_targets()
 
     def _discard_prefix(self, count: int) -> None:
         """Drop consumed bytes using slicing supported by MicroPython bytearray."""
@@ -129,6 +169,15 @@ class LD2450:
             targets = _decode_targets(self._buffer)
             self._discard_prefix(_FRAME_LEN)
             return targets
+
+    def _extract_latest_targets(self) -> tuple | None:
+        """Decode all complete reports and return only the freshest one."""
+        latest = None
+        while True:
+            targets = self._extract_targets()
+            if targets is None:
+                return latest
+            latest = targets
 
 
 def _decode_targets(frame: bytes | bytearray) -> tuple:
