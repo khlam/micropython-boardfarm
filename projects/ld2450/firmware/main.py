@@ -1,9 +1,11 @@
-"""Send HLK-LD2450 radar targets over the board's USB serial connection.
+"""Send current HLK-LD2450 targets over the board's USB serial connection.
 
-The radar driver reads reports over a UART serial connection. This firmware
-turns each report into one compact JSON object for the live dashboard.
+The radar driver wakes this asyncio application when UART data becomes idle.
+This firmware turns the newest complete report into one compact JSON object
+for the live dashboard.
 """
 
+import asyncio
 import os
 import time
 from collections import namedtuple
@@ -35,7 +37,7 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-def init_sensor() -> LD2450:
+async def init_sensor() -> LD2450:
     """Connect to the radar, retrying until it sends a valid report.
 
     Returns:
@@ -49,30 +51,31 @@ def init_sensor() -> LD2450:
                 tx=BOARD.tx,
                 rx=BOARD.rx,
             )
+            await radar.wait_ready()
         except DeviceNotFoundError as err:
             status.no_device()
             emit({"diag": "no_device", "err": str(err)})
-            time.sleep_ms(_RETRY_PAUSE_MS)
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
         except OSError as err:
             status.init_err()
             emit({"diag": "init_err", "err": str(err)})
-            time.sleep_ms(_RETRY_PAUSE_MS)
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
         else:
             emit({"diag": "radar_ok"})
             return radar
 
 
-def stream(radar: LD2450) -> None:
+async def stream(radar: LD2450) -> None:
     """Send the newest targets and recover from missing reports or UART errors."""
     timed_out = False
     status.streaming()
     while True:
         try:
-            targets = radar.read_latest()
+            targets = await radar.read_latest()
         except OSError as err:
             status.read_err()
             emit({"diag": "read_err", "err": str(err)})
-            time.sleep_ms(_READ_ERR_PAUSE_MS)
+            await asyncio.sleep_ms(_READ_ERR_PAUSE_MS)
             status.streaming()
             timed_out = False
             continue
@@ -90,11 +93,15 @@ def stream(radar: LD2450) -> None:
         emit({"t": time.ticks_ms(), "targets": [_target_dict(target) for target in targets]})
 
 
-def main() -> None:
+async def main() -> None:
     """Run boot, initialize the radar, and stream."""
     status.boot()
-    time.sleep_ms(_BOOT_PAUSE_MS)
-    stream(init_sensor())
+    await asyncio.sleep_ms(_BOOT_PAUSE_MS)
+    radar = await init_sensor()
+    try:
+        await stream(radar)
+    finally:
+        radar.close()
 
 
 def _target_dict(target: object) -> dict:
@@ -114,4 +121,4 @@ def _target_dict(target: object) -> dict:
     }
 
 
-main()
+asyncio.run(main())

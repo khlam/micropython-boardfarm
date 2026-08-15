@@ -4,10 +4,11 @@ This project displays the targets detected by an HLK-LD2450 radar. It supports
 the RP2040-Zero, RP2350, and ESP32-S3-Zero boards.
 
 The radar sends ten reports per second over a UART serial connection. Each
-report has three target slots. The firmware reads the report, sends the active
-targets as JSON over the board's USB serial connection, and the web dashboard
-plots their positions. The `BOARD` table in `firmware/main.py` selects the UART
-and GPIO pins for each board.
+report has three target slots. A receive-idle interrupt wakes the firmware's
+asyncio reader, which drains the buffered reports and decodes only the newest
+valid one. The firmware sends its active targets as JSON over the board's USB
+serial connection, and the web dashboard plots their positions. The `BOARD`
+table in `firmware/main.py` selects the UART and GPIO pins for each board.
 
 ## Usage
 
@@ -73,9 +74,11 @@ report, including reports with no targets. It calculates `distance_mm` and
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320,"distance_mm":1884,"angle_deg":-24}]}
 ```
 
-`targets` contains zero to three objects. If several reports are waiting, the
-firmware skips older ones so the display stays current. Status messages use a
-different JSON form:
+`targets` contains zero to three objects. The UART holds up to 512 bytes, about
+1.7 seconds of normal reports, to absorb short USB-output or event-loop stalls.
+If several reports are waiting, the firmware validates all complete frames but
+decodes only the newest one so the display stays current. Status messages use
+a different JSON form:
 
 ```json
 {"diag":"report_timeout","t":1734}
@@ -125,6 +128,9 @@ supply, connect its ground to the board's `GND`.
 The demo expects the factory serial settings: 256000 baud, eight data bits, no
 parity, and one stop bit. It never changes the radar configuration. See the
 [Hi-Link LD2450 serial protocol V1.03](https://h.hlktech.com/download/HLK-LD2450-24G/1/LD2450%20%E4%B8%B2%E5%8F%A3%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE%20V1.03.pdf).
+
+On ESP32-S3, MicroPython implements the receive-idle UART interrupt with
+`Timer(0)`. This project leaves that timer reserved for the radar driver.
 
 The reusable radar driver is documented in
 [`../../firmware-packages/ld2450/`](../../firmware-packages/ld2450/).
