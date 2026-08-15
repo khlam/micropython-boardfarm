@@ -25,6 +25,7 @@ Run project commands from inside a project directory.
 | [compass](compass/) | QMC5883P magnetometer | ~50 Hz | Plotly compass rose + heading readout |
 | [distance-stream](distance-stream/) | VL53L0X ToF | ~50 Hz | Plotly line chart of `distance_mm` |
 | [gyro-stream](gyro-stream/) | MPU6050 IMU (accel + gyro + temp) | ~100 Hz | Plotly multi-trace + 3D orientation view |
+| [ld2450](ld2450/) | HLK-LD2450 radar sensor | 10 Hz | Live X/Y tracks + 60 s analytics |
 | [matter](matter/) | MicroPython-owned Matter endpoint example | Event driven | Apple Home / Matter controllers |
 | [multizone-ranging](multizone-ranging/) | VL53L5CX 8×8 ToF | ~15 Hz | Plotly 8×8 3D point cloud + distance stats |
 
