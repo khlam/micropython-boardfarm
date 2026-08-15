@@ -1,5 +1,12 @@
 ---
 services:
+  wheels:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
   pi-compile:
     build:
       context: ../..
@@ -33,6 +40,26 @@ services:
       - /dev:/dev
     device_cgroup_rules:
       - c 166:* rmw
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+
+  viz:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: viz
+      additional_contexts:
+        wheels: service:wheels
+      args:
+        VIZ_DIR: projects/ld2450/viz
+    volumes:
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    ports:
+      - 18501:18501
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
