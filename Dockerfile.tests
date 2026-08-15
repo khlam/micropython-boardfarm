@@ -43,6 +43,7 @@ COPY projects/distance-stream/pyproject.toml ./projects/distance-stream/pyprojec
 COPY projects/gps/pyproject.toml ./projects/gps/pyproject.toml
 COPY projects/gyro-stream/pyproject.toml ./projects/gyro-stream/pyproject.toml
 COPY projects/led-effects/pyproject.toml ./projects/led-effects/pyproject.toml
+COPY projects/ld2450/pyproject.toml ./projects/ld2450/pyproject.toml
 COPY projects/matter/pyproject.toml ./projects/matter/pyproject.toml
 COPY projects/multizone-ranging/pyproject.toml ./projects/multizone-ranging/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-project --group test
