@@ -713,7 +713,7 @@ requires-dist = [
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "ld2450", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.5.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.6.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -757,11 +757,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.5.0"
+version = "0.6.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.5.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.6.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.5.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.6.0-py3-none-any.whl" },
 ]
 
 [[package]]

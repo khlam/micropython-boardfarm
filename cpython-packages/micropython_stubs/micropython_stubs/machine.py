@@ -10,6 +10,7 @@ uart_constructions: list[UART] = []
 _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
 _uart_bytes = bytearray()
+_uart_read_exc: Exception | None = None
 
 
 def register_device(address: int, device: object) -> None:
@@ -23,7 +24,7 @@ def feed_uart(lines: list[bytes]) -> None:
 
 
 def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
-    """Queue binary UART data for any(), read(), and readinto() consumers.
+    """Queue binary UART data for any() and readinto() consumers.
 
     Args:
         data: Bytes appended to the shared binary receive queue.
@@ -37,13 +38,29 @@ def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
             uart.trigger_rx_idle()
 
 
+def fail_uart_reads(exc: Exception | None) -> None:
+    """Make the next `UART.readinto()` call raise `exc` instead of returning data.
+
+    The fault is one-shot: it fires on the next call, then clears itself, so a
+    test can inject a single error and let the following call recover
+    normally. Pass None to cancel a pending fault.
+
+    Args:
+        exc: Exception the next `readinto()` call raises, or None to clear.
+    """
+    global _uart_read_exc  # noqa: PLW0603
+    _uart_read_exc = exc
+
+
 def reset() -> None:
     """Clear recorded constructions, the device registry, and the UART queues."""
+    global _uart_read_exc  # noqa: PLW0603
     pin_constructions.clear()
     uart_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
     _uart_bytes.clear()
+    _uart_read_exc = None
 
 
 class Pin:
@@ -166,15 +183,6 @@ class UART:
         """Return the next queued byte line, or None when the queue is empty."""
         return _uart_lines.pop(0) if _uart_lines else None
 
-    def read(self, nbytes: int | None = None) -> bytes | None:
-        """Remove and return up to ``nbytes`` binary bytes, or None when empty."""
-        if not _uart_bytes:
-            return None
-        count = len(_uart_bytes) if nbytes is None else min(nbytes, len(_uart_bytes))
-        data = bytes(_uart_bytes[:count])
-        del _uart_bytes[:count]
-        return data
-
     def readinto(self, buf: bytearray, nbytes: int | None = None) -> int | None:
         """Move up to ``nbytes`` queued bytes into ``buf``, or None when empty.
 
@@ -184,7 +192,15 @@ class UART:
 
         Returns:
             The number of bytes written, or None when nothing was queued.
+
+        Raises:
+            exc: Whatever `fail_uart_reads()` last armed, raised once instead
+                of returning.
         """
+        global _uart_read_exc
+        if _uart_read_exc is not None:
+            exc, _uart_read_exc = _uart_read_exc, None
+            raise exc
         limit = len(buf) if nbytes is None else min(nbytes, len(buf))
         count = min(limit, len(_uart_bytes))
         if not count:

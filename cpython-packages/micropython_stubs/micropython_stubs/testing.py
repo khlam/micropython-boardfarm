@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import io
 import json
 import pathlib
@@ -84,7 +85,7 @@ def load_firmware_code(firmware_path: pathlib.Path, keep_funcs: set[str]) -> typ
         node
         for node in tree.body
         if isinstance(node, ast.Assign)
-        or (isinstance(node, ast.FunctionDef) and node.name in keep_funcs)
+        or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in keep_funcs)
     ]
     module = ast.Module(body=kept, type_ignores=[])
     ast.fix_missing_locations(module)
@@ -177,6 +178,23 @@ def run_stream(main_ns: types.SimpleNamespace, sensor: Any) -> list[dict]:
     buf = io.StringIO()
     with redirect_stdout(buf), pytest.raises(StopLoopError):
         stream(sensor)
+    return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
+
+
+def run_async_stream(main_ns: types.SimpleNamespace, sensor: Any) -> list[dict]:
+    """Drive an `async def stream(sensor)` until the fake raises StopLoopError.
+
+    Args:
+        main_ns: Namespace from firmware_namespace, exposing ``ns["stream"]``.
+        sensor: Scripted fake passed straight to stream().
+
+    Returns:
+        One parsed dict per non-blank JSON line emitted to stdout.
+    """
+    stream = main_ns.ns["stream"]
+    buf = io.StringIO()
+    with redirect_stdout(buf), pytest.raises(StopLoopError):
+        asyncio.run(stream(sensor))
     return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
 
 
