@@ -51,7 +51,7 @@ Replacement module behavior:
   `pin_constructions`, routes I2C reads and writes to devices registered
   with `machine.register_device(addr, dev)`, feeds `UART.readline()` from byte
   lines queued with `machine.feed_uart(...)`, and feeds non-blocking
-  `UART.any()` / `UART.read()` / `UART.readinto()` from
+  `UART.any()` / `UART.readinto()` from
   `machine.feed_uart_bytes(...)`.
 - `machine.UART` also records constructions in `uart_constructions`, keeps
   every constructor keyword in `config`, and implements `irq()` / `deinit()`.

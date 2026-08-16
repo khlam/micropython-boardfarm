@@ -88,6 +88,7 @@ jobs:
           - distance-stream
           - gps
           - gyro-stream
+          - ld2450
           - led-effects
           - matter
           - multizone-ranging
