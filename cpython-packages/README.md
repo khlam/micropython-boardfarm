@@ -42,6 +42,7 @@ micropython_stubs/
     ustruct.py            CPython struct exported as ustruct
     utime.py              no-op sleep_ms plus monotonic ticks
     micropython.py        const(x) returns x
+    asyncio_extras.py     MicroPython-only asyncio names, installed onto stdlib
     testing.py            shared fakes and firmware main.py AST helpers
 ```
 
@@ -50,7 +51,13 @@ Replacement module behavior:
   `pin_constructions`, routes I2C reads and writes to devices registered
   with `machine.register_device(addr, dev)`, feeds `UART.readline()` from byte
   lines queued with `machine.feed_uart(...)`, and feeds non-blocking
-  `UART.any()` / `UART.read()` from `machine.feed_uart_bytes(...)`.
+  `UART.any()` / `UART.read()` / `UART.readinto()` from
+  `machine.feed_uart_bytes(...)`.
+- `machine.UART` also records constructions in `uart_constructions`, keeps
+  every constructor keyword in `config`, and implements `irq()` / `deinit()`.
+  `feed_uart_bytes(...)` runs each UART's `IRQ_RXIDLE` handler after queueing,
+  which is how an interrupt-driven driver wakes on the host; pass
+  `notify=False` to make the driver fall back to its own timeout instead.
 - `neopixel.py` records `NeoPixel` instances and appends the current LED 0
   color to `writes` on each `write()`.
 - `ujson.py` and `ustruct.py` re-export CPython's `json` and `struct`
@@ -58,6 +65,9 @@ Replacement module behavior:
 - `utime.py` makes `sleep_ms()` a no-op and implements `ticks_ms()` /
   `ticks_diff()` with host time.
 - `micropython.py` exposes `const(x)` as an identity function.
+- `asyncio_extras.py` supplies `ThreadSafeFlag`, `wait_for_ms`, and `sleep_ms`
+  — the names MicroPython adds to `asyncio` — and `install(monkeypatch)` puts
+  them on the stdlib module for the duration of a test.
 - `testing.py` provides `FakeTime`, `FakeStatus`, and helpers that load
   selected assignments/functions from a firmware `main.py` into a test
   namespace.
@@ -66,7 +76,10 @@ Reset mutable test-module state in autouse fixtures with `machine.reset()` and
 `neopixel.reset()`. Add new top-level replacements by creating the module under
 `micropython_stubs/micropython_stubs/` and adding it to
 `tool.hatch.build.targets.wheel.force-include` in
-[`micropython_stubs/pyproject.toml`](micropython_stubs/pyproject.toml).
+[`micropython_stubs/pyproject.toml`](micropython_stubs/pyproject.toml). A name
+the stdlib already owns — `asyncio` — cannot be replaced that way, because the
+stdlib module wins on `sys.path`; extend the real module from a fixture as
+`asyncio_extras` does.
 
 
 ## Notes
