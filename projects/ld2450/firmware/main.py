@@ -1,10 +1,11 @@
-"""MicroPython firmware for HLK-LD2450 target telemetry.
+"""Send current HLK-LD2450 targets over the board's USB serial connection.
 
-The radar driver receives 256000-baud binary reports over UART. This project
-converts each valid report to compact JSON on the independent USB-CDC console
-consumed by the host dashboard.
+The radar driver wakes this asyncio application when UART data becomes idle.
+This firmware turns the newest complete report into one compact JSON object
+for the live dashboard.
 """
 
+import asyncio
 import os
 import time
 from collections import namedtuple
@@ -15,10 +16,8 @@ import ujson
 from boot_status_led import status
 from ld2450 import LD2450, DeviceNotFoundError
 
-# Per-chip pin map — the authoritative wiring for this project, plain GPIO
-# numbers. uart_id selects the UART peripheral the driver opens; tx drives
-# the radar RX line, rx carries the report stream. Filled per chip by
-# os.uname().machine dispatch at import.
+# This table is the wiring used by each supported board. ``uart_id`` selects a
+# UART, ``tx`` connects to radar RX, and ``rx`` connects to radar TX.
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
@@ -34,15 +33,15 @@ _READ_ERR_PAUSE_MS = 200
 
 
 def emit(obj: dict) -> None:
-    """Print one compact JSON object on the USB-CDC serial stream."""
+    """Send one compact JSON object over the board's USB serial connection."""
     print(ujson.dumps(obj))
 
 
-def init_sensor() -> LD2450:
-    """Open and probe the radar UART, retrying until valid reports arrive.
+async def init_sensor() -> LD2450:
+    """Connect to the radar, retrying until it sends a valid report.
 
     Returns:
-        A live LD2450 driver with its first decoded report cached.
+        A connected radar driver with its first report ready to read.
     """
     status.uart_init()
     while True:
@@ -52,30 +51,31 @@ def init_sensor() -> LD2450:
                 tx=BOARD.tx,
                 rx=BOARD.rx,
             )
+            await radar.wait_ready()
         except DeviceNotFoundError as err:
             status.no_device()
             emit({"diag": "no_device", "err": str(err)})
-            time.sleep_ms(_RETRY_PAUSE_MS)
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
         except OSError as err:
             status.init_err()
             emit({"diag": "init_err", "err": str(err)})
-            time.sleep_ms(_RETRY_PAUSE_MS)
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
         else:
             emit({"diag": "radar_ok"})
             return radar
 
 
-def stream(radar: LD2450) -> None:
-    """Emit fresh target frames and recover from timeouts and UART faults."""
+async def stream(radar: LD2450) -> None:
+    """Send the newest targets and recover from missing reports or UART errors."""
     timed_out = False
     status.streaming()
     while True:
         try:
-            targets = radar.read_latest()
+            targets = await radar.read_latest()
         except OSError as err:
             status.read_err()
             emit({"diag": "read_err", "err": str(err)})
-            time.sleep_ms(_READ_ERR_PAUSE_MS)
+            await asyncio.sleep_ms(_READ_ERR_PAUSE_MS)
             status.streaming()
             timed_out = False
             continue
@@ -83,7 +83,7 @@ def stream(radar: LD2450) -> None:
         if targets is None:
             if not timed_out:
                 status.read_err()
-                emit({"diag": "frame_timeout", "t": time.ticks_ms()})
+                emit({"diag": "report_timeout", "t": time.ticks_ms()})
                 timed_out = True
             continue
 
@@ -93,18 +93,22 @@ def stream(radar: LD2450) -> None:
         emit({"t": time.ticks_ms(), "targets": [_target_dict(target) for target in targets]})
 
 
-def main() -> None:
+async def main() -> None:
     """Run boot, initialize the radar, and stream."""
     status.boot()
-    time.sleep_ms(_BOOT_PAUSE_MS)
-    stream(init_sensor())
+    await asyncio.sleep_ms(_BOOT_PAUSE_MS)
+    radar = await init_sensor()
+    try:
+        await stream(radar)
+    finally:
+        radar.close()
 
 
 def _target_dict(target: object) -> dict:
-    """Convert one immutable driver record to the project's JSON schema.
+    """Convert one target to the JSON fields used by the dashboard.
 
-    Distance and bearing are derived here, on the MCU, so consumers get
-    ready-to-plot polar values instead of recomputing them from x/y per frame.
+    Distance and angle are calculated here so every display uses the same
+    values.
     """
     return {
         "slot": target.slot,
@@ -117,4 +121,4 @@ def _target_dict(target: object) -> dict:
     }
 
 
-main()
+asyncio.run(main())

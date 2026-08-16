@@ -20,7 +20,7 @@ def feed_uart(lines: list[bytes]) -> None:
 
 
 def feed_uart_bytes(data: bytes) -> None:
-    """Append binary UART data for non-blocking any()/read() consumers."""
+    """Append binary UART data for non-blocking read() consumers."""
     _uart_bytes.extend(data)
 
 
@@ -138,10 +138,6 @@ class UART:
     def readline(self) -> bytes | None:
         """Return the next queued byte line, or None when the queue is empty."""
         return _uart_lines.pop(0) if _uart_lines else None
-
-    def any(self) -> int:
-        """Return the number of bytes available to read without blocking."""
-        return len(_uart_bytes)
 
     def read(self, nbytes: int | None = None) -> bytes | None:
         """Remove and return up to ``nbytes`` binary bytes, or None when empty."""

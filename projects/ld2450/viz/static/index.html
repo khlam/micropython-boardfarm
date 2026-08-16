@@ -88,8 +88,8 @@
     <span id="conn" class="pill err">Disconnected</span>
     <span class="stat">Port: <b id="port">—</b></span>
     <span class="stat">Freshness: <b id="freshness">—</b></span>
-    <span class="stat">Frame rate: <b id="rate">—</b></span>
-    <span class="stat">Frames: <b id="frames">0</b></span>
+    <span class="stat">Report rate: <b id="rate">—</b></span>
+    <span class="stat">Reports: <b id="reports">0</b></span>
     <span id="diag" class="diag"></span>
   </div>
 
@@ -127,11 +127,11 @@
     const $ = (id) => document.getElementById(id);
 
     let connected = false;
-    let frameCount = 0;
-    let lastFrameAt = null;
+    let reportCount = 0;
+    let lastReportAt = null;
     let currentTargets = [];
     let history = [];
-    let frameTimes = [];
+    let reportTimes = [];
     let gapOpen = false;
     let liveRenderPending = false;
 
@@ -206,11 +206,11 @@
       return slots;
     }
 
-    function resetTelemetry(message) {
+    function resetDisplay(message) {
       currentTargets = [];
       history = [];
-      frameTimes = [];
-      lastFrameAt = null;
+      reportTimes = [];
+      lastReportAt = null;
       gapOpen = false;
       renderAll();
       if (message) $("diag").textContent = message;
@@ -334,18 +334,18 @@
     }
 
     function updateRate(now) {
-      frameTimes.push(now);
-      while (frameTimes.length && frameTimes[0] < now - 5_000) frameTimes.shift();
-      if (frameTimes.length < 2) {
+      reportTimes.push(now);
+      while (reportTimes.length && reportTimes[0] < now - 5_000) reportTimes.shift();
+      if (reportTimes.length < 2) {
         $("rate").textContent = "—";
         return;
       }
-      const seconds = (frameTimes[frameTimes.length - 1] - frameTimes[0]) / 1000;
+      const seconds = (reportTimes[reportTimes.length - 1] - reportTimes[0]) / 1000;
       if (seconds <= 0) return;
-      $("rate").textContent = ((frameTimes.length - 1) / seconds).toFixed(1) + " Hz";
+      $("rate").textContent = ((reportTimes.length - 1) / seconds).toFixed(1) + " Hz";
     }
 
-    function onFrame(obj) {
+    function onReport(obj) {
       if (!Array.isArray(obj.targets) || typeof obj.t !== "number") return;
       // obj.t (raw firmware ticks_ms) is intentionally unused for reboot
       // detection — it wraps periodically and is indistinguishable from a
@@ -354,9 +354,9 @@
       currentTargets = obj.targets;
       gapOpen = false;
       appendHistory(currentTargets, now);
-      lastFrameAt = now;
-      frameCount++;
-      $("frames").textContent = frameCount;
+      lastReportAt = now;
+      reportCount++;
+      $("reports").textContent = reportCount;
       $("diag").textContent = "";
       updateRate(now);
       scheduleLiveRender();
@@ -397,24 +397,24 @@
       if (obj.diag !== undefined) {
         const labels = {
           radar_ok: "Radar stream detected",
-          no_device: "No valid radar frames",
+          no_device: "No valid radar reports",
           init_err: "Radar UART initialization failed",
           read_err: "Radar UART read failed",
-          frame_timeout: "Radar frame timeout",
+          report_timeout: "Radar report timeout",
         };
         $("diag").textContent = labels[obj.diag] || obj.diag;
-        if (obj.diag === "frame_timeout" || obj.diag === "read_err") markGap($("diag").textContent);
+        if (obj.diag === "report_timeout" || obj.diag === "read_err") markGap($("diag").textContent);
         return;
       }
-      onFrame(obj);
+      onReport(obj);
     }
 
     function refreshFreshness() {
-      if (!connected || lastFrameAt === null) {
+      if (!connected || lastReportAt === null) {
         $("freshness").textContent = "—";
         return;
       }
-      const age = Date.now() - lastFrameAt;
+      const age = Date.now() - lastReportAt;
       $("freshness").textContent = age < STALE_MS ? age + " ms" : (age / 1000).toFixed(1) + " s stale";
     }
 

@@ -1,7 +1,7 @@
 [project]
 name = "ld2450-demo"
 version = "0.3.0"
-description = "HLK-LD2450 radar targets to JSON-over-USB-CDC and a live Plotly dashboard."
+description = "Display HLK-LD2450 radar targets on a live web dashboard."
 readme = "README.md"
 requires-python = ">=3.12"
 

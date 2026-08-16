@@ -1,22 +1,35 @@
-"""MicroPython driver for the HLK-LD2450 three-target radar stream.
+"""Read current target reports from an HLK-LD2450 radar sensor.
 
-The driver owns the radar UART, finds fixed-length report frames in an
-arbitrary byte stream, and returns decoded target records. It intentionally
-does not alter persistent radar configuration.
+The radar sends ten 30-byte reports each second over a UART serial connection.
+An RX-idle interrupt wakes one asyncio reader, which drains the UART and decodes
+only the newest complete valid report. The driver reads data only and never
+changes the radar's settings.
 """
 
+import asyncio
 from collections import namedtuple
 
 import utime
 from micropython import const
 
+# The HLK-LD2450 serial protocol V1.03 calls each 30-byte report a data frame.
+# This driver calls it a report. Sections 1.1 and 2.3 define these values.
 _BAUDRATE = const(256_000)
-_FRAME_LEN = const(30)
-_TARGET_LEN = const(8)
+_REPORT_LEN = const(30)  # 4-byte header + three 8-byte targets + 2-byte trailer.
+_TARGET_LEN = const(8)  # x, y, speed, and resolution are each two bytes.
 _TARGET_COUNT = const(3)
-_POLL_MS = const(10)
 _HEADER = b"\xaa\xff\x03\x00"
 _TRAILER = b"\x55\xcc"
+
+# A 512-byte UART ring holds about 1.7 seconds at the documented 300 bytes/s.
+# The drain buffer fits four whole reports and is reused for every UART read.
+_UART_RX_BUFFER_LEN = const(512)
+_DRAIN_BUFFER_LEN = const(120)
+
+# Section 2.3 specifies ten reports per second. Allow five expected reports
+# during normal reads and two seconds for device detection during startup.
+_REPORT_TIMEOUT_MS = const(500)
+_STARTUP_TIMEOUT_MS = const(2_000)
 
 Target = namedtuple(
     "Target",
@@ -25,11 +38,11 @@ Target = namedtuple(
 
 
 class DeviceNotFoundError(Exception):
-    """No valid LD2450 report frame arrived during the probe window."""
+    """The radar did not send a valid report during startup."""
 
 
 class LD2450:
-    """Read target reports from an LD2450 connected to a driver-owned UART."""
+    """Own an IRQ-driven UART connection to an LD2450 radar."""
 
     def __init__(
         self,
@@ -37,20 +50,16 @@ class LD2450:
         bus_id: int,
         tx: int,
         rx: int,
-        probe_ms: int = 2_000,
-        frame_timeout_ms: int = 500,
     ) -> None:
-        """Open the radar UART and confirm that valid reports are arriving.
+        """Open the radar UART and enable receive-idle wakeups.
+
+        Call ``wait_ready()`` before reading reports. Only one coroutine may
+        wait on this driver at a time.
 
         Args:
-            bus_id: UART peripheral identifier.
+            bus_id: UART number used by the microcontroller.
             tx: GPIO number connected to the radar RX pin.
             rx: GPIO number connected to the radar TX pin.
-            probe_ms: Maximum initial wait for a valid report frame.
-            frame_timeout_ms: Maximum wait performed by each subsequent read.
-
-        Raises:
-            DeviceNotFoundError: If no valid report frame arrives while probing.
         """
         from machine import UART, Pin  # noqa: PLC0415
 
@@ -62,123 +71,238 @@ class LD2450:
             stop=1,
             tx=Pin(tx),
             rx=Pin(rx),
+            rxbuf=_UART_RX_BUFFER_LEN,
             timeout=0,
             timeout_char=0,
         )
-        self._frame_timeout_ms = frame_timeout_ms
-        self._buffer = bytearray()
-        self._pending = self._read_targets(probe_ms)
-        if self._pending is None:
-            raise DeviceNotFoundError(f"no valid LD2450 frame within {probe_ms} ms")
+        self._rx_ready = asyncio.ThreadSafeFlag()
+        self._drain_buffer = bytearray(_DRAIN_BUFFER_LEN)
+        self._candidate = bytearray(_REPORT_LEN)
+        self._candidate_len = 0
+        self._latest_report = bytearray(_REPORT_LEN)
+        self._has_latest_report = False
+        self._pending = None
+        self._has_pending = False
+        self._ready = False
+        self._reading = False
+        self._closed = False
+        self._irq = self._uart.irq(
+            handler=self._on_rx_idle,
+            trigger=UART.IRQ_RXIDLE,
+            hard=False,
+        )
 
-    def read(self) -> tuple | None:
-        """Return targets from the next report, or ``None`` on frame timeout.
+    async def wait_ready(self) -> None:
+        """Wait for the first valid report and retain it for ``read_latest()``.
 
-        The returned tuple preserves the radar's slot numbers. A valid report
-        with no active targets returns an empty tuple; a timeout returns
-        ``None``. UART errors propagate as ``OSError``.
+        Raises:
+            DeviceNotFoundError: If no valid report arrives within two seconds.
+            OSError: If reading or closing the UART fails.
+            RuntimeError: If the driver is closed or already has an active reader.
+        """
+        if self._closed:
+            raise RuntimeError("LD2450 is closed")
+        if self._ready:
+            return
+
+        self._claim_reader()
+        try:
+            targets = await self._wait_for_latest(_STARTUP_TIMEOUT_MS)
+        except OSError:
+            self.close()
+            raise
+        finally:
+            self._reading = False
+
+        if targets is None:
+            self.close()
+            raise DeviceNotFoundError(f"no valid LD2450 report within {_STARTUP_TIMEOUT_MS} ms")
+        self._pending = targets
+        self._has_pending = True
+        self._ready = True
+
+    async def read_latest(self) -> tuple | None:
+        """Return active targets from the newest available radar report.
+
+        The UART is drained before returning, so older complete reports are
+        validated but not decoded. An empty tuple means the newest report has
+        no active targets. ``None`` means no complete report arrived within
+        500 ms.
 
         Returns:
-            Zero to three ``Target`` records, or ``None`` on timeout.
+            The active targets, an empty tuple, or ``None`` after a timeout.
+
+        Raises:
+            OSError: If reading the UART connection fails.
+            RuntimeError: If startup is incomplete, the driver is closed, or
+                another coroutine is reading.
         """
-        if self._pending is not None:
-            targets = self._pending
-            self._pending = None
-            return targets
-        return self._read_targets(self._frame_timeout_ms)
+        if self._closed:
+            raise RuntimeError("LD2450 is closed")
+        if not self._ready:
+            raise RuntimeError("call wait_ready() before read_latest()")
 
-    def read_latest(self) -> tuple | None:
-        """Return targets from the freshest complete report available.
+        self._claim_reader()
+        try:
+            self._drain_uart()
+            targets = self._take_latest_targets()
+            if targets is not None:
+                self._has_pending = False
+                self._pending = None
+                return targets
+            if self._has_pending:
+                self._has_pending = False
+                targets = self._pending
+                self._pending = None
+                return targets
+            return await self._wait_for_latest(_REPORT_TIMEOUT_MS)
+        except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.
+            raise
+        finally:
+            self._reading = False
 
-        Buffered older reports are discarded so a temporarily slow consumer
-        catches up to the radar instead of replaying stale positions. If no
-        complete report is buffered, this waits up to ``frame_timeout_ms``.
+    def close(self) -> None:
+        """Disable receive wakeups and release the owned UART."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._uart.irq(handler=None)
+            self._irq = None
+        finally:
+            self._uart.deinit()
 
-        Returns:
-            Zero to three ``Target`` records, or ``None`` on timeout.
-        """
-        chunk = self._uart.read()
-        if chunk:
-            self._buffer.extend(chunk)
-        targets = self._extract_latest_targets()
-        if targets is not None:
-            self._pending = None
-            return targets
-        if self._pending is not None:
-            pending = self._pending
-            self._pending = None
-            return pending
-        return self._read_latest_targets(self._frame_timeout_ms)
+    def _claim_reader(self) -> None:
+        """Reserve the single IRQ flag waiter for the calling coroutine."""
+        if self._reading:
+            raise RuntimeError("LD2450 already has an active reader")
+        self._reading = True
 
-    def _poll(self, timeout_ms: int, extract: object) -> tuple | None:
-        """Poll the UART until ``extract()`` succeeds or ``timeout_ms`` elapses."""
+    def _on_rx_idle(self, _uart: object) -> None:
+        """Wake the asyncio reader after the UART receive line becomes idle."""
+        self._rx_ready.set()
+
+    async def _wait_for_latest(self, timeout_ms: int) -> tuple | None:
+        """Drain on each wake until a valid report arrives or time expires."""
         started_ms = utime.ticks_ms()
-        while utime.ticks_diff(utime.ticks_ms(), started_ms) < timeout_ms:
-            chunk = self._uart.read()
-            if chunk:
-                self._buffer.extend(chunk)
-            targets = extract()  # ty: ignore[call-non-callable]
+        while True:
+            self._drain_uart()
+            targets = self._take_latest_targets()
             if targets is not None:
                 return targets
-            utime.sleep_ms(_POLL_MS)
 
-        chunk = self._uart.read()
-        if chunk:
-            self._buffer.extend(chunk)
-        return extract()  # ty: ignore[call-non-callable]
+            elapsed_ms = utime.ticks_diff(utime.ticks_ms(), started_ms)
+            remaining_ms = timeout_ms - elapsed_ms
+            if remaining_ms <= 0:
+                self._drain_uart()
+                return self._take_latest_targets()
 
-    def _read_targets(self, timeout_ms: int) -> tuple | None:
-        """Wait up to ``timeout_ms`` for one complete report and decode it."""
-        return self._poll(timeout_ms, self._extract_targets)
+            try:
+                await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
+            except TimeoutError:
+                self._drain_uart()
+                return self._take_latest_targets()
 
-    def _read_latest_targets(self, timeout_ms: int) -> tuple | None:
-        """Wait up to ``timeout_ms`` and return only the freshest report."""
-        return self._poll(timeout_ms, self._extract_latest_targets)
-
-    def _discard_prefix(self, count: int) -> None:
-        """Drop consumed bytes in place, without reallocating the whole buffer."""
-        del self._buffer[:count]
-
-    def _extract_targets(self) -> tuple | None:
-        """Decode and remove the next valid report currently in the receive buffer."""
+    def _drain_uart(self) -> None:
+        """Read every available UART byte into the bounded frame synchronizer."""
         while True:
-            header_at = self._buffer.find(_HEADER)
-            if header_at < 0:
-                keep = min(len(self._buffer), len(_HEADER) - 1)
-                discard = len(self._buffer) - keep
-                if discard:
-                    self._discard_prefix(discard)
-                return None
-            if header_at:
-                self._discard_prefix(header_at)
-            if len(self._buffer) < _FRAME_LEN:
-                return None
-            if self._buffer[_FRAME_LEN - len(_TRAILER) : _FRAME_LEN] != _TRAILER:
-                self._discard_prefix(1)
-                continue
-            targets = _decode_targets(self._buffer)
-            self._discard_prefix(_FRAME_LEN)
-            return targets
+            count = self._uart.readinto(self._drain_buffer)
+            if not count:
+                return
+            for index in range(count):
+                self._feed_byte(self._drain_buffer[index])
 
-    def _extract_latest_targets(self) -> tuple | None:
-        """Decode all complete reports and return only the freshest one."""
-        latest = None
-        while True:
-            targets = self._extract_targets()
-            if targets is None:
-                return latest
-            latest = targets
+    def _feed_byte(self, value: int) -> None:
+        """Advance report synchronization with one received byte."""
+        if self._candidate_len < len(_HEADER):
+            if value == _HEADER[self._candidate_len]:
+                self._candidate[self._candidate_len] = value
+                self._candidate_len += 1
+            elif value == _HEADER[0]:
+                self._candidate[0] = value
+                self._candidate_len = 1
+            else:
+                self._candidate_len = 0
+            return
+
+        self._candidate[self._candidate_len] = value
+        self._candidate_len += 1
+        if self._candidate_len == _REPORT_LEN:
+            self._finish_candidate()
+
+    def _finish_candidate(self) -> None:
+        """Keep a valid report as newest or retain bytes useful for resync."""
+        trailer_at = _REPORT_LEN - len(_TRAILER)
+        if (
+            self._candidate[trailer_at] == _TRAILER[0]
+            and self._candidate[trailer_at + 1] == _TRAILER[1]
+        ):
+            for index in range(_REPORT_LEN):
+                self._latest_report[index] = self._candidate[index]
+            self._has_latest_report = True
+            self._candidate_len = 0
+            return
+        self._resynchronize_candidate()
+
+    def _resynchronize_candidate(self) -> None:
+        """Retain an embedded header or partial header after a bad trailer."""
+        header_at = self._find_embedded_header()
+        if header_at >= 0:
+            retained = _REPORT_LEN - header_at
+            for index in range(retained):
+                self._candidate[index] = self._candidate[header_at + index]
+            self._candidate_len = retained
+            return
+
+        prefix_len = self._header_suffix_len()
+        suffix_at = _REPORT_LEN - prefix_len
+        for index in range(prefix_len):
+            self._candidate[index] = self._candidate[suffix_at + index]
+        self._candidate_len = prefix_len
+
+    def _find_embedded_header(self) -> int:
+        """Return the first complete header after the candidate's first byte."""
+        last_start = _REPORT_LEN - len(_HEADER)
+        for start in range(1, last_start + 1):
+            matched = True
+            for offset in range(len(_HEADER)):
+                if self._candidate[start + offset] != _HEADER[offset]:
+                    matched = False
+                    break
+            if matched:
+                return start
+        return -1
+
+    def _header_suffix_len(self) -> int:
+        """Return the longest candidate suffix matching a partial header."""
+        for length in range(len(_HEADER) - 1, 0, -1):
+            suffix_at = _REPORT_LEN - length
+            matched = True
+            for offset in range(length):
+                if self._candidate[suffix_at + offset] != _HEADER[offset]:
+                    matched = False
+                    break
+            if matched:
+                return length
+        return 0
+
+    def _take_latest_targets(self) -> tuple | None:
+        """Decode and clear the newest valid raw report, if one is available."""
+        if not self._has_latest_report:
+            return None
+        self._has_latest_report = False
+        return _decode_targets(self._latest_report)
 
 
-def _decode_targets(frame: bytes | bytearray) -> tuple:
-    """Decode the three target slots in a validated report frame."""
+def _decode_targets(report: bytes | bytearray) -> tuple:
+    """Convert the three slots in a valid report into active targets."""
     targets = []
     for index in range(_TARGET_COUNT):
         start = len(_HEADER) + index * _TARGET_LEN
-        x = _u16(frame, start)
-        y = _u16(frame, start + 2)
-        speed = _u16(frame, start + 4)
-        resolution = _u16(frame, start + 6)
+        x = _u16(report, start)
+        y = _u16(report, start + 2)
+        speed = _u16(report, start + 4)
+        resolution = _u16(report, start + 6)
         if not (x or y or speed or resolution):
             continue
         targets.append(
@@ -194,11 +318,11 @@ def _decode_targets(frame: bytes | bytearray) -> tuple:
 
 
 def _u16(data: bytes | bytearray, offset: int) -> int:
-    """Decode one little-endian unsigned 16-bit value without allocating."""
+    """Read a two-byte unsigned value stored with its low byte first."""
     return data[offset] | data[offset + 1] << 8
 
 
 def _decode_signed_magnitude(value: int) -> int:
-    """Decode Hi-Link's bit-15-positive, bit-15-clear-negative representation."""
+    """Convert the radar's sign-bit format to a positive or negative integer."""
     magnitude = value & 0x7FFF
     return magnitude if value & 0x8000 else -magnitude
