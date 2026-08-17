@@ -1,0 +1,66 @@
+---
+services:
+  wheels:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: wheels
+    command: ["true"]
+
+  pi-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: pi-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  esp32-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  esp32-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-flash
+    depends_on:
+      esp32-compile:
+        condition: service_completed_successfully
+    volumes:
+      - ./outputs:/outputs:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+
+  viz:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.host
+      target: viz
+      additional_contexts:
+        wheels: service:wheels
+      args:
+        VIZ_DIR: projects/ld2450/viz
+    volumes:
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    ports:
+      - 18501:18501
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
