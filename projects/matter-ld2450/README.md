@@ -27,18 +27,19 @@ is capped at ten percent of full scale.
 | Pixel | Meaning |
 | --- | --- |
 | Dim white | Firmware running, ESP-Matter still starting |
+| Solid red | Commissioning failed — stays red until the board is reset |
 | Amber | No radar — the UART is open but no valid report is arriving |
-| Steady green, unpaired | Radar healthy, uncommissioned and ready to pair |
 | Steady purple | A commissioning window is open, nobody has engaged |
 | Steady cyan | A commissioner is talking to the board |
-| Solid red | Commissioning failed — stays red until the board is reset |
+| Steady green, unpaired | Radar healthy, uncommissioned and ready to pair |
 | Steady green, paired | Occupied |
 | Off | Paired and clear |
 
-Higher rows win. Pairing outranks the product because an unpaired sensor has
-nothing to report, and amber outranks occupancy because a stale "clear" is
-indistinguishable from a disconnected radar. A board with no radar attached
-still commissions normally — it just sits amber until the radar answers.
+After the boot-only white baseline, higher rows win. Red is sticky until reset;
+otherwise amber outranks active commissioning and the product states because a
+stale "clear" is indistinguishable from a disconnected radar. Active pairing
+outranks readiness and occupancy. A board with no radar attached still
+commissions normally — it just sits amber until the radar answers.
 
 ## USB serial
 

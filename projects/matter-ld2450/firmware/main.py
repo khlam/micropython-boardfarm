@@ -70,10 +70,10 @@ _commissioned = [False]
 _commissioning_failed = [False]
 _last_commissioning_state = [None]
 
-# Product state the pixel renders once pairing is settled. Occupancy starts as
-# None rather than False: "not decided yet" is what makes the first reading
-# publish even when it turns out to be clear.
-_radar_ok = [False]
+# Product state the pixel renders once pairing is settled. Radar health and
+# occupancy start as None rather than False: "not decided yet" makes their
+# first outcomes trigger the state transitions that report and render them.
+_radar_ok = [None]
 _occupied = [None]
 
 
@@ -107,17 +107,17 @@ def current_color() -> tuple:
     """Return the colour the board's present state calls for.
 
     One decision point for every caller, so the pixel never depends on which
-    event happened to fire last. Pairing outranks the product because an
-    unpaired sensor has nothing to report; a silent radar outranks occupancy
-    because a stale "clear" is indistinguishable from a disconnected sensor.
+    event happened to fire last. Commissioning failure stays sticky; otherwise
+    a silent radar outranks pairing and occupancy because a stale "clear" is
+    indistinguishable from a disconnected sensor.
     """
     if _commissioning_failed[0]:
         return FAILED_COLOR
+    if _radar_ok[0] is False:
+        return RADAR_FAULT_COLOR
     color = _COMMISSIONING_COLORS.get(_last_commissioning_state[0])
     if color is not None:
         return color
-    if not _radar_ok[0]:
-        return RADAR_FAULT_COLOR
     if not _commissioned[0]:
         return READY_COLOR
     return OCCUPIED_COLOR if _occupied[0] else OFF_COLOR
