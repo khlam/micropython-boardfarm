@@ -199,18 +199,21 @@ async def track_occupancy(radar: LD2450) -> None:
             continue
         emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
         occupied = bool(targets)
-        if occupied == _occupied[0]:
-            continue
+        if occupied != _occupied[0]:
+            try:
+                # Endpoint.publish -> _matter.attribute_publish -> request.cpp
+                # matter_attribute_publish: a bounded round trip onto the CHIP task.
+                # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
+                endpoint.occupancy = 1 if occupied else 0
+            except OSError:
+                # Leave the recorded state alone so the next pass retries.
+                continue
+            _occupied[0] = occupied
+            refresh(now_ms)
 
-        try:
-            # Endpoint.publish -> _matter.attribute_publish -> request.cpp
-            # matter_attribute_publish: a bounded round trip onto the CHIP task.
-            # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
-            endpoint.occupancy = 1 if occupied else 0
-        except OSError:
-            # Leave the recorded state alone so the next pass retries.
-            continue
-        _occupied[0] = occupied
+        # Targets are a continuous stream, so a dashboard can attach after the
+        # Matter transition that established this state. Repeat the successfully
+        # published snapshot with every report so a late client can converge.
         emit(
             {
                 "event": "debug",
@@ -218,7 +221,6 @@ async def track_occupancy(radar: LD2450) -> None:
                 "state": "occupied" if occupied else "clear",
             }
         )
-        refresh(now_ms)
 
 
 async def main() -> None:
