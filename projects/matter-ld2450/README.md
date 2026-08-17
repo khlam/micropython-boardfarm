@@ -43,16 +43,20 @@ docker compose run --rm --build esp32-monitor
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`.
 
-## Reserved radar wiring
+## Wiring
 
-The intended UART wiring follows the existing LD2450 project:
-
-| ESP32-S3-Zero | HLK-LD2450 | Purpose |
-| --- | --- | --- |
-| `5V` | `5V` | Radar power |
-| `GND` | `GND` | Common power and signal ground |
-| `GPIO17` | `RX` | UART1 transmit to radar |
-| `GPIO18` | `TX` | UART1 receive from radar |
-
-The radar requires a 5 V supply capable of more than 200 mA. Its UART signal is
-3.3 V.
+```text
+     HLK-LD2450                              ESP32-S3-Zero
+                                          ┌────── USB-C ──────┐
+          5V ◄─────────────────────────── 5V ──┤                   ├─ GPIO43 / TX
+         GND ────────────────────────── GND ──┤                   ├─ GPIO44 / RX
+                                        3V3 ──┤                   ├─ GPIO13
+                                      GPIO1 ──┤                   ├─ GPIO12
+                                      GPIO2 ──┤                   ├─ GPIO11
+                                      GPIO3 ──┤ [BOOT]     [RESET]├─ GPIO10
+                                      GPIO4 ──┤     onboard       ├─ GPIO9
+          RX ◄── UART1 TX ────────── GPIO5 ──┤     WS2812        ├─ GPIO8
+          TX ─── UART1 RX ─────────► GPIO6 ──┤     GPIO21        ├─ GPIO7
+                                          │                   │
+                                          └───────────────────┘
+```
