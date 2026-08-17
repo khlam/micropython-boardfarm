@@ -39,9 +39,9 @@
     .stat { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     .stat b { color: var(--text); font-weight: 550; }
     .diag { color: #fbbf24; font-size: 12px; }
-    .occupancy-box {
-      --occupancy-accent: #94a3b8;
-      --occupancy-fill: rgba(148, 163, 184, 0.08);
+    .switch-box {
+      --switch-accent: #94a3b8;
+      --switch-fill: rgba(148, 163, 184, 0.08);
       display: flex;
       min-height: 92px;
       margin-bottom: 14px;
@@ -50,41 +50,41 @@
       justify-content: space-between;
       gap: 16px;
       overflow: hidden;
-      border: 1px solid var(--occupancy-accent);
+      border: 1px solid var(--switch-accent);
       border-radius: 8px;
-      background: var(--occupancy-fill);
+      background: var(--switch-fill);
     }
-    .occupancy-box.occupied {
-      --occupancy-accent: #22c55e;
-      --occupancy-fill: rgba(34, 197, 94, 0.13);
+    .switch-box.on {
+      --switch-accent: #22c55e;
+      --switch-fill: rgba(34, 197, 94, 0.13);
     }
-    .occupancy-box.clear {
-      --occupancy-accent: #38bdf8;
-      --occupancy-fill: rgba(56, 189, 248, 0.08);
+    .switch-box.off {
+      --switch-accent: #38bdf8;
+      --switch-fill: rgba(56, 189, 248, 0.08);
     }
-    .occupancy-label {
+    .switch-label {
       color: var(--muted);
       font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
-    .occupancy-state {
-      color: var(--occupancy-accent);
+    .switch-state {
+      color: var(--switch-accent);
       font-size: clamp(24px, 5vw, 44px);
       font-weight: 700;
       letter-spacing: 0.04em;
       text-align: right;
     }
-    .occupancy-box.flash { animation: occupancy-flash 650ms ease-out; }
-    @keyframes occupancy-flash {
+    .switch-box.flash { animation: switch-flash 650ms ease-out; }
+    @keyframes switch-flash {
       0% {
-        background: var(--occupancy-accent);
-        box-shadow: 0 0 0 5px var(--occupancy-fill), 0 0 38px var(--occupancy-accent);
+        background: var(--switch-accent);
+        box-shadow: 0 0 0 5px var(--switch-fill), 0 0 38px var(--switch-accent);
         transform: scale(1.012);
       }
       100% {
-        background: var(--occupancy-fill);
+        background: var(--switch-fill);
         box-shadow: none;
         transform: scale(1);
       }
@@ -143,9 +143,9 @@
     <span id="diag" class="diag"></span>
   </div>
 
-  <section id="occupancy" class="occupancy-box waiting" aria-live="polite" aria-atomic="true">
-    <span class="occupancy-label">Occupancy state</span>
-    <strong id="occupancy-state" class="occupancy-state">WAITING</strong>
+  <section id="switch" class="switch-box waiting" aria-live="polite" aria-atomic="true">
+    <span class="switch-label">Matter switch</span>
+    <strong id="switch-state" class="switch-state">WAITING</strong>
   </section>
 
   <div class="grid">
@@ -182,7 +182,7 @@
     const $ = (id) => document.getElementById(id);
 
     let connected = false;
-    let occupied = null;
+    let switchOn = null;
     let reportCount = 0;
     let lastReportAt = null;
     let currentTargets = [];
@@ -268,19 +268,19 @@
       reportTimes = [];
       lastReportAt = null;
       gapOpen = false;
-      setOccupancy(null, false);
+      setSwitch(null, false);
       renderAll();
       if (message) $("diag").textContent = message;
     }
 
-    function setOccupancy(nextOccupied, shouldFlash = true) {
-      if (occupied === nextOccupied) return;
-      occupied = nextOccupied;
-      const box = $("occupancy");
-      const state = $("occupancy-state");
-      const className = nextOccupied === null ? "waiting" : (nextOccupied ? "occupied" : "clear");
-      state.textContent = nextOccupied === null ? "WAITING" : (nextOccupied ? "OCCUPIED" : "CLEAR");
-      box.className = "occupancy-box " + className;
+    function setSwitch(nextSwitchOn, shouldFlash = true) {
+      if (switchOn === nextSwitchOn) return;
+      switchOn = nextSwitchOn;
+      const box = $("switch");
+      const state = $("switch-state");
+      const className = nextSwitchOn === null ? "waiting" : (nextSwitchOn ? "on" : "off");
+      state.textContent = nextSwitchOn === null ? "WAITING" : (nextSwitchOn ? "ON" : "OFF");
+      box.className = "switch-box " + className;
       if (!shouldFlash) return;
       void box.offsetWidth;
       box.classList.add("flash");
@@ -440,7 +440,7 @@
       const now = Date.now();
       gapOpen = true;
       currentTargets = [];
-      setOccupancy(null, false);
+      setSwitch(null, false);
       appendHistory([], now);
       $("diag").textContent = message || "";
       renderAll();
@@ -465,9 +465,9 @@
         setConnection(false, obj.port, obj.error);
         return;
       }
-      if (obj.event === "debug" && obj.component === "occupancy") {
-        if (obj.state === "occupied" || obj.state === "clear") {
-          setOccupancy(obj.state === "occupied");
+      if (obj.event === "debug" && obj.component === "switch") {
+        if (obj.state === "on" || obj.state === "off") {
+          setSwitch(obj.state === "on");
         }
         return;
       }

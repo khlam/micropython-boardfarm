@@ -1,16 +1,17 @@
-# ESP32-S3-Zero Matter occupancy sensor
+# ESP32-S3-Zero Matter presence switch
 
 This project exposes an HLK-LD2450 mmWave radar on an ESP32-S3-Zero as a Matter
-Occupancy Sensor, so it pairs with Apple Home and reports whether the room is
-occupied. ESP-Matter handles commissioning and protocol state; `firmware/main.py`
-sets up the node, owns the radar lifecycle and the onboard pixel, and turns
-target reports into the single occupied/clear bit Matter wants.
+On/Off Plug-in Unit, so Apple Home presents it as a stateful switch suitable for
+automations and scene triggers. ESP-Matter handles commissioning and protocol
+state; `firmware/main.py` sets up the node, owns the radar lifecycle and the
+onboard pixel, and turns target reports into the switch's Boolean OnOff value.
 
-The radar reports up to three tracked targets ten times a second. Occupancy
-follows the newest valid report: it is true when any target is present and
-becomes false immediately when a report contains no targets. A read timeout is
-not a report and does not change occupancy. Only changes are published, so a
-still room costs no Matter traffic.
+The radar reports up to three tracked slots ten times a second. The switch
+follows the newest valid report: it is on when `len(targets) != 0` and off when
+the report contains no targets. A read timeout is not a report and does not
+change the switch. Only changes are published, so a still room costs no Matter
+traffic. If a controller writes the switch, the next radar report restores the
+slot-derived state.
 
 `main.py` is the only file in the project that imports `matter`, because that is
 where the service is set up. The radar driver in
@@ -20,7 +21,7 @@ nothing about Matter, and the Matter package knows nothing about radar.
 ## What the pixel is telling you
 
 The onboard WS2812 on GPIO21 is a commissioning indicator until the board is
-paired, then an occupancy indicator. Every colour the firmware picks for itself
+paired, then a switch-state indicator. Every colour the firmware picks for itself
 is capped at ten percent of full scale.
 
 | Pixel | Meaning |
@@ -31,19 +32,19 @@ is capped at ten percent of full scale.
 | Steady purple | A commissioning window is open, nobody has engaged |
 | Steady cyan | A commissioner is talking to the board |
 | Steady green, unpaired | Radar healthy, uncommissioned and ready to pair |
-| Steady green, paired | Occupied |
-| Off | Paired and clear |
+| Steady green, paired | Switch on — one or more radar slots present |
+| Off | Switch off — no radar slots present |
 
 After the boot-only white baseline, higher rows win. Red is sticky until reset;
 otherwise amber outranks active commissioning and the product states because a
-stale "clear" is indistinguishable from a disconnected radar. Active pairing
-outranks readiness and occupancy. A board with no radar attached still
+stale "off" is indistinguishable from a disconnected radar. Active pairing
+outranks readiness and switch state. A board with no radar attached still
 commissions normally — it just sits amber until the radar answers.
 
 ## USB serial
 
 `esp32-monitor` shows compact JSON diagnostics for the Python boot sequence,
-pixel writes, Matter startup, radar initialization, and occupancy changes. A
+pixel writes, Matter startup, radar initialization, and switch changes. A
 successful pixel command ends with
 `{"event":"debug","component":"pixel","state":"write_complete"}`. The `matter`
 package also emits `{"event":"matter","state":"ready"}` once the stack has
@@ -59,8 +60,8 @@ docker compose up --build viz
 ```
 
 It plots current radar targets, five-second motion trails, and sixty seconds of
-target count, distance, and speed history. The occupancy box follows the
-firmware's successful Matter occupancy publications and flashes when that state
+target count, distance, and speed history. The switch box follows the
+firmware's successful Matter OnOff publications and flashes when that state
 changes. It returns to `WAITING` when the USB serial stream disconnects.
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
@@ -110,7 +111,7 @@ docker compose run --rm --build esp32-monitor
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`.
 
-## Add the sensor to Apple Home
+## Add the switch to Apple Home
 
 1. Power or reset the flashed board and leave it running. With the radar wired
    up, a board that has never been paired settles on green, then turns purple
@@ -119,11 +120,13 @@ Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
    `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
-   the sensor to a room.
+   the switch to a room.
 
-Once paired, the accessory appears as an occupancy sensor and the pixel starts
-mirroring what it reports. Occupancy is read-only to controllers: the board
-publishes it, and nothing in Home can write it back.
+Once paired, the accessory appears as a switch or outlet and the pixel starts
+mirroring its radar-derived state. In an Apple Home automation, use the switch
+turning on or off as the trigger and choose the desired scene as the action.
+Home can write the OnOff attribute, but the radar is authoritative and the next
+valid report restores the value derived from its slots.
 
 ## Commission again
 

@@ -159,6 +159,17 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         }
         return endpoint;
     }
+    case MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT: {
+        // A plug-in unit is the stateful on/off device Apple Home presents as
+        // a switch or outlet. Leave StartUpOnOff unset so ordinary plug
+        // applications retain controller state; a sensing application can
+        // still publish its authoritative value after every boot.
+        esp_matter::endpoint::on_off_plug_in_unit::config_t config;
+        config.on_off.on_off = false;
+        config.on_off_lighting.start_up_on_off = nullptr;
+        return esp_matter::endpoint::on_off_plug_in_unit::create(
+            node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    }
     default:
         return nullptr;
     }
