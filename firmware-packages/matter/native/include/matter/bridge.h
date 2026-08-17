@@ -21,6 +21,7 @@ enum matter_endpoint_type {
     MATTER_ENDPOINT_ON_OFF_LIGHT = 0,
     MATTER_ENDPOINT_DIMMABLE_LIGHT = 1,
     MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT = 2,
+    MATTER_ENDPOINT_OCCUPANCY_SENSOR = 3,
 };
 
 // Which fields of a queued event carry meaning. An attribute event fills the

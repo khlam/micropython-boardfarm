@@ -37,6 +37,7 @@ class EndpointType:
     ON_OFF_LIGHT = 0
     DIMMABLE_LIGHT = 1
     EXTENDED_COLOR_LIGHT = 2
+    OCCUPANCY_SENSOR = 3
 
 
 class Clusters:
@@ -46,6 +47,7 @@ class Clusters:
     ON_OFF = 0x0006
     LEVEL_CONTROL = 0x0008
     COLOR_CONTROL = 0x0300
+    OCCUPANCY_SENSING = 0x0406
 
 
 class Attributes:
@@ -61,6 +63,7 @@ class Attributes:
     COLOR_TEMPERATURE_MIREDS = 0x0007
     COLOR_MODE = 0x0008
     ENHANCED_COLOR_MODE = 0x4001
+    OCCUPANCY = 0x0000
 
 
 class ColorMode:
@@ -114,12 +117,14 @@ class Paths:
     TEMPERATURE = (Clusters.COLOR_CONTROL, Attributes.COLOR_TEMPERATURE_MIREDS)
     COLOR_MODE = (Clusters.COLOR_CONTROL, Attributes.COLOR_MODE)
     ENHANCED_COLOR_MODE = (Clusters.COLOR_CONTROL, Attributes.ENHANCED_COLOR_MODE)
+    OCCUPANCY = (Clusters.OCCUPANCY_SENSING, Attributes.OCCUPANCY)
 
 
-_BASE_SCHEMA = {
-    Paths.IDENTIFY: (_TYPE_UINT16, 0, 65535, 0),
-    Paths.ON_OFF: (_TYPE_BOOL, 0, 1, False),
-}
+# Identify is the one cluster every supported endpoint carries, so it is the
+# root both the light chain and the sensor schema below are built from.
+_IDENTIFY_SCHEMA = {Paths.IDENTIFY: (_TYPE_UINT16, 0, 65535, 0)}
+_BASE_SCHEMA = _IDENTIFY_SCHEMA.copy()
+_BASE_SCHEMA[Paths.ON_OFF] = (_TYPE_BOOL, 0, 1, False)
 _DIMMABLE_SCHEMA = _BASE_SCHEMA.copy()
 _DIMMABLE_SCHEMA[Paths.LEVEL] = (_TYPE_UINT8, 0, 254, 254)
 _EXTENDED_COLOR_SCHEMA = _DIMMABLE_SCHEMA.copy()
@@ -134,10 +139,18 @@ _EXTENDED_COLOR_SCHEMA.update(
         Paths.ENHANCED_COLOR_MODE: (_TYPE_UINT8, 0, 3, 2),
     }
 )
+
+# Occupancy is a Matter map8 whose only defined bit means occupied, so it is a
+# bounded integer here rather than a bool: the native attribute is a bitmap, and
+# the bridge refuses a boolean written to one.
+_OCCUPANCY_SCHEMA = _IDENTIFY_SCHEMA.copy()
+_OCCUPANCY_SCHEMA[Paths.OCCUPANCY] = (_TYPE_UINT8, 0, 1, 0)
+
 SCHEMAS = {
     EndpointType.ON_OFF_LIGHT: _BASE_SCHEMA,
     EndpointType.DIMMABLE_LIGHT: _DIMMABLE_SCHEMA,
     EndpointType.EXTENDED_COLOR_LIGHT: _EXTENDED_COLOR_SCHEMA,
+    EndpointType.OCCUPANCY_SENSOR: _OCCUPANCY_SCHEMA,
 }
 
 

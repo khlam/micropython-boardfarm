@@ -85,6 +85,7 @@ class Endpoint:
     temperature = _attribute_property(Paths.TEMPERATURE)
     color_mode = _attribute_property(Paths.COLOR_MODE)
     enhanced_color_mode = _attribute_property(Paths.ENHANCED_COLOR_MODE)
+    occupancy = _attribute_property(Paths.OCCUPANCY)
 
     def __init__(self, node: object, endpoint_id: int, endpoint_type: int, state: dict) -> None:
         """Bind a native endpoint ID to its validated Python state.

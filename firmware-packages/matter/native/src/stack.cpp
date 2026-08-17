@@ -79,7 +79,7 @@ extern "C" int matter_node_create(void)
     return 0;
 }
 
-// Add one logical light endpoint to the Matter node before the stack starts.
+// Add one logical application endpoint to the Matter node before the stack starts.
 // ESP-Matter assigns the endpoint a numeric ID. Save that ID so later callbacks
 // can distinguish endpoints created by this bridge from internal or unrelated
 // endpoints on the same Matter node.
@@ -91,7 +91,7 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
     if (endpoint_count >= MAXIMUM_ENDPOINTS) {
         return ENOSPC;
     }
-    if (endpoint_type > MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT) {
+    if (endpoint_type > MATTER_ENDPOINT_OCCUPANCY_SENSOR) {
         return EINVAL;
     }
     endpoint_t *endpoint = endpoint_type_to_endpoint(matter_node, endpoint_type);

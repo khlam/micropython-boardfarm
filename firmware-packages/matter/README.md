@@ -26,8 +26,9 @@ node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 ```
 
-`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, and `EXTENDED_COLOR_LIGHT` endpoints are
-supported, including multiple endpoints on one node. `get()` reads the
+`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, and
+`OCCUPANCY_SENSOR` endpoints are supported, including multiple endpoints on one
+node. `get()` reads the
 Python-owned state, which is automatically hydrated from ESP-Matter persistence
 during `Node.start()`. Restoration does not invoke callbacks.
 
@@ -42,6 +43,14 @@ Extended Color Light applications can compare the Color Control mode with
 `ColorMode.HUE_SATURATION`, `ColorMode.XY`, `ColorMode.COLOR_TEMPERATURE`, and
 `ColorMode.ENHANCED_HUE_SATURATION`. These are protocol values only: projects
 remain responsible for translating attributes into their own hardware output.
+
+Occupancy Sensor endpoints expose one attribute, `endpoint.occupancy`. Matter
+declares it a bitmap rather than a boolean, so it reads and writes as `0` or
+`1`; assigning `True` raises. The value is sensed rather than controller-owned,
+so it is never persisted and controllers cannot write it — an application
+republishes the current state after every reboot. The endpoint declares the PIR
+sensing modality, because Matter's sensor-type attributes name no other
+modality a presence sensor could claim.
 
 Local interfaces update application state and publish the corresponding
 attribute so Matter subscribers observe the change:

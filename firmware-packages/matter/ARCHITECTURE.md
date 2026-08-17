@@ -43,7 +43,7 @@ of state, and which task is allowed to touch it.
 | Source | Owns |
 | --- | --- |
 | `src/stack.cpp` | the one node, the endpoint registry, the `started` barrier, and the pre-start C API |
-| `src/endpoint_schema.cpp` | the on/off, dimmable and extended-colour endpoint configs handed to ESP-Matter |
+| `src/endpoint_schema.cpp` | the on/off, dimmable, extended-colour and occupancy-sensor endpoint configs handed to ESP-Matter |
 | `src/event_queue.cpp` | separate 32-deep attribute and commissioning queues, their shared ordering sequence, the attribute overflow generation, and their drain C API |
 | `src/callbacks.cpp` | everything ESP-Matter and CHIP call into, and the window in which a local echo is suppressed |
 | `src/request.cpp` | Request allocation, refcounting, scheduling, and the bounded-request C API |
@@ -90,9 +90,10 @@ sequenceDiagram
     app->>py: create_endpoint(EXTENDED_COLOR_LIGHT, initial)
     py->>mod: endpoint_create(type)
     mod->>st: matter_endpoint_create()
-    st->>esp: endpoint_schema.cpp — on_off_light / dimmable_light / extended_color_light create
+    st->>esp: endpoint_schema.cpp — on_off_light / dimmable_light / extended_color_light / occupancy_sensor create
     Note over st,esp: hue_saturation feature is added onto ColorControl<br/>for the extended colour schema
     Note over st,esp: rapidly changing level and colour attributes<br/>are configured for deferred persistence during creation
+    Note over st,esp: the occupancy schema persists nothing —<br/>a sensed value is republished, never restored
     st-->>py: endpoint_id, recorded in endpoint_ids
     loop each attribute named in initial, IdentifyTime excluded
         py->>mod: attribute_set_initial(...)
