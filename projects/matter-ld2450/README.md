@@ -6,12 +6,11 @@ occupied. ESP-Matter handles commissioning and protocol state; `firmware/main.py
 sets up the node, owns the radar lifecycle and the onboard pixel, and turns
 target reports into the single occupied/clear bit Matter wants.
 
-The radar reports up to three tracked targets ten times a second. Occupancy is
-true while any target is present and falls back to false 15 seconds after the
-last sighting. The hold matters: the LD2450 loses a motionless person for
-several reports at a time, and without it a seated occupant would flicker
-between occupied and clear. Only changes are published, so a still room costs no
-Matter traffic.
+The radar reports up to three tracked targets ten times a second. Occupancy
+follows the newest valid report: it is true when any target is present and
+becomes false immediately when a report contains no targets. A read timeout is
+not a report and does not change occupancy. Only changes are published, so a
+still room costs no Matter traffic.
 
 `main.py` is the only file in the project that imports `matter`, because that is
 where the service is set up. The radar driver in

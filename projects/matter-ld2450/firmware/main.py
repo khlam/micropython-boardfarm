@@ -1,4 +1,4 @@
-"""Expose an HLK-LD2450 radar through ESP-Matter as an Occupancy Sensor.
+"""Expose an HLK-LD2450 radar through Matter and stream its targets over USB.
 
 Definitions first, boot sequence at the bottom. The Matter node is built and
 started synchronously, because `Node.start()` blocks while ESP-Matter comes up;
@@ -6,10 +6,10 @@ only then does `asyncio.run(main())` take over for the radar, whose driver is
 woken by a UART receive-idle interrupt. The node's event drain rides the
 MicroPython scheduler, so it interleaves with the event loop.
 
-The radar reports targets; Matter wants a single occupied/clear bit. This file
-owns that translation, along with the pixel and the board wiring. Nothing here
-knows how the radar frames a report, and nothing in `matter/` knows a radar
-exists.
+The radar reports targets; Matter wants a single occupied/clear bit, while the
+LD2450 dashboard wants their positions. This file owns that translation and
+serial stream, along with the pixel and the board wiring. Nothing here knows
+how the radar frames a report, and nothing in `matter/` knows a radar exists.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code: `matter/` (Python) calls the `_matter` C module, which
@@ -21,6 +21,7 @@ import asyncio
 import os
 import time
 from collections import namedtuple
+from math import atan2, degrees, sqrt
 
 import machine
 import neopixel
@@ -40,10 +41,6 @@ if "ESP32S3" not in _machine:
 BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21, pixel_count=1)
 emit({"event": "debug", "component": "boot", "state": "imports_ready", "machine": _machine})
 
-# The LD2450 drops a motionless person for several reports at a time, so the
-# occupied state is held past the last sighting rather than tracking each
-# report. Fifteen seconds rides out those gaps without feeling stuck on.
-_OCCUPANCY_HOLD_MS = const(15_000)
 _RETRY_PAUSE_MS = const(1_000)
 _READ_ERR_PAUSE_MS = const(200)
 
@@ -170,18 +167,16 @@ async def init_radar() -> LD2450:
 
 
 async def track_occupancy(radar: LD2450) -> None:
-    """Publish occupancy to Matter whenever it changes, and only then.
+    """Stream targets and publish occupancy to Matter whenever it changes.
 
     `read_latest()` returns targets, an empty tuple for a report with none, or
-    ``None`` when no complete report arrived within 500 ms. Only a real target
-    refreshes the hold timer, so a radar that goes quiet falls back to clear
-    rather than latching occupied forever.
+    ``None`` when no complete report arrived within 500 ms. Only complete
+    reports change occupancy; a timeout leaves the latest valid state alone.
 
     Args:
         radar: A driver already through `wait_ready()`.
     """
     emit({"event": "debug", "component": "occupancy", "state": "tracking"})
-    last_seen_ms = None
     while True:
         try:
             targets = await radar.read_latest()
@@ -200,11 +195,10 @@ async def track_occupancy(radar: LD2450) -> None:
 
         now_ms = time.ticks_ms()
         _set_radar_ok(now_ms, ok=True)
-        if targets:
-            last_seen_ms = now_ms
-        occupied = (
-            last_seen_ms is not None and time.ticks_diff(now_ms, last_seen_ms) < _OCCUPANCY_HOLD_MS
-        )
+        if targets is None:
+            continue
+        emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
+        occupied = bool(targets)
         if occupied == _occupied[0]:
             continue
 
@@ -235,6 +229,19 @@ async def main() -> None:
         await track_occupancy(radar)
     finally:
         radar.close()
+
+
+def _target_dict(target: object) -> dict:
+    """Convert one radar target to the fields consumed by the LD2450 dashboard."""
+    return {
+        "slot": target.slot,
+        "x_mm": target.x_mm,
+        "y_mm": target.y_mm,
+        "speed_cm_s": target.speed_cm_s,
+        "resolution_mm": target.resolution_mm,
+        "distance_mm": round(sqrt(target.x_mm * target.x_mm + target.y_mm * target.y_mm)),
+        "angle_deg": round(degrees(atan2(target.x_mm, target.y_mm))),
+    }
 
 
 def _set_radar_ok(stamp: int, *, ok: bool) -> None:
