@@ -43,11 +43,13 @@ commissions normally — it just sits amber until the radar answers.
 
 ## USB serial
 
-The firmware prints nothing of its own. `esp32-monitor` shows only the `matter`
-package's lifecycle JSON: `{"event":"matter","state":"ready"}` once the stack has
+`esp32-monitor` shows compact JSON diagnostics for the Python boot sequence,
+pixel writes, Matter startup, radar initialization, and occupancy changes. A
+successful pixel command ends with
+`{"event":"debug","component":"pixel","state":"write_complete"}`. The `matter`
+package also emits `{"event":"matter","state":"ready"}` once the stack has
 started and the endpoint has been restored, a commissioning line per transition,
-and an `{"event":"error"}` line for a recoverable fault. Silence after `ready` is
-a healthy board.
+and an `{"event":"error"}` line for a recoverable fault.
 
 ## Build
 

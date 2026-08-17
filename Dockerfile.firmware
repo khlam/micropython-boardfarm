@@ -146,7 +146,7 @@ ENTRYPOINT ["sh","-c", "\
         echo 'On macOS: run tools/serial-bridge.sh and export SERIAL_PORT=socket://host.docker.internal:5555' >&2; \
         exit 1; \
       fi; \
-      RESET= ;; \
+      RESET='--after watchdog_reset' ;; \
   esac; \
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \

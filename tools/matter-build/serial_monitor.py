@@ -102,7 +102,7 @@ def _capture(args: argparse.Namespace, started: float, deadline: float) -> None:
                     _send(port, args.send, interrupt=args.interrupt)
                     pending = False
                 _read_lines(port, started, deadline)
-            except serial.SerialException:
+            except (OSError, serial.SerialException):
                 _write(started, "-- serial link dropped, reopening --")
 
 
@@ -127,7 +127,7 @@ def _open(path: str, baud: int, deadline: float) -> serial.Serial | None:
         if Path(path).exists():
             try:
                 return serial.Serial(path, baud, timeout=_READ_TIMEOUT_S)
-            except serial.SerialException:
+            except (OSError, serial.SerialException):
                 pass
         time.sleep(_REOPEN_POLL_S)
     return None

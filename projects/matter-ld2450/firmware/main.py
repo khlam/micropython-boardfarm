@@ -28,6 +28,7 @@ from micropython import const
 
 import matter
 from ld2450 import LD2450, DeviceNotFoundError
+from matter.emit import emit
 
 # Pin map for this board. ``uart_id`` selects the peripheral, ``tx`` connects to
 # radar RX, ``rx`` connects to radar TX, and ``led_pin`` drives the onboard
@@ -37,6 +38,7 @@ _machine = os.uname().machine
 if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
 BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21, pixel_count=1)
+emit({"event": "debug", "component": "boot", "state": "imports_ready", "machine": _machine})
 
 # The LD2450 drops a motionless person for several reports at a time, so the
 # occupied state is held past the last sighting rather than tracking each
@@ -79,8 +81,11 @@ _occupied = [None]
 
 def render(color: tuple) -> None:
     """Drive the pixel. Every hardware touch in this project is these two lines."""
+    emit({"event": "debug", "component": "pixel", "state": "buffer", "rgb": color})
     pixel[0] = color
+    emit({"event": "debug", "component": "pixel", "state": "write"})
     pixel.write()
+    emit({"event": "debug", "component": "pixel", "state": "write_complete"})
 
 
 def show(color: tuple, stamp: int) -> None:
@@ -142,13 +147,24 @@ async def init_radar() -> LD2450:
         A connected radar driver with its first report ready to read.
     """
     while True:
+        emit({"event": "debug", "component": "radar", "state": "init"})
         try:
             radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+            emit({"event": "debug", "component": "radar", "state": "uart_ready"})
             await radar.wait_ready()
-        except (DeviceNotFoundError, OSError):
+        except (DeviceNotFoundError, OSError) as err:
+            emit(
+                {
+                    "event": "debug",
+                    "component": "radar",
+                    "state": "init_failed",
+                    "message": str(err),
+                }
+            )
             _set_radar_ok(time.ticks_ms(), ok=False)
             await asyncio.sleep_ms(_RETRY_PAUSE_MS)
         else:
+            emit({"event": "debug", "component": "radar", "state": "report_ready"})
             _set_radar_ok(time.ticks_ms(), ok=True)
             return radar
 
@@ -164,11 +180,20 @@ async def track_occupancy(radar: LD2450) -> None:
     Args:
         radar: A driver already through `wait_ready()`.
     """
+    emit({"event": "debug", "component": "occupancy", "state": "tracking"})
     last_seen_ms = None
     while True:
         try:
             targets = await radar.read_latest()
-        except OSError:
+        except OSError as err:
+            emit(
+                {
+                    "event": "debug",
+                    "component": "radar",
+                    "state": "read_failed",
+                    "message": str(err),
+                }
+            )
             _set_radar_ok(time.ticks_ms(), ok=False)
             await asyncio.sleep_ms(_READ_ERR_PAUSE_MS)
             continue
@@ -192,11 +217,19 @@ async def track_occupancy(radar: LD2450) -> None:
             # Leave the recorded state alone so the next pass retries.
             continue
         _occupied[0] = occupied
+        emit(
+            {
+                "event": "debug",
+                "component": "occupancy",
+                "state": "occupied" if occupied else "clear",
+            }
+        )
         refresh(now_ms)
 
 
 async def main() -> None:
     """Bring the radar up, then track occupancy until the board is reset."""
+    emit({"event": "debug", "component": "boot", "state": "event_loop_ready"})
     radar = await init_radar()
     try:
         await track_occupancy(radar)
@@ -229,6 +262,7 @@ def _on_commissioning(event: object) -> None:
     """
     stamp = time.ticks_ms()
     state = event.state
+    emit({"event": "debug", "component": "commissioning", "state": state})
     if state == matter.Commissioning.FAILED:
         _commissioning_failed[0] = True
     elif state == matter.Commissioning.COMPLETE:
@@ -238,7 +272,17 @@ def _on_commissioning(event: object) -> None:
     refresh(stamp)
 
 
+emit(
+    {
+        "event": "debug",
+        "component": "pixel",
+        "state": "construct",
+        "pin": BOARD.led_pin,
+        "count": BOARD.pixel_count,
+    }
+)
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pixel_count)
+emit({"event": "debug", "component": "pixel", "state": "constructed"})
 
 # White is the only state known before the stack starts. Later commissioning
 # events and radar readings replace it with their own newer stamps.
@@ -249,23 +293,48 @@ show(BOOT_COLOR, _startup_stamp)
 # Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
 # stack.cpp matter_node_create(). Runs directly on this task -- there is no CHIP
 # task yet to schedule onto.
+emit({"event": "debug", "component": "matter", "state": "node_create"})
 node = matter.Node()
+emit({"event": "debug", "component": "matter", "state": "node_created"})
 
 # No initial state passed: the native endpoint constructor owns the unoccupied
 # starting value, and a pre-start write would pin it on every boot.
+emit({"event": "debug", "component": "matter", "state": "endpoint_create"})
 endpoint = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+emit(
+    {
+        "event": "debug",
+        "component": "matter",
+        "state": "endpoint_created",
+        "endpoint_id": endpoint.id,
+    }
+)
 
 # Occupancy is read-only to controllers, so no on_write callback is registered.
 # Queued transitions may be delivered before start() returns; the callback only
 # records state and re-renders, both safe before the node reports started.
 node.on_commissioning(_on_commissioning)
+emit({"event": "debug", "component": "matter", "state": "callback_ready"})
 
 # start() -> _matter.start() -> stack.cpp matter_stack_start(): the CHIP task
 # comes up here, and the call blocks while endpoints are restored. It has to
 # finish before the event loop exists.
+emit({"event": "debug", "component": "matter", "state": "start"})
 node.start()
+emit({"event": "debug", "component": "matter", "state": "started"})
 
-_commissioned[0] = bool(node.fabrics()) or _commissioned[0]
+emit({"event": "debug", "component": "matter", "state": "fabrics_read"})
+_fabrics = node.fabrics()
+emit(
+    {
+        "event": "debug",
+        "component": "matter",
+        "state": "fabrics_ready",
+        "count": len(_fabrics),
+    }
+)
+_commissioned[0] = bool(_fabrics) or _commissioned[0]
 refresh(_startup_stamp)
 
+emit({"event": "debug", "component": "boot", "state": "event_loop_start"})
 asyncio.run(main())
