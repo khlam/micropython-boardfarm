@@ -50,6 +50,25 @@ package also emits `{"event":"matter","state":"ready"}` once the stack has
 started and the endpoint has been restored, a commissioning line per transition,
 and an `{"event":"error"}` line for a recoverable fault.
 
+## Live dashboard
+
+Start the serial dashboard and open <http://localhost:18501>:
+
+```console
+docker compose up --build viz
+```
+
+It plots current radar targets, five-second motion trails, and sixty seconds of
+target count, distance, and speed history. The occupancy box follows the
+firmware's successful Matter occupancy publications and flashes when that state
+changes. It returns to `WAITING` when the USB serial stream disconnects.
+
+Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
+
+```console
+SERIAL_PORT=/dev/ttyACM1 docker compose up --build viz
+```
+
 ## Build
 
 Docker is the only host dependency. Run commands from this directory.
