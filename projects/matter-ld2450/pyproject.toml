@@ -1,0 +1,10 @@
+[project]
+name = "matter-ld2450"
+version = "0.1.0"
+description = "MicroPython Matter firmware scaffold for an HLK-LD2450 radar."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false

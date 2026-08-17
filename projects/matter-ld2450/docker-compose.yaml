@@ -1,0 +1,60 @@
+---
+services:
+  esp32-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.matter
+      target: matter-toolchain
+    environment:
+      - PASSCODE=${PASSCODE:-}
+      - MANUFACTURER=${MANUFACTURER:-}
+      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
+    volumes:
+      # manifest.py hardcodes /firmware-packages and /firmware.
+      - ../../firmware-packages:/firmware-packages:ro
+      - ../../tools/matter-build:/matter-tools:ro
+      - ./firmware:/firmware:ro
+      - ./native/board:/matter-board:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      - ./outputs:/outputs
+      - matter-build-cache:/build-cache
+
+  esp32-monitor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.matter
+      target: matter-monitor
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+      - MONITOR_SECONDS=${MONITOR_SECONDS:-90}
+      - MONITOR_BAUD=${MONITOR_BAUD:-115200}
+      - MONITOR_RESET=${MONITOR_RESET:-1}
+      - MONITOR_PROBE=${MONITOR_PROBE:-0}
+      - MONITOR_SEND=${MONITOR_SEND:-}
+      - MONITOR_INTERRUPT=${MONITOR_INTERRUPT:-0}
+    volumes:
+      - ../../tools/matter-build:/matter-tools:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+
+  esp32-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.matter
+      target: matter-flash
+    depends_on:
+      esp32-compile:
+        condition: service_completed_successfully
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+    volumes:
+      - ./outputs:/outputs:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+volumes:
+  matter-build-cache:

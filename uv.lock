@@ -11,6 +11,7 @@ members = [
     "ld2450-demo",
     "led-effects",
     "matter-example",
+    "matter-ld2450",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -640,6 +641,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "matter-ld2450"
+version = "0.1.0"
+source = { virtual = "projects/matter-ld2450" }
 
 [[package]]
 name = "mdurl"

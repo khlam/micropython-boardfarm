@@ -91,14 +91,16 @@ jobs:
           - ld2450
           - led-effects
           - matter
+          - matter-ld2450
           - multizone-ranging
         target:
           - rp
           - esp32
         exclude:
-          # Matter is ESP32-S3-only — projects/matter/docker-compose.yaml has
-          # no pi-compile service.
+          # Matter projects are ESP32-S3-only and have no pi-compile service.
           - project: matter
+            target: rp
+          - project: matter-ld2450
             target: rp
         include:
           # max_bytes: per-artifact size budgets (cloud-only). See CI.md
@@ -115,6 +117,9 @@ jobs:
             max_bytes: 2097152  # 2 MiB per .bin
           # esp32-matter's build.py enforces 4 MiB flash-size cap
           - project: matter
+            target: esp32
+            max_bytes: 4194304  # 4 MiB (board flash size)
+          - project: matter-ld2450
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
     steps:
