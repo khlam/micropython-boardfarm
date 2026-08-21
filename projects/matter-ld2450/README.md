@@ -24,6 +24,27 @@ where the service is set up. The radar driver in
 [`../../firmware-packages/ld2450/`](../../firmware-packages/ld2450/) knows
 nothing about Matter, and the Matter package knows nothing about radar.
 
+## Why Occupancy publishes through a cluster object
+
+ESP-Matter keeps two stores, and only one of them is served. `attribute::update()`
+writes ESP-Matter's own attribute store, which answers reads only for clusters the
+data-model provider has no registered server for. OccupancySensing has one — a
+code-driven `OccupancySensingCluster` built during `Node.start()` — and that object
+is what controllers read and what reports carry. Updating the attribute store for a
+read-only attribute therefore returns `ESP_OK` and changes nothing on the wire: the
+board commissions, the tile appears in Home, and it never moves no matter what the
+radar sees. `publish_occupancy()` in
+[`chip_operations.cpp`](../../firmware-packages/matter/native/src/chip_operations.cpp)
+publishes through the cluster object's own `SetOccupancy()` instead, which is also
+what reports it.
+
+The same split is why `initial` cannot name Occupancy — the cluster serving it does
+not exist before `start()`, so a pre-start write lands in a store nothing reads and
+the bridge refuses it rather than reporting a success that does nothing. Any
+read-only attribute added later needs the same treatment; a writable one does not,
+because ESP-Matter routes those through the provider on the caller's behalf. Full
+call paths: [`ARCHITECTURE.md`](../../firmware-packages/matter/ARCHITECTURE.md).
+
 ## What the pixel is telling you
 
 The onboard WS2812 on GPIO21 is a commissioning indicator until the board is
@@ -51,18 +72,15 @@ does not, the problem is past the device.
 
 ## USB serial
 
-`esp32-monitor` shows compact JSON diagnostics for the Python boot sequence,
-pixel writes, Matter startup, radar initialization, and occupancy changes. Every
-report emits a `{"t":…,"targets":[…]}` line, and the current state follows it as
-`{"event":"debug","component":"occupancy","state":"clear"}`. A change that
-reaches ESP-Matter adds
-`{"event":"debug","component":"matter","endpoint_id":1,"state":"published_occupied"}`
-— or a `"state":"publish_failed"` line carrying the error when ESP-Matter
-refuses the write. A successful pixel command ends with
-`{"event":"debug","component":"pixel","state":"write_complete"}`. The `matter`
-package also emits `{"event":"matter","state":"ready"}` once the stack has
-started and the endpoint has been restored, a commissioning line per
-transition, and an `{"event":"error"}` line for a recoverable fault.
+`esp32-monitor` shows compact JSON diagnostics. Every report emits a
+`{"t":…,"targets":[…]}` line, and the current state follows it as
+`{"event":"occupancy","state":"clear"}`. Radar health is reported as a `diag`
+line — `radar_ok` once the first report parses, and `no_device`, `init_err`, or
+`read_err` carrying the error otherwise. The `matter` package emits
+`{"event":"matter","state":"ready"}` once the stack has started and the endpoint
+has been restored, a `{"event":"commissioning"}` line per transition, and an
+`{"event":"error"}` line for a recoverable fault — including a publish ESP-Matter
+refuses.
 
 ## Live dashboard
 

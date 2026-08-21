@@ -465,7 +465,7 @@
         setConnection(false, obj.port, obj.error);
         return;
       }
-      if (obj.event === "debug" && obj.component === "occupancy") {
+      if (obj.event === "occupancy") {
         if (obj.state === "occupied" || obj.state === "clear") {
           setOccupancy(obj.state === "occupied");
         }
