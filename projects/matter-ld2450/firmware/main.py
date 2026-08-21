@@ -26,6 +26,9 @@ BOARD = Board(uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RETRY_PAUSE_MS = const(1_000)
 _READ_ERR_PAUSE_MS = const(200)
+# Near-field reports can collapse toward the origin as tracking ends. Ignore
+# radius around the sensor so those artifacts cannot hold occupancy on.
+_DEAD_ZONE_RADIUS_MM = const(10)
 
 BOOT_COLOR = (25, 25, 25)
 GREEN_COLOR = (0, 25, 0)
@@ -141,6 +144,7 @@ async def track_occupancy(radar: LD2450) -> None:
             _set_radar_ok(ok=False)
             continue
 
+        targets = tuple(target for target in targets if _outside_dead_zone(target))
         _set_radar_ok(ok=True)
         occupied = bool(targets)
         if occupied != _state.occupancy:
@@ -166,6 +170,12 @@ def _target_dict(target: object) -> dict:
         "speed_cm_s": target.speed_cm_s,
         "resolution_mm": target.resolution_mm,
     }
+
+
+def _outside_dead_zone(target: object) -> bool:
+    """Return whether a target lies beyond the sensor's near-field radius."""
+    distance_squared = target.x_mm * target.x_mm + target.y_mm * target.y_mm
+    return distance_squared >= _DEAD_ZONE_RADIUS_MM * _DEAD_ZONE_RADIUS_MM
 
 
 def _on_commissioning(event: object) -> None:

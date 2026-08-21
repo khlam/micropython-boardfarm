@@ -1,9 +1,9 @@
 # ESP32-S3-Zero Matter occupancy sensor
 
 This project exposes an HLK-LD2450 mmWave radar as a Matter Occupancy Sensor.
-The newest valid report is occupied when it contains at least one target and
-clear when it contains none. Only changes are published to Matter; a timeout
-marks the radar unhealthy without treating silence as an empty room.
+The newest valid report is occupied when it contains at least one target beyond a radial dead zone in front of the sensor, and clear when it contains
+none. Only changes are published to Matter; a timeout marks the radar unhealthy
+without treating silence as an empty room.
 
 The endpoint is read-only to controllers and declares PIR because Matter has no
 radar sensing modality. The reusable radar driver remains independent of
@@ -32,7 +32,8 @@ the product state. A missing radar does not prevent commissioning.
 
 ## USB serial and dashboard
 
-Each valid report produces one compact JSON line with raw sensor fields:
+Each valid report produces one compact JSON line containing targets outside the
+dead zone. Every included target retains its raw sensor fields:
 
 ```json
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
