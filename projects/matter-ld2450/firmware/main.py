@@ -1,15 +1,18 @@
-"""Expose an HLK-LD2450 radar through Matter and stream its targets over USB.
+"""Drive two Matter occupancy endpoints on a fixed timer, with no radar attached.
 
-Definitions first, boot sequence at the bottom. The Matter node is built and
-started synchronously, because `Node.start()` blocks while ESP-Matter comes up;
-only then does `asyncio.run(main())` take over for the radar, whose driver is
-woken by a UART receive-idle interrupt. The node's event drain rides the
-MicroPython scheduler, so it interleaves with the event loop.
+Bring-up firmware for one question: does Apple Home track this device's sensing
+state at all, and which of Home's "Motion" and "Occupancy" room categories does
+each endpoint land in? The radar is deliberately absent, so nothing but the
+timer below can move an attribute — a tile that never changes is a controller
+or schema problem, not a sensor problem.
 
-The radar reports targets; Matter wants a single occupied/clear bit, while the
-LD2450 dashboard wants their positions. This file owns that translation and
-serial stream, along with the pixel and the board wiring. Nothing here knows
-how the radar frames a report, and nothing in `matter/` knows a radar exists.
+Two Occupancy Sensor endpoints are published, identical apart from the sensing
+modality each declares: PIR and ultrasonic. Matter has no separate motion-sensor
+device type, so the declared modality is the only lever a controller could sort
+them by, and which category Home files each one under is exactly what this
+firmware is here to find out. The two are driven in opposite phase and flip
+every minute, so each endpoint's tile is identifiable on sight and a stuck value
+cannot be mistaken for a working one.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code: `matter/` (Python) calls the `_matter` C module, which
@@ -21,37 +24,34 @@ import asyncio
 import os
 import time
 from collections import namedtuple
-from math import atan2, degrees, sqrt
 
 import machine
 import neopixel
 from micropython import const
 
 import matter
-from ld2450 import LD2450, DeviceNotFoundError
 from matter.emit import emit
 
-# Pin map for this board. ``uart_id`` selects the peripheral, ``tx`` connects to
-# radar RX, ``rx`` connects to radar TX, and ``led_pin`` drives the onboard
-# WS2812. Only ESP32-S3 is supported, so any other chip is a build error.
-Board = namedtuple("Board", ("name", "uart_id", "tx", "rx", "led_pin", "pixel_count"))
+# Pin map for this board. Only the pixel is left — this firmware never opens the
+# radar UART. Only ESP32-S3 is supported, so any other chip is a build error.
+Board = namedtuple("Board", ("name", "led_pin", "pixel_count"))
 _machine = os.uname().machine
 if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
-BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21, pixel_count=1)
+BOARD = Board(name="ESP32-S3-Zero", led_pin=21, pixel_count=1)
 emit({"event": "debug", "component": "boot", "state": "imports_ready", "machine": _machine})
 
-_RETRY_PAUSE_MS = const(1_000)
-_READ_ERR_PAUSE_MS = const(200)
+# One minute per phase: long enough to read a Home tile without racing it, short
+# enough that a stalled toggle shows up within a couple of minutes.
+_TOGGLE_PERIOD_MS = const(60_000)
 
 BOOT_COLOR = (25, 25, 25)
 READY_COLOR = (0, 25, 0)
 WINDOW_COLOR = (25, 0, 25)
 SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
-RADAR_FAULT_COLOR = (25, 12, 0)
-OCCUPIED_COLOR = (0, 25, 0)
-OFF_COLOR = (0, 0, 0)
+MOTION_COLOR = (0, 25, 0)
+OCCUPANCY_COLOR = (0, 0, 25)
 
 _COMMISSIONING_COLORS = {
     matter.Commissioning.STARTED: SESSION_COLOR,
@@ -69,11 +69,10 @@ _commissioned = [False]
 _commissioning_failed = [False]
 _last_commissioning_state = [None]
 
-# Product state the pixel renders once pairing is settled. Radar health and
-# occupancy start as None rather than False: "not decided yet" makes their
-# first outcomes trigger the state transitions that report and render them.
-_radar_ok = [None]
-_occupied = [None]
+# Which half of the cycle the endpoints are in, or None until the first phase is
+# published. The ultrasonic endpoint always holds the inverse, so this one cell
+# describes both.
+_motion_on = [None]
 
 
 def render(color: tuple) -> None:
@@ -88,9 +87,9 @@ def render(color: tuple) -> None:
 def show(color: tuple, stamp: int) -> None:
     """Render a colour unless a newer one was already commanded.
 
-    Commissioning callbacks and the radar loop both command colours and can run
-    out of order, so an older decision could otherwise overwrite a newer one.
-    Comparing stamps stops that.
+    Commissioning callbacks and the toggle timer both command colours and can
+    run out of order, so an older decision could otherwise overwrite a newer
+    one. Comparing stamps stops that.
 
     Args:
         color: Red, green, and blue channel values in the range 0-255.
@@ -109,20 +108,18 @@ def current_color() -> tuple:
     """Return the colour the board's present state calls for.
 
     One decision point for every caller, so the pixel never depends on which
-    event happened to fire last. Commissioning failure stays sticky; otherwise
-    a silent radar outranks pairing and occupancy because a stale "clear" is
-    indistinguishable from a disconnected sensor.
+    event happened to fire last. Commissioning failure stays sticky, and active
+    pairing outranks the toggle phase, which has sixty seconds to be read and
+    the pairing colours do not.
     """
     if _commissioning_failed[0]:
         return FAILED_COLOR
-    if _radar_ok[0] is False:
-        return RADAR_FAULT_COLOR
     color = _COMMISSIONING_COLORS.get(_last_commissioning_state[0])
     if color is not None:
         return color
-    if not _commissioned[0]:
+    if not _commissioned[0] or _motion_on[0] is None:
         return READY_COLOR
-    return OCCUPIED_COLOR if _occupied[0] else OFF_COLOR
+    return MOTION_COLOR if _motion_on[0] else OCCUPANCY_COLOR
 
 
 def refresh(stamp: int) -> None:
@@ -134,133 +131,87 @@ def refresh(stamp: int) -> None:
     show(current_color(), stamp)
 
 
-async def init_radar() -> LD2450:
-    """Open the radar UART, retrying until the radar sends a valid report.
+async def toggle_forever() -> None:
+    """Publish opposite phases to both endpoints once a minute, until reset.
 
-    Retrying yields to the event loop, so a board with no radar attached still
-    commissions and stays reachable.
-
-    Returns:
-        A connected radar driver with its first report ready to read.
+    The first phase is published immediately so a controller that subscribes
+    right after commissioning sees a deliberate value rather than the
+    constructor's zero on both endpoints.
     """
+    emit({"event": "debug", "component": "toggle", "state": "tracking"})
+    motion_on = False
     while True:
-        emit({"event": "debug", "component": "radar", "state": "init"})
-        try:
-            radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-            emit({"event": "debug", "component": "radar", "state": "uart_ready"})
-            await radar.wait_ready()
-        except (DeviceNotFoundError, OSError) as err:
-            emit(
-                {
-                    "event": "debug",
-                    "component": "radar",
-                    "state": "init_failed",
-                    "message": str(err),
-                }
-            )
-            _set_radar_ok(time.ticks_ms(), ok=False)
-            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
-        else:
-            emit({"event": "debug", "component": "radar", "state": "report_ready"})
-            _set_radar_ok(time.ticks_ms(), ok=True)
-            return radar
+        _apply_phase(motion_on=motion_on)
+        await asyncio.sleep_ms(_TOGGLE_PERIOD_MS)
+        motion_on = not motion_on
 
 
-async def track_occupancy(radar: LD2450) -> None:
-    """Stream targets and publish occupancy to Matter whenever it changes.
+def _apply_phase(*, motion_on: bool) -> None:
+    """Publish one phase to both endpoints and re-render the pixel.
 
-    `read_latest()` returns targets, an empty tuple for a report with none, or
-    ``None`` when no complete report arrived within 500 ms. Only complete
-    reports change occupancy; a timeout leaves the latest valid state alone.
+    A failed publish is reported and left behind rather than retried here: the
+    timer is the only clock this firmware has, and repeating a phase to catch a
+    straggler would break the alternation Home is being read for.
 
     Args:
-        radar: A driver already through `wait_ready()`.
+        motion_on: Value for the PIR endpoint; the ultrasonic endpoint takes
+            its inverse, so the two are never equal.
     """
-    emit({"event": "debug", "component": "occupancy", "state": "tracking"})
-    while True:
-        try:
-            targets = await radar.read_latest()
-        except OSError as err:
-            emit(
-                {
-                    "event": "debug",
-                    "component": "radar",
-                    "state": "read_failed",
-                    "message": str(err),
-                }
-            )
-            _set_radar_ok(time.ticks_ms(), ok=False)
-            await asyncio.sleep_ms(_READ_ERR_PAUSE_MS)
-            continue
+    stamp = time.ticks_ms()
+    published = _publish(motion, "motion", on=motion_on)
+    published = _publish(occupancy, "occupancy", on=not motion_on) and published
+    if published:
+        _motion_on[0] = motion_on
+    refresh(stamp)
 
-        now_ms = time.ticks_ms()
-        _set_radar_ok(now_ms, ok=True)
-        if targets is None:
-            continue
-        emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
-        occupied = bool(targets)
-        if occupied != _occupied[0]:
-            try:
-                # Endpoint.publish -> _matter.attribute_publish -> request.cpp
-                # matter_attribute_publish: a bounded round trip onto the CHIP task.
-                # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
-                endpoint.occupancy = 1 if occupied else 0
-            except OSError:
-                # Leave the recorded state alone so the next pass retries.
-                continue
-            _occupied[0] = occupied
-            refresh(now_ms)
+    # The dashboard keys its box off this component. No targets stream in this
+    # firmware, so the ultrasonic endpoint is what keeps the box moving.
+    emit(
+        {
+            "event": "debug",
+            "component": "occupancy",
+            "state": "clear" if motion_on else "occupied",
+        }
+    )
 
-        # Targets are a continuous stream, so a dashboard can attach after the
-        # Matter transition that established this state. Repeat the successfully
-        # published snapshot with every report so a late client can converge.
+
+def _publish(endpoint: object, name: str, *, on: bool) -> bool:
+    """Publish one endpoint's Occupancy attribute and report what happened.
+
+    Args:
+        endpoint: The endpoint to write.
+        name: Label carried on the emitted line, matching this file's naming.
+        on: True to publish occupied.
+
+    Returns:
+        True when the value reached ESP-Matter.
+    """
+    try:
+        # Endpoint.publish -> _matter.attribute_publish -> request.cpp
+        # matter_attribute_publish: a bounded round trip onto the CHIP task.
+        # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
+        endpoint.occupancy = 1 if on else 0
+    except OSError as err:
         emit(
             {
                 "event": "debug",
-                "component": "occupancy",
-                "state": "occupied" if occupied else "clear",
+                "component": "toggle",
+                "endpoint": name,
+                "state": "publish_failed",
+                "message": str(err),
             }
         )
-
-
-async def main() -> None:
-    """Bring the radar up, then track occupancy until the board is reset."""
-    emit({"event": "debug", "component": "boot", "state": "event_loop_ready"})
-    radar = await init_radar()
-    try:
-        await track_occupancy(radar)
-    finally:
-        radar.close()
-
-
-def _target_dict(target: object) -> dict:
-    """Convert one radar target to the fields consumed by the LD2450 dashboard."""
-    return {
-        "slot": target.slot,
-        "x_mm": target.x_mm,
-        "y_mm": target.y_mm,
-        "speed_cm_s": target.speed_cm_s,
-        "resolution_mm": target.resolution_mm,
-        "distance_mm": round(sqrt(target.x_mm * target.x_mm + target.y_mm * target.y_mm)),
-        "angle_deg": round(degrees(atan2(target.x_mm, target.y_mm))),
-    }
-
-
-def _set_radar_ok(stamp: int, *, ok: bool) -> None:
-    """Record radar health, re-rendering only when it actually flips.
-
-    Reports arrive several times a second, so refreshing unconditionally would
-    rewrite the pixel — and advance the stamp every other state change is
-    ordered against — on every pass.
-
-    Args:
-        stamp: Tick captured when the change was observed.
-        ok: True once a report parses, False when the read fails.
-    """
-    if _radar_ok[0] == ok:
-        return
-    _radar_ok[0] = ok
-    refresh(stamp)
+        return False
+    emit(
+        {
+            "event": "debug",
+            "component": "toggle",
+            "endpoint": name,
+            "endpoint_id": endpoint.id,
+            "state": "on" if on else "off",
+        }
+    )
+    return True
 
 
 def _on_commissioning(event: object) -> None:
@@ -294,7 +245,7 @@ pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pix
 emit({"event": "debug", "component": "pixel", "state": "constructed"})
 
 # White is the only state known before the stack starts. Later commissioning
-# events and radar readings replace it with their own newer stamps.
+# events and toggle phases replace it with their own newer stamps.
 _startup_stamp = time.ticks_ms()
 _stamp[0] = _startup_stamp
 show(BOOT_COLOR, _startup_stamp)
@@ -306,16 +257,20 @@ emit({"event": "debug", "component": "matter", "state": "node_create"})
 node = matter.Node()
 emit({"event": "debug", "component": "matter", "state": "node_created"})
 
-# No initial state passed: the native endpoint constructor owns the unoccupied
-# starting value, and a pre-start write would pin it on every boot.
+# No initial state passed: both endpoints start unoccupied from their native
+# constructors, and `toggle_forever()` publishes the real first phase as soon as
+# the event loop starts. The modalities differ so a controller has something to
+# tell the two apart by.
 emit({"event": "debug", "component": "matter", "state": "endpoint_create"})
-endpoint = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+motion = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR_ULTRASONIC)
 emit(
     {
         "event": "debug",
         "component": "matter",
         "state": "endpoint_created",
-        "endpoint_id": endpoint.id,
+        "motion_endpoint_id": motion.id,
+        "occupancy_endpoint_id": occupancy.id,
     }
 )
 
@@ -346,4 +301,4 @@ _commissioned[0] = bool(_fabrics) or _commissioned[0]
 refresh(_startup_stamp)
 
 emit({"event": "debug", "component": "boot", "state": "event_loop_start"})
-asyncio.run(main())
+asyncio.run(toggle_forever())

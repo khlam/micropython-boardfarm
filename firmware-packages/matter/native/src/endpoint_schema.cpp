@@ -21,14 +21,23 @@ constexpr uint16_t MINIMUM_TEMPERATURE_MIREDS = 153;
 constexpr uint16_t MAXIMUM_TEMPERATURE_MIREDS = 500;
 
 // Matter's OccupancySensorType enum predates radar and names no value for it,
-// so every occupancy endpoint this bridge builds declares the PIR modality.
-// Controllers act on Occupancy alone; these two are mandatory metadata, and the
-// bitmap has to name at least one modality and agree with the enum — as does
-// the feature map, which is what ESP-Matter actually enforces.
+// so an occupancy endpoint here declares one of the modalities the enum does
+// name. Controllers act on Occupancy alone; these are mandatory metadata, and
+// the bitmap has to name at least one modality and agree with the enum — as
+// does the feature map, which is what ESP-Matter actually enforces.
+//
+// Both modalities are offered because a controller may key its own presentation
+// off the declared modality: Apple Home sorts a sensor into its "Motion" or
+// "Occupancy" category without exposing the rule, so which one an endpoint
+// lands in is determined empirically rather than assumed here.
 constexpr uint8_t OCCUPANCY_SENSOR_TYPE_PIR =
     static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeEnum::kPir);
 constexpr uint8_t OCCUPANCY_SENSOR_TYPE_BITMAP_PIR =
     static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeBitmap::kPir);
+constexpr uint8_t OCCUPANCY_SENSOR_TYPE_ULTRASONIC =
+    static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeEnum::kUltrasonic);
+constexpr uint8_t OCCUPANCY_SENSOR_TYPE_BITMAP_ULTRASONIC =
+    static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeBitmap::kUltrasonic);
 
 bool defer_persistence(esp_matter::endpoint_t *endpoint, uint32_t cluster_id, uint32_t attribute_id)
 {
@@ -60,6 +69,37 @@ esp_matter::endpoint_t *destroy_and_fail(esp_matter::node_t *node, esp_matter::e
 {
     esp_matter::endpoint::destroy(node, endpoint);
     return nullptr;
+}
+
+// The occupancy endpoints differ only in the modality they declare, so the
+// build is shared. Occupancy is a sensed value rather than controller-owned
+// state, so nothing here is persisted and none of it is deferred: the endpoint
+// starts unoccupied on every boot and the application publishes the first real
+// reading.
+//
+// OccupancySensing carries an O.a+ conformance rule: its feature map has to
+// name at least one sensing modality, and ESP-Matter refuses to build the
+// cluster when it names none. That refusal is silent from here -- the
+// endpoint's own constructor discards the null cluster and still returns an
+// endpoint -- so the cluster is checked for rather than trusted, and every
+// caller passes a modality that matches the enum and bitmap it also passes.
+esp_matter::endpoint_t *create_occupancy_sensor(esp_matter::node_t *node, uint8_t sensor_type,
+                                                uint8_t sensor_type_bitmap, uint32_t feature_flags)
+{
+    esp_matter::endpoint::occupancy_sensor::config_t config;
+    config.occupancy_sensing.occupancy = 0;
+    config.occupancy_sensing.occupancy_sensor_type = sensor_type;
+    config.occupancy_sensing.occupancy_sensor_type_bitmap = sensor_type_bitmap;
+    config.occupancy_sensing.feature_flags = feature_flags;
+    esp_matter::endpoint_t *endpoint = esp_matter::endpoint::occupancy_sensor::create(
+        node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (endpoint == nullptr) {
+        return nullptr;
+    }
+    if (esp_matter::cluster::get(endpoint, OccupancySensing::Id) == nullptr) {
+        return destroy_and_fail(node, endpoint);
+    }
+    return endpoint;
 }
 
 } // namespace
@@ -131,34 +171,14 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         }
         return endpoint;
     }
-    case MATTER_ENDPOINT_OCCUPANCY_SENSOR: {
-        // Occupancy is a sensed value rather than controller-owned state, so
-        // nothing here is persisted and none of it is deferred: the endpoint
-        // starts unoccupied on every boot and the application publishes the
-        // first real reading.
-        //
-        // OccupancySensing carries an O.a+ conformance rule: its feature map has
-        // to name at least one sensing modality, and ESP-Matter refuses to build
-        // the cluster when it names none. That refusal is silent from here --
-        // the endpoint's own constructor discards the null cluster and still
-        // returns an endpoint -- so the cluster is checked for below rather than
-        // trusted, and the modality matches the enum and bitmap above.
-        esp_matter::endpoint::occupancy_sensor::config_t config;
-        config.occupancy_sensing.occupancy = 0;
-        config.occupancy_sensing.occupancy_sensor_type = OCCUPANCY_SENSOR_TYPE_PIR;
-        config.occupancy_sensing.occupancy_sensor_type_bitmap = OCCUPANCY_SENSOR_TYPE_BITMAP_PIR;
-        config.occupancy_sensing.feature_flags =
-            esp_matter::cluster::occupancy_sensing::feature::passive_infrared::get_id();
-        esp_matter::endpoint_t *endpoint = esp_matter::endpoint::occupancy_sensor::create(
-            node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
-        if (endpoint == nullptr) {
-            return nullptr;
-        }
-        if (esp_matter::cluster::get(endpoint, OccupancySensing::Id) == nullptr) {
-            return destroy_and_fail(node, endpoint);
-        }
-        return endpoint;
-    }
+    case MATTER_ENDPOINT_OCCUPANCY_SENSOR:
+        return create_occupancy_sensor(
+            node, OCCUPANCY_SENSOR_TYPE_PIR, OCCUPANCY_SENSOR_TYPE_BITMAP_PIR,
+            esp_matter::cluster::occupancy_sensing::feature::passive_infrared::get_id());
+    case MATTER_ENDPOINT_OCCUPANCY_SENSOR_ULTRASONIC:
+        return create_occupancy_sensor(
+            node, OCCUPANCY_SENSOR_TYPE_ULTRASONIC, OCCUPANCY_SENSOR_TYPE_BITMAP_ULTRASONIC,
+            esp_matter::cluster::occupancy_sensing::feature::ultrasonic::get_id());
     case MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT: {
         // A plug-in unit is the stateful on/off device Apple Home presents as
         // a switch or outlet. Leave StartUpOnOff unset so ordinary plug

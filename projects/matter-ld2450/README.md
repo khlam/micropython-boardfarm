@@ -1,54 +1,66 @@
-# ESP32-S3-Zero Matter occupancy sensor
+# ESP32-S3-Zero Matter occupancy toggle
 
-This project exposes an HLK-LD2450 mmWave radar on an ESP32-S3-Zero as a Matter
-Occupancy Sensor, so it pairs with Apple Home and reports whether the room is
-occupied. ESP-Matter handles commissioning and protocol state; `firmware/main.py`
-sets up the node, owns the radar lifecycle and the onboard pixel, and turns
-target reports into the single occupied/clear bit Matter wants.
+**This project is currently a controller bring-up test, not a radar sensor.**
+The radar is not opened at all. `firmware/main.py` publishes two Matter
+Occupancy Sensor endpoints and flips them on a one-minute timer so their
+behaviour in a controller can be observed with nothing else in the way.
 
-The radar reports up to three tracked targets ten times a second. Occupancy
-follows the newest valid report: it is true when any target is present and
-becomes false immediately when a report contains no targets. A read timeout is
-not a report and does not change occupancy. Only changes are published, so a
-still room costs no Matter traffic.
+It answers two questions about Apple Home:
+
+1. Does Home track this device's sensing state at all? Nothing but the timer can
+   move an attribute here, so a tile that never changes is a controller or
+   schema problem rather than a sensor problem.
+2. Which of Home's **Motion** and **Occupancy** room categories does each
+   endpoint land in? Matter has no separate motion-sensor device type, so the
+   declared sensing modality is the only lever a controller could sort them by.
+
+The two endpoints are identical apart from that modality — one declares PIR, the
+other ultrasonic — and they are driven in opposite phase, so they are never
+equal and each one's tile is identifiable on sight:
+
+| Elapsed | `motion` endpoint (PIR) | `occupancy` endpoint (ultrasonic) |
+| --- | --- | --- |
+| 0:00 | off | on |
+| 1:00 | on | off |
+| 2:00 | off | on |
 
 `main.py` is the only file in the project that imports `matter`, because that is
-where the service is set up. The radar driver in
-[`../../firmware-packages/ld2450/`](../../firmware-packages/ld2450/) knows
-nothing about Matter, and the Matter package knows nothing about radar.
+where the service is set up.
 
 ## What the pixel is telling you
 
 The onboard WS2812 on GPIO21 is a commissioning indicator until the board is
-paired, then an occupancy indicator. Every colour the firmware picks for itself
-is capped at ten percent of full scale.
+paired, then a phase indicator. Every colour the firmware picks for itself is
+capped at ten percent of full scale.
 
 | Pixel | Meaning |
 | --- | --- |
 | Dim white | Firmware running, ESP-Matter still starting |
 | Solid red | Commissioning failed — stays red until the board is reset |
-| Amber | No radar — the UART is open but no valid report is arriving |
 | Steady purple | A commissioning window is open, nobody has engaged |
 | Steady cyan | A commissioner is talking to the board |
-| Steady green, unpaired | Radar healthy, uncommissioned and ready to pair |
-| Steady green, paired | Occupied |
-| Off | Paired and clear |
+| Steady green, unpaired | Uncommissioned and ready to pair |
+| Steady green, paired | `motion` on, `occupancy` off |
+| Steady blue | `motion` off, `occupancy` on |
 
 After the boot-only white baseline, higher rows win. Red is sticky until reset;
-otherwise amber outranks active commissioning and the product states because a
-stale "clear" is indistinguishable from a disconnected radar. Active pairing
-outranks readiness and occupancy. A board with no radar attached still
-commissions normally — it just sits amber until the radar answers.
+active pairing outranks the toggle phase, which has a full minute to be read
+while the pairing colours do not. Green alternating with blue once a minute is
+the firmware working — if the pixel is flipping and Home is not, the problem is
+past the device.
 
 ## USB serial
 
 `esp32-monitor` shows compact JSON diagnostics for the Python boot sequence,
-pixel writes, Matter startup, radar initialization, and occupancy changes. A
-successful pixel command ends with
+pixel writes, Matter startup, and every published phase. Each phase emits one
+line per endpoint —
+`{"event":"debug","component":"toggle","endpoint":"motion","endpoint_id":1,"state":"off"}`
+— and a `"state":"publish_failed"` line carrying the error instead when
+ESP-Matter refuses the write. A successful pixel command ends with
 `{"event":"debug","component":"pixel","state":"write_complete"}`. The `matter`
 package also emits `{"event":"matter","state":"ready"}` once the stack has
-started and the endpoint has been restored, a commissioning line per transition,
-and an `{"event":"error"}` line for a recoverable fault.
+started and the endpoints have been restored, a commissioning line per
+transition, and an `{"event":"error"}` line for a recoverable fault.
 
 ## Live dashboard
 
@@ -58,10 +70,10 @@ Start the serial dashboard and open <http://localhost:18501>:
 docker compose up --build viz
 ```
 
-It plots current radar targets, five-second motion trails, and sixty seconds of
-target count, distance, and speed history. The occupancy box follows the
-firmware's successful Matter occupancy publications and flashes when that state
-changes. It returns to `WAITING` when the USB serial stream disconnects.
+The radar plots stay empty while this firmware is loaded — no targets are being
+streamed. Only the occupancy box moves, following the `occupancy` endpoint's
+published phase and flashing each time it flips. It returns to `WAITING` when
+the USB serial stream disconnects.
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
 
@@ -112,18 +124,26 @@ Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`.
 
 ## Add the sensor to Apple Home
 
-1. Power or reset the flashed board and leave it running. With the radar wired
-   up, a board that has never been paired settles on green, then turns purple
-   once it opens its commissioning window.
+1. Power or reset the flashed board and leave it running. A board that has never
+   been paired settles on green, then turns purple once it opens its
+   commissioning window.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
    `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
-   the sensor to a room.
+   both endpoints to a room.
 
-Once paired, the accessory appears as an occupancy sensor and the pixel starts
-mirroring what it reports. Occupancy is read-only to controllers: the board
-publishes it, and nothing in Home can write it back.
+Every compile mints a fresh discriminator, passcode, and salt, so a QR code
+saved from an earlier build will not pair this one. Use the artifacts sitting in
+`outputs/` next to the image you just flashed.
+
+Flashing writes a full-flash image at `0x0`, which overwrites the `nvs`
+partition holding Matter fabrics. A reflashed board is therefore no longer
+commissioned: remove the old accessory in Home before adding it again.
+
+Once paired, watch the room's **Motion** and **Occupancy** readings against the
+pixel. Occupancy is read-only to controllers: the board publishes it, and
+nothing in Home can write it back.
 
 ## Commission again
 

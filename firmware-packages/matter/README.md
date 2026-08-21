@@ -26,9 +26,9 @@ node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 ```
 
-`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`,
-`OCCUPANCY_SENSOR`, and `ON_OFF_PLUG_IN_UNIT` endpoints are supported,
-including multiple endpoints on one node. `get()` reads the
+`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, `OCCUPANCY_SENSOR`,
+`OCCUPANCY_SENSOR_ULTRASONIC`, and `ON_OFF_PLUG_IN_UNIT` endpoints are
+supported, including multiple endpoints on one node. `get()` reads the
 Python-owned state, which is automatically hydrated from ESP-Matter persistence
 during `Node.start()`. Restoration does not invoke callbacks.
 
@@ -48,9 +48,14 @@ Occupancy Sensor endpoints expose one attribute, `endpoint.occupancy`. Matter
 declares it a bitmap rather than a boolean, so it reads and writes as `0` or
 `1`; assigning `True` raises. The value is sensed rather than controller-owned,
 so it is never persisted and controllers cannot write it — an application
-republishes the current state after every reboot. The endpoint declares the PIR
-sensing modality, because Matter's sensor-type attributes name no other
-modality a presence sensor could claim.
+republishes the current state after every reboot.
+
+`OCCUPANCY_SENSOR` and `OCCUPANCY_SENSOR_ULTRASONIC` are the same endpoint and
+the same attribute, differing only in the sensing modality they declare: PIR and
+ultrasonic respectively. Matter's sensor-type attributes name no modality a
+radar or similar presence sensor could claim, so neither is literally accurate
+for one — but the declared modality is metadata a controller may key its own
+presentation off, so both are offered and the choice belongs to the application.
 
 On/Off Plug-in Unit endpoints expose `endpoint.on`, the same Boolean attribute
 as an On/Off Light but under the stateful switch/outlet device type. Controllers
