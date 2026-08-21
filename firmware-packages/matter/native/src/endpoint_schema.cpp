@@ -20,11 +20,7 @@ constexpr uint16_t DEFAULT_TEMPERATURE_MIREDS = 250;
 constexpr uint16_t MINIMUM_TEMPERATURE_MIREDS = 153;
 constexpr uint16_t MAXIMUM_TEMPERATURE_MIREDS = 500;
 
-// Matter's OccupancySensorType enum predates radar and names no value for it,
-// so an occupancy endpoint here declares PIR, the nearest modality the enum
-// does name. Controllers act on Occupancy alone; the enum, the bitmap, and the
-// feature map are mandatory metadata that have to agree with one another, and
-// the feature map is the one ESP-Matter actually enforces.
+// Matter has no radar modality, so the required type metadata declares PIR.
 constexpr uint8_t OCCUPANCY_SENSOR_TYPE_PIR =
     static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeEnum::kPir);
 constexpr uint8_t OCCUPANCY_SENSOR_TYPE_BITMAP_PIR =
@@ -62,15 +58,8 @@ esp_matter::endpoint_t *destroy_and_fail(esp_matter::node_t *node, esp_matter::e
     return nullptr;
 }
 
-// Occupancy is a sensed value rather than controller-owned state, so nothing
-// here is persisted and none of it is deferred: the endpoint starts unoccupied
-// on every boot and the application publishes the first real reading.
-//
-// OccupancySensing carries an O.a+ conformance rule: its feature map has to
-// name at least one sensing modality, and ESP-Matter refuses to build the
-// cluster when it names none. That refusal is silent from here -- the
-// endpoint's own constructor discards the null cluster and still returns an
-// endpoint -- so the cluster is checked for rather than trusted.
+// Occupancy is republished after boot rather than persisted. ESP-Matter can
+// return an endpoint without its required sensing cluster, so verify it here.
 esp_matter::endpoint_t *create_occupancy_sensor(esp_matter::node_t *node)
 {
     esp_matter::endpoint::occupancy_sensor::config_t config;

@@ -28,8 +28,7 @@ update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 
 `ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, and
 `OCCUPANCY_SENSOR` endpoints are supported, including multiple endpoints on one
-node. `get()` reads the
-Python-owned state, which is automatically hydrated from ESP-Matter persistence
+node. `get()` reads Python-owned state hydrated from ESP-Matter persistence
 during `Node.start()`. Restoration does not invoke callbacks.
 
 `create_endpoint` also takes an `initial={(cluster, attribute): value}` mapping,
@@ -44,19 +43,11 @@ Extended Color Light applications can compare the Color Control mode with
 `ColorMode.ENHANCED_HUE_SATURATION`. These are protocol values only: projects
 remain responsible for translating attributes into their own hardware output.
 
-Occupancy Sensor endpoints expose one attribute, `endpoint.occupancy`. Matter
-declares it a bitmap rather than a boolean, so it reads and writes as `0` or
-`1`; assigning `True` raises. The value is sensed rather than controller-owned,
-so it is never persisted and controllers cannot write it — an application
-republishes the current state after every reboot. It is also the one attribute
-`initial` cannot name: the ESP-Matter cluster serving it does not exist until
-`Node.start()` builds it, so naming it raises `OSError` rather than pinning a
-value nothing would read. Publish it once the node is started instead.
-
-The endpoint declares PIR as its sensing modality. Matter's sensor-type
-attributes name no modality a radar or similar presence sensor could claim, so
-the declaration is metadata rather than a literal description; controllers act
-on `occupancy` alone.
+Occupancy endpoints expose `endpoint.occupancy` as the Matter bitmap values `0`
+and `1`, not booleans. The read-only sensed value is not persisted and cannot
+be supplied through `initial`; publish it after `Node.start()` and after every
+reboot. The endpoint declares PIR because Matter has no radar modality, but
+controllers act on Occupancy itself.
 
 Local interfaces update application state and publish the corresponding
 attribute so Matter subscribers observe the change:

@@ -139,8 +139,7 @@ def attribute_set_initial(
     _require_endpoint(endpoint_id)
     if _state.started:
         raise OSError(errno.EINVAL, "initial attributes are locked")
-    # Native refuses this one: the ESP-Matter cluster serving Occupancy is built
-    # by start() and never reads the store a pre-start write lands in.
+    # The serving Occupancy cluster does not exist before start().
     if (cluster_id, attribute_id) == (_OCCUPANCY_SENSING_CLUSTER, _OCCUPANCY_ATTRIBUTE):
         raise OSError(errno.ENOTSUP, "occupancy cannot be seeded before start")
     path = (endpoint_id, cluster_id, attribute_id)

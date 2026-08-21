@@ -40,55 +40,26 @@
     .stat b { color: var(--text); font-weight: 550; }
     .diag { color: #fbbf24; font-size: 12px; }
     .occupancy-box {
-      --occupancy-accent: #94a3b8;
-      --occupancy-fill: rgba(148, 163, 184, 0.08);
       display: flex;
-      min-height: 92px;
       margin-bottom: 14px;
       padding: 14px 18px;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      overflow: hidden;
-      border: 1px solid var(--occupancy-accent);
+      color: #94a3b8;
+      border: 1px solid currentColor;
       border-radius: 8px;
-      background: var(--occupancy-fill);
+      background: rgba(148, 163, 184, 0.08);
     }
-    .occupancy-box.occupied {
-      --occupancy-accent: #22c55e;
-      --occupancy-fill: rgba(34, 197, 94, 0.13);
-    }
-    .occupancy-box.clear {
-      --occupancy-accent: #38bdf8;
-      --occupancy-fill: rgba(56, 189, 248, 0.08);
-    }
-    .occupancy-label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
+    .occupancy-box.occupied { color: #22c55e; background: rgba(34, 197, 94, 0.13); }
+    .occupancy-box.clear { color: #38bdf8; background: rgba(56, 189, 248, 0.08); }
+    .occupancy-label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
     .occupancy-state {
-      color: var(--occupancy-accent);
       font-size: clamp(24px, 5vw, 44px);
       font-weight: 700;
       letter-spacing: 0.04em;
-      text-align: right;
     }
     .occupancy-box.flash { animation: occupancy-flash 650ms ease-out; }
-    @keyframes occupancy-flash {
-      0% {
-        background: var(--occupancy-accent);
-        box-shadow: 0 0 0 5px var(--occupancy-fill), 0 0 38px var(--occupancy-accent);
-        transform: scale(1.012);
-      }
-      100% {
-        background: var(--occupancy-fill);
-        box-shadow: none;
-        transform: scale(1);
-      }
-    }
+    @keyframes occupancy-flash { 50% { transform: scale(1.012); box-shadow: 0 0 24px currentColor; } }
     .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 14px; }
     .analytics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
     .panel {
@@ -262,19 +233,9 @@
       return slots;
     }
 
-    function resetDisplay(message) {
-      currentTargets = [];
-      history = [];
-      reportTimes = [];
-      lastReportAt = null;
-      gapOpen = false;
-      setOccupancy(null, false);
-      renderAll();
-      if (message) $("diag").textContent = message;
-    }
-
-    function setOccupancy(nextOccupied, shouldFlash = true) {
+    function setOccupancy(nextOccupied) {
       if (occupied === nextOccupied) return;
+      const shouldFlash = occupied !== null && nextOccupied !== null;
       occupied = nextOccupied;
       const box = $("occupancy");
       const state = $("occupancy-state");
@@ -284,6 +245,14 @@
       if (!shouldFlash) return;
       void box.offsetWidth;
       box.classList.add("flash");
+    }
+
+    function addGeometry(targets) {
+      for (const target of targets) {
+        target.distance_mm = Math.round(Math.hypot(target.x_mm, target.y_mm));
+        target.angle_deg = Math.round(Math.atan2(target.x_mm, target.y_mm) * 180 / Math.PI);
+      }
+      return targets;
     }
 
     function appendHistory(targets, wallTime) {
@@ -417,12 +386,10 @@
 
     function onReport(obj) {
       if (!Array.isArray(obj.targets) || typeof obj.t !== "number") return;
-      // obj.t (raw firmware ticks_ms) is intentionally unused for reboot
-      // detection — it wraps periodically and is indistinguishable from a
-      // real reset. setConnection()/markGap() already handle disconnects.
       const now = Date.now();
-      currentTargets = obj.targets;
+      currentTargets = addGeometry(obj.targets);
       gapOpen = false;
+      setOccupancy(currentTargets.length !== 0);
       appendHistory(currentTargets, now);
       lastReportAt = now;
       reportCount++;
@@ -440,7 +407,7 @@
       const now = Date.now();
       gapOpen = true;
       currentTargets = [];
-      setOccupancy(null, false);
+      setOccupancy(null);
       appendHistory([], now);
       $("diag").textContent = message || "";
       renderAll();
@@ -463,12 +430,6 @@
       }
       if (obj.event === "disconnected") {
         setConnection(false, obj.port, obj.error);
-        return;
-      }
-      if (obj.event === "occupancy") {
-        if (obj.state === "occupied" || obj.state === "clear") {
-          setOccupancy(obj.state === "occupied");
-        }
         return;
       }
       if (obj.diag !== undefined) {

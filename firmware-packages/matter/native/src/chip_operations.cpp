@@ -60,20 +60,9 @@ int read_attribute(Request *request)
     return 0;
 }
 
-// Publish Occupancy through the cluster object that actually serves it.
-//
-// ESP-Matter hands OccupancySensing to a code-driven ServerCluster registered
-// with the data-model provider, and that object — not ESP-Matter's own
-// attribute store — answers every read and every report. `attribute::update()`
-// reaches the two only for a controller-writable attribute, which ESP-Matter
-// routes through the provider; Occupancy is read-only, so an update there
-// writes the unserved store, returns ESP_OK, and leaves controllers reading the
-// value the endpoint was built with. The cluster's setter updates the served
-// value and reports it, which is what a sensed attribute needs.
-//
-// No local-update bracket: the setter reports through CHIP rather than
-// ESP-Matter's attribute callback, so there is no echo for `attribute_callback()`
-// to drop.
+// Occupancy is served by a code-driven cluster, not ESP-Matter's generic
+// attribute store. Its setter updates the controller-visible value and reports
+// it without producing a local attribute-callback echo.
 int publish_occupancy(const Request *request)
 {
     chip::app::ServerClusterInterface *served =
@@ -82,9 +71,7 @@ int publish_occupancy(const Request *request)
     if (served == nullptr) {
         return ENOENT;
     }
-    // The registry keys on the cluster ID and ESP-Matter registers exactly this
-    // type for OccupancySensing, so the cast is sound; CHIP builds without RTTI,
-    // which rules out checking it at runtime.
+    // ESP-Matter registers this concrete type for OccupancySensing; CHIP has no RTTI.
     static_cast<chip::app::Clusters::OccupancySensingCluster *>(served)->SetOccupancy(request->value != 0U);
     return 0;
 }

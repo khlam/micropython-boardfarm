@@ -120,8 +120,7 @@ class Paths:
     OCCUPANCY = (Clusters.OCCUPANCY_SENSING, Attributes.OCCUPANCY)
 
 
-# Identify is the one cluster every supported endpoint carries, so it is the
-# root both the light chain and the sensor schema below are built from.
+# Every endpoint carries Identify; light and sensor schemas branch from it.
 _IDENTIFY_SCHEMA = {Paths.IDENTIFY: (_TYPE_UINT16, 0, 65535, 0)}
 _BASE_SCHEMA = _IDENTIFY_SCHEMA.copy()
 _BASE_SCHEMA[Paths.ON_OFF] = (_TYPE_BOOL, 0, 1, False)
@@ -140,9 +139,7 @@ _EXTENDED_COLOR_SCHEMA.update(
     }
 )
 
-# Occupancy is a Matter map8 whose only defined bit means occupied, so it is a
-# bounded integer here rather than a bool: the native attribute is a bitmap, and
-# the bridge refuses a boolean written to one.
+# Occupancy is a Matter map8, so accept its defined 0/1 values but not bool.
 _OCCUPANCY_SCHEMA = _IDENTIFY_SCHEMA.copy()
 _OCCUPANCY_SCHEMA[Paths.OCCUPANCY] = (_TYPE_UINT8, 0, 1, 0)
 

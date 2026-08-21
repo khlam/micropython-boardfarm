@@ -26,12 +26,8 @@ import pytest
 class AsyncioTimeoutError(Exception):
     """Host stand-in for MicroPython's `asyncio.TimeoutError`.
 
-    `extmod/asyncio/core.py` declares that name as a plain `Exception`
-    subclass of its own, unrelated to the built-in `TimeoutError` — which on
-    a chip is a subclass of `OSError`. CPython 3.11 made its `asyncio` name an
-    alias of the built-in, so a firmware `except TimeoutError` around
-    `wait_for_ms()` passes here while catching nothing on the chip. Installing
-    this class under the `asyncio` name makes the host as strict as the chip.
+    MicroPython's class is unrelated to the built-in that CPython aliases, so a
+    distinct host class prevents tests from accepting the wrong exception.
     """
 
 
@@ -78,8 +74,7 @@ async def wait_for_ms(awaitable: Awaitable[Any], timeout_ms: int) -> Any:
         Whatever `awaitable` returned.
 
     Raises:
-        AsyncioTimeoutError: The budget expired, matching what MicroPython
-            raises rather than the built-in CPython substitutes for it.
+        AsyncioTimeoutError: The budget expired.
     """
     try:
         return await asyncio.wait_for(awaitable, timeout_ms / 1000)

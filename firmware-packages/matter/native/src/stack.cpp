@@ -110,12 +110,8 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
 // Set an endpoint attribute's initial value before the Matter stack starts.
 // Persistence policy belongs to endpoint construction, so whether an attribute
 // is deferred never depends on the caller overriding its initial value.
-//
-// Occupancy is refused rather than seeded. The cluster object that serves it is
-// built during `matter_stack_start()` from the endpoint's feature map alone, so
-// a value written into ESP-Matter's attribute store here is never read back out
-// — seeding it would report success and change nothing a controller can see.
-// Publishing it after the node starts is the supported route.
+// Occupancy cannot be seeded because its serving cluster is built at start;
+// writing the generic store beforehand would have no controller-visible effect.
 extern "C" int matter_attribute_set_initial(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id,
                                              uint32_t value, uint8_t value_type)
 {
