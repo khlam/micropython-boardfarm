@@ -6,7 +6,7 @@ only then does `asyncio.run(main())` take over for the radar, whose driver is
 woken by a UART receive-idle interrupt. The node's event drain rides the
 MicroPython scheduler, so it interleaves with the event loop.
 
-The radar reports target slots; Apple Home wants a stateful switch, while the
+The radar reports targets; Matter wants a single occupied/clear bit, while the
 LD2450 dashboard wants their positions. This file owns that translation and
 serial stream, along with the pixel and the board wiring. Nothing here knows
 how the radar frames a report, and nothing in `matter/` knows a radar exists.
@@ -50,7 +50,7 @@ WINDOW_COLOR = (25, 0, 25)
 SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
 RADAR_FAULT_COLOR = (25, 12, 0)
-SWITCH_ON_COLOR = (0, 25, 0)
+OCCUPIED_COLOR = (0, 25, 0)
 OFF_COLOR = (0, 0, 0)
 
 _COMMISSIONING_COLORS = {
@@ -70,10 +70,10 @@ _commissioning_failed = [False]
 _last_commissioning_state = [None]
 
 # Product state the pixel renders once pairing is settled. Radar health and
-# switch state start as None rather than False: "not decided yet" makes their
+# occupancy start as None rather than False: "not decided yet" makes their
 # first outcomes trigger the state transitions that report and render them.
 _radar_ok = [None]
-_switch_on = [None]
+_occupied = [None]
 
 
 def render(color: tuple) -> None:
@@ -110,7 +110,7 @@ def current_color() -> tuple:
 
     One decision point for every caller, so the pixel never depends on which
     event happened to fire last. Commissioning failure stays sticky; otherwise
-    a silent radar outranks pairing and switch state because a stale "off" is
+    a silent radar outranks pairing and occupancy because a stale "clear" is
     indistinguishable from a disconnected sensor.
     """
     if _commissioning_failed[0]:
@@ -122,7 +122,7 @@ def current_color() -> tuple:
         return color
     if not _commissioned[0]:
         return READY_COLOR
-    return SWITCH_ON_COLOR if _switch_on[0] else OFF_COLOR
+    return OCCUPIED_COLOR if _occupied[0] else OFF_COLOR
 
 
 def refresh(stamp: int) -> None:
@@ -166,19 +166,17 @@ async def init_radar() -> LD2450:
             return radar
 
 
-async def track_switch(radar: LD2450) -> None:
-    """Stream targets and keep the Matter switch aligned with radar slots.
+async def track_occupancy(radar: LD2450) -> None:
+    """Stream targets and publish occupancy to Matter whenever it changes.
 
     `read_latest()` returns targets, an empty tuple for a report with none, or
     ``None`` when no complete report arrived within 500 ms. Only complete
-    reports change the switch; a timeout leaves the latest valid state alone.
-    The radar remains authoritative if a controller writes the OnOff attribute:
-    the next report restores the state derived from its slots.
+    reports change occupancy; a timeout leaves the latest valid state alone.
 
     Args:
         radar: A driver already through `wait_ready()`.
     """
-    emit({"event": "debug", "component": "switch", "state": "tracking"})
+    emit({"event": "debug", "component": "occupancy", "state": "tracking"})
     while True:
         try:
             targets = await radar.read_latest()
@@ -200,36 +198,37 @@ async def track_switch(radar: LD2450) -> None:
         if targets is None:
             continue
         emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
-        switch_on = len(targets) != 0
-        if switch_on != _switch_on[0] or endpoint.on != switch_on:
+        occupied = bool(targets)
+        if occupied != _occupied[0]:
             try:
                 # Endpoint.publish -> _matter.attribute_publish -> request.cpp
                 # matter_attribute_publish: a bounded round trip onto the CHIP task.
-                endpoint.on = switch_on
+                # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
+                endpoint.occupancy = 1 if occupied else 0
             except OSError:
                 # Leave the recorded state alone so the next pass retries.
                 continue
-            _switch_on[0] = switch_on
+            _occupied[0] = occupied
             refresh(now_ms)
 
         # Targets are a continuous stream, so a dashboard can attach after the
-        # Matter transition that established this state. Repeat the current
-        # snapshot with every report so a late client can converge.
+        # Matter transition that established this state. Repeat the successfully
+        # published snapshot with every report so a late client can converge.
         emit(
             {
                 "event": "debug",
-                "component": "switch",
-                "state": "on" if switch_on else "off",
+                "component": "occupancy",
+                "state": "occupied" if occupied else "clear",
             }
         )
 
 
 async def main() -> None:
-    """Bring the radar up, then track its Matter switch until reset."""
+    """Bring the radar up, then track occupancy until the board is reset."""
     emit({"event": "debug", "component": "boot", "state": "event_loop_ready"})
     radar = await init_radar()
     try:
-        await track_switch(radar)
+        await track_occupancy(radar)
     finally:
         radar.close()
 
@@ -307,10 +306,10 @@ emit({"event": "debug", "component": "matter", "state": "node_create"})
 node = matter.Node()
 emit({"event": "debug", "component": "matter", "state": "node_created"})
 
-# No initial state passed: the native endpoint constructor owns the off starting
-# value, and the first valid radar report replaces any restored controller state.
+# No initial state passed: the native endpoint constructor owns the unoccupied
+# starting value, and a pre-start write would pin it on every boot.
 emit({"event": "debug", "component": "matter", "state": "endpoint_create"})
-endpoint = node.create_endpoint(matter.EndpointType.ON_OFF_PLUG_IN_UNIT)
+endpoint = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
 emit(
     {
         "event": "debug",
@@ -320,10 +319,9 @@ emit(
     }
 )
 
-# Controller writes need no callback: the endpoint mirror records them and the
-# next radar report restores the slot-derived state. Queued commissioning
-# transitions may arrive before start() returns; that callback only records
-# state and re-renders, both safe before the node reports started.
+# Occupancy is read-only to controllers, so no on_write callback is registered.
+# Queued transitions may be delivered before start() returns; the callback only
+# records state and re-renders, both safe before the node reports started.
 node.on_commissioning(_on_commissioning)
 emit({"event": "debug", "component": "matter", "state": "callback_ready"})
 
