@@ -30,6 +30,7 @@ _DRAIN_BUFFER_LEN = const(120)
 # during normal reads and two seconds for device detection during startup.
 _REPORT_TIMEOUT_MS = const(500)
 _STARTUP_TIMEOUT_MS = const(2_000)
+_NO_PENDING = object()
 
 Target = namedtuple(
     "Target",
@@ -81,8 +82,7 @@ class LD2450:
         self._candidate_len = 0
         self._latest_report = bytearray(_REPORT_LEN)
         self._has_latest_report = False
-        self._pending = None
-        self._has_pending = False
+        self._pending = _NO_PENDING
         self._ready = False
         self._reading = False
         self._closed = False
@@ -118,7 +118,6 @@ class LD2450:
             self.close()
             raise DeviceNotFoundError(f"no valid LD2450 report within {_STARTUP_TIMEOUT_MS} ms")
         self._pending = targets
-        self._has_pending = True
         self._ready = True
 
     async def read_latest(self) -> tuple | None:
@@ -147,13 +146,11 @@ class LD2450:
             self._drain_uart()
             targets = self._take_latest_targets()
             if targets is not None:
-                self._has_pending = False
-                self._pending = None
+                self._pending = _NO_PENDING
                 return targets
-            if self._has_pending:
-                self._has_pending = False
+            if self._pending is not _NO_PENDING:
                 targets = self._pending
-                self._pending = None
+                self._pending = _NO_PENDING
                 return targets
             return await self._wait_for_latest(_REPORT_TIMEOUT_MS)
         except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.
@@ -245,7 +242,7 @@ class LD2450:
 
     def _resynchronize_candidate(self) -> None:
         """Retain an embedded header or partial header after a bad trailer."""
-        header_at = self._find_embedded_header()
+        header_at = self._candidate.find(_HEADER, 1)
         if header_at >= 0:
             retained = _REPORT_LEN - header_at
             for index in range(retained):
@@ -253,37 +250,14 @@ class LD2450:
             self._candidate_len = retained
             return
 
-        prefix_len = self._header_suffix_len()
-        suffix_at = _REPORT_LEN - prefix_len
-        for index in range(prefix_len):
-            self._candidate[index] = self._candidate[suffix_at + index]
-        self._candidate_len = prefix_len
-
-    def _find_embedded_header(self) -> int:
-        """Return the first complete header after the candidate's first byte."""
-        last_start = _REPORT_LEN - len(_HEADER)
-        for start in range(1, last_start + 1):
-            matched = True
-            for offset in range(len(_HEADER)):
-                if self._candidate[start + offset] != _HEADER[offset]:
-                    matched = False
-                    break
-            if matched:
-                return start
-        return -1
-
-    def _header_suffix_len(self) -> int:
-        """Return the longest candidate suffix matching a partial header."""
         for length in range(len(_HEADER) - 1, 0, -1):
-            suffix_at = _REPORT_LEN - length
-            matched = True
-            for offset in range(length):
-                if self._candidate[suffix_at + offset] != _HEADER[offset]:
-                    matched = False
-                    break
-            if matched:
-                return length
-        return 0
+            if self._candidate.endswith(_HEADER[:length]):
+                suffix_at = _REPORT_LEN - length
+                for index in range(length):
+                    self._candidate[index] = self._candidate[suffix_at + index]
+                self._candidate_len = length
+                return
+        self._candidate_len = 0
 
     def _take_latest_targets(self) -> tuple | None:
         """Decode and clear the newest valid raw report, if one is available."""

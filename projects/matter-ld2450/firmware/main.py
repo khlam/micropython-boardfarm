@@ -62,23 +62,21 @@ def render(color: tuple) -> None:
     pixel.write()
 
 
-def current_color() -> tuple:
-    """Return the pixel color for the current product state."""
-    if _state.commissioning_failed:
-        return FAILED_COLOR
-    if _state.radar_ok is False:
-        return RADAR_FAULT_COLOR
-    color = _COMMISSIONING_COLORS.get(_state.commissioning)
-    if color is not None:
-        return color
-    if not _state.commissioned or _state.occupancy is None:
-        return GREEN_COLOR
-    return GREEN_COLOR if _state.occupancy else CLEAR_COLOR
-
-
 def refresh() -> None:
-    """Render the current product state."""
-    render(current_color())
+    """Render the pixel color for the current product state."""
+    if _state.commissioning_failed:
+        color = FAILED_COLOR
+    elif _state.radar_ok is False:
+        color = RADAR_FAULT_COLOR
+    else:
+        color = _COMMISSIONING_COLORS.get(_state.commissioning)
+        if color is None:
+            color = (
+                GREEN_COLOR
+                if not _state.commissioned or _state.occupancy is not False
+                else CLEAR_COLOR
+            )
+    render(color)
 
 
 def _set_radar_ok(*, ok: bool) -> None:
@@ -91,8 +89,6 @@ def _set_radar_ok(*, ok: bool) -> None:
 
 def _publish_occupancy(*, occupied: bool) -> None:
     """Publish a changed occupancy value, leaving failures pending for retry."""
-    if occupied == _state.occupancy:
-        return
     try:
         occupancy.occupancy = 1 if occupied else 0
     except OSError as err:
@@ -146,7 +142,9 @@ async def track_occupancy(radar: LD2450) -> None:
             continue
 
         _set_radar_ok(ok=True)
-        _publish_occupancy(occupied=bool(targets))
+        occupied = bool(targets)
+        if occupied != _state.occupancy:
+            _publish_occupancy(occupied=occupied)
         emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
 
 

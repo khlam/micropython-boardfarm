@@ -120,10 +120,10 @@ class Paths:
     OCCUPANCY = (Clusters.OCCUPANCY_SENSING, Attributes.OCCUPANCY)
 
 
-# Every endpoint carries Identify; light and sensor schemas branch from it.
-_IDENTIFY_SCHEMA = {Paths.IDENTIFY: (_TYPE_UINT16, 0, 65535, 0)}
-_BASE_SCHEMA = _IDENTIFY_SCHEMA.copy()
-_BASE_SCHEMA[Paths.ON_OFF] = (_TYPE_BOOL, 0, 1, False)
+_BASE_SCHEMA = {
+    Paths.IDENTIFY: (_TYPE_UINT16, 0, 65535, 0),
+    Paths.ON_OFF: (_TYPE_BOOL, 0, 1, False),
+}
 _DIMMABLE_SCHEMA = _BASE_SCHEMA.copy()
 _DIMMABLE_SCHEMA[Paths.LEVEL] = (_TYPE_UINT8, 0, 254, 254)
 _EXTENDED_COLOR_SCHEMA = _DIMMABLE_SCHEMA.copy()
@@ -140,7 +140,7 @@ _EXTENDED_COLOR_SCHEMA.update(
 )
 
 # Occupancy is a Matter map8, so accept its defined 0/1 values but not bool.
-_OCCUPANCY_SCHEMA = _IDENTIFY_SCHEMA.copy()
+_OCCUPANCY_SCHEMA = {Paths.IDENTIFY: _BASE_SCHEMA[Paths.IDENTIFY]}
 _OCCUPANCY_SCHEMA[Paths.OCCUPANCY] = (_TYPE_UINT8, 0, 1, 0)
 
 SCHEMAS = {

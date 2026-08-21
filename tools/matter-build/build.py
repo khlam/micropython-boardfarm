@@ -537,12 +537,8 @@ def _validate_merged_image(
     factory = factory_path.read_bytes()
     start = identity.factory_offset
     end = start + identity.factory_size
-    if not merged or len(merged) > identity.flash_size:
+    if len(merged) != identity.flash_size:
         raise ValueError(f"merged image exceeds the {identity.flash_size:#x} byte flash layout")
-    if len(merged) < identity.flash_size:
-        raise ValueError(
-            f"merged image does not fill the {identity.flash_size:#x} byte flash layout"
-        )
     if len(factory) != identity.factory_size:
         raise ValueError(f"factory partition must be exactly {identity.factory_size:#x} bytes")
     if merged[start:end] != factory:
