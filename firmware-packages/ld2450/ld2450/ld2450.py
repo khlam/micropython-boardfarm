@@ -199,7 +199,11 @@ class LD2450:
 
             try:
                 await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
-            except TimeoutError:
+            except asyncio.TimeoutError:  # noqa: UP041 - the two are not aliases here.
+                # MicroPython declares its own TimeoutError in asyncio/core.py.
+                # It is unrelated to the built-in of that name, so catching the
+                # built-in would let every expired wait escape the driver. Only
+                # CPython, which UP041 assumes, makes the two the same class.
                 self._drain_uart()
                 return self._take_latest_targets()
 

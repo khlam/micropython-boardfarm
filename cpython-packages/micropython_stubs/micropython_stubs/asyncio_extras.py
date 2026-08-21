@@ -1,7 +1,8 @@
 """MicroPython-only `asyncio` names for host tests.
 
 MicroPython's `asyncio` adds `ThreadSafeFlag`, `wait_for_ms`, and `sleep_ms`
-to the subset it shares with CPython. Those extras cannot ship as a top-level
+to the subset it shares with CPython, and declares its own `TimeoutError`
+where CPython aliases the built-in. Those extras cannot ship as a top-level
 replacement module the way `machine` and `utime` do, because the stdlib
 `asyncio` package already owns that name and wins on `sys.path`. Tests install
 them onto the real module instead, and monkeypatch removes them afterwards::
@@ -20,6 +21,18 @@ from collections.abc import Awaitable
 from typing import Any
 
 import pytest
+
+
+class AsyncioTimeoutError(Exception):
+    """Host stand-in for MicroPython's `asyncio.TimeoutError`.
+
+    `extmod/asyncio/core.py` declares that name as a plain `Exception`
+    subclass of its own, unrelated to the built-in `TimeoutError` — which on
+    a chip is a subclass of `OSError`. CPython 3.11 made its `asyncio` name an
+    alias of the built-in, so a firmware `except TimeoutError` around
+    `wait_for_ms()` passes here while catching nothing on the chip. Installing
+    this class under the `asyncio` name makes the host as strict as the chip.
+    """
 
 
 class ThreadSafeFlag:
@@ -51,7 +64,7 @@ class ThreadSafeFlag:
 
 
 async def wait_for_ms(awaitable: Awaitable[Any], timeout_ms: int) -> Any:
-    """Await `awaitable`, raising `TimeoutError` once `timeout_ms` expires.
+    """Await `awaitable`, raising `AsyncioTimeoutError` once `timeout_ms` expires.
 
     The timeout runs on real time, since it is usually the behaviour under
     test; a driver whose budget would stall a suite is better patched at its
@@ -63,8 +76,15 @@ async def wait_for_ms(awaitable: Awaitable[Any], timeout_ms: int) -> Any:
 
     Returns:
         Whatever `awaitable` returned.
+
+    Raises:
+        AsyncioTimeoutError: The budget expired, matching what MicroPython
+            raises rather than the built-in CPython substitutes for it.
     """
-    return await asyncio.wait_for(awaitable, timeout_ms / 1000)
+    try:
+        return await asyncio.wait_for(awaitable, timeout_ms / 1000)
+    except TimeoutError:
+        raise AsyncioTimeoutError from None
 
 
 async def sleep_ms(ms: int) -> None:  # noqa: ARG001 - firmware pacing, not behaviour under test.
@@ -82,5 +102,6 @@ def install(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch: Fixture that removes the names again after the test.
     """
     monkeypatch.setattr(asyncio, "ThreadSafeFlag", ThreadSafeFlag, raising=False)
+    monkeypatch.setattr(asyncio, "TimeoutError", AsyncioTimeoutError, raising=False)
     monkeypatch.setattr(asyncio, "wait_for_ms", wait_for_ms, raising=False)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms, raising=False)

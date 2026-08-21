@@ -173,6 +173,11 @@ async def track_occupancy(radar: LD2450) -> None:
     ``None`` when no complete report arrived within 500 ms. Only a complete
     report moves the endpoint; a timeout leaves the last published state alone.
 
+    A timeout is five missed reports, which is the one symptom that means the
+    radar has gone quiet, so it drops radar health and says so once per stall.
+    Occupancy deliberately does not follow: a silent radar is not evidence that
+    the room emptied, and the pixel and the dashboard already say it is silent.
+
     Args:
         radar: A driver already through `wait_ready()`.
     """
@@ -186,9 +191,13 @@ async def track_occupancy(radar: LD2450) -> None:
             continue
 
         now_ms = time.ticks_ms()
-        _set_radar_ok(now_ms, ok=True)
         if targets is None:
+            if _radar_ok[0] is not False:
+                emit({"diag": "report_timeout", "t": now_ms})
+            _set_radar_ok(now_ms, ok=False)
             continue
+
+        _set_radar_ok(now_ms, ok=True)
         emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
         occupied = len(targets) != 0
         if occupied != _occupied[0] and _publish(on=occupied):

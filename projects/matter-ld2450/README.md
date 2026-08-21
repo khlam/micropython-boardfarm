@@ -75,8 +75,9 @@ does not, the problem is past the device.
 `esp32-monitor` shows compact JSON diagnostics. Every report emits a
 `{"t":…,"targets":[…]}` line, and the current state follows it as
 `{"event":"occupancy","state":"clear"}`. Radar health is reported as a `diag`
-line — `radar_ok` once the first report parses, and `no_device`, `init_err`, or
-`read_err` carrying the error otherwise. The `matter` package emits
+line — `radar_ok` once the first report parses, and `no_device`, `init_err`,
+`read_err`, or `report_timeout` otherwise. `report_timeout` is emitted once per
+stall, when half a second passes with no complete report. The `matter` package emits
 `{"event":"matter","state":"ready"}` once the stack has started and the endpoint
 has been restored, a `{"event":"commissioning"}` line per transition, and an
 `{"event":"error"}` line for a recoverable fault — including a publish ESP-Matter
