@@ -94,6 +94,7 @@ sequenceDiagram
     Note over st,esp: hue_saturation feature is added onto ColorControl<br/>for the extended colour schema
     Note over st,esp: rapidly changing level and colour attributes<br/>are configured for deferred persistence during creation
     Note over st,esp: the occupancy schema persists nothing —<br/>a sensed value is republished, never restored
+    Note over st,esp: Occupancy refuses attribute_set_initial —<br/>the cluster that serves it is built by start()
     st-->>py: endpoint_id, recorded in endpoint_ids
     loop each attribute named in initial, IdentifyTime excluded
         py->>mod: attribute_set_initial(...)
@@ -138,12 +139,18 @@ sequenceDiagram
     st->>chiptask: PlatformMgr ScheduleWork(apply_request)
     st->>st: xSemaphoreTake — VM task blocks here
 
-    chiptask->>esp: attribute::get + get_val, value_conversion.cpp decode into the stored type
-    chiptask->>chiptask: callbacks.cpp begin_local_update()
-    chiptask->>esp: attribute::update()
-    esp-->>chiptask: POST_UPDATE fires attribute_callback
-    Note over chiptask: origin is LOCAL, so the echo is dropped<br/>before it reaches the queue
-    chiptask->>chiptask: callbacks.cpp end_local_update()
+    alt Occupancy
+        chiptask->>esp: data-model provider registry Get(cluster path)
+        chiptask->>esp: OccupancySensingCluster::SetOccupancy()
+        Note over chiptask,esp: the registered cluster object owns the served<br/>value and reports it itself — no echo to suppress
+    else every other attribute
+        chiptask->>esp: attribute::get + get_val, value_conversion.cpp decode into the stored type
+        chiptask->>chiptask: callbacks.cpp begin_local_update()
+        chiptask->>esp: attribute::update()
+        esp-->>chiptask: POST_UPDATE fires attribute_callback
+        Note over chiptask: origin is LOCAL, so the echo is dropped<br/>before it reaches the queue
+        chiptask->>chiptask: callbacks.cpp end_local_update()
+    end
     chiptask->>st: finish() — xSemaphoreGive, release()
 
     st-->>mod: 0, or an errno
@@ -155,6 +162,18 @@ sequenceDiagram
 
     Note over esp,py: the echo never enters the queue, so it cannot cost a<br/>slot or a scheduler wake — no callback feedback loop
 ```
+
+Two routes exist because ESP-Matter keeps two stores. Its own attribute store
+answers reads only for a cluster the data-model provider has no registered
+server for; OccupancySensing has one, a code-driven `OccupancySensingCluster`
+built during `start()`, and that object is what controllers read and what
+reports carry. `attribute::update()` reaches it only for a controller-writable
+attribute, which ESP-Matter routes through the provider on the caller's behalf.
+Occupancy is read-only, so an update there writes the unserved store and returns
+`ESP_OK` — a publish that succeeds and changes nothing on the wire. Sensed
+attributes therefore publish through the cluster object's own setter, which is
+also what reports them. Any read-only attribute added later needs the same
+treatment; a writable one does not.
 
 `release()` is refcounted at 2 because a request that times out on the VM task
 may still be executing on the CHIP task. Whichever side finishes last frees the

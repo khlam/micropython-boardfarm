@@ -6,8 +6,10 @@
 #include <cerrno>
 #include <cstring>
 
+#include <app/clusters/occupancy-sensor-server/OccupancySensingCluster.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
+#include <data_model_provider/esp_matter_data_model_provider.h>
 #include <esp_matter.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/ConfigurationManager.h>
@@ -16,6 +18,8 @@
 #include "matter/bridge.h"
 #include "request.h"
 #include "value_conversion.h"
+
+namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
 using esp_matter::attribute_t;
 
@@ -56,6 +60,35 @@ int read_attribute(Request *request)
     return 0;
 }
 
+// Publish Occupancy through the cluster object that actually serves it.
+//
+// ESP-Matter hands OccupancySensing to a code-driven ServerCluster registered
+// with the data-model provider, and that object — not ESP-Matter's own
+// attribute store — answers every read and every report. `attribute::update()`
+// reaches the two only for a controller-writable attribute, which ESP-Matter
+// routes through the provider; Occupancy is read-only, so an update there
+// writes the unserved store, returns ESP_OK, and leaves controllers reading the
+// value the endpoint was built with. The cluster's setter updates the served
+// value and reports it, which is what a sensed attribute needs.
+//
+// No local-update bracket: the setter reports through CHIP rather than
+// ESP-Matter's attribute callback, so there is no echo for `attribute_callback()`
+// to drop.
+int publish_occupancy(const Request *request)
+{
+    chip::app::ServerClusterInterface *served =
+        esp_matter::data_model::provider::get_instance().registry().Get(
+            chip::app::ConcreteClusterPath(request->endpoint_id, request->cluster_id));
+    if (served == nullptr) {
+        return ENOENT;
+    }
+    // The registry keys on the cluster ID and ESP-Matter registers exactly this
+    // type for OccupancySensing, so the cast is sound; CHIP builds without RTTI,
+    // which rules out checking it at runtime.
+    static_cast<chip::app::Clusters::OccupancySensingCluster *>(served)->SetOccupancy(request->value != 0U);
+    return 0;
+}
+
 // Publish a value chosen by MicroPython into ESP-Matter. ESP-Matter updates the
 // attribute and then handles the normal Matter reporting needed to inform
 // subscribed controllers.
@@ -65,6 +98,10 @@ int read_attribute(Request *request)
 // runs and the echo is dropped there.
 int publish_attribute(Request *request)
 {
+    if (request->cluster_id == OccupancySensing::Id &&
+        request->attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
+        return publish_occupancy(request);
+    }
     attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, request->cluster_id,
                                                      request->attribute_id);
     if (handle == nullptr) {
