@@ -272,18 +272,20 @@ def _decode_targets(report: bytes | bytearray) -> tuple:
     targets = []
     for index in range(_TARGET_COUNT):
         start = len(_HEADER) + index * _TARGET_LEN
-        x = _u16(report, start)
-        y = _u16(report, start + 2)
-        speed = _u16(report, start + 4)
+        x = _decode_signed_magnitude(_u16(report, start))
+        y = _decode_signed_magnitude(_u16(report, start + 2))
+        speed = _decode_signed_magnitude(_u16(report, start + 4))
         resolution = _u16(report, start + 6)
+        # A disappearing target may use signed positive-zero (0x8000) fields,
+        # so classify empty slots after decoding to avoid a target at (0, 0).
         if not (x or y or speed or resolution):
             continue
         targets.append(
             Target(
                 index + 1,
-                _decode_signed_magnitude(x),
-                _decode_signed_magnitude(y),
-                _decode_signed_magnitude(speed),
+                x,
+                y,
+                speed,
                 resolution,
             )
         )

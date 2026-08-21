@@ -93,6 +93,15 @@ def test_read_latest_no_targets_returns_empty_tuple_not_none(radar, build_report
     assert asyncio.run(radar.read_latest()) == ()
 
 
+def test_read_latest_positive_zero_report_clears_active_target(radar, build_report):
+    machine.feed_uart_bytes(build_report((100, 200, 0, 50)))
+    asyncio.run(radar.wait_ready())
+    assert asyncio.run(radar.read_latest()) == (Target(1, 100, 200, 0, 50),)
+
+    machine.feed_uart_bytes(build_report((0, 0, 0, 0)))
+    assert asyncio.run(radar.read_latest()) == ()
+
+
 def test_read_latest_oserror_reraises_without_closing(radar, build_report):
     machine.feed_uart_bytes(build_report((1, 1, 0, 1)))
     asyncio.run(radar.wait_ready())

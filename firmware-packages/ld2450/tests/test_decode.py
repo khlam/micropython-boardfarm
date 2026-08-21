@@ -59,9 +59,6 @@ def test_decode_targets_decodes_signed_fields(build_report):
     assert target == Target(1, -100, 200, -5, 30)
 
 
-def test_decode_targets_positive_zero_bit_set_not_skipped(build_report):
-    """A raw 0x8000 field (positive zero) is truthy, so its slot is kept."""
+def test_decode_targets_skips_positive_zero_fields(build_report):
     report = build_report((0, 0, 0, 0))
-    targets = _decode_targets(report)
-    assert len(targets) == 1
-    assert targets[0] == Target(1, 0, 0, 0, 0)
+    assert _decode_targets(report) == ()
