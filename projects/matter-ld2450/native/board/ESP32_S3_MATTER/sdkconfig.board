@@ -26,7 +26,7 @@ CONFIG_ENABLE_ENCRYPTED_OTA=n
 # Counts the root node endpoint alongside the application's own, so this is one
 # more than the number `main.py` creates. Each slot costs RAM whether or not it
 # is filled, so it tracks the firmware rather than being set generously.
-CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=3
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=2
 
 CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER=y
 CONFIG_FACTORY_COMMISSIONABLE_DATA_PROVIDER=y

@@ -1,28 +1,28 @@
 # ESP32-S3-Zero Matter occupancy toggle
 
 **This project is currently a controller bring-up test, not a radar sensor.**
-The radar is not opened at all. `firmware/main.py` publishes two Matter
-Occupancy Sensor endpoints and flips them on a one-minute timer so their
-behaviour in a controller can be observed with nothing else in the way.
+The radar is not opened at all. `firmware/main.py` publishes one Matter
+Occupancy Sensor endpoint and flips it on a one-minute timer so its behaviour in
+a controller can be observed with nothing else in the way.
 
 It answers two questions about Apple Home:
 
 1. Does Home track this device's sensing state at all? Nothing but the timer can
    move an attribute here, so a tile that never changes is a controller or
    schema problem rather than a sensor problem.
-2. Which of Home's **Motion** and **Occupancy** room categories does each
+2. Which of Home's **Motion** and **Occupancy** room categories does the
    endpoint land in? Matter has no separate motion-sensor device type, so the
-   declared sensing modality is the only lever a controller could sort them by.
+   declared sensing modality — PIR here — is the only lever a controller could
+   sort it by.
 
-The two endpoints are identical apart from that modality — one declares PIR, the
-other ultrasonic — and they are driven in opposite phase, so they are never
-equal and each one's tile is identifiable on sight:
+The endpoint alternates every minute, starting occupied, so a stuck value cannot
+be mistaken for a working one:
 
-| Elapsed | `motion` endpoint (PIR) | `occupancy` endpoint (ultrasonic) |
-| --- | --- | --- |
-| 0:00 | off | on |
-| 1:00 | on | off |
-| 2:00 | off | on |
+| Elapsed | `occupancy` endpoint (PIR) |
+| --- | --- |
+| 0:00 | on |
+| 1:00 | off |
+| 2:00 | on |
 
 `main.py` is the only file in the project that imports `matter`, because that is
 where the service is set up.
@@ -40,8 +40,8 @@ capped at ten percent of full scale.
 | Steady purple | A commissioning window is open, nobody has engaged |
 | Steady cyan | A commissioner is talking to the board |
 | Steady green, unpaired | Uncommissioned and ready to pair |
-| Steady green, paired | `motion` on, `occupancy` off |
-| Steady blue | `motion` off, `occupancy` on |
+| Steady green, paired | `occupancy` on |
+| Steady blue | `occupancy` off |
 
 After the boot-only white baseline, higher rows win. Red is sticky until reset;
 active pairing outranks the toggle phase, which has a full minute to be read
@@ -52,14 +52,13 @@ past the device.
 ## USB serial
 
 `esp32-monitor` shows compact JSON diagnostics for the Python boot sequence,
-pixel writes, Matter startup, and every published phase. Each phase emits one
-line per endpoint —
-`{"event":"debug","component":"toggle","endpoint":"motion","endpoint_id":1,"state":"off"}`
+pixel writes, Matter startup, and every published phase. Each phase emits
+`{"event":"debug","component":"toggle","endpoint_id":1,"state":"off"}`
 — and a `"state":"publish_failed"` line carrying the error instead when
 ESP-Matter refuses the write. A successful pixel command ends with
 `{"event":"debug","component":"pixel","state":"write_complete"}`. The `matter`
 package also emits `{"event":"matter","state":"ready"}` once the stack has
-started and the endpoints have been restored, a commissioning line per
+started and the endpoint has been restored, a commissioning line per
 transition, and an `{"event":"error"}` line for a recoverable fault.
 
 ## Live dashboard
@@ -131,7 +130,7 @@ Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
    `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
-   both endpoints to a room.
+   the endpoint to a room.
 
 Every compile mints a fresh discriminator, passcode, and salt, so a QR code
 saved from an earlier build will not pair this one. Use the artifacts sitting in
@@ -148,8 +147,8 @@ nothing in Home can write it back.
 ## Commission again
 
 A commissioned device does not reopen its initial BLE commissioning window on
-every boot. `main.py` runs `asyncio.run(main())` at the end, so the REPL is not
-reachable while the radar loop is running — interrupt it first:
+every boot. `main.py` runs `asyncio.run(toggle_forever())` at the end, so the
+REPL is not reachable while the toggle loop is running — interrupt it first:
 
 ```console
 MONITOR_INTERRUPT=1 MONITOR_SEND='node.factory_reset()' docker compose run --rm esp32-monitor

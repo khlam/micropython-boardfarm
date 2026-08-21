@@ -1,18 +1,16 @@
-"""Drive two Matter occupancy endpoints on a fixed timer, with no radar attached.
+"""Drive one Matter occupancy endpoint on a fixed timer, with no radar attached.
 
 Bring-up firmware for one question: does Apple Home track this device's sensing
 state at all, and which of Home's "Motion" and "Occupancy" room categories does
-each endpoint land in? The radar is deliberately absent, so nothing but the
+the endpoint land in? The radar is deliberately absent, so nothing but the
 timer below can move an attribute — a tile that never changes is a controller
 or schema problem, not a sensor problem.
 
-Two Occupancy Sensor endpoints are published, identical apart from the sensing
-modality each declares: PIR and ultrasonic. Matter has no separate motion-sensor
-device type, so the declared modality is the only lever a controller could sort
-them by, and which category Home files each one under is exactly what this
-firmware is here to find out. The two are driven in opposite phase and flip
-every minute, so each endpoint's tile is identifiable on sight and a stuck value
-cannot be mistaken for a working one.
+A single Occupancy Sensor endpoint is published, declaring PIR as its sensing
+modality. Matter has no separate motion-sensor device type, so the declared
+modality is the only lever a controller could sort it by, and which category
+Home files it under is exactly what this firmware is here to find out. It flips
+every minute, so a stuck value cannot be mistaken for a working one.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code: `matter/` (Python) calls the `_matter` C module, which
@@ -50,8 +48,8 @@ READY_COLOR = (0, 25, 0)
 WINDOW_COLOR = (25, 0, 25)
 SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
-MOTION_COLOR = (0, 25, 0)
-OCCUPANCY_COLOR = (0, 0, 25)
+OCCUPIED_COLOR = (0, 25, 0)
+CLEAR_COLOR = (0, 0, 25)
 
 _COMMISSIONING_COLORS = {
     matter.Commissioning.STARTED: SESSION_COLOR,
@@ -69,10 +67,9 @@ _commissioned = [False]
 _commissioning_failed = [False]
 _last_commissioning_state = [None]
 
-# Which half of the cycle the endpoints are in, or None until the first phase is
-# published. The ultrasonic endpoint always holds the inverse, so this one cell
-# describes both.
-_motion_on = [None]
+# Which half of the cycle the endpoint is in, or None until the first phase is
+# published.
+_occupied = [None]
 
 
 def render(color: tuple) -> None:
@@ -117,9 +114,9 @@ def current_color() -> tuple:
     color = _COMMISSIONING_COLORS.get(_last_commissioning_state[0])
     if color is not None:
         return color
-    if not _commissioned[0] or _motion_on[0] is None:
+    if not _commissioned[0] or _occupied[0] is None:
         return READY_COLOR
-    return MOTION_COLOR if _motion_on[0] else OCCUPANCY_COLOR
+    return OCCUPIED_COLOR if _occupied[0] else CLEAR_COLOR
 
 
 def refresh(stamp: int) -> None:
@@ -132,55 +129,50 @@ def refresh(stamp: int) -> None:
 
 
 async def toggle_forever() -> None:
-    """Publish opposite phases to both endpoints once a minute, until reset.
+    """Publish alternating phases to the endpoint once a minute, until reset.
 
-    The first phase is published immediately so a controller that subscribes
-    right after commissioning sees a deliberate value rather than the
-    constructor's zero on both endpoints.
+    The first phase is occupied and is published immediately, so a controller
+    that subscribes right after commissioning sees a deliberate value rather
+    than the constructor's zero.
     """
     emit({"event": "debug", "component": "toggle", "state": "tracking"})
-    motion_on = False
+    occupied = True
     while True:
-        _apply_phase(motion_on=motion_on)
+        _apply_phase(occupied=occupied)
         await asyncio.sleep_ms(_TOGGLE_PERIOD_MS)
-        motion_on = not motion_on
+        occupied = not occupied
 
 
-def _apply_phase(*, motion_on: bool) -> None:
-    """Publish one phase to both endpoints and re-render the pixel.
+def _apply_phase(*, occupied: bool) -> None:
+    """Publish one phase to the endpoint and re-render the pixel.
 
     A failed publish is reported and left behind rather than retried here: the
     timer is the only clock this firmware has, and repeating a phase to catch a
     straggler would break the alternation Home is being read for.
 
     Args:
-        motion_on: Value for the PIR endpoint; the ultrasonic endpoint takes
-            its inverse, so the two are never equal.
+        occupied: Value to publish on the Occupancy attribute.
     """
     stamp = time.ticks_ms()
-    published = _publish(motion, "motion", on=motion_on)
-    published = _publish(occupancy, "occupancy", on=not motion_on) and published
-    if published:
-        _motion_on[0] = motion_on
+    if _publish(on=occupied):
+        _occupied[0] = occupied
     refresh(stamp)
 
     # The dashboard keys its box off this component. No targets stream in this
-    # firmware, so the ultrasonic endpoint is what keeps the box moving.
+    # firmware, so the toggle is what keeps the box moving.
     emit(
         {
             "event": "debug",
             "component": "occupancy",
-            "state": "clear" if motion_on else "occupied",
+            "state": "occupied" if occupied else "clear",
         }
     )
 
 
-def _publish(endpoint: object, name: str, *, on: bool) -> bool:
-    """Publish one endpoint's Occupancy attribute and report what happened.
+def _publish(*, on: bool) -> bool:
+    """Publish the endpoint's Occupancy attribute and report what happened.
 
     Args:
-        endpoint: The endpoint to write.
-        name: Label carried on the emitted line, matching this file's naming.
         on: True to publish occupied.
 
     Returns:
@@ -190,13 +182,12 @@ def _publish(endpoint: object, name: str, *, on: bool) -> bool:
         # Endpoint.publish -> _matter.attribute_publish -> request.cpp
         # matter_attribute_publish: a bounded round trip onto the CHIP task.
         # Occupancy is a Matter bitmap, so it travels as 0 or 1, not a bool.
-        endpoint.occupancy = 1 if on else 0
+        occupancy.occupancy = 1 if on else 0
     except OSError as err:
         emit(
             {
                 "event": "debug",
                 "component": "toggle",
-                "endpoint": name,
                 "state": "publish_failed",
                 "message": str(err),
             }
@@ -206,8 +197,7 @@ def _publish(endpoint: object, name: str, *, on: bool) -> bool:
         {
             "event": "debug",
             "component": "toggle",
-            "endpoint": name,
-            "endpoint_id": endpoint.id,
+            "endpoint_id": occupancy.id,
             "state": "on" if on else "off",
         }
     )
@@ -257,20 +247,17 @@ emit({"event": "debug", "component": "matter", "state": "node_create"})
 node = matter.Node()
 emit({"event": "debug", "component": "matter", "state": "node_created"})
 
-# No initial state passed: both endpoints start unoccupied from their native
-# constructors, and `toggle_forever()` publishes the real first phase as soon as
-# the event loop starts. The modalities differ so a controller has something to
-# tell the two apart by.
+# No initial state passed: the endpoint starts unoccupied from its native
+# constructor, and `toggle_forever()` publishes the real first phase as soon as
+# the event loop starts.
 emit({"event": "debug", "component": "matter", "state": "endpoint_create"})
-motion = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
-occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR_ULTRASONIC)
+occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
 emit(
     {
         "event": "debug",
         "component": "matter",
         "state": "endpoint_created",
-        "motion_endpoint_id": motion.id,
-        "occupancy_endpoint_id": occupancy.id,
+        "endpoint_id": occupancy.id,
     }
 )
 
