@@ -231,8 +231,18 @@ to a `CommissioningEvent` in `_COMMISSIONING_STATES`. A shared uint32 sequence
 on the two queues' internal envelopes preserves arrival order without allowing
 an attribute burst to evict a lifecycle transition. The commissioning queue
 itself stays bounded and drop-oldest if more than 32 of its own transitions
-remain undrained. When the last fabric is removed, `callbacks.cpp` reopens a
-basic commissioning window itself so the device stays pairable.
+remain undrained.
+
+`FAILED` covers both ways a pairing attempt can end badly, which are not the
+same event. A fail-safe expiry ends one attempt, and CHIP re-arms PASE by itself
+afterwards, so the node stays pairable with no help. A stopped commissioning
+session is CHIP announcing that it has given up listening entirely — its retry
+budget is spent, or re-advertising failed — and nothing inside the stack reopens
+the window after that. `callbacks.cpp` reopens one there, as it does when the
+last fabric is removed, so neither transition can leave an unpaired node
+advertising nothing until it is power-cycled. Both reopen over BLE and DNS-SD,
+falling back to DNS-SD alone for a node whose BLE host ESP-Matter has already
+reclaimed. A node that still holds a fabric is left alone.
 
 A callback exception is contained on both sides — `dispatch_event` catches it
 with `nlr_push` and prints a JSON error, and Python catches subscriber

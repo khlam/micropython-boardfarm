@@ -35,7 +35,8 @@ esp_err_t identify_callback(esp_matter::identification::callback_type_t type, ui
 
 // CHIP calls this for important device-wide Matter events. Translates
 // commissioning events into queue messages that MicroPython can understand, and
-// reopens pairing when the device loses its last fabric.
+// reopens pairing on an unpaired node whenever the stack would otherwise stop
+// advertising: after commissioning gives up, and after the last fabric is lost.
 void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intptr_t argument);
 
 // Bracket an attribute update this bridge makes itself. ESP-Matter reports our

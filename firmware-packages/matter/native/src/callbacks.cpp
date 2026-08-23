@@ -15,13 +15,46 @@
 namespace matter_bridge {
 namespace {
 
-// If the device loses its last Matter fabric, this bridge reopens pairing for
-// five minutes so the device does not become unreachable.
+// How long a window this bridge opens itself stays up. Five minutes is long
+// enough to walk back to the controller and short enough that an unattended
+// node is not left advertising a passcode indefinitely.
 constexpr uint32_t COMMISSIONING_WINDOW_SECONDS = 300;
 
 // Written by the task publishing a local update and read by the callback that
 // would otherwise queue the echo, so it crosses tasks and must be atomic.
 std::atomic<uint8_t> update_origin{MATTER_ORIGIN_REMOTE};
+
+// Put a node that belongs to no fabric back on the air.
+//
+// CHIP retries a failed commissioning attempt on its own, but only while the
+// window's own timer is still armed; the attempt that exhausts its retry budget,
+// and the removal of the last fabric, both leave the stack advertising nothing.
+// Nothing inside CHIP reopens the window after that, so without this the node is
+// unreachable until it is power-cycled. A node that still holds a fabric is left
+// alone: reopening a basic window would put its factory passcode back on the air
+// for an accessory its owner can already reach.
+void reopen_commissioning_window(void)
+{
+    if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
+        return;
+    }
+    auto &manager = chip::Server::GetInstance().GetCommissioningWindowManager();
+    if (manager.IsCommissioningWindowOpen()) {
+        return;
+    }
+    const chip::System::Clock::Seconds16 timeout(COMMISSIONING_WINDOW_SECONDS);
+
+    // A node that has never been commissioned holds no network credentials, so a
+    // DNS-SD-only window would advertise on a network it cannot join and BLE is
+    // its only way back. Once a commissioning has succeeded, ESP-Matter reclaims
+    // the BLE host (CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING) and asking for it fails
+    // outright -- but that node is on the network, so DNS-SD alone reaches it.
+    if (manager.OpenBasicCommissioningWindow(timeout, chip::CommissioningWindowAdvertisement::kAllSupported) ==
+        CHIP_NO_ERROR) {
+        return;
+    }
+    manager.OpenBasicCommissioningWindow(timeout, chip::CommissioningWindowAdvertisement::kDnssdOnly);
+}
 
 } // namespace
 
@@ -59,8 +92,8 @@ esp_err_t identify_callback(esp_matter::identification::callback_type_t type, ui
     return ESP_OK;
 }
 
-// If the final fabric is removed, no controller owns the device anymore, so
-// automatically reopen a commissioning window so a user can pair it again.
+// Translate the device-wide events that describe pairing, and keep an unpaired
+// node reachable across the two transitions that would otherwise silence it.
 void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intptr_t)
 {
     switch (event->Type) {
@@ -71,7 +104,21 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         publish_commissioning(MATTER_COMMISSIONING_COMPLETE);
         break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
+        // One attempt failed, whether its timer ran out or a commissioner
+        // disarmed the fail-safe on its way out. CHIP starts listening for the
+        // next attempt itself, so the node stays pairable and no window is
+        // reopened here.
         publish_commissioning(MATTER_COMMISSIONING_FAILED);
+        break;
+    case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStopped:
+        // CHIP raises this only once it has given up listening for a
+        // commissioner altogether -- its retry budget is spent, or re-arming
+        // PASE failed. It never accompanies a successful pairing, whose session
+        // is torn down by kCommissioningComplete instead. Reported and recovered
+        // from, because it is otherwise the one way a node goes quiet without
+        // ever saying that commissioning ended.
+        publish_commissioning(MATTER_COMMISSIONING_FAILED);
+        reopen_commissioning_window();
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
         publish_commissioning(MATTER_COMMISSIONING_WINDOW_OPENED);
@@ -80,13 +127,8 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         publish_commissioning(MATTER_COMMISSIONING_WINDOW_CLOSED);
         break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
-        if (chip::Server::GetInstance().GetFabricTable().FabricCount() == 0) {
-            auto &manager = chip::Server::GetInstance().GetCommissioningWindowManager();
-            if (!manager.IsCommissioningWindowOpen()) {
-                manager.OpenBasicCommissioningWindow(chip::System::Clock::Seconds16(COMMISSIONING_WINDOW_SECONDS),
-                                                     chip::CommissioningWindowAdvertisement::kDnssdOnly);
-            }
-        }
+        // Losing the last fabric leaves nobody owning the device.
+        reopen_commissioning_window();
         break;
     default:
         break;

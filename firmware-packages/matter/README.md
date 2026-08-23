@@ -67,7 +67,10 @@ compact JSON error and do not stop subsequent delivery.
 `on_commissioning()` subscribes to pairing transitions. Each immutable event
 contains a `name` — `Commissioning.SESSION` or `Commissioning.WINDOW` — and a
 `state`: `STARTED`, `COMPLETE`, `FAILED`, `OPENED`, or `CLOSED`. The five states
-are mutually distinct, so a subscriber can decide on `state` alone. Register
+are mutually distinct, so a subscriber can decide on `state` alone. `FAILED`
+reports one failed attempt, not the end of pairing: the package reopens a
+commissioning window whenever an unpaired node would otherwise stop advertising,
+so a `FAILED` is normally followed by another `OPENED`. Register
 before `start()`, which delivers whatever the stack queued while it was coming
 up, and expect the callback on the MicroPython scheduler:
 
