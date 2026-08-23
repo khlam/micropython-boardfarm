@@ -30,15 +30,23 @@ _READ_ERR_PAUSE_MS = const(200)
 # radius around the sensor so those artifacts cannot hold occupancy on.
 _DEAD_ZONE_RADIUS_MM = const(10)
 
+# One colour per state a node can be in before it is paired, because the
+# failures worth catching are the ones where it stops advertising: a node nobody
+# can reach has to look different from one waiting to be scanned. Amber is that
+# state, so radar trouble takes yellow rather than sharing it.
 BOOT_COLOR = (25, 25, 25)
 GREEN_COLOR = (0, 25, 0)
 WINDOW_COLOR = (25, 0, 25)
 SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
-RADAR_FAULT_COLOR = (25, 12, 0)
+STALLED_COLOR = (25, 12, 0)
+RADAR_FAULT_COLOR = (25, 25, 0)
 CLEAR_COLOR = (0, 0, 25)
 
+# States that name their own colour outright. CLOSED is deliberately absent: it
+# is the ambiguous one, resolved against the tracked session in _pairing_color.
 _COMMISSIONING_COLORS = {
+    matter.Commissioning.FAILED: FAILED_COLOR,
     matter.Commissioning.STARTED: SESSION_COLOR,
     matter.Commissioning.OPENED: WINDOW_COLOR,
 }
@@ -50,8 +58,8 @@ class _ProductState:
     def __init__(self) -> None:
         """Initialize state before either event source starts."""
         self.commissioned = False
-        self.commissioning_failed = False
         self.commissioning = None
+        self.session_active = False
         self.radar_ok = None
         self.occupancy = None
 
@@ -65,20 +73,44 @@ def render(color: tuple) -> None:
     pixel.write()
 
 
+def _pairing_color() -> tuple | None:
+    """Return the colour describing where pairing currently stands, or None.
+
+    None means pairing has nothing left to say and the product state owns the
+    pixel.
+
+    A closed window is the ambiguous one: it closes both when a commissioner
+    takes it and when it simply runs out. The first is the middle of a healthy
+    pairing, the second leaves the node advertising nothing — so the tracked
+    session, not the closure, decides which colour it gets.
+    """
+    color = _COMMISSIONING_COLORS.get(_state.commissioning)
+    if color is not None:
+        return color
+    if _state.session_active:
+        return SESSION_COLOR
+    if _state.commissioned:
+        return None
+    if _state.commissioning == matter.Commissioning.CLOSED:
+        return STALLED_COLOR
+    # Unpaired, and the stack has reported nothing yet.
+    return BOOT_COLOR
+
+
 def refresh() -> None:
-    """Render the pixel color for the current product state."""
-    if _state.commissioning_failed:
-        color = FAILED_COLOR
-    elif _state.radar_ok is False:
-        color = RADAR_FAULT_COLOR
-    else:
-        color = _COMMISSIONING_COLORS.get(_state.commissioning)
-        if color is None:
-            color = (
-                GREEN_COLOR
-                if not _state.commissioned or _state.occupancy is not False
-                else CLEAR_COLOR
-            )
+    """Render the pixel color for the current product state.
+
+    Pairing wins while it is in flight, on a commissioned node too: an owner
+    adding a second controller wants to watch that, not the radar. Once the
+    attempt settles, a paired node goes back to reporting radar health and
+    occupancy. A missing radar still does not prevent commissioning.
+    """
+    color = _pairing_color()
+    if color is None:
+        if _state.radar_ok is False:
+            color = RADAR_FAULT_COLOR
+        else:
+            color = CLEAR_COLOR if _state.occupancy is False else GREEN_COLOR
     render(color)
 
 
@@ -181,14 +213,20 @@ def _outside_dead_zone(target: object) -> bool:
 def _on_commissioning(event: object) -> None:
     """Record one commissioning transition and update the pixel.
 
+    A failure is rendered but not latched. The Matter package reopens a window
+    whenever an unpaired node would otherwise stop advertising, so red is
+    followed by purple within moments — and a red that stays red is then a
+    genuine finding rather than a colour nothing was able to clear.
+
     Args:
         event: Commissioning event delivered by the Matter node.
     """
     state = event.state
-    if state == matter.Commissioning.FAILED:
-        _state.commissioning_failed = True
-    elif state == matter.Commissioning.COMPLETE:
-        _state.commissioning_failed = False
+    if state == matter.Commissioning.STARTED:
+        _state.session_active = True
+    elif state in (matter.Commissioning.COMPLETE, matter.Commissioning.FAILED):
+        _state.session_active = False
+    if state == matter.Commissioning.COMPLETE:
         _state.commissioned = True
     _state.commissioning = state
     refresh()
@@ -202,6 +240,10 @@ occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
 node.on_commissioning(_on_commissioning)
 node.start()
 
+# A commissioned board falls straight through to radar health and occupancy. An
+# uncommissioned one shows whichever pairing state the transitions queued during
+# startup left it in — normally purple, because the stack opens a window for a
+# board that belongs to no fabric.
 _state.commissioned = bool(node.fabrics()) or _state.commissioned
 refresh()
 

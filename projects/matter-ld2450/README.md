@@ -18,17 +18,25 @@ then radar health and occupancy. Status colors are capped at ten percent.
 
 | Pixel | Meaning |
 | --- | --- |
-| Dim white | Firmware running, ESP-Matter still starting |
-| Solid red | Commissioning failed; sticky until commissioning completes or reset |
-| Amber | No valid radar reports are arriving |
-| Purple | A commissioning window is open |
-| Cyan | A commissioner is connected |
-| Green, unpaired | Radar healthy and ready to pair |
-| Green, paired | Occupied |
+| Dim white | Firmware running, ESP-Matter has reported nothing yet |
+| Purple | A commissioning window is open, nobody has engaged |
+| Cyan | A commissioner is talking to the board |
+| Solid red | The last attempt failed; purple follows within moments |
+| Amber | Unpaired and advertising nothing — nobody can reach it |
+| Yellow | No valid radar reports are arriving |
+| Green | Occupied |
 | Blue | Clear |
 
-Red has highest priority, followed by radar failure, active commissioning, and
-the product state. A missing radar does not prevent commissioning.
+Pairing outranks the product state, on a paired board too — an owner adding a
+second controller wants to watch that, not the radar. Once the attempt settles,
+the pixel goes back to radar health and occupancy. A missing radar still does
+not prevent commissioning.
+
+Amber is the one that should never appear. An unpaired board is meant to always
+be advertising, and `firmware-packages/matter` reopens a window whenever the
+stack would otherwise go quiet, so amber means that recovery did not take. Red
+is not latched for the same reason — a red that does not turn purple is a real
+finding, whereas a red that sticks by design tells you nothing.
 
 ## USB serial and dashboard
 
