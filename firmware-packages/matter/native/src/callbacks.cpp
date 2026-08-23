@@ -24,15 +24,24 @@ constexpr uint32_t COMMISSIONING_WINDOW_SECONDS = 300;
 // would otherwise queue the echo, so it crosses tasks and must be atomic.
 std::atomic<uint8_t> update_origin{MATTER_ORIGIN_REMOTE};
 
+// True from the moment a commissioner completes PASE until that attempt ends,
+// whichever way it ends. CHIP closes the window as soon as a commissioner
+// connects, which is indistinguishable from the window timing out unless the
+// session is tracked -- and the two call for opposite responses. Every device
+// event is dispatched on the CHIP task, so this needs no synchronisation.
+bool session_active = false;
+
 // Put a node that belongs to no fabric back on the air.
 //
-// CHIP retries a failed commissioning attempt on its own, but only while the
-// window's own timer is still armed; the attempt that exhausts its retry budget,
-// and the removal of the last fabric, both leave the stack advertising nothing.
-// Nothing inside CHIP reopens the window after that, so without this the node is
-// unreachable until it is power-cycled. A node that still holds a fabric is left
-// alone: reopening a basic window would put its factory passcode back on the air
-// for an accessory its owner can already reach.
+// The invariant is that an unpaired node always advertises. CHIP defends it only
+// part of the way: it retries a failed attempt by itself, but only while the
+// window's own timer is still armed. Past that the stack goes quiet for good --
+// the discovery window times out, an attempt exhausts its retry budget, or the
+// last fabric is removed -- and the node is unreachable until it is power-cycled.
+//
+// A node that still holds a fabric is left alone: reopening a basic window would
+// put its factory passcode back on the air for an accessory its owner can
+// already reach.
 void reopen_commissioning_window(void)
 {
     if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
@@ -98,9 +107,11 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
 {
     switch (event->Type) {
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStarted:
+        session_active = true;
         publish_commissioning(MATTER_COMMISSIONING_STARTED);
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
+        session_active = false;
         publish_commissioning(MATTER_COMMISSIONING_COMPLETE);
         break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
@@ -108,6 +119,7 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         // disarmed the fail-safe on its way out. CHIP starts listening for the
         // next attempt itself, so the node stays pairable and no window is
         // reopened here.
+        session_active = false;
         publish_commissioning(MATTER_COMMISSIONING_FAILED);
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStopped:
@@ -117,6 +129,7 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         // is torn down by kCommissioningComplete instead. Reported and recovered
         // from, because it is otherwise the one way a node goes quiet without
         // ever saying that commissioning ended.
+        session_active = false;
         publish_commissioning(MATTER_COMMISSIONING_FAILED);
         reopen_commissioning_window();
         break;
@@ -125,6 +138,14 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
         publish_commissioning(MATTER_COMMISSIONING_WINDOW_CLOSED);
+        // A commissioner connecting closes the window too, and that one must be
+        // left closed -- reopening it mid-attempt would advertise over the
+        // commissioner still working. CHIP reports the session first, so an
+        // inactive one here means nobody is on the other end: the discovery
+        // window simply ran out, and an unpaired node has gone silent.
+        if (!session_active) {
+            reopen_commissioning_window();
+        }
         break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
         // Losing the last fabric leaves nobody owning the device.

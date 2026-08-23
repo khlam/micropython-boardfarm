@@ -293,7 +293,16 @@ def _run(
 
 
 def _build_firmware(build_root: Path) -> None:
-    """Compile MicroPython with the ESP-Matter native module into build_root."""
+    """Compile MicroPython with the ESP-Matter native module into build_root.
+
+    The cached sdkconfig is dropped first. `idf.py` treats an existing one as the
+    live configuration and stops consulting SDKCONFIG_DEFAULTS, so on every build
+    after the first the board's own sdkconfig fragment silently stops applying --
+    the repository would no longer describe the firmware. Nothing here configures
+    interactively, so there is no hand-made state to lose, and a regenerated file
+    with identical contents leaves every compiled object untouched.
+    """
+    (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
     _run(
         [
             "idf.py",

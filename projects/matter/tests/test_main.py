@@ -17,7 +17,9 @@ def test_supported_boot_builds_pixel_and_reports_ready(load_main):
     assert boot.module.BOARD.name == "ESP32-S3-Zero"
     assert machine.pin_constructions == [(21, machine.Pin.OUT)]
     assert len(neopixel.NeoPixel.instances) == 1
-    assert boot.module.pixel.writes == [boot.module.BOOT_COLOR, boot.module.READY_COLOR]
+    # Nothing was reported during startup, so the boot baseline is all the board
+    # can honestly claim; a real one has a window open by this point.
+    assert boot.module.pixel.writes == [boot.module.BOOT_COLOR, boot.module.BOOT_COLOR]
     assert boot.lines == [{"event": "matter", "state": "ready"}]
 
 
@@ -144,7 +146,7 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main)
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),
-        (4, (0, 25, 0)),
+        (4, (25, 12, 0)),
     ],
 )
 def test_commissioning_status_colors_after_start(load_main, state_code, expected):
@@ -156,12 +158,32 @@ def test_commissioning_status_colors_after_start(load_main, state_code, expected
     assert module.pixel.writes[-1] == expected
 
 
+def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_main):
+    module = load_main().module
+    module.pixel.writes.clear()
+
+    _matter.inject_commissioning_event(0)  # SESSION STARTED
+    _matter.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
+
+    assert module.pixel.writes == [module.SESSION_COLOR, module.SESSION_COLOR]
+
+
+def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
+    module = load_main().module
+    module.pixel.writes.clear()
+
+    _matter.inject_commissioning_event(3)  # WINDOW OPENED
+    _matter.inject_commissioning_event(4)  # WINDOW CLOSED with nobody connected
+
+    assert module.pixel.writes == [module.WINDOW_COLOR, module.STALLED_COLOR]
+
+
 @pytest.mark.parametrize(
     "state_code,expected",
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),
-        (4, (0, 25, 0)),
+        (4, (25, 12, 0)),
         (2, (25, 0, 0)),
     ],
 )
@@ -180,12 +202,12 @@ def test_startup_commissioning_events_win_over_boot_state(load_main, state_code,
         (matter.Commissioning.OPENED, (25, 0, 25)),
     ],
 )
-def test_show_post_start_state_maps_commissioning_colors_from_the_shared_table(
+def test_show_post_start_state_renders_the_transition_seen_during_startup(
     load_main, state, expected
 ):
     module = load_main().module
     module.pixel.writes.clear()
-    module._last_commissioning_state[0] = state
+    module._commissioning_state[0] = state
     module._last_commissioning_stamp[0] = 999
 
     module._show_post_start_state(has_fabric=False, startup_stamp=0)
@@ -202,26 +224,25 @@ def test_completion_during_start_is_published_after_node_is_started(load_main):
     assert boot.module.pixel.writes[-1] == boot.module.OFF_COLOR
 
 
-def test_commissioning_failure_is_sticky(load_main):
+def test_a_reopened_window_clears_a_failure(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(2)
-    _matter.inject_commissioning_event(3)
-    module.show((99, 88, 77), 10_000)
+    _matter.inject_commissioning_event(2)  # SESSION FAILED
+    _matter.inject_commissioning_event(3)  # WINDOW OPENED again by the package
 
-    assert module._commissioning_failed[0] is True
-    assert module.pixel.writes == [module.FAILED_COLOR]
+    assert module._session_active[0] is False
+    assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
 
 
-def test_successful_retry_after_a_failure_clears_the_latch(load_main):
+def test_successful_retry_after_a_failure_commissions_the_node(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
     _matter.inject_commissioning_event(2)  # SESSION FAILED
     _matter.inject_commissioning_event(1)  # SESSION COMPLETE
 
-    assert module._commissioning_failed[0] is False
+    assert module._commissioned[0] is True
     assert module.pixel.writes == [module.FAILED_COLOR, module.OFF_COLOR]
 
 

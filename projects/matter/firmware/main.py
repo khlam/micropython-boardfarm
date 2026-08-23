@@ -31,17 +31,15 @@ if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
 BOARD = Board(name="ESP32-S3-Zero", led_pin=21, pixel_count=1)
 
+# One colour per state a node can be in before it is paired, because the
+# failures worth catching are the ones where it stops advertising: a node nobody
+# can reach has to look different from one waiting to be scanned.
 BOOT_COLOR = (25, 25, 25)
-READY_COLOR = (0, 25, 0)
 WINDOW_COLOR = (25, 0, 25)
 SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
+STALLED_COLOR = (25, 12, 0)
 OFF_COLOR = (0, 0, 0)
-
-_COMMISSIONING_COLORS = {
-    matter.Commissioning.STARTED: SESSION_COLOR,
-    matter.Commissioning.OPENED: WINDOW_COLOR,
-}
 
 # Tick the current colour was commanded on. Ordering only, never written to
 # flash. A list cell so `show()` below can update it without `global`.
@@ -51,8 +49,8 @@ _stamp = [0]
 # Mutable cells let the callback record that state without publishing through
 # an endpoint whose owning node is not marked started yet.
 _commissioned = [False]
-_commissioning_failed = [False]
-_last_commissioning_state = [None]
+_commissioning_state = [None]
+_session_active = [False]
 _last_commissioning_stamp = [0]
 _pending_commissioned_off = [None]
 
@@ -77,8 +75,6 @@ def show(color: tuple, stamp: int) -> None:
         stamp: `time.ticks_ms()` reading from when the colour was commanded.
             Equal stamps render, so the boot baseline still shows.
     """
-    if _commissioning_failed[0] and color != FAILED_COLOR:
-        return
     if time.ticks_diff(stamp, _stamp[0]) < 0:
         return
     _stamp[0] = stamp
@@ -122,14 +118,47 @@ def on_remote_write(_event: object) -> None:
     show(color, time.ticks_ms())
 
 
-def _show_status(color: tuple, stamp: int) -> None:
-    """Render a status colour using the transition's original ordering stamp.
+def _pairing_color() -> tuple:
+    """Return the colour describing where pairing currently stands.
+
+    A closed window is the ambiguous one: it closes both when a commissioner
+    takes it and when it simply runs out. The first is the middle of a healthy
+    pairing, the second leaves the node advertising nothing — so the tracked
+    session, not the closure, decides which colour it gets.
+    """
+    state = _commissioning_state[0]
+    if state == matter.Commissioning.FAILED:
+        return FAILED_COLOR
+    if state == matter.Commissioning.STARTED:
+        return SESSION_COLOR
+    if state == matter.Commissioning.OPENED:
+        return WINDOW_COLOR
+    if _session_active[0]:
+        return SESSION_COLOR
+    if state == matter.Commissioning.CLOSED:
+        return STALLED_COLOR
+    return BOOT_COLOR
+
+
+def _show_state(stamp: int) -> None:
+    """Render whichever of pairing state or controller-owned colour applies.
+
+    Pairing wins while it is in flight, on a commissioned node too: an owner
+    adding a second controller wants to watch that, not the light. Once the
+    attempt settles, a paired node goes back to showing its colour.
 
     Args:
-        color: Static project-owned status colour.
-        stamp: Tick captured when the transition occurred.
+        stamp: Tick captured when the state being rendered was decided.
     """
-    show(color, stamp)
+    pairing = _session_active[0] or _commissioning_state[0] in (
+        matter.Commissioning.OPENED,
+        matter.Commissioning.STARTED,
+        matter.Commissioning.FAILED,
+    )
+    if _commissioned[0] and not pairing:
+        show(matter_to_triple(endpoint), stamp)
+        return
+    show(_pairing_color(), stamp)
 
 
 def _finish_commissioning(stamp: int) -> None:
@@ -140,53 +169,37 @@ def _finish_commissioning(stamp: int) -> None:
     pending until the node reports that it has started.
     """
     _pending_commissioned_off[0] = stamp
-    _show_status(OFF_COLOR, stamp)
+    show(OFF_COLOR, stamp)
     if not node.started:
         return
     endpoint.on = False
     _pending_commissioned_off[0] = None
 
 
-def _restore_after_window(stamp: int) -> None:
-    """Restore application state after a commissioning window closes.
-
-    Args:
-        stamp: Tick captured when the window closed.
-    """
-    if not node.started:
-        return
-    if _commissioned[0]:
-        _show_status(matter_to_triple(endpoint), stamp)
-    else:
-        _show_status(READY_COLOR, stamp)
-
-
 def _on_commissioning(event: object) -> None:
-    """Render one commissioning transition without letting failure be overwritten.
+    """Record one commissioning transition and render the state it leaves.
+
+    A failure is rendered but not latched. The Matter package reopens a window
+    whenever an unpaired node would otherwise stop advertising, so red is
+    followed by purple within moments — and a red that stays red is then a
+    genuine finding rather than a colour nothing was able to clear.
 
     Args:
         event: :class:`matter.CommissioningEvent` delivered by the node.
     """
     stamp = time.ticks_ms()
     state = event.state
-    _last_commissioning_state[0] = state
+    _commissioning_state[0] = state
     _last_commissioning_stamp[0] = stamp
-    if state == matter.Commissioning.FAILED:
-        _commissioning_failed[0] = True
-        _show_status(FAILED_COLOR, stamp)
-        return
+    if state == matter.Commissioning.STARTED:
+        _session_active[0] = True
+    elif state in (matter.Commissioning.COMPLETE, matter.Commissioning.FAILED):
+        _session_active[0] = False
     if state == matter.Commissioning.COMPLETE:
-        _commissioning_failed[0] = False
         _commissioned[0] = True
         _finish_commissioning(stamp)
         return
-    if _commissioning_failed[0]:
-        return
-    color = _COMMISSIONING_COLORS.get(state)
-    if color is not None:
-        _show_status(color, stamp)
-    elif state == matter.Commissioning.CLOSED:
-        _restore_after_window(stamp)
+    _show_state(stamp)
 
 
 def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
@@ -202,20 +215,10 @@ def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
     if pending_stamp is not None:
         _finish_commissioning(pending_stamp)
         return
-    commissioning_stamp = _last_commissioning_stamp[0]
-    if _commissioning_failed[0]:
-        _show_status(FAILED_COLOR, commissioning_stamp)
+    if _commissioning_state[0] is None:
+        _show_state(startup_stamp)
         return
-    state = _last_commissioning_state[0]
-    color = _COMMISSIONING_COLORS.get(state)
-    if color is not None:
-        _show_status(color, commissioning_stamp)
-    elif state == matter.Commissioning.CLOSED:
-        _restore_after_window(commissioning_stamp)
-    elif _commissioned[0]:
-        _show_status(matter_to_triple(endpoint), startup_stamp)
-    else:
-        _show_status(READY_COLOR, startup_stamp)
+    _show_state(_last_commissioning_stamp[0])
 
 
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pixel_count)
@@ -256,7 +259,8 @@ node.on_commissioning(_on_commissioning)
 node.start()
 
 # A commissioned board restores its last controller-owned colour. An
-# uncommissioned board settles on green unless a queued window/session event
-# selected purple or cyan. fabrics() takes the same bounded request.cpp round
-# trip as the attribute writes above.
+# uncommissioned board shows whichever pairing state the transitions queued
+# during startup left it in — normally purple, because the stack opens a window
+# for a board that belongs to no fabric. fabrics() takes the same bounded
+# request.cpp round trip as the attribute writes above.
 _show_post_start_state(has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp)
