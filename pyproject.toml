@@ -115,6 +115,7 @@ source = [
   "/projects/ld2450/firmware",
   "/projects/multizone-ranging/firmware",
   "/projects/matter/firmware",
+  "/projects/matter-ld2450/firmware",
   "/tools/matter-build",
 ]
 source_pkgs = [
