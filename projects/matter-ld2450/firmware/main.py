@@ -1,8 +1,9 @@
-"""Publish HLK-LD2450 occupancy through Matter and stream radar diagnostics.
+"""Publish HLK-LD2450 occupancy and its configurable hold through Matter.
 
 The newest complete radar report controls one read-only Occupancy Sensor
-endpoint. Missing reports mark the radar unhealthy without clearing the last
-published occupancy value.
+endpoint. A virtual Dimmable Light configures how long a falling occupancy
+transition is held, from zero to ten minutes. Missing reports mark the radar
+unhealthy without clearing the last published occupancy value.
 
 The same diagnostic stream leaves the board twice: over USB serial, and over a
 WebSocket on the address Matter commissioning put the board on. Both carry the
@@ -48,6 +49,10 @@ _REPORT_STREAM_INTERVAL_MS = const(500)
 # Near-field reports can collapse toward the origin as tracking ends. Ignore
 # radius around the sensor so those artifacts cannot hold occupancy on.
 _DEAD_ZONE_RADIUS_MM = const(10)
+# Matter renders CurrentLevel 0-254 as brightness 0-100 percent. This virtual
+# light uses that range as a continuous zero-to-ten-minute occupancy hold.
+_MATTER_LEVEL_MAXIMUM = const(254)
+_MAXIMUM_HOLD_MS = const(600_000)
 
 # One colour per state a node can be in before it is paired, because the
 # failures worth catching are the ones where it stops advertising: a node nobody
@@ -81,6 +86,8 @@ class _ProductState:
         self.session_active = False
         self.radar_ok = None
         self.occupancy = None
+        self.targets_present = None
+        self.clear_started_ms = None
 
 
 _state = _ProductState()
@@ -152,6 +159,65 @@ def _publish_occupancy(*, occupied: bool) -> None:
     refresh()
 
 
+def _configured_hold_ms() -> int:
+    """Return the live controller-selected occupancy hold in milliseconds."""
+    if not hold_control.on:
+        return 0
+    return hold_control.level * _MAXIMUM_HOLD_MS // _MATTER_LEVEL_MAXIMUM
+
+
+def _reconcile_occupancy(*, occupied: bool, now_ms: int) -> None:
+    """Apply one valid radar observation to the held occupancy state.
+
+    Args:
+        occupied: Whether the valid report contains a target outside the dead zone.
+        now_ms: Monotonic tick captured for this report.
+    """
+    previous = _state.targets_present
+    _state.targets_present = occupied
+
+    if occupied:
+        _observe_occupied()
+        return
+    _observe_empty(previous=previous, now_ms=now_ms)
+
+
+def _observe_occupied() -> None:
+    """Publish an occupied observation and cancel any pending clear."""
+    _state.clear_started_ms = None
+    if _state.occupancy is not True:
+        _publish_occupancy(occupied=True)
+
+
+def _observe_empty(*, previous: bool | None, now_ms: int) -> None:
+    """Publish or defer one valid empty observation.
+
+    Args:
+        previous: Whether the preceding valid radar report was occupied.
+        now_ms: Monotonic tick captured for this report.
+    """
+    if previous is None:
+        if _state.occupancy is not False:
+            _publish_occupancy(occupied=False)
+        return
+
+    if previous:
+        _state.clear_started_ms = now_ms
+
+    if _state.occupancy is False:
+        _state.clear_started_ms = None
+        return
+
+    clear_started_ms = _state.clear_started_ms
+    if clear_started_ms is None:
+        _publish_occupancy(occupied=False)
+        return
+    if time.ticks_diff(now_ms, clear_started_ms) < _configured_hold_ms():
+        return
+
+    _publish_occupancy(occupied=False)
+
+
 async def init_radar() -> LD2450:
     """Open the radar UART, retrying until a valid report arrives.
 
@@ -180,6 +246,8 @@ async def track_occupancy(radar: LD2450) -> None:
         radar: A driver that has completed startup.
     """
     last_stream_ms = None
+    # TODO: Decide whether report outages should pause or restart an active
+    # clear countdown instead of retaining elapsed wall time.
     while True:
         try:
             targets = await radar.read_latest()
@@ -198,9 +266,7 @@ async def track_occupancy(radar: LD2450) -> None:
 
         targets = tuple(target for target in targets if _outside_dead_zone(target))
         _set_radar_ok(ok=True)
-        occupied = bool(targets)
-        if occupied != _state.occupancy:
-            _publish_occupancy(occupied=occupied)
+        _reconcile_occupancy(occupied=bool(targets), now_ms=now_ms)
         stream_due = last_stream_ms is None or (
             time.ticks_diff(now_ms, last_stream_ms) >= _REPORT_STREAM_INTERVAL_MS
         )
@@ -370,6 +436,9 @@ add_sink(reports.send)
 
 node = matter.Node()
 occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+# Keep occupancy first so firmware updates do not change its endpoint ID. The
+# virtual light's persisted OnOff and CurrentLevel attributes configure the hold.
+hold_control = node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
 node.on_commissioning(_on_commissioning)
 node.start()
 

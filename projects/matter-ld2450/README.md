@@ -1,20 +1,41 @@
 # ESP32-S3-Zero Matter occupancy sensor
 
-This project exposes an HLK-LD2450 mmWave radar as one read-only Matter
-Occupancy Sensor. It is an edge translator: detailed 10 Hz radar reports become
-a low-bandwidth Matter occupancy state, while full target telemetry remains
-available through the board's webpage or a local USB dashboard.
+This project exposes an HLK-LD2450 mmWave radar as a read-only Matter Occupancy
+Sensor and a virtual Dimmable Light that configures its occupancy hold. It is an
+edge translator: detailed 10 Hz radar reports become a low-bandwidth Matter
+occupancy state, while full target telemetry remains available through the
+board's webpage or a local USB dashboard.
 
 The product contract is:
 
 - A valid report with at least one target outside the 10 mm radial dead zone is
   occupied.
-- A valid report with no remaining targets is clear.
+- After an occupied report, valid empty reports remain occupied until the
+  controller-selected hold expires.
+- Reacquiring a target cancels the pending clear.
+- An initially empty radar publishes clear immediately.
 - A missing report marks the radar unhealthy without clearing the last
   published occupancy value.
 - Matter is updated only when occupancy changes.
 
 The endpoint declares PIR because Matter has no radar sensing modality.
+
+## Occupancy hold control
+
+The second Matter endpoint appears to controllers as a Dimmable Light, but it
+does not drive the onboard status pixel. Its brightness is a continuous timing
+control: Matter level 0-254, normally displayed as 0-100 percent, maps linearly
+to 0-10 minutes. Turning the virtual light off selects zero delay; turning it on
+uses its current brightness.
+
+Matter persists the virtual light's power and brightness. A newly added endpoint
+starts off, preserving immediate clearing until a controller configures it. If
+the setting changes during a countdown, the new duration applies to the original
+empty-transition time: shortening may clear on the next valid empty report,
+while extending pushes the deadline out.
+
+Report outages never publish clear. For now, elapsed wall time remains recorded
+during an outage, so the first recovered empty report can finish a pending hold.
 
 ## System architecture
 
@@ -23,7 +44,7 @@ flowchart LR
     radar["HLK-LD2450<br/>3 target slots · 10 Hz"]
     driver["LD2450 driver<br/>UART framing + decode"]
     policy["MicroPython main.py<br/>dead zone + occupancy policy"]
-    matter["Matter Python API<br/>Occupancy endpoint"]
+    matter["Matter Python API<br/>Occupancy + hold endpoints"]
     native["Native bridge<br/>C + C++"]
     stack["ESP-Matter / CHIP<br/>BLE · Wi-Fi · fabrics"]
     controller["Matter controller"]
@@ -37,6 +58,7 @@ flowchart LR
     radar -->|"UART1 · 256000 baud"| driver
     driver -->|"newest valid targets"| policy
     policy -->|"changed 0 / 1"| matter
+    matter -->|"live 0-10 minute hold"| policy
     matter --> native --> stack
     stack <-->|Matter| controller
 
@@ -53,7 +75,7 @@ failures do not affect occupancy publication or commissioning.
 
 | Layer | Responsibility |
 | --- | --- |
-| Project firmware | Board pins, dead zone, occupancy policy, retry behavior, LED arbitration, and JSON schema |
+| Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
 | `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
 | Matter Python package | Endpoint validation, Python attribute mirror, callbacks, and node administration |
 | Native Matter bridge | CHIP-task scheduling, bounded event queues, Occupancy publication, and commissioning recovery |
@@ -76,7 +98,7 @@ sequenceDiagram
     participant LED as WS2812
 
     App->>LED: show boot state
-    App->>Matter: create Node and Occupancy endpoint
+    App->>Matter: create Node, Occupancy, and hold endpoints
     App->>Matter: register commissioning callback
     App->>Matter: start()
     Matter->>CHIP: start networking and event processing
@@ -89,7 +111,7 @@ sequenceDiagram
     loop forever
         App->>Radar: read newest report
         Radar-->>App: targets, empty tuple, or timeout
-        App->>Matter: publish changed occupancy
+        App->>Matter: apply live hold and publish changed occupancy
         App->>LED: render highest-priority state
         App-->>App: emit target JSON
     end
@@ -132,7 +154,8 @@ reserves for the driver.
 
 Targets whose squared distance is less than `10² mm²` are discarded because
 near-field reports can collapse toward the origin as tracking ends. Occupancy
-is the Boolean value of the remaining target tuple.
+turns on as soon as the remaining target tuple becomes non-empty. Its falling
+edge is delayed by the virtual dimmer and canceled if a target returns.
 
 | Condition | Diagnostic | Product behavior |
 | --- | --- | --- |
@@ -334,9 +357,11 @@ with more than 200 mA available, not from 3V3.
 - Matter controllers retain the last occupancy value but cannot observe radar
   health; health is available only through the pixel and serial diagnostics.
 - Occupancy means any target outside the artifact dead zone. There are no
-  configurable zones, confidence thresholds, or dwell times.
+  configurable zones or confidence thresholds; the dimmer supplies one global
+  clear hold.
 - Radar slots are current report positions, not persistent person identities.
-- The firmware configures one occupancy endpoint and disables OTA.
+- The firmware configures one occupancy endpoint, one virtual dimmer, and
+  disables OTA.
 - The current VID, PID, and example device-attestation provider are development
   settings and must be replaced for a production device.
 - The dashboard loads Plotly from a CDN and therefore is not fully offline.
