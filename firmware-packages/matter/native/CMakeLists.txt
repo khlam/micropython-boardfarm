@@ -19,7 +19,7 @@ idf_component_register(
         "src/value_conversion.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    REQUIRES esp_matter
+    REQUIRES esp_matter esp_netif
 )
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

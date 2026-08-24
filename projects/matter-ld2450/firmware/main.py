@@ -3,6 +3,11 @@
 The newest complete radar report controls one read-only Occupancy Sensor
 endpoint. Missing reports mark the radar unhealthy without clearing the last
 published occupancy value.
+
+The same diagnostic stream leaves the board twice: over USB serial, and over a
+WebSocket on the address Matter commissioning put the board on. Both carry the
+identical JSON lines to the identical dashboard, so the board can be watched
+with or without a host attached to its serial port.
 """
 
 import asyncio
@@ -10,13 +15,16 @@ import os
 import time
 from collections import namedtuple
 
+import dashboard_page
 import machine
 import neopixel
+import ujson
 from micropython import const
 
+import httpd
 import matter
 from ld2450 import LD2450, DeviceNotFoundError
-from matter.emit import emit, error
+from matter.emit import add_sink, emit, error
 
 Board = namedtuple("Board", ("uart_id", "tx", "rx", "led_pin"))
 _machine = os.uname().machine
@@ -26,6 +34,11 @@ BOARD = Board(uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RETRY_PAUSE_MS = const(1_000)
 _READ_ERR_PAUSE_MS = const(200)
+# CHIP holds UDP 5540 and mDNS holds 5353, so the ordinary web port is free.
+_DASHBOARD_PORT = const(80)
+# There is no event for the address arriving, and it can change with the DHCP
+# lease, so the address is polled for as long as the firmware runs.
+_ADDRESS_POLL_MS = const(1_000)
 # Near-field reports can collapse toward the origin as tracking ends. Ignore
 # radius around the sensor so those artifacts cannot hold occupancy on.
 _DEAD_ZONE_RADIUS_MM = const(10)
@@ -184,7 +197,40 @@ async def track_occupancy(radar: LD2450) -> None:
         emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
 
 
+async def serve_dashboard() -> None:
+    """Publish the dashboard once Matter's Wi-Fi bring-up yields an address.
+
+    The listener binds every interface, so a later lease change needs no restart
+    — only a fresh report of where to find the page. Before commissioning there
+    is no address and no server, and the serial stream is unaffected either way.
+
+    A dashboard that cannot be served is reported once and retried on the next
+    poll: it is a diagnostics view, and it must never take occupancy down.
+    """
+    address = None
+    reported_error = False
+    while True:
+        try:
+            current = node.network_address()
+            if current is not None and current != address:
+                if address is None:
+                    await dashboard.start()
+                address = current
+                reported_error = False
+                emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
+        except OSError as err:
+            if not reported_error:
+                error("dashboard", str(err))
+                reported_error = True
+        await asyncio.sleep_ms(_ADDRESS_POLL_MS)
+
+
 async def main() -> None:
+    """Serve the dashboard while the radar initializes and streams."""
+    await asyncio.gather(serve_dashboard(), _track_radar())
+
+
+async def _track_radar() -> None:
     """Initialize the radar and track occupancy until reset."""
     radar = await init_radar()
     try:
@@ -234,6 +280,22 @@ def _on_commissioning(event: object) -> None:
 
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
 render(BOOT_COLOR)
+
+# Routes only — serve_dashboard() binds the port once there is an address. The
+# greeting is what the dashboard reads as "connected", the same line the host
+# viz service sends when it opens the serial port.
+dashboard = httpd.Server(port=_DASHBOARD_PORT)
+dashboard.page(
+    "/",
+    dashboard_page.PAGE,
+    content_type=dashboard_page.CONTENT_TYPE,
+    encoding=dashboard_page.ENCODING,
+)
+reports = dashboard.stream(
+    "/ws",
+    greeting=ujson.dumps({"event": "connected", "port": f"ld2450 uart{BOARD.uart_id}"}),
+)
+add_sink(reports.send)
 
 node = matter.Node()
 occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)

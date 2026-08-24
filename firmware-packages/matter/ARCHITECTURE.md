@@ -63,6 +63,17 @@ owns the state each one guards.
 | Pre-start setup | `node_create`, `endpoint_create`, `attribute_set_initial`, `start` | VM task, directly against `esp_matter` before the stack runs | none |
 | Bounded request | `attribute_get`, `attribute_publish`, `open_commissioning_window`, `fabrics`, `remove_fabric`, `factory_reset` | body runs on the CHIP task via `ScheduleWork`; VM task waits on a semaphore | ≤ 250 ms (`MATTER_REQUEST_TIMEOUT_MS`) |
 | Queue drain | `next_event`, `overflow_generation` | VM task, non-blocking `xQueuePeek` / `xQueueReceive` | none |
+| Platform read | `network_address` | VM task, straight to `esp_netif`, which marshals itself onto the lwIP task | ESP-IDF's own IPC |
+
+`network_address` is the one entry point that is none of the first three. It
+touches no `esp_matter` structure, so the `started` barrier does not apply, and
+`esp_netif_get_ip_info()` already performs its own lwIP IPC call, so wrapping it
+in a `Request` would add a timeout that can fail and buy nothing. It exists
+because CHIP owns the Wi-Fi radio outright: an application that wants to offer
+its own network service has no other way to learn the address commissioning
+obtained, and MicroPython's `network.WLAN` cannot be used to find out — its
+constructor would re-run `esp_netif_create_default_wifi_sta()` and
+`esp_wifi_init()` against hardware CHIP has already initialised.
 
 Setup calls are guarded by the `started` flag in `stack.cpp`, so they can only
 touch `esp_matter` structures while nothing else is running against them.

@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.15.0"
+version = "0.16.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -304,6 +304,7 @@ ban-relative-imports = "all"
 known-first-party = [
   "boot_status_led",
   "atgm336h",
+  "httpd",
   "i2c_bus",
   "ld2450",
   "mpu6050",

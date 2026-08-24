@@ -17,6 +17,7 @@
 #include <app-common/zap-generated/ids/Clusters.h>
 #include <esp_matter.h>
 #include <esp_matter_core.h>
+#include <esp_netif.h>
 
 #include "callbacks.h"
 #include "endpoint_schema.h"
@@ -34,6 +35,10 @@ namespace matter_bridge {
 // The endpoint count is capped so the callback code can quickly check whether
 // an update belongs to this bridge.
 constexpr size_t MAXIMUM_ENDPOINTS = 16;
+
+// The key ESP-IDF gives the default Wi-Fi station interface. CHIP creates that
+// interface during commissioning; nothing in this bridge creates one.
+constexpr const char *STATION_INTERFACE_KEY = "WIFI_STA_DEF";
 
 // Private to this file, but `static` rather than an unnamed namespace because
 // the C entry points below reach them through a using-directive. Only the VM
@@ -157,5 +162,35 @@ extern "C" int matter_stack_start(void)
         return EIO;
     }
     started = true;
+    return 0;
+}
+
+// Read back the address commissioning obtained for the station interface.
+//
+// This is the one post-start call that does not go through request.cpp. The
+// esp_netif getters below marshal themselves onto the lwIP task through
+// ESP-IDF's own IPC, so they are already safe to call from the VM task, and
+// wrapping them in a second hop would only add a timeout that can fail. Nothing
+// here touches esp_matter, so the `started` barrier does not apply either: an
+// uncommissioned device simply has no interface yet and says so.
+extern "C" int matter_network_address(char *address, size_t capacity)
+{
+    if (address == nullptr || capacity < MATTER_ADDRESS_SIZE) {
+        return EINVAL;
+    }
+    esp_netif_t *station = esp_netif_get_handle_from_ifkey(STATION_INTERFACE_KEY);
+    if (station == nullptr) {
+        return ENOTCONN;
+    }
+    esp_netif_ip_info_t info{};
+    if (esp_netif_get_ip_info(station, &info) != ESP_OK) {
+        return EIO;
+    }
+    // The interface exists from the moment CHIP creates it, but stays at 0.0.0.0
+    // until DHCP answers. Both are "not on the network yet" to a caller.
+    if (info.ip.addr == 0) {
+        return ENOTCONN;
+    }
+    esp_ip4addr_ntoa(&info.ip, address, capacity);
     return 0;
 }

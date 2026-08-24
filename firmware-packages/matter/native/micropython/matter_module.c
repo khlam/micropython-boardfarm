@@ -5,6 +5,7 @@
 // endpoint state, callback routing, and every application decision.
 #include "matter/bridge.h"
 
+#include <errno.h>
 #include <string.h>
 
 #include "py/obj.h"
@@ -248,6 +249,23 @@ static mp_obj_t factory_reset(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(factory_reset_obj, factory_reset);
 
+// Report the station address, or None while the device is not on the network.
+//
+// Not being on the network yet is an ordinary state on the way up, not a
+// failure, so ENOTCONN becomes None rather than an OSError a caller would have
+// to catch on every poll. Every other errno still raises.
+static mp_obj_t network_address(void)
+{
+    char address[MATTER_ADDRESS_SIZE];
+    const int error = matter_network_address(address, sizeof(address));
+    if (error == ENOTCONN) {
+        return mp_const_none;
+    }
+    check(error);
+    return mp_obj_new_str(address, strlen(address));
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(network_address_obj, network_address);
+
 // The whole `_matter` surface. Anything not named here is unreachable from
 // Python, which is what keeps the frozen package the only public API.
 static const mp_rom_map_elem_t native_module_globals_table[] = {
@@ -265,6 +283,7 @@ static const mp_rom_map_elem_t native_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_fabrics), MP_ROM_PTR(&fabrics_obj)},
     {MP_ROM_QSTR(MP_QSTR_remove_fabric), MP_ROM_PTR(&remove_fabric_obj)},
     {MP_ROM_QSTR(MP_QSTR_factory_reset), MP_ROM_PTR(&factory_reset_obj)},
+    {MP_ROM_QSTR(MP_QSTR_network_address), MP_ROM_PTR(&network_address_obj)},
 };
 static MP_DEFINE_CONST_DICT(native_module_globals, native_module_globals_table);
 

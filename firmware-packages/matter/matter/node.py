@@ -147,6 +147,21 @@ class Node:
         timeout_s = bounded_integer("timeout_s", timeout_s, 1, 65535)
         _matter.open_commissioning_window(timeout_s)
 
+    def network_address(self) -> str | None:
+        """Return the IPv4 address commissioning obtained for this device.
+
+        ESP-Matter owns the Wi-Fi radio, so this reads back the interface it
+        brought up rather than configuring one. Applications that want to offer
+        their own network service have no other way to learn the address.
+
+        Returns:
+            The dotted-quad address, or ``None`` while the device is not on the
+            network — before commissioning, or before DHCP has answered. Poll it;
+            an address can also change when the lease does.
+        """
+        _require_started(self._started)
+        return _matter.network_address()
+
     def fabrics(self) -> tuple:
         """Return non-secret metadata for every commissioned fabric."""
         _require_started(self._started)

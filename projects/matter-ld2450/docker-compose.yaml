@@ -23,6 +23,9 @@ services:
       - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro
       - ./pyproject.toml:/project/pyproject.toml:ro
+      # build.py freezes this page so the board can serve it itself; the viz
+      # service below serves the same file from the host.
+      - ./viz:/viz:ro
       - ./outputs:/outputs
       - matter-build-cache:/build-cache
 

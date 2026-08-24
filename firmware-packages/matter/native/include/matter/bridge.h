@@ -157,6 +157,17 @@ int matter_remove_fabric(uint8_t fabric_index, uint32_t timeout_ms);
 // errnos above on failure.
 int matter_factory_reset(uint32_t timeout_ms);
 
+// Enough for "255.255.255.255" and its terminator.
+enum { MATTER_ADDRESS_SIZE = 16 };
+
+// Copy the IPv4 address commissioning obtained for the Wi-Fi station interface.
+// Nothing here configures the radio: CHIP owns it, and this only reads back what
+// it already brought up, which is the one piece of that state an application
+// cannot reach any other way.
+// Returns ENOTCONN while the interface has no address, EINVAL for a buffer
+// smaller than MATTER_ADDRESS_SIZE, or EIO.
+int matter_network_address(char *address, size_t capacity);
+
 // Implemented by matter_module.c. CHIP tasks use it only after enqueueing an
 // event; it schedules the registered drain callback onto the VM task.
 void matter_bridge_notify_event(void);

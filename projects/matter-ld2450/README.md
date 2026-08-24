@@ -219,6 +219,29 @@ docker compose up --build viz
 
 Set `SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
 
+## The board's own dashboard
+
+A commissioned board also serves that same dashboard itself, so it can be
+watched from any browser on the network with nothing plugged into it. The build
+gzips `viz/static/index.html` into the firmware, and the board serves it on
+port 80 at the address Matter commissioning put it on. There is one copy of the
+page: whatever the `viz` service above shows is what the board shows.
+
+The address is reported once it exists, and again if the DHCP lease changes it:
+
+```json
+{"event":"dashboard","state":"ready","url":"http://192.168.1.50/"}
+```
+
+Read it with `docker compose run --rm --build esp32-monitor`, then open that URL.
+Nothing is served before commissioning, because until then the board has no
+address. Serial output is identical either way — the WebSocket is a second
+destination for the same lines, not a replacement.
+
+The page still loads Plotly from `cdn.plot.ly`, so the **viewing device** needs
+internet access for the charts; the board itself does not. Up to three browsers
+can watch at once, and a fourth is refused rather than served slowly.
+
 ## Build, artifacts, and flashing
 
 Docker is the only host dependency. The build uses pinned ESP-IDF, ESP-Matter,

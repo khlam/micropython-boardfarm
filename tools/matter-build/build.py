@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import fcntl
+import gzip
 import os
 import re
 import secrets
@@ -59,6 +60,13 @@ _OWNER_REFERENCE = Path("/firmware")
 _BOARD_NAME = "ESP32_S3_MATTER"
 _IDF_TARGET = "esp32s3"
 _ARTIFACT_MODE = 0o644
+
+# The project's own dashboard, served by the board once it is on the network.
+# Optional: a project without a viz/ mount simply builds without one.
+_DASHBOARD_SOURCE = Path("/viz/static/index.html")
+_DASHBOARD_MODULE = "dashboard_page"
+_DASHBOARD_CONTENT_TYPE = "text/html; charset=utf-8"
+_DASHBOARD_ENCODING = "gzip"
 
 _MERGED_NAME = "app.esp32-s3.bin"
 _QR_NAME = "app.esp32-s3.qr.png"
@@ -156,7 +164,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         staging_root = Path(scratch)
         _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
-        _build_firmware(_BUILD_CACHE)
+        _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
         factory, qr, manual, payload, discriminator = _mint_credentials(
             staging_root, identity, manufacturer, serial_number, model, passcode
         )
@@ -292,7 +300,40 @@ def _run(
     subprocess.run([executable, *command[1:]], check=True, cwd=cwd, env=environment)  # noqa: S603
 
 
-def _build_firmware(build_root: Path) -> None:
+def _stage_dashboard(staging_root: Path) -> Path | None:
+    """Turn the project's dashboard page into a module, and return its directory.
+
+    The board has no filesystem partition, so a page can only reach it as frozen
+    code. Generating the module here keeps viz/static/index.html the one copy
+    anybody edits: the same file the host viz service serves is the file the
+    board serves. It is gzipped now and sent under a Content-Encoding header
+    later, so neither the flash nor the chip ever holds the expanded page.
+
+    The directory is separate from /firmware because that mount is read-only,
+    and manifest.py freezes it through FROZEN_STAGING_DIR.
+
+    Args:
+        staging_root: Scratch directory this build owns for the whole run.
+
+    Returns:
+        The directory to freeze, or None when the project has no dashboard.
+    """
+    if not _DASHBOARD_SOURCE.is_file():
+        return None
+    # mtime=0 so the same page keeps producing the same firmware image.
+    body = gzip.compress(_DASHBOARD_SOURCE.read_bytes(), compresslevel=9, mtime=0)
+    staged = staging_root / "frozen"
+    staged.mkdir(parents=True, exist_ok=True)
+    (staged / f"{_DASHBOARD_MODULE}.py").write_text(
+        f'"""The project dashboard, generated from its viz/static/index.html."""\n\n'
+        f'CONTENT_TYPE = "{_DASHBOARD_CONTENT_TYPE}"\n'
+        f'ENCODING = "{_DASHBOARD_ENCODING}"\n'
+        f"PAGE = {body!r}\n"
+    )
+    return staged
+
+
+def _build_firmware(build_root: Path, staged: Path | None) -> None:
     """Compile MicroPython with the ESP-Matter native module into build_root.
 
     The cached sdkconfig is dropped first. `idf.py` treats an existing one as the
@@ -301,8 +342,16 @@ def _build_firmware(build_root: Path) -> None:
     the repository would no longer describe the firmware. Nothing here configures
     interactively, so there is no hand-made state to lose, and a regenerated file
     with identical contents leaves every compiled object untouched.
+
+    Args:
+        build_root: Directory the IDF build tree lives in.
+        staged: Directory of build-generated modules to freeze, or None when the
+            build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
     """
     (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
+    environment = dict(os.environ, MATTER_NATIVE_PATH=str(_MATTER_NATIVE))
+    if staged is not None:
+        environment["FROZEN_STAGING_DIR"] = str(staged)
     _run(
         [
             "idf.py",
@@ -320,7 +369,7 @@ def _build_firmware(build_root: Path) -> None:
             f"USER_C_MODULES={_MATTER_NATIVE / 'micropython' / 'micropython.cmake'}",
             "build",
         ],
-        env=dict(os.environ, MATTER_NATIVE_PATH=str(_MATTER_NATIVE)),
+        env=environment,
     )
 
 
