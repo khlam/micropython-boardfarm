@@ -8,15 +8,17 @@ board's webpage or a local USB dashboard.
 
 The product contract is:
 
+- Boot and radar recovery begin occupied with no retained clear timer.
 - A valid report with at least one target outside the 10 mm radial dead zone is
-  occupied.
-- After an occupied report, valid empty reports remain occupied until the
-  controller-selected hold expires.
+  occupied immediately.
+- The first valid empty report starts the controller-selected hold. A zero hold
+  may publish clear on that same report.
+- Further valid empty reports remain occupied until the hold expires.
 - Reacquiring a target cancels the pending clear.
-- An initially empty radar publishes clear immediately.
-- A missing report marks the radar unhealthy without clearing the last
-  published occupancy value.
-- Matter is updated only when occupancy changes.
+- A missing report or UART failure forces occupied and starts full radar
+  recreation at a fixed one-second interval.
+- Matter publication failures leave the desired value pending without affecting
+  radar health or recovery.
 
 The endpoint declares PIR because Matter has no radar sensing modality.
 
@@ -34,8 +36,22 @@ the setting changes during a countdown, the new duration applies to the original
 empty-transition time: shortening may clear on the next valid empty report,
 while extending pushes the deadline out.
 
-Report outages never publish clear. For now, elapsed wall time remains recorded
-during an outage, so the first recovered empty report can finish a pending hold.
+Only valid reports advance the policy. A radar failure discards the empty-start
+timestamp, forces occupied, and begins a new observation period after recovery.
+If the dimmer state cannot be read, the firmware also cancels the timer and
+retains occupied, but it leaves the healthy radar connection running.
+
+The policy has three explicit states:
+
+| State | Matter occupancy | Meaning |
+| --- | --- | --- |
+| `OCCUPIED` | 1 | Boot, recovery, a target observation, or a fail-safe fault value |
+| `EMPTY_HOLD` | 1 | Valid empty reports are continuing while the live hold runs |
+| `VACANT` | 0 | Valid empty reports continued through the selected hold |
+
+The clear timer uses wrap-safe monotonic ticks and always remains anchored to
+the first empty report. Turning the virtual light off selects zero milliseconds;
+turning it on maps level 0-254 linearly to 0-600,000 ms.
 
 ## System architecture
 
@@ -101,19 +117,25 @@ sequenceDiagram
     App->>Matter: create Node, Occupancy, and hold endpoints
     App->>Matter: register commissioning callback
     App->>Matter: start()
+    App->>Matter: publish fail-safe occupied
     Matter->>CHIP: start networking and event processing
     CHIP-->>App: queued commissioning transitions
     App->>Matter: query fabrics
-    loop until the first valid radar report
+    loop radar supervisor
         App->>Radar: open UART and wait up to 2 seconds
-        Radar-->>App: targets or DeviceNotFoundError
-    end
-    loop forever
-        App->>Radar: read newest report
-        Radar-->>App: targets, empty tuple, or timeout
-        App->>Matter: apply live hold and publish changed occupancy
-        App->>LED: render highest-priority state
-        App-->>App: emit target JSON
+        alt readiness succeeds
+            loop while reports remain healthy
+                App->>Radar: read newest report
+                Radar-->>App: targets, empty tuple, timeout, or error
+                App->>Matter: apply live hold and publish desired occupancy
+                App->>LED: render highest-priority state
+                App-->>App: emit decimated target JSON
+            end
+        else readiness or runtime failure
+            App->>Matter: retain or publish occupied
+            App->>Radar: close and deinitialize
+            App-->>App: wait one second
+        end
     end
 ```
 
@@ -159,15 +181,20 @@ edge is delayed by the virtual dimmer and canceled if a target returns.
 
 | Condition | Diagnostic | Product behavior |
 | --- | --- | --- |
-| No valid startup report | `no_device` | Mark unhealthy and retry after one second |
-| UART initialization failure | `init_err` | Mark unhealthy and retry after one second |
-| UART read failure | `read_err` | Mark unhealthy and retry after 200 ms |
-| No report for 500 ms | `report_timeout` | Mark unhealthy and retain the last Matter value |
-| Valid reports resume | `radar_ok` | Mark healthy and resume normal publication |
+| No valid startup report | `no_device` | Force occupied, close the driver, and recreate after one second |
+| UART initialization failure | `init_err` | Force occupied and retry construction after one second |
+| UART read failure | `read_err` | Force occupied, close the driver, and recreate after one second |
+| No report for 500 ms | `report_timeout` | Force occupied, close the driver, and recreate after one second |
+| Newly created radar becomes ready | `radar_ok` | Start a fresh occupied observation period and resume reports |
+| Dimmer state cannot be read | Hold-control error event | Retain occupied and cancel the timer without recreating the radar |
 | Matter publication fails | Matter error event | Leave the transition pending so the next report retries it |
 
-Discarding old reports favors freshness over history. Preserving occupancy
-during a sensor outage favors a stale value over a false clear.
+Only the first category diagnostic is emitted during one uninterrupted radar
+failure period. Repeated readiness failures remain in the same one-second
+recovery loop until a completely new driver receives a valid report. Radar
+recovery ends the failure period, emits `radar_ok`, and resumes from occupied
+without any elapsed empty time. Dashboard and commissioning failures never
+change occupancy or recreate the radar.
 
 ## Matter boundary and concurrency
 
@@ -354,8 +381,9 @@ with more than 200 mA available, not from 3V3.
 
 ## Design tradeoffs and production considerations
 
-- Matter controllers retain the last occupancy value but cannot observe radar
-  health; health is available only through the pixel and serial diagnostics.
+- Matter controllers cannot observe radar health directly; health is available
+  through the pixel and serial diagnostics while the occupancy endpoint is
+  driven to its fail-safe occupied value.
 - Occupancy means any target outside the artifact dead zone. There are no
   configurable zones or confidence thresholds; the dimmer supplies one global
   clear hold.

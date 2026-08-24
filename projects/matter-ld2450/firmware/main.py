@@ -3,7 +3,7 @@
 The newest complete radar report controls one read-only Occupancy Sensor
 endpoint. A virtual Dimmable Light configures how long a falling occupancy
 transition is held, from zero to ten minutes. Missing reports mark the radar
-unhealthy without clearing the last published occupancy value.
+unhealthy, force occupancy on, and recreate the radar connection.
 
 The same diagnostic stream leaves the board twice: over USB serial, and over a
 WebSocket on the address Matter commissioning put the board on. Both carry the
@@ -34,7 +34,6 @@ if "ESP32S3" not in _machine:
 BOARD = Board(uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RETRY_PAUSE_MS = const(1_000)
-_READ_ERR_PAUSE_MS = const(200)
 # CHIP holds UDP 5540 and mDNS holds 5353, so the ordinary web port is free.
 _DASHBOARD_PORT = const(80)
 # There is no event for the address arriving, and it can change with the DHCP
@@ -53,6 +52,10 @@ _DEAD_ZONE_RADIUS_MM = const(10)
 # light uses that range as a continuous zero-to-ten-minute occupancy hold.
 _MATTER_LEVEL_MAXIMUM = const(254)
 _MAXIMUM_HOLD_MS = const(600_000)
+
+_OCCUPIED = const(0)
+_EMPTY_HOLD = const(1)
+_VACANT = const(2)
 
 # One colour per state a node can be in before it is paired, because the
 # failures worth catching are the ones where it stops advertising: a node nobody
@@ -85,9 +88,9 @@ class _ProductState:
         self.commissioning = None
         self.session_active = False
         self.radar_ok = None
-        self.occupancy = None
-        self.targets_present = None
-        self.clear_started_ms = None
+        self.occupancy_state = _OCCUPIED
+        self.published_occupancy = None
+        self.empty_started_ms = None
 
 
 _state = _ProductState()
@@ -136,7 +139,7 @@ def refresh() -> None:
         if _state.radar_ok is False:
             color = RADAR_FAULT_COLOR
         else:
-            color = CLEAR_COLOR if _state.occupancy is False else GREEN_COLOR
+            color = CLEAR_COLOR if _state.occupancy_state == _VACANT else GREEN_COLOR
     render(color)
 
 
@@ -148,22 +151,32 @@ def _set_radar_ok(*, ok: bool) -> None:
     refresh()
 
 
-def _publish_occupancy(*, occupied: bool) -> None:
-    """Publish a changed occupancy value, leaving failures pending for retry."""
+def _publish_desired_occupancy(*, force: bool = False) -> None:
+    """Publish desired occupancy, leaving failures pending for retry.
+
+    Args:
+        force: Publish even when the desired value was last published
+            successfully. A failed publish changes the endpoint's Python copy,
+            so a later policy reversal must restore that copy too.
+    """
+    occupied = _state.occupancy_state != _VACANT
+    if not force and _state.published_occupancy == occupied:
+        return
     try:
         occupancy.occupancy = 1 if occupied else 0
     except OSError as err:
         error("occupancy", str(err))
         return
-    _state.occupancy = occupied
-    refresh()
+    _state.published_occupancy = occupied
 
 
 def _configured_hold_ms() -> int:
     """Return the live controller-selected occupancy hold in milliseconds."""
-    if not hold_control.on:
+    enabled = hold_control.on
+    level = hold_control.level
+    if not enabled:
         return 0
-    return hold_control.level * _MAXIMUM_HOLD_MS // _MATTER_LEVEL_MAXIMUM
+    return level * _MAXIMUM_HOLD_MS // _MATTER_LEVEL_MAXIMUM
 
 
 def _reconcile_occupancy(*, occupied: bool, now_ms: int) -> None:
@@ -173,95 +186,109 @@ def _reconcile_occupancy(*, occupied: bool, now_ms: int) -> None:
         occupied: Whether the valid report contains a target outside the dead zone.
         now_ms: Monotonic tick captured for this report.
     """
-    previous = _state.targets_present
-    _state.targets_present = occupied
-
     if occupied:
         _observe_occupied()
         return
-    _observe_empty(previous=previous, now_ms=now_ms)
+    _observe_empty(now_ms=now_ms)
 
 
 def _observe_occupied() -> None:
     """Publish an occupied observation and cancel any pending clear."""
-    _state.clear_started_ms = None
-    if _state.occupancy is not True:
-        _publish_occupancy(occupied=True)
+    force = _state.occupancy_state == _VACANT
+    _state.occupancy_state = _OCCUPIED
+    _state.empty_started_ms = None
+    refresh()
+    _publish_desired_occupancy(force=force)
 
 
-def _observe_empty(*, previous: bool | None, now_ms: int) -> None:
+def _observe_empty(*, now_ms: int) -> None:
     """Publish or defer one valid empty observation.
 
     Args:
-        previous: Whether the preceding valid radar report was occupied.
         now_ms: Monotonic tick captured for this report.
     """
-    if previous is None:
-        if _state.occupancy is not False:
-            _publish_occupancy(occupied=False)
+    if _state.occupancy_state == _VACANT:
+        _publish_desired_occupancy()
         return
 
-    if previous:
-        _state.clear_started_ms = now_ms
+    if _state.occupancy_state == _OCCUPIED:
+        _state.occupancy_state = _EMPTY_HOLD
+        _state.empty_started_ms = now_ms
+        refresh()
 
-    if _state.occupancy is False:
-        _state.clear_started_ms = None
+    try:
+        hold_ms = _configured_hold_ms()
+    except (OSError, ValueError) as err:
+        error("hold_control", str(err))
+        _observe_occupied()
         return
 
-    clear_started_ms = _state.clear_started_ms
-    if clear_started_ms is None:
-        _publish_occupancy(occupied=False)
+    empty_started_ms = _state.empty_started_ms
+    if empty_started_ms is None:
+        _observe_occupied()
         return
-    if time.ticks_diff(now_ms, clear_started_ms) < _configured_hold_ms():
+    if time.ticks_diff(now_ms, empty_started_ms) < hold_ms:
+        _publish_desired_occupancy()
         return
 
-    _publish_occupancy(occupied=False)
+    _state.occupancy_state = _VACANT
+    _state.empty_started_ms = None
+    refresh()
+    _publish_desired_occupancy(force=True)
 
 
-async def init_radar() -> LD2450:
-    """Open the radar UART, retrying until a valid report arrives.
+async def _supervise_radar() -> None:
+    """Recreate a failed radar while keeping Matter and diagnostics running."""
+    radar = None
+    failure_reported = False
+    last_stream_ms = None
 
-    Returns:
-        A connected radar driver with its first report pending.
-    """
     while True:
-        try:
-            radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-            await radar.wait_ready()
-        except (DeviceNotFoundError, OSError) as err:
-            diag = "no_device" if isinstance(err, DeviceNotFoundError) else "init_err"
-            emit({"diag": diag, "err": str(err)})
-            _set_radar_ok(ok=False)
-            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
-        else:
+        if radar is None:
+            candidate = None
+            try:
+                candidate = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+                await candidate.wait_ready()
+            except (DeviceNotFoundError, OSError) as err:
+                diag = "no_device" if isinstance(err, DeviceNotFoundError) else "init_err"
+                failure_reported = _enter_radar_fault(
+                    candidate,
+                    diag=diag,
+                    err=err,
+                    already_reported=failure_reported,
+                )
+                await asyncio.sleep_ms(_RETRY_PAUSE_MS)
+                continue
+
+            radar = candidate
+            _observe_occupied()
             _set_radar_ok(ok=True)
             emit({"diag": "radar_ok"})
-            return radar
+            failure_reported = False
 
-
-async def track_occupancy(radar: LD2450) -> None:
-    """Publish occupancy changes before streaming each valid radar report.
-
-    Args:
-        radar: A driver that has completed startup.
-    """
-    last_stream_ms = None
-    # TODO: Decide whether report outages should pause or restart an active
-    # clear countdown instead of retaining elapsed wall time.
-    while True:
         try:
             targets = await radar.read_latest()
         except OSError as err:
-            emit({"diag": "read_err", "err": str(err)})
-            _set_radar_ok(ok=False)
-            await asyncio.sleep_ms(_READ_ERR_PAUSE_MS)
+            failure_reported = _enter_radar_fault(
+                radar,
+                diag="read_err",
+                err=err,
+                already_reported=failure_reported,
+            )
+            radar = None
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
             continue
 
         now_ms = time.ticks_ms()
         if targets is None:
-            if _state.radar_ok is not False:
-                emit({"diag": "report_timeout", "t": now_ms})
-            _set_radar_ok(ok=False)
+            failure_reported = _enter_radar_fault(
+                radar,
+                diag="report_timeout",
+                now_ms=now_ms,
+                already_reported=failure_reported,
+            )
+            radar = None
+            await asyncio.sleep_ms(_RETRY_PAUSE_MS)
             continue
 
         targets = tuple(target for target in targets if _outside_dead_zone(target))
@@ -273,6 +300,49 @@ async def track_occupancy(radar: LD2450) -> None:
         if stream_due:
             emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
             last_stream_ms = now_ms
+
+
+def _enter_radar_fault(
+    radar: LD2450 | None,
+    *,
+    diag: str,
+    already_reported: bool,
+    err: Exception | None = None,
+    now_ms: int | None = None,
+) -> bool:
+    """Apply the fail-safe state and tear down one failed radar.
+
+    Args:
+        radar: Current driver, if construction completed.
+        diag: Existing diagnostic category for the initiating fault.
+        already_reported: Whether this uninterrupted failure was already reported.
+        err: Optional exception that caused the failure.
+        now_ms: Optional report-timeout timestamp.
+
+    Returns:
+        True, recording that this failure period has emitted its diagnostic.
+    """
+    _observe_occupied()
+    _set_radar_ok(ok=False)
+    if not already_reported:
+        report = {"diag": diag}
+        if err is not None:
+            report["err"] = str(err)
+        if now_ms is not None:
+            report["t"] = now_ms
+        emit(report)
+    _close_radar(radar)
+    return True
+
+
+def _close_radar(radar: LD2450 | None) -> None:
+    """Close a radar without allowing teardown failure to stop recovery."""
+    if radar is None:
+        return
+    try:
+        radar.close()
+    except Exception:  # noqa: BLE001 - recovery must survive UART teardown failure.
+        return
 
 
 def _dashboard_address() -> tuple[str | None, OSError | None]:
@@ -364,16 +434,7 @@ async def serve_dashboard() -> None:
 
 async def main() -> None:
     """Serve the dashboard while the radar initializes and streams."""
-    await asyncio.gather(serve_dashboard(), _track_radar())
-
-
-async def _track_radar() -> None:
-    """Initialize the radar and track occupancy until reset."""
-    radar = await init_radar()
-    try:
-        await track_occupancy(radar)
-    finally:
-        radar.close()
+    await asyncio.gather(serve_dashboard(), _supervise_radar())
 
 
 def _target_dict(target: object) -> dict:
@@ -441,6 +502,10 @@ occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
 hold_control = node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
 node.on_commissioning(_on_commissioning)
 node.start()
+
+# Occupied is the fail-safe boot value. A failed Matter publication remains
+# pending while radar initialization proceeds and is retried by the supervisor.
+_publish_desired_occupancy()
 
 # A commissioned board falls straight through to radar health and occupancy. An
 # uncommissioned one shows whichever pairing state the transitions queued during
