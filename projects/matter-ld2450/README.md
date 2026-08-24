@@ -219,17 +219,6 @@ docker compose up --build viz
 
 Set `SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
 
-This crash-diagnostic build also sends ESP-IDF, CHIP, bootloader, and panic
-output over the same USB serial connection. Those lines are deliberately not
-JSON, so the dashboard ignores them. Capture the native log and any panic
-backtrace directly with:
-
-```console
-docker compose run --rm --build esp32-monitor
-```
-
-Set `MONITOR_SECONDS` to extend the default 90-second capture.
-
 ## The board's own dashboard
 
 A commissioned board exposes an On/Off Plug-in Unit alongside its occupancy
