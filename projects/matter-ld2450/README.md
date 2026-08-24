@@ -3,7 +3,7 @@
 This project exposes an HLK-LD2450 mmWave radar as one read-only Matter
 Occupancy Sensor. It is an edge translator: detailed 10 Hz radar reports become
 a low-bandwidth Matter occupancy state, while full target telemetry remains
-available through a local USB dashboard.
+available through the board's webpage or a local USB dashboard.
 
 The product contract is:
 
@@ -30,6 +30,7 @@ flowchart LR
 
     serial["USB JSON stream"]
     backend["FastAPI host service<br/>serial → WebSocket"]
+    onboard["Onboard HTTP + WebSocket"]
     browser["Plotly dashboard"]
     pixel["WS2812 status pixel"]
 
@@ -40,12 +41,13 @@ flowchart LR
     stack <-->|Matter| controller
 
     policy --> serial --> backend --> browser
+    policy --> onboard --> browser
     stack -.->|"commissioning events"| policy
     policy --> pixel
 ```
 
-Matter and the dashboard are independent outputs. The dashboard can stop
-without affecting occupancy publication or commissioning.
+Matter occupancy and dashboard telemetry are independent outputs. Dashboard
+failures do not affect occupancy publication or commissioning.
 
 ### Responsibility boundaries
 
@@ -198,8 +200,8 @@ is unavailable.
 
 ## USB serial and dashboard
 
-Each valid report produces one compact JSON line containing targets outside the
-dead zone. Raw sensor fields are preserved:
+At most once every 500 ms, the newest valid report produces one compact JSON
+line containing targets outside the dead zone. Raw sensor fields are preserved:
 
 ```json
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
@@ -221,12 +223,11 @@ Set `SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
 
 ## The board's own dashboard
 
-A commissioned board exposes an On/Off Plug-in Unit alongside its occupancy
-sensor. Turn that `Web Server` control on to serve the same dashboard from the
-board, or leave it off to keep port 80 and every WebSocket closed. It is forced
-off after every reboot so diagnostics cannot sustain a brownout loop. The build
-gzips `viz/static/index.html` into the firmware, and the enabled board serves it
-at the address Matter commissioning put it on. There is one copy of the page:
+The board automatically serves the same dashboard from the address Matter
+commissioning put it on. To avoid overlapping the Matter startup current peak,
+the firmware waits 15 seconds after boot before opening port 80, then starts the
+listener as soon as an address is available. The build gzips
+`viz/static/index.html` into the firmware. There is one copy of the page:
 whatever the `viz` service above shows is what the board shows.
 
 The address is reported once it exists, and again if the DHCP lease changes it:
@@ -236,11 +237,10 @@ The address is reported once it exists, and again if the DHCP lease changes it:
 ```
 
 Read it with `docker compose run --rm --build esp32-monitor`, then open that URL.
-Turning the control off produces `{"event":"dashboard","state":"stopped"}`.
-Nothing is served while it is off or before commissioning, because until then
-the board has no address. Serial output remains available either way, at a
-power-conscious two reports per second; the WebSocket is a second destination
-for those same lines, not a replacement.
+Nothing is served during the protected startup interval or before commissioning,
+because until then the listener is delayed or the board has no address. Serial
+output remains available at a power-conscious two reports per second; the
+WebSocket is a second destination for those same lines, not a replacement.
 
 The page still loads Plotly from `cdn.plot.ly`, so the **viewing device** needs
 internet access for the charts; the board itself does not. Up to three browsers
@@ -336,8 +336,7 @@ with more than 200 mA available, not from 3V3.
 - Occupancy means any target outside the artifact dead zone. There are no
   configurable zones, confidence thresholds, or dwell times.
 - Radar slots are current report positions, not persistent person identities.
-- The firmware configures occupancy and webserver-control endpoints and disables
-  OTA.
+- The firmware configures one occupancy endpoint and disables OTA.
 - The current VID, PID, and example device-attestation provider are development
   settings and must be replaced for a production device.
 - The dashboard loads Plotly from a CDN and therefore is not fully offline.

@@ -81,7 +81,6 @@ class _ProductState:
         self.session_active = False
         self.radar_ok = None
         self.occupancy = None
-        self.dashboard_enabled = False
 
 
 _state = _ProductState()
@@ -248,15 +247,8 @@ async def _start_dashboard(address: str) -> OSError | None:
     return None
 
 
-async def _stop_dashboard(*, report: bool) -> None:
-    """Stop the dashboard and optionally announce the transition."""
-    await dashboard.stop()
-    if report:
-        emit({"event": "dashboard", "state": "stopped"})
-
-
 async def _reconcile_dashboard(address: str | None, *, reported_error: bool) -> tuple:
-    """Reconcile one enabled-dashboard poll and return its next state.
+    """Reconcile one dashboard poll and return its next state.
 
     Args:
         address: Last address announced for the running listener.
@@ -283,35 +275,24 @@ async def _reconcile_dashboard(address: str | None, *, reported_error: bool) -> 
 
 
 async def serve_dashboard() -> None:
-    """Reconcile the Matter control with the dashboard listener.
+    """Keep the dashboard available once Matter networking has an address.
 
-    The listener is fail-safe off after every boot. Matter gets an undisturbed
-    startup interval, then an enabled control starts the server as soon as an
-    address exists. The listener binds every interface, so a later lease change
-    needs no restart — only a fresh report of where to find the page.
+    Matter gets an undisturbed startup interval before diagnostics add another
+    listener and network traffic. The listener then starts as soon as an address
+    exists and binds every interface, so a later lease change needs no restart —
+    only a fresh report of where to find the page.
 
     A dashboard that cannot be served is reported once per failure period and
-    retried without changing the controller's requested ON state. It is a
-    diagnostics view, and it must never take occupancy down.
+    retried. It is a diagnostics view, and it must never take occupancy down.
     """
     address = None
     reported_error = False
-    reported_stopped = True
-    emit({"event": "dashboard", "state": "stopped"})
     await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
 
     while True:
-        if _state.dashboard_enabled:
-            reported_stopped = False
-            address, reported_error, delay_ms = await _reconcile_dashboard(
-                address, reported_error=reported_error
-            )
-        else:
-            await _stop_dashboard(report=not reported_stopped)
-            address = None
-            reported_error = False
-            reported_stopped = True
-            delay_ms = _ADDRESS_POLL_MS
+        address, reported_error, delay_ms = await _reconcile_dashboard(
+            address, reported_error=reported_error
+        )
         await asyncio.sleep_ms(delay_ms)
 
 
@@ -368,17 +349,6 @@ def _on_commissioning(event: object) -> None:
     refresh()
 
 
-def _on_dashboard_write(event: object) -> None:
-    """Apply a controller's webserver request to the product state.
-
-    Args:
-        event: Remote Matter attribute write delivered by the control endpoint.
-    """
-    if (event.cluster, event.attribute) != (matter.Clusters.ON_OFF, matter.Attributes.ON_OFF):
-        return
-    _state.dashboard_enabled = event.value
-
-
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
 render(BOOT_COLOR)
 
@@ -400,12 +370,7 @@ add_sink(reports.send)
 
 node = matter.Node()
 occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
-webserver_control = node.create_endpoint(
-    matter.EndpointType.ON_OFF_PLUG_IN_UNIT,
-    initial={(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF): False},
-)
 node.on_commissioning(_on_commissioning)
-webserver_control.on_write(_on_dashboard_write)
 node.start()
 
 # A commissioned board falls straight through to radar health and occupancy. An
