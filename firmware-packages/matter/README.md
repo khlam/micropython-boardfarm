@@ -26,9 +26,11 @@ node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 ```
 
-`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, and
-`OCCUPANCY_SENSOR` endpoints are supported, including multiple endpoints on one
-node. `get()` reads Python-owned state hydrated from ESP-Matter persistence
+`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, `OCCUPANCY_SENSOR`,
+and `ON_OFF_PLUG_IN_UNIT` endpoints are supported, including multiple endpoints
+on one node. Plug-in units expose the same `.on` property and remote-write
+callback as on/off lights, but controllers classify them as an outlet-style
+load. `get()` reads Python-owned state hydrated from ESP-Matter persistence
 during `Node.start()`. Restoration does not invoke callbacks.
 
 `create_endpoint` also takes an `initial={(cluster, attribute): value}` mapping,

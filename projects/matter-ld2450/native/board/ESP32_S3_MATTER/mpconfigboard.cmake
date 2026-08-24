@@ -32,8 +32,9 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "${MATTER_SDK_PATH}/config/esp32/components"
     "${ESP_MATTER_PATH}/components"
     "${ESP_MATTER_PATH}/device_hal/device"
+    "${CMAKE_CURRENT_LIST_DIR}/../station_only_compat"
     "$ENV{MATTER_NATIVE_PATH}"
     ${extra_components_dirs_append}
 )
 
-list(APPEND IDF_COMPONENTS matter-native)
+list(APPEND IDF_COMPONENTS matter-native station-only-compat)

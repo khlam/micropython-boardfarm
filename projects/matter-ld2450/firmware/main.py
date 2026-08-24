@@ -39,6 +39,12 @@ _DASHBOARD_PORT = const(80)
 # There is no event for the address arriving, and it can change with the DHCP
 # lease, so the address is polled for as long as the firmware runs.
 _ADDRESS_POLL_MS = const(1_000)
+# Leave Matter alone during the startup current peak before diagnostics may add
+# another listener and network traffic.
+_DASHBOARD_BOOT_DELAY_MS = const(15_000)
+_DASHBOARD_RETRY_MS = const(5_000)
+# Occupancy still consumes every report; only the diagnostic copy is decimated.
+_REPORT_STREAM_INTERVAL_MS = const(500)
 # Near-field reports can collapse toward the origin as tracking ends. Ignore
 # radius around the sensor so those artifacts cannot hold occupancy on.
 _DEAD_ZONE_RADIUS_MM = const(10)
@@ -47,14 +53,14 @@ _DEAD_ZONE_RADIUS_MM = const(10)
 # failures worth catching are the ones where it stops advertising: a node nobody
 # can reach has to look different from one waiting to be scanned. Amber is that
 # state, so radar trouble takes yellow rather than sharing it.
-BOOT_COLOR = (25, 25, 25)
-GREEN_COLOR = (0, 25, 0)
-WINDOW_COLOR = (25, 0, 25)
-SESSION_COLOR = (0, 25, 25)
-FAILED_COLOR = (25, 0, 0)
-STALLED_COLOR = (25, 12, 0)
-RADAR_FAULT_COLOR = (25, 25, 0)
-CLEAR_COLOR = (0, 0, 25)
+BOOT_COLOR = (8, 8, 8)
+GREEN_COLOR = (0, 8, 0)
+WINDOW_COLOR = (8, 0, 8)
+SESSION_COLOR = (0, 8, 8)
+FAILED_COLOR = (8, 0, 0)
+STALLED_COLOR = (8, 4, 0)
+RADAR_FAULT_COLOR = (8, 8, 0)
+CLEAR_COLOR = (0, 0, 8)
 
 # States that name their own colour outright. CLOSED is deliberately absent: it
 # is the ambiguous one, resolved against the tracked session in _pairing_color.
@@ -75,6 +81,7 @@ class _ProductState:
         self.session_active = False
         self.radar_ok = None
         self.occupancy = None
+        self.dashboard_enabled = False
 
 
 _state = _ProductState()
@@ -173,6 +180,7 @@ async def track_occupancy(radar: LD2450) -> None:
     Args:
         radar: A driver that has completed startup.
     """
+    last_stream_ms = None
     while True:
         try:
             targets = await radar.read_latest()
@@ -194,35 +202,117 @@ async def track_occupancy(radar: LD2450) -> None:
         occupied = bool(targets)
         if occupied != _state.occupancy:
             _publish_occupancy(occupied=occupied)
-        emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
+        stream_due = last_stream_ms is None or (
+            time.ticks_diff(now_ms, last_stream_ms) >= _REPORT_STREAM_INTERVAL_MS
+        )
+        if stream_due:
+            emit({"t": now_ms, "targets": [_target_dict(target) for target in targets]})
+            last_stream_ms = now_ms
+
+
+def _dashboard_address() -> tuple[str | None, OSError | None]:
+    """Return the current address and any recoverable lookup error."""
+    try:
+        return node.network_address(), None
+    except OSError as err:
+        return None, err
+
+
+def _report_dashboard_error(err: OSError, *, already_reported: bool) -> bool:
+    """Emit one dashboard error per failure period and mark it reported.
+
+    Args:
+        err: The recoverable dashboard failure.
+        already_reported: Whether this failure period already emitted an error.
+
+    Returns:
+        True, marking this failure period as reported.
+    """
+    if not already_reported:
+        error("dashboard", str(err))
+    return True
+
+
+def _report_dashboard_ready(address: str) -> None:
+    """Emit the address of a running dashboard."""
+    emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
+
+
+async def _start_dashboard(address: str) -> OSError | None:
+    """Start and announce the dashboard, returning a recoverable failure."""
+    try:
+        await dashboard.start()
+    except OSError as err:
+        return err
+    _report_dashboard_ready(address)
+    return None
+
+
+async def _stop_dashboard(*, report: bool) -> None:
+    """Stop the dashboard and optionally announce the transition."""
+    await dashboard.stop()
+    if report:
+        emit({"event": "dashboard", "state": "stopped"})
+
+
+async def _reconcile_dashboard(address: str | None, *, reported_error: bool) -> tuple:
+    """Reconcile one enabled-dashboard poll and return its next state.
+
+    Args:
+        address: Last address announced for the running listener.
+        reported_error: Whether this failure period already emitted an error.
+
+    Returns:
+        Address, error-report flag, and delay before the next poll.
+    """
+    current, address_error = _dashboard_address()
+    if address_error is not None:
+        reported_error = _report_dashboard_error(address_error, already_reported=reported_error)
+        return address, reported_error, _ADDRESS_POLL_MS
+    if current is None:
+        return None, False, _ADDRESS_POLL_MS
+    if not dashboard.running:
+        start_error = await _start_dashboard(current)
+        if start_error is not None:
+            reported_error = _report_dashboard_error(start_error, already_reported=reported_error)
+            return address, reported_error, _DASHBOARD_RETRY_MS
+        return current, False, _ADDRESS_POLL_MS
+    if current != address:
+        _report_dashboard_ready(current)
+    return current, False, _ADDRESS_POLL_MS
 
 
 async def serve_dashboard() -> None:
-    """Publish the dashboard once Matter's Wi-Fi bring-up yields an address.
+    """Reconcile the Matter control with the dashboard listener.
 
-    The listener binds every interface, so a later lease change needs no restart
-    — only a fresh report of where to find the page. Before commissioning there
-    is no address and no server, and the serial stream is unaffected either way.
+    The listener is fail-safe off after every boot. Matter gets an undisturbed
+    startup interval, then an enabled control starts the server as soon as an
+    address exists. The listener binds every interface, so a later lease change
+    needs no restart — only a fresh report of where to find the page.
 
-    A dashboard that cannot be served is reported once and retried on the next
-    poll: it is a diagnostics view, and it must never take occupancy down.
+    A dashboard that cannot be served is reported once per failure period and
+    retried without changing the controller's requested ON state. It is a
+    diagnostics view, and it must never take occupancy down.
     """
     address = None
     reported_error = False
+    reported_stopped = True
+    emit({"event": "dashboard", "state": "stopped"})
+    await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
+
     while True:
-        try:
-            current = node.network_address()
-            if current is not None and current != address:
-                if address is None:
-                    await dashboard.start()
-                address = current
-                reported_error = False
-                emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
-        except OSError as err:
-            if not reported_error:
-                error("dashboard", str(err))
-                reported_error = True
-        await asyncio.sleep_ms(_ADDRESS_POLL_MS)
+        if _state.dashboard_enabled:
+            reported_stopped = False
+            address, reported_error, delay_ms = await _reconcile_dashboard(
+                address, reported_error=reported_error
+            )
+        else:
+            await _stop_dashboard(report=not reported_stopped)
+            address = None
+            reported_error = False
+            reported_stopped = True
+            delay_ms = _ADDRESS_POLL_MS
+        await asyncio.sleep_ms(delay_ms)
 
 
 async def main() -> None:
@@ -278,6 +368,17 @@ def _on_commissioning(event: object) -> None:
     refresh()
 
 
+def _on_dashboard_write(event: object) -> None:
+    """Apply a controller's webserver request to the product state.
+
+    Args:
+        event: Remote Matter attribute write delivered by the control endpoint.
+    """
+    if (event.cluster, event.attribute) != (matter.Clusters.ON_OFF, matter.Attributes.ON_OFF):
+        return
+    _state.dashboard_enabled = event.value
+
+
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
 render(BOOT_COLOR)
 
@@ -299,7 +400,12 @@ add_sink(reports.send)
 
 node = matter.Node()
 occupancy = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+webserver_control = node.create_endpoint(
+    matter.EndpointType.ON_OFF_PLUG_IN_UNIT,
+    initial={(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF): False},
+)
 node.on_commissioning(_on_commissioning)
+webserver_control.on_write(_on_dashboard_write)
 node.start()
 
 # A commissioned board falls straight through to radar health and occupancy. An

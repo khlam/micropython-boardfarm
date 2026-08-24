@@ -41,6 +41,12 @@ class Server:
         self._pages = {}
         self._streams = {}
         self._listener = None
+        self._connections = []
+
+    @property
+    def running(self) -> bool:
+        """Return whether the server is accepting new connections."""
+        return self._listener is not None
 
     def page(
         self,
@@ -80,12 +86,37 @@ class Server:
         return broadcast
 
     async def start(self) -> None:
-        """Bind the port and begin accepting connections in the background."""
+        """Bind the port and begin accepting connections in the background.
+
+        Repeated starts are harmless so an application can reconcile desired
+        state after every network or controller event without tracking a second
+        lifecycle flag.
+        """
+        if self._listener is not None:
+            return
         # backlog stays a keyword: CPython accepts it no other way, and host
         # tests exercise this module through the MicroPython stubs.
         self._listener = await asyncio.start_server(
             self._handle, _BIND_ADDRESS, self._port, backlog=_BACKLOG
         )
+
+    async def stop(self) -> None:
+        """Stop accepting requests and close every active connection.
+
+        Repeated stops are harmless. The listener is detached before yielding
+        so :attr:`running` changes immediately, while closing active writers
+        also terminates WebSockets that would otherwise outlive the listener.
+        """
+        listener = self._listener
+        self._listener = None
+        if listener is not None:
+            listener.close()
+            await listener.wait_closed()
+        for broadcast in self._streams.values():
+            broadcast.close()
+        for writer in tuple(self._connections):
+            writer.close()
+        await asyncio.sleep_ms(0)
 
     async def _handle(self, reader: object, writer: object) -> None:
         """Serve one connection to completion, then close it.
@@ -94,6 +125,7 @@ class Server:
         or speaks nonsense is ordinary traffic on a LAN, and the loop that feeds
         this server must never see it.
         """
+        self._connections.append(writer)
         try:
             request = await _read_request(reader)
             if request is None:
@@ -108,6 +140,7 @@ class Server:
                 await writer.wait_closed()
             except OSError:
                 pass
+            self._connections.remove(writer)
 
     async def _dispatch(
         self, reader: object, writer: object, method: str, path: str, headers: dict

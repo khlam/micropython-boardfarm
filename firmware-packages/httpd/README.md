@@ -30,16 +30,21 @@ reports = server.stream("/ws", greeting='{"event":"connected"}')
 
 async def main():
     await server.start()
-    while True:
+    while server.running:
         reports.send('{"reading": 42}')
         await asyncio.sleep_ms(100)
+    await server.stop()
 
 
 asyncio.run(main())
 ```
 
-`Server()` only records routes; `start()` is what binds the port. Build the
-server wherever it reads best and open it once the network is actually up.
+`Server()` only records routes; `start()` is what binds the port. Both
+`start()` and `stop()` are idempotent, and `running` reports whether the
+listener is active. Stopping also closes every current HTTP and WebSocket
+connection, so the same configured server can later be started again without
+leaving old clients behind. Build the server wherever it reads best and open it
+once the network is actually up.
 
 ## Bounds
 
