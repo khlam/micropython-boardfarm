@@ -26,19 +26,25 @@ def test_accepts_an_image_carrying_its_factory_partition(image, identity):
 
 def test_rejects_an_empty_image(image, identity):
     image.merged.write_bytes(b"")
-    with pytest.raises(ValueError, match=r"exceeds the .* byte flash layout"):
+    with pytest.raises(ValueError, match="merged image must be exactly"):
         build._validate_merged_image(image.merged, image.factory, image.qr, identity)
 
 
 def test_rejects_an_image_larger_than_the_flash(image, identity):
     image.merged.write_bytes(b"\x00" * (_FLASH_SIZE + 1))
-    with pytest.raises(ValueError, match=r"exceeds the .* byte flash layout"):
+    with pytest.raises(ValueError, match="merged image must be exactly"):
+        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
+
+
+def test_rejects_an_image_that_was_not_padded_to_the_flash(image, identity):
+    image.merged.write_bytes(image.merged.read_bytes()[:-1])
+    with pytest.raises(ValueError, match="merged image must be exactly"):
         build._validate_merged_image(image.merged, image.factory, image.qr, identity)
 
 
 def test_rejects_a_factory_partition_of_the_wrong_size(image, identity):
     image.factory.write_bytes(b"\xaa" * (_FACTORY_SIZE - 1))
-    with pytest.raises(ValueError, match="must be exactly"):
+    with pytest.raises(ValueError, match="factory partition must be exactly"):
         build._validate_merged_image(image.merged, image.factory, image.qr, identity)
 
 

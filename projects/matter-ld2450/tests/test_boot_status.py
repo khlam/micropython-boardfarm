@@ -25,7 +25,7 @@ def test_boot_builds_routes_and_stable_matter_endpoints(load_application):
     module = boot.module
     application = boot.application
 
-    assert module.Board(uart_id=1, tx=5, rx=6, led_pin=21) == module.BOARD
+    assert module.Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21) == module.BOARD
     assert machine.pin_constructions == [(21, machine.Pin.OUT)]
     assert application._pixel.writes == [module._BOOT_COLOR, module._BOOT_COLOR]
     assert boot.server.port == 80

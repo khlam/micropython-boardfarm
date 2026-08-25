@@ -102,7 +102,9 @@ def _capture(args: argparse.Namespace, started: float, deadline: float) -> None:
                     _send(port, args.send, interrupt=args.interrupt)
                     pending = False
                 _read_lines(port, started, deadline)
-            except (OSError, serial.SerialException):
+            # SerialException subclasses OSError, so this also covers the device
+            # node disappearing underneath an open port when the board reboots.
+            except OSError:
                 _write(started, "-- serial link dropped, reopening --")
 
 
@@ -127,7 +129,7 @@ def _open(path: str, baud: int, deadline: float) -> serial.Serial | None:
         if Path(path).exists():
             try:
                 return serial.Serial(path, baud, timeout=_READ_TIMEOUT_S)
-            except (OSError, serial.SerialException):
+            except OSError:
                 pass
         time.sleep(_REOPEN_POLL_S)
     return None

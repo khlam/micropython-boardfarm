@@ -26,11 +26,13 @@ import matter
 from ld2450 import LD2450, DeviceNotFoundError
 from matter.emit import add_sink, emit, error
 
-Board = namedtuple("Board", ("uart_id", "tx", "rx", "led_pin"))
+# Pin map for this board. ``tx`` connects to radar RX, ``rx`` to radar TX, and
+# ``led_pin`` drives the onboard WS2812. Only ESP32-S3 is supported.
+Board = namedtuple("Board", ("name", "uart_id", "tx", "rx", "led_pin"))
 _machine = os.uname().machine
 if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
-BOARD = Board(uart_id=1, tx=5, rx=6, led_pin=21)
+BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RADAR_RETRY_MS = const(1_000)
 _MATTER_POLL_MS = const(50)
@@ -429,7 +431,7 @@ class _Application:
             return
         try:
             radar.close()
-        except Exception:  # noqa: BLE001 - a UART close error must not stop recovery.
+        except OSError:
             return
 
     @staticmethod

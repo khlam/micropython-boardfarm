@@ -181,7 +181,7 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
     boot = load_application(fabrics=(_FABRIC,))
     application = boot.application
     application._apply_empty_report(now_ms=0)
-    radar = FakeRadar(close_error=RuntimeError("close failed"))
+    radar = FakeRadar(close_error=OSError("close failed"))
     capsys.readouterr()
 
     already_reported = application._handle_radar_failure(

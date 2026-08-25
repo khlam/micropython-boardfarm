@@ -590,13 +590,17 @@ def _validate_onboarding(
 def _validate_merged_image(
     merged_path: Path, factory_path: Path, qr_path: Path, identity: _BuildIdentity
 ) -> None:
-    """Check image bounds, factory placement, and QR image presence."""
+    """Check image size, factory placement, and QR image presence.
+
+    The merged image is padded to the whole flash, so anything else means the
+    merge did not produce the layout the board is about to be written with.
+    """
     merged = merged_path.read_bytes()
     factory = factory_path.read_bytes()
     start = identity.factory_offset
     end = start + identity.factory_size
     if len(merged) != identity.flash_size:
-        raise ValueError(f"merged image exceeds the {identity.flash_size:#x} byte flash layout")
+        raise ValueError(f"merged image must be exactly {identity.flash_size:#x} bytes")
     if len(factory) != identity.factory_size:
         raise ValueError(f"factory partition must be exactly {identity.factory_size:#x} bytes")
     if merged[start:end] != factory:

@@ -43,8 +43,9 @@ Before changing anything, identify the area you're touching:
 | IMU driver | `firmware-packages/mpu6050/mpu6050/` | `mpu6050.py` — `MPU6050(sda=, scl=, bus_id=0)`; opens its own hard I²C, auto-detects 0x68/0x69 → `DeviceNotFoundError` |
 | LD2450 radar | `projects/ld2450/`, `firmware-packages/ld2450/` | `LD2450(bus_id=, tx=, rx=)` owns UART parsing; project firmware streams target JSON to the dashboard |
 | On-device web server | `firmware-packages/httpd/httpd/` | `server.py` — `Server(port=)`, `.page()` for a fixed body, `.stream()` for a WebSocket fan-out; `websocket.py` — RFC 6455 handshake/framing plus `Broadcast.send()`, which never raises or blocks. Serves bodies decided before start; parses nothing it forwards |
+| Matter occupancy sensor | `projects/matter-ld2450/` | `firmware/main.py` — translates LD2450 target reports into a read-only Occupancy Sensor endpoint, with a second virtual Dimmable Light endpoint whose level maps linearly to the 0–10 minute hold after the last target; also serves its own dashboard over `httpd` once Matter has a network address |
 | Matter interface | `firmware-packages/matter/` | `matter/schema.py` — attribute vocabulary + validation rules, nothing native; `matter/endpoint.py` — `Endpoint` and the named attribute accessors (`.on`/`.level`/`.hue`/…); `matter/node.py` — `Node` lifecycle and event drain; `matter/__init__.py` — re-export only; `native/` — ESP-Matter `_matter` bridge; `ARCHITECTURE.md` — mermaid call-path diagrams across the native boundary |
-| Matter build tooling | `tools/matter-build/` | `build.py` — the whole `esp32-compile` run: board-config parsing, compile, credential minting, merge, artifact validation, publish; `spake2p.py` — SPAKE2+ verifier via `cryptography` (no `ecdsa`); `onboarding_codes.py` — QR/manual pairing-code encoding, the mirror of `build.py`'s own decoders; `nvs_partition_gen.py` — writes the `chip-factory` NVS partition via the `esp-idf-nvs-partition-gen` package; `nvs_partition_read.py` — reads it back via ESP-IDF's `nvs_tool.py` for validation; `qr_image.py` — QR PNG rendering via `qrcode[pil]`; `serial_monitor.py` — bounded serial capture; `tests/` — host pytest coverage of the parsers, pairing-code decoders, and the structural factory-identity check (verifier/salt present, no plaintext passcode — not a cryptographic proof). Bind-mounted to `/matter-tools` for the build and `/tools` for pytest, never installed. |
+| Matter build tooling | `tools/matter-build/` | `build.py` — the whole `esp32-compile` run: board-config parsing, compile, credential minting, merge, artifact validation, publish; it also gzips the project's `viz/static/index.html` into a generated `dashboard_page` module and hands manifest.py the staging directory as `FROZEN_STAGING_DIR`, so the board serves the same page the host viz service does; `spake2p.py` — SPAKE2+ verifier via `cryptography` (no `ecdsa`); `onboarding_codes.py` — QR/manual pairing-code encoding, the mirror of `build.py`'s own decoders; `nvs_partition_gen.py` — writes the `chip-factory` NVS partition via the `esp-idf-nvs-partition-gen` package; `nvs_partition_read.py` — reads it back via ESP-IDF's `nvs_tool.py` for validation; `qr_image.py` — QR PNG rendering via `qrcode[pil]`; `serial_monitor.py` — bounded serial capture; `tests/` — host pytest coverage of the parsers, pairing-code decoders, and the structural factory-identity check (verifier/salt present, no plaintext passcode — not a cryptographic proof). Bind-mounted to `/matter-tools` for the build and `/tools` for pytest, never installed. |
 | Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
 | Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
 | Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
@@ -55,6 +56,14 @@ Before changing anything, identify the area you're touching:
 | Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
+
+<!-- TODO: revisit the dashboard-freezing clause in the "Matter build tooling" row
+     above — "it also gzips the project's viz/static/index.html into a generated
+     dashboard_page module and hands manifest.py the staging directory as
+     FROZEN_STAGING_DIR, so the board serves the same page the host viz service
+     does". It describes a cross-cutting build step (build.py + manifest.py +
+     the project's viz/ mount) from inside a row about one tools/ directory, so
+     it may belong in its own routing row or somewhere outside this table. -->
 
 ## Commands (copy/paste, run from `projects/<project>/`)
 

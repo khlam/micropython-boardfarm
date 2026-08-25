@@ -4,7 +4,12 @@ version = "0.2.0"
 description = "MicroPython Matter occupancy-sensor firmware for an HLK-LD2450 radar."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "micropython-boardfarm>=0.16.0",
+]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+micropython-boardfarm = { workspace = true }
