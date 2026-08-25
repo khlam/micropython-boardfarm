@@ -33,6 +33,7 @@ if "ESP32S3" not in _machine:
 BOARD = Board(uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RADAR_RETRY_MS = const(1_000)
+_MATTER_POLL_MS = const(50)
 # Matter uses UDP ports 5540 and 5353, leaving the standard HTTP port available.
 _DASHBOARD_PORT = const(80)
 # Poll because Matter does not report address changes to this application.
@@ -55,8 +56,8 @@ _EMPTY_HOLD = const(1)
 _VACANT = const(2)
 
 # Status colors keep commissioning failures distinct from normal commissioning.
-# Amber means an uncommissioned node stopped advertising; yellow means radar
-# failure.
+# Amber means an uncommissioned node stopped advertising; yellow means a radar
+# or Matter synchronization failure.
 _BOOT_COLOR = (8, 8, 8)
 _OCCUPIED_COLOR = (0, 8, 0)
 _COMMISSIONING_WINDOW_COLOR = (8, 0, 8)
@@ -89,6 +90,7 @@ class _Application:
         self._commissioned = False
         self._commissioning_state = None
         self._commissioning_session_active = False
+        self._matter_healthy = True
         self._radar_healthy = None
         self._occupancy_state = _OCCUPIED
         self._published_occupancy = None
@@ -124,8 +126,8 @@ class _Application:
         self._update_status_pixel()
 
     async def run(self) -> None:
-        """Run the dashboard and radar tasks."""
-        await asyncio.gather(self._run_dashboard(), self._run_radar())
+        """Run Matter polling, dashboard, and radar tasks."""
+        await asyncio.gather(self._run_matter(), self._run_dashboard(), self._run_radar())
 
     def _set_pixel_color(self, color: tuple) -> None:
         """Set the onboard status pixel color."""
@@ -153,7 +155,7 @@ class _Application:
         """Show the highest-priority commissioning or product state."""
         color = self._commissioning_color()
         if color is None:
-            if self._radar_healthy is False:
+            if not self._matter_healthy or self._radar_healthy is False:
                 color = _RADAR_FAILED_COLOR
             else:
                 color = _VACANT_COLOR if self._occupancy_state == _VACANT else _OCCUPIED_COLOR
@@ -186,6 +188,32 @@ class _Application:
         self._radar_healthy = healthy
         self._update_status_pixel()
 
+    def _set_matter_health(self, *, healthy: bool) -> None:
+        """Record Matter synchronization health and update the status pixel."""
+        if self._matter_healthy == healthy:
+            return
+        self._matter_healthy = healthy
+        self._update_status_pixel()
+
+    async def _run_matter(self) -> None:
+        """Poll Matter and hold fail-safe occupied through failure periods."""
+        failure_reported = False
+        while True:
+            try:
+                self._node.poll()
+            except OSError as exception:
+                self._set_matter_health(healthy=False)
+                self._set_occupied()
+                if not failure_reported:
+                    emit({"diag": "matter_poll_err", "err": str(exception)})
+                failure_reported = True
+            else:
+                if failure_reported:
+                    emit({"diag": "matter_ok"})
+                failure_reported = False
+                self._set_matter_health(healthy=True)
+            await asyncio.sleep_ms(_MATTER_POLL_MS)
+
     def _publish_occupancy(self, *, force: bool = False) -> None:
         """Publish the current occupancy state and retry failures later.
 
@@ -217,7 +245,7 @@ class _Application:
             occupied: Whether the report has a target outside the dead zone.
             now_ms: Monotonic time when the report was received.
         """
-        if occupied:
+        if not self._matter_healthy or occupied:
             self._set_occupied()
         else:
             self._apply_empty_report(now_ms=now_ms)

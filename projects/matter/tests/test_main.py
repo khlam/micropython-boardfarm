@@ -1,5 +1,7 @@
 """End-to-end tests for the Matter example firmware boot and callbacks."""
 
+import json
+
 import _matter
 import machine
 import neopixel
@@ -9,6 +11,10 @@ import matter
 from matter.schema import Paths
 
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
+
+
+class StopLoopError(Exception):
+    """Escape the firmware's intentional infinite polling loop."""
 
 
 def test_supported_boot_builds_pixel_and_reports_ready(load_main):
@@ -21,6 +27,41 @@ def test_supported_boot_builds_pixel_and_reports_ready(load_main):
     # can honestly claim; a real one has a window open by this point.
     assert boot.module.pixel.writes == [boot.module.BOOT_COLOR, boot.module.BOOT_COLOR]
     assert boot.lines == [{"event": "matter", "state": "ready"}]
+
+
+def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
+    load_main, monkeypatch, capsys
+):
+    boot = load_main()
+    module = boot.module
+    pixel_writes = list(module.pixel.writes)
+    outcomes = iter((OSError("first"), OSError("repeat"), None, OSError("second")))
+
+    def poll():
+        outcome = next(outcomes)
+        if outcome is not None:
+            raise outcome
+
+    sleeps = 0
+
+    def stop_after_four_polls(_delay_ms):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 4:
+            raise StopLoopError
+
+    monkeypatch.setattr(module.node, "poll", poll)
+    monkeypatch.setattr(module.time, "sleep_ms", stop_after_four_polls)
+    capsys.readouterr()
+
+    with pytest.raises(StopLoopError):
+        module.run()
+
+    assert module.pixel.writes == pixel_writes
+    assert [line["message"] for line in _json_lines(capsys.readouterr().out)] == [
+        "first",
+        "second",
+    ]
 
 
 def test_unsupported_board_fails_before_hardware_setup(load_main):
@@ -112,6 +153,7 @@ def test_remote_writes_render_the_complete_endpoint_state(load_main):
     _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
     _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
     _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
+    module.node.poll()
 
     assert module.pixel.writes[-1] == (0, 25, 0)
 
@@ -136,6 +178,7 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main)
     _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
     _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
     _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
+    module.node.poll()
 
     assert module.pixel.writes[-1] == (0, 25, 0)
     assert len(module.pixel.writes) == 3
@@ -154,6 +197,7 @@ def test_commissioning_status_colors_after_start(load_main, state_code, expected
     module.pixel.writes.clear()
 
     _matter.inject_commissioning_event(state_code)
+    module.node.poll()
 
     assert module.pixel.writes[-1] == expected
 
@@ -164,6 +208,7 @@ def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_ma
 
     _matter.inject_commissioning_event(0)  # SESSION STARTED
     _matter.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
+    module.node.poll()
 
     assert module.pixel.writes == [module.SESSION_COLOR, module.SESSION_COLOR]
 
@@ -174,8 +219,9 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
 
     _matter.inject_commissioning_event(3)  # WINDOW OPENED
     _matter.inject_commissioning_event(4)  # WINDOW CLOSED with nobody connected
+    module.node.poll()
 
-    assert module.pixel.writes == [module.WINDOW_COLOR, module.STALLED_COLOR]
+    assert module.pixel.writes == [module.STALLED_COLOR]
 
 
 @pytest.mark.parametrize(
@@ -189,10 +235,10 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
 )
 def test_startup_commissioning_events_win_over_boot_state(load_main, state_code, expected):
     boot = load_main(commissioning=[state_code])
+    boot.module.node.poll()
 
     assert boot.module.pixel.writes[-1] == expected
-    assert boot.lines[0]["event"] in {"commissioning", "commissioning_window"}
-    assert boot.lines[-1] == {"event": "matter", "state": "ready"}
+    assert boot.lines == [{"event": "matter", "state": "ready"}]
 
 
 @pytest.mark.parametrize(
@@ -217,9 +263,9 @@ def test_show_post_start_state_renders_the_transition_seen_during_startup(
 
 def test_completion_during_start_is_published_after_node_is_started(load_main):
     boot = load_main(commissioning=[1])
+    boot.module.node.poll()
 
     assert boot.module._commissioned[0] is True
-    assert boot.module._pending_commissioned_off[0] is None
     assert boot.module.endpoint.on is False
     assert boot.module.pixel.writes[-1] == boot.module.OFF_COLOR
 
@@ -230,6 +276,7 @@ def test_a_reopened_window_clears_a_failure(load_main):
 
     _matter.inject_commissioning_event(2)  # SESSION FAILED
     _matter.inject_commissioning_event(3)  # WINDOW OPENED again by the package
+    module.node.poll()
 
     assert module._session_active[0] is False
     assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
@@ -241,9 +288,10 @@ def test_successful_retry_after_a_failure_commissions_the_node(load_main):
 
     _matter.inject_commissioning_event(2)  # SESSION FAILED
     _matter.inject_commissioning_event(1)  # SESSION COMPLETE
+    module.node.poll()
 
     assert module._commissioned[0] is True
-    assert module.pixel.writes == [module.FAILED_COLOR, module.OFF_COLOR]
+    assert module.pixel.writes == [module.OFF_COLOR]
 
 
 def test_closed_window_restores_commissioned_controller_state(load_main):
@@ -252,8 +300,9 @@ def test_closed_window_restores_commissioned_controller_state(load_main):
 
     _matter.inject_commissioning_event(3)
     _matter.inject_commissioning_event(4)
+    module.node.poll()
 
-    assert module.pixel.writes == [module.WINDOW_COLOR, (0, 25, 0)]
+    assert module.pixel.writes == [(0, 25, 0)]
 
 
 def _green_state():
@@ -265,3 +314,8 @@ def _green_state():
         (1, *Paths.COLOR_MODE): 0,
         (1, *Paths.ENHANCED_COLOR_MODE): 0,
     }
+
+
+def _json_lines(output):
+    """Decode every non-empty structured firmware line."""
+    return [json.loads(line) for line in output.splitlines() if line]

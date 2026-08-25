@@ -15,4 +15,8 @@ namespace matter_bridge {
 // owns the decision of which types are accepted; this only builds them.
 esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint8_t endpoint_type);
 
+// Return whether one path belongs to the Python mirror for `endpoint_type`.
+// Native callbacks use this to exclude protocol metadata Python cannot consume.
+bool endpoint_type_tracks_attribute(uint8_t endpoint_type, uint32_t cluster_id, uint32_t attribute_id);
+
 } // namespace matter_bridge

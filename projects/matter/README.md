@@ -135,7 +135,8 @@ sequenceDiagram
     Note over app,chip: node.start() has returned and the board belongs to no fabric
 
     chip->>cb: kCommissioningWindowOpened
-    cb->>py: WINDOW_OPENED, onto the commissioning queue
+    cb->>py: retain latest window state
+    py->>py: next 50 ms Node.poll()
     py->>app: _on_commissioning(OPENED)
     app->>app: purple — advertising over BLE and DNS-SD
 
@@ -183,8 +184,8 @@ appear: whichever way an attempt ends, something puts the board back on the air,
 and the pixel follows it there. Amber is the state where that did not happen.
 
 The path is four files. `native/src/callbacks.cpp` translates CHIP's events and
-owns the recovery; `matter/node.py` queues them and delivers them on the
-MicroPython scheduler; `firmware/main.py` turns a transition into a colour; and
+owns the recovery; `matter/node.py` pulls coalesced state during the 50 ms
+application poll; `firmware/main.py` turns retained state into a colour; and
 `firmware/color/convert.py` takes over once a controller owns the light. Full
 call paths across the native boundary are in
 [`../../firmware-packages/matter/ARCHITECTURE.md`](../../firmware-packages/matter/ARCHITECTURE.md).
@@ -201,8 +202,8 @@ through the same `render()` helper, which is the only place that touches
   turning the light on. A local write shows exactly the bytes written, while the
   endpoint holds the nearest color its hue, saturation and level can represent.
 
-`main.py` runs top to bottom at boot and then drops to the REPL, so `set_color`,
-`node`, `endpoint` and `pixel` are all still in scope over serial:
+`main.py` runs a cooperative 50 ms Matter polling loop after boot. Interrupt it
+to reach the REPL; `set_color`, `node`, `endpoint`, and `pixel` remain in scope:
 
 ```console
 MONITOR_INTERRUPT=1 MONITOR_SEND='set_color((0, 25, 0))' docker compose run --rm esp32-monitor

@@ -16,6 +16,7 @@
 #include "chip_operations.h"
 #include "matter/bridge.h"
 #include "stack.h"
+#include "state_snapshot.h"
 
 namespace matter_bridge {
 
@@ -30,6 +31,15 @@ Request *new_request(RequestKind kind)
     if (kind == RequestKind::kGetFabrics) {
         request->fabrics = new (std::nothrow) matter_fabric[MATTER_MAX_FABRICS]{};
         if (request->fabrics == nullptr) {
+            vSemaphoreDelete(request->done);
+            delete request;
+            return nullptr;
+        }
+    }
+    if (kind == RequestKind::kSnapshot) {
+        request->snapshot_records =
+            new (std::nothrow) matter_snapshot_record[MATTER_MAX_SNAPSHOT_RECORDS]{};
+        if (request->snapshot_records == nullptr) {
             vSemaphoreDelete(request->done);
             delete request;
             return nullptr;
@@ -63,6 +73,7 @@ void release(Request *request)
     if (request->references.fetch_sub(1) == 1) {
         vSemaphoreDelete(request->done);
         delete[] request->fabrics;
+        delete[] request->snapshot_records;
         delete request;
     }
 }
@@ -144,6 +155,38 @@ extern "C" int matter_attribute_publish(uint16_t endpoint_id, uint32_t cluster_i
     request->value = value;
     request->value_type = value_type;
     return schedule_and_wait(request, timeout_ms);
+}
+
+extern "C" uint32_t matter_state_generation(void)
+{
+    return state_generation();
+}
+
+// Ask the CHIP task for one coherent copy of all retained remote and
+// commissioning state. The request owns its buffer across a caller timeout;
+// only a completed request is copied into caller-owned memory.
+extern "C" int matter_get_state_snapshot(matter_snapshot_record *records, size_t capacity,
+                                          size_t *count, uint32_t *generation, uint32_t timeout_ms)
+{
+    if (!stack_started() || records == nullptr || count == nullptr || generation == nullptr) {
+        return EINVAL;
+    }
+    RequestGuard guard(RequestKind::kSnapshot);
+    Request *request = guard.get();
+    if (request == nullptr) {
+        return ENOMEM;
+    }
+    int result = schedule_and_wait(request, timeout_ms);
+    if (result == 0) {
+        if (request->snapshot_count > capacity) {
+            result = ENOSPC;
+        } else {
+            std::copy_n(request->snapshot_records, request->snapshot_count, records);
+            *count = request->snapshot_count;
+            *generation = request->snapshot_generation;
+        }
+    }
+    return result;
 }
 
 // Ask the running Matter stack to reopen pairing for `timeout_s` seconds.

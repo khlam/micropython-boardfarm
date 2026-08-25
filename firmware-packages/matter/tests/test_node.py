@@ -67,7 +67,7 @@ def test_create_endpoint_tracks_native_endpoint_despite_initial_attribute_failur
     received = []
     endpoint.on_write(received.append)
 
-    node._handle((0, 1, *Paths.ON_OFF, False, 0))
+    node._handle((1, 0, 1, *Paths.ON_OFF, False))
 
     assert received[0].value is False
     assert endpoint.on is False
@@ -161,6 +161,7 @@ def test_node_cannot_start_twice(capsys):
         ("fabrics", ()),
         ("remove_fabric", (1,)),
         ("factory_reset", ()),
+        ("poll", ()),
     ],
 )
 def test_administration_requires_started_node(method, args):
@@ -248,6 +249,7 @@ def test_commissioning_event_is_reported_and_delivered(state_code, expected, cap
     capsys.readouterr()
 
     _matter.inject_commissioning_event(state_code)
+    node.poll()
 
     assert received == [expected]
     assert _output(capsys) == [{"event": expected.name, "state": expected.state}]
@@ -264,6 +266,7 @@ def test_commissioning_subscription_can_be_cleared_and_validates_callback(capsys
     capsys.readouterr()
 
     _matter.inject_commissioning_event(0)
+    node.poll()
 
     assert received == []
     assert _output(capsys) == [{"event": Commissioning.SESSION, "state": Commissioning.STARTED}]
@@ -283,15 +286,10 @@ def test_commissioning_callback_exception_is_contained(capsys):
 
     _matter.inject_commissioning_event(0)
     _matter.inject_commissioning_event(1)
+    node.poll()
 
-    assert calls == [Commissioning.STARTED, Commissioning.COMPLETE]
+    assert calls == [Commissioning.COMPLETE]
     assert _output(capsys) == [
-        {"event": Commissioning.SESSION, "state": Commissioning.STARTED},
-        {
-            "event": "error",
-            "component": "python_callback",
-            "message": "callback raised an exception",
-        },
         {"event": Commissioning.SESSION, "state": Commissioning.COMPLETE},
         {
             "event": "error",
@@ -301,55 +299,72 @@ def test_commissioning_callback_exception_is_contained(capsys):
     ]
 
 
-def test_invalid_native_events_are_ignored(capsys):
+def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
+    node = Node()
+    node.start()
+    capsys.readouterr()
+    calls = []
+    monkeypatch.setattr(_matter, "snapshot", lambda: calls.append(True))
+
+    node.poll()
+
+    assert calls == []
+
+
+def test_repeated_writes_coalesce_and_attributes_remain_independent(capsys):
+    node = Node()
+    endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
+    received = []
+    endpoint.on_write(received.append)
+    node.start()
+    capsys.readouterr()
+
+    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
+    _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 10)
+    node.poll()
+
+    assert [(event.cluster, event.value) for event in received] == [
+        (Clusters.ON_OFF, False),
+        (Clusters.LEVEL_CONTROL, 10),
+    ]
+
+
+def test_snapshot_failure_retries_without_committing_generation(capsys):
+    node = Node()
+    endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
+    node.start()
+    capsys.readouterr()
+    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    _matter.fail_next("snapshot")
+
+    with pytest.raises(OSError, match="injected snapshot failure"):
+        node.poll()
+    assert node._generation == 0
+
+    node.poll()
+
+    assert endpoint.on is True
+    assert node._generation == _matter.generation()
+
+
+def test_local_publish_discards_older_pending_remote_write(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     received = []
     endpoint.on_write(received.append)
     node.start()
     capsys.readouterr()
+    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
 
-    node._handle((0, 99, *Paths.ON_OFF, True, 0))
-    node._handle((0, endpoint.id, *Paths.ON_OFF, True, 1))
-    node._handle((1, 0, 0, 0, 5, 0))
-    node._handle((1, 0, 0, 0, -1, 0))
-    node._handle((99, 0, 0, 0, 0, 0))
+    endpoint.on = False
+    node.poll()
 
     assert endpoint.on is False
     assert received == []
-    assert _output(capsys) == []
 
 
-def test_commissioning_queue_survives_attribute_saturation_and_preserves_order(capsys):
-    node = Node()
-    endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
-    delivery = []
-    endpoint.on_write(lambda event: delivery.append(("attribute", event.value)))
-    node.on_commissioning(lambda event: delivery.append(("commissioning", event.state)))
-    node.start()
-    capsys.readouterr()
-    _matter.on_event(None)
-
-    _matter.inject_commissioning_event(1)
-    for value in range(33):
-        _matter.inject_remote_write(
-            endpoint.id,
-            Clusters.ON_OFF,
-            Attributes.ON_OFF,
-            bool(value % 2),
-        )
-
-    node._drain()
-
-    assert delivery[0] == ("commissioning", Commissioning.COMPLETE)
-    assert _matter.overflow_generation() == 1
-    assert _output(capsys)[0] == {
-        "event": Commissioning.SESSION,
-        "state": Commissioning.COMPLETE,
-    }
-
-
-def test_cross_kind_order_keeps_commissioning_attribute_mutation_authoritative(capsys):
+def test_cross_kind_revision_order_keeps_newer_mutation_authoritative(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
 
@@ -360,117 +375,70 @@ def test_cross_kind_order_keeps_commissioning_attribute_mutation_authoritative(c
     node.on_commissioning(complete_commissioning)
     node.start()
     capsys.readouterr()
-    _matter.on_event(None)
-
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_commissioning_event(1)
-    node._drain()
+
+    node.poll()
 
     assert endpoint.on is False
     assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is False
-    assert _output(capsys) == [{"event": Commissioning.SESSION, "state": Commissioning.COMPLETE}]
 
 
-def test_overflow_resynchronizes_a_dropped_attribute_event(monkeypatch, capsys):
-    node, endpoint, received = _overflowed_extended_endpoint(capsys)
-    sleeps = []
-    monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
+def test_commissioning_session_and_window_replay_in_revision_order(capsys):
+    node = Node()
+    received = []
+    node.on_commissioning(lambda event: received.append(event.state))
+    node.start()
+    capsys.readouterr()
+    _matter.inject_commissioning_event(2)
+    _matter.inject_commissioning_event(3)
 
-    node._drain()
+    node.poll()
 
-    assert endpoint.on is True
-    assert received[-1].cluster == Clusters.ON_OFF
-    assert received[-1].attribute == Attributes.ON_OFF
-    assert node._overflow_generation == _matter.overflow_generation() == 1
-    assert sleeps == []
-
-
-def test_overflow_resynchronization_retries_one_transient_read(monkeypatch, capsys):
-    node, endpoint, _received = _overflowed_extended_endpoint(capsys)
-    sleeps = []
-    monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
-    _matter.fail_next("attribute_get")
-
-    node._drain()
-
-    assert endpoint.on is True
-    assert sleeps == [0.05]
-    assert node._overflow_generation == 1
+    assert received == [Commissioning.FAILED, Commissioning.OPENED]
 
 
-def test_failed_resynchronization_remains_pending_for_later_drain(monkeypatch, capsys):
-    node, endpoint, _received = _overflowed_extended_endpoint(capsys)
-    original_get = _matter.attribute_get
-    failing = [True]
-    calls = []
-    sleeps = []
+def test_startup_restore_precedes_first_polled_write(capsys, monkeypatch):
+    _matter.reset(persisted={(1, *Paths.ON_OFF): True})
+    node = Node()
+    endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
+    received = []
+    endpoint.on_write(received.append)
+    native_start = _matter.start
 
-    def controlled_get(*args):
-        calls.append(args)
-        if failing[0]:
-            raise OSError("persistent read failure")
-        return original_get(*args)
+    def start_with_write():
+        native_start()
+        _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
 
-    monkeypatch.setattr(_matter, "attribute_get", controlled_get)
-    monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(_matter, "start", start_with_write)
+    node.start()
 
-    with pytest.raises(OSError, match="persistent read failure"):
-        node._drain()
-
-    assert len(calls) == 3
-    assert sleeps == [0.05, 0.05]
-    assert node._overflow_generation == 0
-    failing[0] = False
-
-    node._drain()
-
-    assert endpoint.on is True
-    assert node._overflow_generation == _matter.overflow_generation() == 1
+    assert endpoint.on is False
+    assert received == []
+    node.poll()
+    assert [event.value for event in received] == [False]
 
 
-def test_overflow_during_resynchronization_forces_a_second_pass(monkeypatch, capsys):
-    node, endpoint, _received = _overflowed_extended_endpoint(capsys)
-    native_get = _matter.attribute_get
-    read_count = 0
-    injected = False
+def test_wrapping_revisions_are_ordered_from_committed_generation(capsys):
+    node = Node()
+    endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
+    received = []
+    endpoint.on_write(received.append)
+    node.start()
+    capsys.readouterr()
+    node._generation = 0xFFFFFFFE
+    _matter._state.generation = 0xFFFFFFFE
+    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 9)
 
-    def inject_new_overflow(*path):
-        nonlocal injected, read_count
-        read_count += 1
-        if not injected:
-            injected = True
-            for hue in range(33):
-                _matter.inject_remote_write(endpoint.id, *Paths.HUE, hue)
-        return native_get(*path)
+    node.poll()
 
-    monkeypatch.setattr(_matter, "attribute_get", inject_new_overflow)
-
-    node._drain()
-
-    assert read_count == 2 * len(endpoint._state)
-    assert endpoint.hue == 32
-    assert node._overflow_generation == _matter.overflow_generation() == 2
+    assert [event.value for event in received] == [True, 9]
 
 
 def _always_fail_read(*_args):
     """Raise a persistent fake CHIP read failure."""
     raise OSError("persistent read failure")
-
-
-def _overflowed_extended_endpoint(capsys):
-    """Drop one unique OnOff event behind 32 queued Level events."""
-    node = Node()
-    endpoint = node.create_endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    node.start()
-    capsys.readouterr()
-    _matter.on_event(None)
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
-    for level in range(32):
-        _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, level)
-    assert _matter.overflow_generation() == 1
-    return node, endpoint, received
 
 
 def _output(capsys):

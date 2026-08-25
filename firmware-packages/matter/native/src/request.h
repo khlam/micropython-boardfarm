@@ -25,6 +25,7 @@ namespace matter_bridge {
 enum class RequestKind : uint8_t {
     kRead,
     kPublish,
+    kSnapshot,
     kOpenCommissioningWindow,
     kGetFabrics,
     kRemoveFabric,
@@ -34,11 +35,11 @@ enum class RequestKind : uint8_t {
 // A Request carries one operation from the MicroPython VM task to the
 // CHIP task and carries the result back. It contains the common fields
 // needed for attribute reads/writes plus optional fields for commissioning and
-// fabric-management operations.
+// snapshot and fabric-management operations.
 //
 // The request owns a semaphore named `done`. The caller waits on this semaphore
-// while the CHIP task performs the work. The fabric list is allocated only for
-// a fabric query so ordinary attribute updates stay small.
+// while the CHIP task performs the work. Large result storage is allocated only
+// for fabric and state snapshots so ordinary attribute updates stay small.
 //
 // The reference count starts at two because two tasks may still use the same
 // request: the caller and the CHIP task. If the caller times out, the CHIP task
@@ -59,12 +60,15 @@ struct Request {
     uint8_t fabric_index = 0;
     matter_fabric *fabrics = nullptr;
     size_t fabric_count = 0;
+    matter_snapshot_record *snapshot_records = nullptr;
+    size_t snapshot_count = 0;
+    uint32_t snapshot_generation = 0;
 };
 
 // Allocate and initialize a Request without throwing a C++ exception. Embedded
 // devices can run short on memory, so allocation failure is returned as nullptr
-// and later reported to the caller. Only a fabric-list request allocates the
-// extra array used to hold the fabric snapshot.
+// and later reported to the caller. Fabric-list and state-snapshot requests
+// allocate their respective bounded result arrays.
 Request *new_request(RequestKind kind);
 
 // Send a Request to the CHIP task and wait for its answer, for at most

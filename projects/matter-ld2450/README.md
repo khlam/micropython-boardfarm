@@ -19,6 +19,8 @@ The product contract is:
   recreation at a fixed one-second interval.
 - Matter publication failures leave the desired value pending without affecting
   radar health or recovery.
+- Matter snapshot failures force and retain occupied, show the yellow product
+  failure state, and retry every 50 ms without restarting radar or dashboard.
 
 The endpoint declares PIR because Matter has no radar sensing modality.
 
@@ -94,7 +96,7 @@ failures do not affect occupancy publication or commissioning.
 | Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
 | `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
 | Matter Python package | Endpoint validation, Python attribute mirror, callbacks, and node administration |
-| Native Matter bridge | CHIP-task scheduling, bounded event queues, Occupancy publication, and commissioning recovery |
+| Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
 | Host dashboard | USB reconnection, JSON filtering, WebSocket fan-out, and visualization |
 
@@ -119,8 +121,11 @@ sequenceDiagram
     App->>Matter: start()
     App->>Matter: publish fail-safe occupied
     Matter->>CHIP: start networking and event processing
-    CHIP-->>App: queued commissioning transitions
+    CHIP-->>App: retained commissioning state
     App->>Matter: query fabrics
+    loop every 50 ms
+        App->>Matter: poll latest retained controller and commissioning state
+    end
     loop radar supervisor
         App->>Radar: open UART and wait up to 2 seconds
         alt readiness succeeds
@@ -188,13 +193,17 @@ edge is delayed by the virtual dimmer and canceled if a target returns.
 | Newly created radar becomes ready | `radar_ok` | Start a fresh occupied observation period and resume reports |
 | Dimmer state cannot be read | Hold-control error event | Retain occupied and cancel the timer without recreating the radar |
 | Matter publication fails | Matter error event | Leave the transition pending so the next report retries it |
+| Matter snapshot fails | `matter_poll_err` | Force occupied, keep other tasks alive, and retry after 50 ms |
+| Matter snapshot recovers | `matter_ok` | Clear synchronization failure; the next valid radar report resumes vacancy timing |
 
 Only the first category diagnostic is emitted during one uninterrupted radar
 failure period. Repeated readiness failures remain in the same one-second
 recovery loop until a completely new driver receives a valid report. Radar
 recovery ends the failure period, emits `radar_ok`, and resumes from occupied
-without any elapsed empty time. Dashboard and commissioning failures never
-change occupancy or recreate the radar.
+without any elapsed empty time. A Matter polling failure is a separate failure
+domain: it forces occupied because the live hold may be stale, but never closes
+the radar or dashboard. Dashboard and commissioning failures do not recreate
+the radar.
 
 ## Matter boundary and concurrency
 
@@ -212,15 +221,12 @@ code-driven cluster rather than its generic attribute store. Python-to-CHIP
 requests wait for at most 250 ms, turning a stalled stack into `OSError` instead
 of indefinitely blocking the MicroPython scheduler.
 
-CHIP callbacks never invoke Python directly. Native events travel to the
-MicroPython VM task through separate 32-entry attribute and commissioning
-queues. A shared sequence preserves their global order while preventing
-attribute traffic from displacing commissioning transitions.
-
-The attribute queue is intentionally lossy. When full, it drops the oldest
-event and increments an overflow generation. Python detects that generation
-and re-reads authoritative native state, providing bounded memory with
-eventual recovery.
+CHIP callbacks never invoke Python directly. They overwrite fixed native
+records for each mirrored attribute plus independent commissioning session and
+window state. One shared revision preserves cross-kind order. The MicroPython
+application calls `Node.poll()` every 50 ms; unchanged generations avoid the
+bounded CHIP-task snapshot request, and failed requests remain pending for the
+next poll. Repeated writes to one path may coalesce to the latest value.
 
 ## Commissioning and status pixel
 
@@ -234,7 +240,7 @@ health and occupancy. Brightness is capped at ten percent.
 | Cyan | A commissioner is connected |
 | Red | The latest commissioning attempt failed |
 | Amber | Unpaired and no longer advertising |
-| Yellow | No valid radar reports are arriving |
+| Yellow | Radar reports or Matter synchronization are unhealthy |
 | Green | Occupied |
 | Blue | Clear |
 

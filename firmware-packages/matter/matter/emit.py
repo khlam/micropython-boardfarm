@@ -19,7 +19,7 @@ def add_sink(sink: object) -> None:
 
     Args:
         sink: Callable taking the encoded line. It must neither raise nor block:
-            emit() runs on the MicroPython scheduler as well as on the
+            emit() can run during cooperative polling as well as on the
             application's tasks, so a sink that does either stalls event
             delivery. Buffer and return.
     """

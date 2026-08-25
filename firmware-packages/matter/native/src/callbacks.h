@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Everything ESP-Matter and CHIP call into. These run on the CHIP task:
-// they only translate and enqueue, never touching MicroPython directly.
+// they only translate and retain state, never touching MicroPython directly.
 #pragma once
 
 #include <cstdint>
@@ -16,7 +16,7 @@ namespace matter_bridge {
 
 // ESP-Matter calls this after an attribute changes. For example, a controller
 // might change a light's OnOff or CurrentLevel attribute. Converts supported
-// remote changes into `matter_event` records and queues them for MicroPython.
+// remote changes into coalesced snapshot records for MicroPython.
 //
 // Returning ESP_OK tells ESP-Matter that its own update may continue. We still
 // return ESP_OK when we intentionally choose not to forward an event to Python.
@@ -34,15 +34,14 @@ esp_err_t identify_callback(esp_matter::identification::callback_type_t type, ui
                             uint8_t effect_id, uint8_t effect_variant, void *private_data);
 
 // CHIP calls this for important device-wide Matter events. Translates
-// commissioning events into queue messages that MicroPython can understand, and
+// commissioning events into retained states that MicroPython can understand, and
 // reopens pairing on an unpaired node whenever the stack would otherwise stop
 // advertising: after commissioning gives up, and after the last fabric is lost.
 void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intptr_t argument);
 
 // Bracket an attribute update this bridge makes itself. ESP-Matter reports our
 // own write back through `attribute_callback()`; between these two calls that
-// echo is recognised and dropped rather than queued to MicroPython, which also
-// saves queue space for genuine remote controller updates. A controller write
+// echo is recognised and excluded from the remote snapshot. A controller write
 // outside that window is still treated as a real remote update, so keep the
 // window as short as the update call itself.
 void begin_local_update(void);

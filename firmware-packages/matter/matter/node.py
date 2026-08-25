@@ -26,10 +26,6 @@ Fabric = namedtuple("Fabric", ("index", "fabric_id", "node_id", "vendor_id", "la
 _EVENT_ATTRIBUTE = const(0)
 _EVENT_COMMISSIONING = const(1)
 
-# Native origin code for a controller-originated write. Only remote updates are
-# ever queued, but the code travels with every event, so it is compared by name.
-_ORIGIN_REMOTE = const(0)
-
 # ESP-Matter's task is still bringing up Wi-Fi, BLE, and the fabric table when
 # start() returns, and every attribute read is a bounded request onto that same
 # task, so the first reads can expire before it services them. Together these
@@ -37,12 +33,8 @@ _ORIGIN_REMOTE = const(0)
 _RESTORE_ATTEMPTS = const(40)
 _RESTORE_PAUSE_S = 0.25
 
-# Overflow recovery is shorter than startup restoration because it runs from
-# the scheduler callback after the stack is already healthy. A transient CHIP
-# request timeout gets two immediate retries without pinning the VM task for the
-# roughly twenty seconds reserved for boot.
-_RESYNCHRONIZE_ATTEMPTS = const(3)
-_RESYNCHRONIZE_PAUSE_S = 0.05
+_REVISION_MASK = const(0xFFFFFFFF)
+_HALF_REVISION_RANGE = const(0x80000000)
 
 # Indexed by the native commissioning state code. Built from the public
 # constants so the decode table and the names subscribers compare against
@@ -72,7 +64,7 @@ class Node:
         self._endpoints = {}
         self._started = False
         self._commissioning = None
-        self._overflow_generation = _matter.overflow_generation()
+        self._generation = _matter.generation()
         _active_node[0] = self
 
     @property
@@ -131,15 +123,39 @@ class Node:
         return endpoint
 
     def start(self) -> None:
-        """Start ESP-Matter, restore persisted state, and enable event delivery."""
+        """Start ESP-Matter and restore persisted state without invoking callbacks."""
         if self._started:
             raise OSError(114, "Matter node is already started")
-        _matter.on_event(self._drain)
         _matter.start()
         self._restore_endpoints()
         self._started = True
-        self._drain()
         emit_event("matter", "ready")
+
+    def poll(self) -> None:
+        """Synchronize the latest retained native state into Python.
+
+        Applications call this cooperatively. A native failure leaves the
+        committed generation unchanged, so the same work remains visible to a
+        later poll.
+
+        Raises:
+            OSError: The node is not started or the bounded snapshot request
+                failed.
+        """
+        if not self._started:
+            raise OSError(22, "Matter node is not started")
+        if _matter.generation() == self._generation:
+            return
+        generation, records = _matter.snapshot()
+        pending = []
+        for record in records:
+            distance = _revision_distance(record[0], self._generation)
+            if 0 < distance < _HALF_REVISION_RANGE:
+                pending.append((distance, record))
+        pending.sort(key=lambda item: item[0])
+        for _distance, record in pending:
+            self._handle(record)
+        self._generation = generation
 
     def open_commissioning_window(self, timeout_s: int = 300) -> None:
         """Open a basic commissioning window for a bounded duration."""
@@ -181,13 +197,13 @@ class Node:
     def on_commissioning(self, callback: object | None) -> None:
         """Subscribe to commissioning transitions, or unsubscribe with ``None``.
 
-        Register before :meth:`start`, which delivers whatever the stack queued
-        while it was coming up. The states themselves stay reported as JSON
-        whether or not anyone subscribes.
+        Register before :meth:`start` when startup state matters. Delivery begins
+        only when the application calls :meth:`poll`; the states themselves stay
+        reported as JSON whether or not anyone subscribes.
 
         Args:
             callback: Callable receiving one immutable
-                :class:`CommissioningEvent` on the MicroPython scheduler.
+                :class:`CommissioningEvent` during :meth:`poll`.
 
         Raises:
             TypeError: The callback is neither callable nor ``None``.
@@ -201,8 +217,8 @@ class Node:
 
         A read that expires while the stack is still starting says nothing about
         the endpoint, so it is retried rather than allowed to lose the whole
-        boot. The sleep also yields to the scheduler, letting queued native
-        events drain while the stack settles.
+        boot. The sleep yields while the stack settles; retained changes are
+        synchronized by a later explicit poll.
 
         Raises:
             OSError: The stack never answered within the restore budget.
@@ -218,21 +234,12 @@ class Node:
             else:
                 return
 
-    def _drain(self, *_args: object) -> None:
-        """Drain queued native events on the MicroPython VM task."""
-        while True:
-            event = _matter.next_event()
-            if event is None:
-                break
-            self._handle(event)
-        self._recover_overflow()
-
-    def _handle(self, event: tuple) -> None:
-        """Route one native event without allowing it to escape the VM task."""
-        kind, endpoint_id, cluster, attribute, value, origin_code = event
+    def _handle(self, record: tuple) -> None:
+        """Route one retained record on the MicroPython VM task."""
+        _revision, kind, endpoint_id, cluster, attribute, value = record
         if kind == _EVENT_ATTRIBUTE:
             endpoint = self._endpoints.get(endpoint_id)
-            if endpoint is None or origin_code != _ORIGIN_REMOTE:
+            if endpoint is None:
                 return
             endpoint._accept_remote(  # noqa: SLF001 - Node owns callback dispatch
                 cluster, attribute, value
@@ -252,40 +259,13 @@ class Node:
         except Exception:  # noqa: BLE001 - user callbacks cannot stop event delivery
             emit_error("python_callback", "callback raised an exception")
 
-    def _resynchronize(self) -> None:
-        """Recover latest remote values after the bounded queue overflows."""
-        for endpoint in self._endpoints.values():
-            endpoint._resynchronize()  # noqa: SLF001 - Node owns its Endpoint instances
-
-    def _recover_overflow(self) -> None:
-        """Resynchronize every unacknowledged attribute-queue generation.
-
-        Native exposes a monotonic generation rather than a consuming flag. The
-        captured generation is committed only after a complete successful pass,
-        so an exception leaves the same work visible to a later drain. If CHIP
-        drops another attribute while Python is reading, the outer loop observes
-        the newer generation and performs one more full pass.
-
-        Raises:
-            OSError: Three consecutive resynchronization attempts failed.
-        """
-        while True:
-            generation = _matter.overflow_generation()
-            if generation == self._overflow_generation:
-                return
-            for attempt in range(_RESYNCHRONIZE_ATTEMPTS):
-                try:
-                    self._resynchronize()
-                except OSError:
-                    if attempt == _RESYNCHRONIZE_ATTEMPTS - 1:
-                        raise
-                    time.sleep(_RESYNCHRONIZE_PAUSE_S)
-                else:
-                    self._overflow_generation = generation
-                    break
-
 
 def _require_started(started: object) -> None:
     """Raise when a node administration call precedes startup."""
     if not started:
         raise OSError(22, "Matter node is not started")
+
+
+def _revision_distance(revision: int, baseline: int) -> int:
+    """Return one unsigned wrapping revision distance."""
+    return (revision - baseline) & _REVISION_MASK

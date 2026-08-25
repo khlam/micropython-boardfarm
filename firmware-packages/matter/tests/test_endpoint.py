@@ -76,7 +76,7 @@ def test_local_publish_updates_both_mirrors_without_callback(capsys):
     assert endpoint.on is True
     assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
     assert received == []
-    assert _matter.next_event() is None
+    assert _matter.snapshot() == (0, ())
 
 
 def test_failed_native_publish_retains_python_decision(capsys):
@@ -110,6 +110,7 @@ def test_remote_write_updates_mirror_and_delivers_immutable_event(capsys):
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
+    node.poll()
 
     assert endpoint.on is True
     assert received == [
@@ -134,6 +135,7 @@ def test_remote_subscription_can_be_cleared(capsys):
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
+    node.poll()
 
     assert endpoint.on is True
     assert received == []
@@ -159,7 +161,9 @@ def test_remote_callback_exception_is_json_and_delivery_continues(capsys):
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
+    node.poll()
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, False)
+    node.poll()
 
     assert calls == [True, False]
     assert endpoint.on is False
@@ -185,6 +189,7 @@ def test_remote_write_outside_schema_is_reported_and_dropped(capsys):
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 255)
+    node.poll()
 
     assert endpoint.level == 254
     assert received == []
@@ -199,6 +204,7 @@ def test_remote_write_outside_schema_is_reported_and_dropped(capsys):
     # The rejected value did not corrupt drain state; a later, valid write
     # is still delivered normally.
     _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 10)
+    node.poll()
 
     assert endpoint.level == 10
     assert [event.value for event in received] == [10]
@@ -215,24 +221,6 @@ def test_unknown_paths_are_ignored_during_remote_accept(capsys):
 
     assert endpoint.on is False
     assert received == []
-
-
-def test_resynchronize_dispatches_only_attributes_that_drifted(capsys):
-    node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    node.start()
-    capsys.readouterr()
-    _matter.on_event(None)
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
-
-    endpoint._resynchronize()
-    endpoint._resynchronize()
-
-    assert endpoint.on is True
-    assert [(event.cluster, event.attribute) for event in received] == [
-        (Clusters.ON_OFF, Attributes.ON_OFF)
-    ]
 
 
 def test_restore_hydrates_state_without_remote_callback(capsys):

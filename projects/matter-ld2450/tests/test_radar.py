@@ -63,9 +63,12 @@ class RadarFactory:
         return outcome
 
 
-def test_run_starts_dashboard_and_radar_tasks(load_application, monkeypatch):
+def test_run_starts_matter_dashboard_and_radar_tasks(load_application, monkeypatch):
     application = load_application().application
     calls = []
+
+    async def matter_poll():
+        calls.append("matter")
 
     async def dashboard():
         calls.append("dashboard")
@@ -73,12 +76,13 @@ def test_run_starts_dashboard_and_radar_tasks(load_application, monkeypatch):
     async def radar():
         calls.append("radar")
 
+    monkeypatch.setattr(application, "_run_matter", matter_poll)
     monkeypatch.setattr(application, "_run_dashboard", dashboard)
     monkeypatch.setattr(application, "_run_radar", radar)
 
     asyncio.run(application.run())
 
-    assert calls == ["dashboard", "radar"]
+    assert calls == ["matter", "dashboard", "radar"]
 
 
 def test_radar_filters_targets_and_decimates_dashboard_reports(

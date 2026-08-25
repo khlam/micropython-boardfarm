@@ -5,7 +5,9 @@
 #include "matter/bridge.h"
 
 namespace ColorControl = chip::app::Clusters::ColorControl;
+namespace Identify = chip::app::Clusters::Identify;
 namespace LevelControl = chip::app::Clusters::LevelControl;
+namespace OnOff = chip::app::Clusters::OnOff;
 namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
 namespace matter_bridge {
@@ -160,6 +162,38 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
     default:
         return nullptr;
     }
+}
+
+bool endpoint_type_tracks_attribute(uint8_t endpoint_type, uint32_t cluster_id, uint32_t attribute_id)
+{
+    if (cluster_id == Identify::Id && attribute_id == Identify::Attributes::IdentifyTime::Id) {
+        return true;
+    }
+    if (endpoint_type == MATTER_ENDPOINT_OCCUPANCY_SENSOR) {
+        return cluster_id == OccupancySensing::Id &&
+               attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+    }
+    if (cluster_id == OnOff::Id && attribute_id == OnOff::Attributes::OnOff::Id) {
+        return true;
+    }
+    if (endpoint_type == MATTER_ENDPOINT_ON_OFF_LIGHT ||
+        endpoint_type == MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT) {
+        return false;
+    }
+    if (cluster_id == LevelControl::Id &&
+        attribute_id == LevelControl::Attributes::CurrentLevel::Id) {
+        return true;
+    }
+    if (endpoint_type != MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT || cluster_id != ColorControl::Id) {
+        return false;
+    }
+    return attribute_id == ColorControl::Attributes::CurrentHue::Id ||
+           attribute_id == ColorControl::Attributes::CurrentSaturation::Id ||
+           attribute_id == ColorControl::Attributes::CurrentX::Id ||
+           attribute_id == ColorControl::Attributes::CurrentY::Id ||
+           attribute_id == ColorControl::Attributes::ColorTemperatureMireds::Id ||
+           attribute_id == ColorControl::Attributes::ColorMode::Id ||
+           attribute_id == ColorControl::Attributes::EnhancedColorMode::Id;
 }
 
 } // namespace matter_bridge

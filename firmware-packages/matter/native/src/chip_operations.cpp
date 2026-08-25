@@ -17,10 +17,14 @@
 #include "callbacks.h"
 #include "matter/bridge.h"
 #include "request.h"
+#include "state_snapshot.h"
 #include "value_conversion.h"
 
 namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
+using chip::app::ConcreteClusterPath;
+using chip::app::ServerClusterInterface;
+using chip::app::Clusters::OccupancySensingCluster;
 using esp_matter::attribute_t;
 
 namespace matter_bridge {
@@ -38,10 +42,36 @@ void finish(Request *request, int result)
 
 // Each operation below returns 0 on success or an errno-style error code.
 
+// Return the code-driven Occupancy Sensing cluster serving this endpoint.
+OccupancySensingCluster *get_occupancy_cluster(const Request *request)
+{
+    ServerClusterInterface *served = esp_matter::data_model::provider::get_instance().registry().Get(
+        ConcreteClusterPath(request->endpoint_id, request->cluster_id));
+    // ESP-Matter registers this concrete type for OccupancySensing; CHIP has no RTTI.
+    return static_cast<OccupancySensingCluster *>(served);
+}
+
+// Occupancy lives in the serving cluster rather than ESP-Matter's generic
+// attribute store, so reads must use the same authoritative state controllers see.
+int read_occupancy(Request *request)
+{
+    OccupancySensingCluster *served = get_occupancy_cluster(request);
+    if (served == nullptr) {
+        return ENOENT;
+    }
+    request->value = served->IsOccupied() ? 1U : 0U;
+    request->value_type = MATTER_VALUE_UINT8;
+    return 0;
+}
+
 // Read one Matter attribute into the Request. Return ENOENT if the attribute
 // does not exist and EIO if its value cannot cross this bridge.
 int read_attribute(Request *request)
 {
+    if (request->cluster_id == OccupancySensing::Id &&
+        request->attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
+        return read_occupancy(request);
+    }
     attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, request->cluster_id,
                                                      request->attribute_id);
     if (handle == nullptr) {
@@ -65,14 +95,11 @@ int read_attribute(Request *request)
 // it without producing a local attribute-callback echo.
 int publish_occupancy(const Request *request)
 {
-    chip::app::ServerClusterInterface *served =
-        esp_matter::data_model::provider::get_instance().registry().Get(
-            chip::app::ConcreteClusterPath(request->endpoint_id, request->cluster_id));
+    OccupancySensingCluster *served = get_occupancy_cluster(request);
     if (served == nullptr) {
         return ENOENT;
     }
-    // ESP-Matter registers this concrete type for OccupancySensing; CHIP has no RTTI.
-    static_cast<chip::app::Clusters::OccupancySensingCluster *>(served)->SetOccupancy(request->value != 0U);
+    served->SetOccupancy(request->value != 0U);
     return 0;
 }
 
@@ -87,7 +114,11 @@ int publish_attribute(Request *request)
 {
     if (request->cluster_id == OccupancySensing::Id &&
         request->attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
-        return publish_occupancy(request);
+        const int result = publish_occupancy(request);
+        if (result == 0) {
+            clear_remote_attribute(request->endpoint_id, request->cluster_id, request->attribute_id);
+        }
+        return result;
     }
     attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, request->cluster_id,
                                                      request->attribute_id);
@@ -106,7 +137,11 @@ int publish_attribute(Request *request)
     const esp_err_t result = esp_matter::attribute::update(request->endpoint_id, request->cluster_id,
                                                           request->attribute_id, &decoded.value);
     end_local_update();
-    return result == ESP_OK ? 0 : EIO;
+    if (result != ESP_OK) {
+        return EIO;
+    }
+    clear_remote_attribute(request->endpoint_id, request->cluster_id, request->attribute_id);
+    return 0;
 }
 
 // Make the already-running device temporarily available for Matter pairing.
@@ -149,6 +184,13 @@ int get_fabrics(Request *request)
     return 0;
 }
 
+// Copy retained state while running on the sole task that can mutate it.
+int get_state_snapshot(Request *request)
+{
+    return copy_state_snapshot(request->snapshot_records, MATTER_MAX_SNAPSHOT_RECORDS,
+                               &request->snapshot_count, &request->snapshot_generation);
+}
+
 // Remove this device's membership in one Matter fabric. If the supplied fabric
 // index no longer exists, return ENOENT so the caller can distinguish "already
 // gone" from a more general ESP-Matter failure.
@@ -170,6 +212,9 @@ void apply_request(intptr_t argument)
         break;
     case RequestKind::kPublish:
         result = publish_attribute(request);
+        break;
+    case RequestKind::kSnapshot:
+        result = get_state_snapshot(request);
         break;
     case RequestKind::kOpenCommissioningWindow:
         result = open_commissioning_window(request);

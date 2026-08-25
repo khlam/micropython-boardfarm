@@ -31,7 +31,7 @@ struct AttributeValue {
 };
 
 // Flatten an ESP-Matter attribute value into the integer plus type tag that the
-// event queue and the C API carry.
+// state snapshot and the C API carry.
 //
 // Boolean, 8-bit, and 16-bit integer-like values are supported. Matter enums
 // and bitmaps come across as ordinary integers. More complex Matter types such

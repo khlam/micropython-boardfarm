@@ -11,16 +11,10 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
-// A root pointer, not a plain static: the callback is the only reference to a
-// Python object held across VM calls, so the GC has to trace it.
-MP_REGISTER_ROOT_POINTER(mp_obj_t matter_event_callback);
-
 // How long a call blocks the VM task waiting on the CHIP task. Long enough to
 // absorb a busy stack, short enough that a stalled one surfaces as OSError
 // instead of wedging the MicroPython scheduler.
 #define MATTER_REQUEST_TIMEOUT_MS (250)
-
-static mp_sched_node_t matter_event_node;
 
 // Narrow a Python value into the tagged uint32 the bridge carries.
 //
@@ -156,49 +150,45 @@ static mp_obj_t attribute_publish(size_t argument_count, const mp_obj_t *argumen
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(attribute_publish_obj, 4, 4, attribute_publish);
 
-// Pop one queued event as
-// (kind, endpoint_id, cluster, attribute, value, origin), or None when the
-// queue is dry. Never waits, so the drain loop can run to exhaustion on the VM
-// task without blocking it.
-static mp_obj_t next_event(void)
+// Return the current native state generation without entering the CHIP task.
+static mp_obj_t generation(void)
 {
-    struct matter_event event;
-    if (!matter_next_event(&event)) {
-        return mp_const_none;
-    }
-    mp_obj_t items[6] = {
-        MP_OBJ_NEW_SMALL_INT(event.kind),
-        mp_obj_new_int_from_uint(event.endpoint_id),
-        mp_obj_new_int_from_uint(event.cluster_id),
-        mp_obj_new_int_from_uint(event.attribute_id),
-        value_to_object(event.value, event.value_type),
-        MP_OBJ_NEW_SMALL_INT(event.origin),
-    };
-    return mp_obj_new_tuple(6, items);
+    return mp_obj_new_int_from_uint(matter_state_generation());
 }
-static MP_DEFINE_CONST_FUN_OBJ_0(next_event_obj, next_event);
+static MP_DEFINE_CONST_FUN_OBJ_0(generation_obj, generation);
 
-// Return the attribute queue's non-consuming overflow generation. The frozen
-// Python package records it only after a successful resynchronization.
-static mp_obj_t overflow_generation(void)
+// Return (captured_generation, records), where every record is
+// (revision, kind, endpoint_id, cluster, attribute, value). The bridge copies
+// into request-owned memory first, so a timeout cannot leave CHIP writing into
+// this MicroPython-owned buffer after the function raises.
+static mp_obj_t snapshot(void)
 {
-    return mp_obj_new_int_from_uint(matter_overflow_generation());
-}
-static MP_DEFINE_CONST_FUN_OBJ_0(overflow_generation_obj, overflow_generation);
-
-// Register the drain callback the stack schedules onto the VM task, or clear it
-// with None. Callability is checked here so a bad argument fails at
-// registration instead of inside a scheduled callback that has no caller left
-// to raise into.
-static mp_obj_t on_event(mp_obj_t callback)
-{
-    if (callback != mp_const_none && !mp_obj_is_callable(callback)) {
-        mp_raise_TypeError(MP_ERROR_TEXT("callback must be callable or None"));
+    struct matter_snapshot_record *native_records =
+        m_new(struct matter_snapshot_record, MATTER_MAX_SNAPSHOT_RECORDS);
+    size_t count = 0;
+    uint32_t captured_generation = 0;
+    check(matter_get_state_snapshot(native_records, MATTER_MAX_SNAPSHOT_RECORDS, &count,
+                                    &captured_generation, MATTER_REQUEST_TIMEOUT_MS));
+    mp_obj_t *record_objects = m_new(mp_obj_t, count);
+    for (size_t index = 0; index < count; ++index) {
+        const struct matter_snapshot_record *record = &native_records[index];
+        mp_obj_t fields[6] = {
+            mp_obj_new_int_from_uint(record->revision),
+            MP_OBJ_NEW_SMALL_INT(record->kind),
+            mp_obj_new_int_from_uint(record->endpoint_id),
+            mp_obj_new_int_from_uint(record->cluster_id),
+            mp_obj_new_int_from_uint(record->attribute_id),
+            value_to_object(record->value, record->value_type),
+        };
+        record_objects[index] = mp_obj_new_tuple(6, fields);
     }
-    MP_STATE_PORT(matter_event_callback) = callback;
-    return mp_const_none;
+    mp_obj_t records = mp_obj_new_tuple(count, record_objects);
+    m_del(mp_obj_t, record_objects, count);
+    m_del(struct matter_snapshot_record, native_records, MATTER_MAX_SNAPSHOT_RECORDS);
+    mp_obj_t result[2] = {mp_obj_new_int_from_uint(captured_generation), records};
+    return mp_obj_new_tuple(2, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(on_event_obj, on_event);
+static MP_DEFINE_CONST_FUN_OBJ_0(snapshot_obj, snapshot);
 
 // Reopen pairing for the given number of seconds.
 static mp_obj_t open_commissioning_window(mp_obj_t timeout_in)
@@ -276,9 +266,8 @@ static const mp_rom_map_elem_t native_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&stack_start_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_get), MP_ROM_PTR(&attribute_get_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_publish), MP_ROM_PTR(&attribute_publish_obj)},
-    {MP_ROM_QSTR(MP_QSTR_next_event), MP_ROM_PTR(&next_event_obj)},
-    {MP_ROM_QSTR(MP_QSTR_overflow_generation), MP_ROM_PTR(&overflow_generation_obj)},
-    {MP_ROM_QSTR(MP_QSTR_on_event), MP_ROM_PTR(&on_event_obj)},
+    {MP_ROM_QSTR(MP_QSTR_generation), MP_ROM_PTR(&generation_obj)},
+    {MP_ROM_QSTR(MP_QSTR_snapshot), MP_ROM_PTR(&snapshot_obj)},
     {MP_ROM_QSTR(MP_QSTR_open_commissioning_window), MP_ROM_PTR(&open_commissioning_window_obj)},
     {MP_ROM_QSTR(MP_QSTR_fabrics), MP_ROM_PTR(&fabrics_obj)},
     {MP_ROM_QSTR(MP_QSTR_remove_fabric), MP_ROM_PTR(&remove_fabric_obj)},
@@ -293,37 +282,3 @@ const mp_obj_module_t native_module = {
 };
 
 MP_REGISTER_MODULE(MP_QSTR__matter, native_module);
-
-// Run the registered drain callback on the VM task.
-//
-// nlr_push contains a raising callback: this frame is entered by the scheduler,
-// so an escaping exception has no caller to reach and would tear down the VM.
-// The report goes out as compact JSON because every line this firmware prints
-// is parsed as JSON; a bare message would be dropped by the reader.
-static void dispatch_event(mp_sched_node_t *node)
-{
-    (void)node;
-    const mp_obj_t callback = MP_STATE_PORT(matter_event_callback);
-    if (callback == MP_OBJ_NULL || callback == mp_const_none) {
-        return;
-    }
-    nlr_buf_t nlr;
-    if (nlr_push(&nlr) == 0) {
-        mp_call_function_0(callback);
-        nlr_pop();
-    } else {
-        mp_printf(&mp_plat_print,
-                  "{\"event\":\"error\",\"component\":\"python_callback\","
-                  "\"message\":\"callback raised an exception\"}\n");
-    }
-}
-
-// Wake the drain from whichever task enqueued an event.
-//
-// Scheduling a node is safe from a CHIP task or an interrupt, and repeat
-// notifications collapse into the one pending node — which is why the Python
-// side drains in a loop rather than expecting one wake per event.
-void matter_bridge_notify_event(void)
-{
-    mp_sched_schedule_node(&matter_event_node, dispatch_event);
-}

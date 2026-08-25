@@ -10,6 +10,8 @@ Projects create endpoints before starting the node and decide how each remote
 write affects their own hardware:
 
 ```python
+import time
+
 import matter
 
 node = matter.Node()
@@ -24,6 +26,10 @@ def controller_write(event):
 light.on_write(controller_write)
 node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
+
+while True:
+    node.poll()
+    time.sleep_ms(50)
 ```
 
 `ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, `OCCUPANCY_SENSOR`,
@@ -62,9 +68,16 @@ light.publish(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF, True)
 
 `on_write()` receives only controller-originated events. Each immutable event
 contains `endpoint_id`, `cluster`, `attribute`, `value`, and `origin`. Local
-publication echoes are recognized by origin and discarded before they are
-queued, preventing callback feedback loops. Callback exceptions produce a
+publication echoes are recognized by origin and excluded from the retained
+snapshot, preventing callback feedback loops. Callback exceptions produce a
 compact JSON error and do not stop subsequent delivery.
+
+Applications call `Node.poll()` regularly; 50 ms is the project default. The
+native bridge retains only the latest remote value for each mirrored attribute,
+so repeated controller writes between polls may coalesce. Different attributes
+and the separate commissioning session/window states retain independent values
+and share one revision sequence for deterministic delivery order. A successful
+local publication invalidates an older retained remote write for the same path.
 
 `on_commissioning()` subscribes to pairing transitions. Each immutable event
 contains a `name` — `Commissioning.SESSION` or `Commissioning.WINDOW` — and a
@@ -72,9 +85,9 @@ contains a `name` — `Commissioning.SESSION` or `Commissioning.WINDOW` — and 
 are mutually distinct, so a subscriber can decide on `state` alone. `FAILED`
 reports one failed attempt, not the end of pairing: the package reopens a
 commissioning window whenever an unpaired node would otherwise stop advertising,
-so a `FAILED` is normally followed by another `OPENED`. Register
-before `start()`, which delivers whatever the stack queued while it was coming
-up, and expect the callback on the MicroPython scheduler:
+so a `FAILED` is normally followed by another `OPENED`. Register before
+`start()` when startup state matters. `start()` restores mirrors without
+callbacks; the first explicit poll delivers retained startup state:
 
 ```python
 def pairing_changed(event):
@@ -83,6 +96,8 @@ def pairing_changed(event):
 
 
 node.on_commissioning(pairing_changed)
+node.start()
+node.poll()
 ```
 
 Every transition is reported as JSON whether or not anyone subscribes, and a
@@ -90,9 +105,11 @@ subscriber exception is contained exactly as an `on_write()` one is.
 
 Node administration is available through `open_commissioning_window()`,
 `fabrics()`, `remove_fabric()`, and `factory_reset()`. Fabric records expose
-non-secret identifiers and labels only. All Python-originated mutations are
-scheduled onto the CHIP event loop, while native events cross a bounded queue
-and the MicroPython scheduler so Python never runs on a CHIP task or interrupt.
+non-secret identifiers and labels only. All Python-originated mutations and
+snapshot copies are scheduled onto the CHIP event loop. Python observes an
+atomic generation and pulls changed state cooperatively, so it never runs on a
+CHIP task or interrupt. Snapshot request failures raise `OSError` and remain
+pending because `Node` commits its generation only after successful processing.
 
 The first backend is the native ESP-Matter ESP32-S3 integration under
 `native/`. The host `_matter` fake in `micropython_stubs` exercises the same

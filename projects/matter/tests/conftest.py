@@ -1,13 +1,13 @@
 """Shared fixtures for the Matter example firmware tests."""
 
-import importlib.util
+import ast
 import io
 import json
 import os
 import pathlib
 import sys
 from contextlib import redirect_stdout
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import _matter
 import machine
@@ -84,12 +84,20 @@ def load_main(monkeypatch):
 
             monkeypatch.setattr(_matter, "start", start_with_events)
 
-        spec = importlib.util.spec_from_file_location(_MAIN_MODULE, _MAIN)
-        module = importlib.util.module_from_spec(spec)
+        tree = ast.parse(_MAIN.read_text(), filename=str(_MAIN))
+        entry_call = tree.body.pop()
+        assert isinstance(entry_call, ast.Expr)
+        assert isinstance(entry_call.value, ast.Call)
+        assert isinstance(entry_call.value.func, ast.Name)
+        assert entry_call.value.func.id == "run"
+        ast.fix_missing_locations(tree)
+
+        module = ModuleType(_MAIN_MODULE)
+        module.__file__ = str(_MAIN)
         sys.modules[_MAIN_MODULE] = module
         output = io.StringIO()
         with redirect_stdout(output):
-            spec.loader.exec_module(module)
+            exec(compile(tree, str(_MAIN), "exec"), module.__dict__)
         lines = [json.loads(line) for line in output.getvalue().splitlines() if line]
         return SimpleNamespace(module=module, time=fake_time, lines=lines)
 

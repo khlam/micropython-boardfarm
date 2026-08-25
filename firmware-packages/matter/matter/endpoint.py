@@ -7,7 +7,7 @@ module keeps a plain Python dict in sync with it — called "the Python copy"
 throughout this file, a separate copy living in MicroPython memory, not
 shared storage. Writes that originate in Python go out to native
 through :func:`_matter.attribute_publish`. Writes that originate from a
-remote controller arrive as native events and come back in
+remote controller arrive in a native snapshot and come back in
 through :meth:`Endpoint._accept_remote`, which is what keeps the Python copy
 trustworthy without every read crossing into native code.
 """
@@ -200,7 +200,7 @@ class Endpoint:
         so this only updates the Python copy and, if a callback is registered,
         delivers a :class:`WriteEvent`. Silently ignores an attribute this
         endpoint doesn't expose, since a caller driving this from a native
-        event has no cheap way to check coverage first.
+        snapshot has no cheap way to check coverage first.
         """
         path = (cluster, attribute)
         if path not in self._state:
@@ -219,18 +219,3 @@ class Endpoint:
             callback(event)  # ty: ignore[call-top-callable]
         except Exception:  # noqa: BLE001 - user callbacks cannot stop event delivery
             emit_error("python_callback", "callback raised an exception")
-
-    def _resynchronize(self) -> None:
-        """Re-read native and dispatch only the attributes that drifted.
-
-        Reached after the bounded event queue drops an event, so the Python copy
-        may be missing a controller write it was never told about. Comparing
-        against native and dispatching only the differences — via
-        :meth:`_accept_remote` — means an attribute that still matches was
-        never part of the gap, and doesn't generate a spurious
-        :class:`WriteEvent`.
-        """
-        for path in tuple(self._state):
-            value = _matter.attribute_get(self.id, path[0], path[1])
-            if value != self._state[path]:
-                self._accept_remote(path[0], path[1], value)

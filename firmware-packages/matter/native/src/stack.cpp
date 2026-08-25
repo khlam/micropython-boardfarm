@@ -21,8 +21,8 @@
 
 #include "callbacks.h"
 #include "endpoint_schema.h"
-#include "event_queue.h"
 #include "matter/bridge.h"
+#include "state_snapshot.h"
 #include "value_conversion.h"
 
 namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
@@ -45,6 +45,7 @@ constexpr const char *STATION_INTERFACE_KEY = "WIFI_STA_DEF";
 // task writes them, and only before the stack starts.
 static esp_matter::node_t *matter_node = nullptr;
 static uint16_t endpoint_ids[MAXIMUM_ENDPOINTS]{};
+static uint8_t endpoint_types[MAXIMUM_ENDPOINTS]{};
 static size_t endpoint_count = 0;
 static bool started = false;
 
@@ -53,6 +54,16 @@ bool endpoint_exists(uint16_t endpoint_id)
     for (size_t index = 0; index < endpoint_count; ++index) {
         if (endpoint_ids[index] == endpoint_id) {
             return true;
+        }
+    }
+    return false;
+}
+
+bool endpoint_tracks_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id)
+{
+    for (size_t index = 0; index < endpoint_count; ++index) {
+        if (endpoint_ids[index] == endpoint_id) {
+            return endpoint_type_tracks_attribute(endpoint_types[index], cluster_id, attribute_id);
         }
     }
     return false;
@@ -67,22 +78,17 @@ bool stack_started(void)
 
 using namespace matter_bridge;
 
-// Create the event queue first so that if ESP-Matter produces a callback while
-// the node is being created, there is already somewhere safe to store that
-// event for MicroPython.
+// Reset the static snapshot before creating the one supported node.
 extern "C" int matter_node_create(void)
 {
     if (matter_node != nullptr) {
         return EALREADY;
     }
-    const int queue_error = create_event_queue();
-    if (queue_error != 0) {
-        return queue_error;
-    }
+    reset_state_snapshot();
     esp_matter::node::config_t config;
     matter_node = esp_matter::node::create(&config, attribute_callback, identify_callback);
     if (matter_node == nullptr) {
-        destroy_event_queues();
+        reset_state_snapshot();
         return EIO;
     }
     return 0;
@@ -108,7 +114,8 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
         return EIO;
     }
     *endpoint_id = esp_matter::endpoint::get_id(endpoint);
-    endpoint_ids[endpoint_count++] = *endpoint_id;
+    endpoint_ids[endpoint_count] = *endpoint_id;
+    endpoint_types[endpoint_count++] = endpoint_type;
     return 0;
 }
 

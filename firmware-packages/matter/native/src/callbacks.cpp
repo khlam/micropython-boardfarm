@@ -7,9 +7,9 @@
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
 
-#include "event_queue.h"
 #include "matter/bridge.h"
 #include "stack.h"
+#include "state_snapshot.h"
 #include "value_conversion.h"
 
 namespace matter_bridge {
@@ -21,7 +21,7 @@ namespace {
 constexpr uint32_t COMMISSIONING_WINDOW_SECONDS = 300;
 
 // Written by the task publishing a local update and read by the callback that
-// would otherwise queue the echo, so it crosses tasks and must be atomic.
+// would otherwise retain the echo, so it crosses tasks and must be atomic.
 std::atomic<uint8_t> update_origin{MATTER_ORIGIN_REMOTE};
 
 // True from the moment a commissioner completes PASE until that attempt ends,
@@ -81,15 +81,10 @@ esp_err_t attribute_callback(esp_matter::attribute::callback_type_t type, uint16
     if (!encoded.supported) {
         return ESP_OK;
     }
-    matter_event event{};
-    event.value = encoded.value;
-    event.value_type = encoded.value_type;
-    event.kind = MATTER_EVENT_ATTRIBUTE;
-    event.endpoint_id = endpoint_id;
-    event.cluster_id = cluster_id;
-    event.attribute_id = attribute_id;
-    event.origin = MATTER_ORIGIN_REMOTE;
-    publish_attribute_event(event);
+    if (endpoint_tracks_attribute(endpoint_id, cluster_id, attribute_id)) {
+        record_remote_attribute(endpoint_id, cluster_id, attribute_id, encoded.value,
+                                encoded.value_type);
+    }
     return ESP_OK;
 }
 
@@ -108,11 +103,11 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
     switch (event->Type) {
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStarted:
         session_active = true;
-        publish_commissioning(MATTER_COMMISSIONING_STARTED);
+        record_commissioning_state(MATTER_COMMISSIONING_STARTED);
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         session_active = false;
-        publish_commissioning(MATTER_COMMISSIONING_COMPLETE);
+        record_commissioning_state(MATTER_COMMISSIONING_COMPLETE);
         break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
         // One attempt failed, whether its timer ran out or a commissioner
@@ -120,7 +115,7 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         // next attempt itself, so the node stays pairable and no window is
         // reopened here.
         session_active = false;
-        publish_commissioning(MATTER_COMMISSIONING_FAILED);
+        record_commissioning_state(MATTER_COMMISSIONING_FAILED);
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStopped:
         // CHIP raises this only once it has given up listening for a
@@ -130,14 +125,14 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
         // from, because it is otherwise the one way a node goes quiet without
         // ever saying that commissioning ended.
         session_active = false;
-        publish_commissioning(MATTER_COMMISSIONING_FAILED);
+        record_commissioning_state(MATTER_COMMISSIONING_FAILED);
         reopen_commissioning_window();
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
-        publish_commissioning(MATTER_COMMISSIONING_WINDOW_OPENED);
+        record_commissioning_state(MATTER_COMMISSIONING_WINDOW_OPENED);
         break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
-        publish_commissioning(MATTER_COMMISSIONING_WINDOW_CLOSED);
+        record_commissioning_state(MATTER_COMMISSIONING_WINDOW_CLOSED);
         // A commissioner connecting closes the window too, and that one must be
         // left closed -- reopening it mid-attempt would advertise over the
         // commissioner still working. CHIP reports the session first, so an

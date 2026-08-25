@@ -1,9 +1,9 @@
 """Expose the ESP32-S3-Zero onboard WS2812 through ESP-Matter.
 
-Definitions first, boot sequence at the bottom. The module runs once at boot,
-then drops to the REPL with `pixel`, `node`, `endpoint`, and the functions
-below still in scope, so a serial session can drive the light and administer
-the node.
+Definitions first, boot sequence at the bottom. The module polls Matter every
+50 ms after startup. Interrupting that loop leaves `pixel`, `node`, `endpoint`,
+and the functions below in scope, so a serial session can drive the light and
+administer the node.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code: `matter/` (Python) calls the `_matter` C module
@@ -22,6 +22,7 @@ import neopixel
 from color import matter_to_triple, publish_triple
 
 import matter
+from matter.emit import error
 
 # Pin map for this board. led_pin drives the onboard WS2812. Only ESP32-S3 is
 # supported, so any other chip is a build error, not a fallback case.
@@ -40,19 +41,17 @@ SESSION_COLOR = (0, 25, 25)
 FAILED_COLOR = (25, 0, 0)
 STALLED_COLOR = (25, 12, 0)
 OFF_COLOR = (0, 0, 0)
+POLL_INTERVAL_MS = 50
 
 # Tick the current colour was commanded on. Ordering only, never written to
 # flash. A list cell so `show()` below can update it without `global`.
 _stamp = [0]
 
-# Commissioning events can be delivered while Node.start() is still returning.
-# Mutable cells let the callback record that state without publishing through
-# an endpoint whose owning node is not marked started yet.
+# Mutable cells retain the latest state delivered by cooperative polling.
 _commissioned = [False]
 _commissioning_state = [None]
 _session_active = [False]
 _last_commissioning_stamp = [0]
-_pending_commissioned_off = [None]
 
 # Last colour on_remote_write actually rendered
 _last_remote_color = [None]
@@ -162,18 +161,9 @@ def _show_state(stamp: int) -> None:
 
 
 def _finish_commissioning(stamp: int) -> None:
-    """Turn the newly commissioned accessory off locally and in Matter.
-
-    A completion event may arrive before :meth:`matter.Node.start` returns. In
-    that case the pixel can turn off immediately, while publication remains
-    pending until the node reports that it has started.
-    """
-    _pending_commissioned_off[0] = stamp
+    """Turn the newly commissioned accessory off locally and in Matter."""
     show(OFF_COLOR, stamp)
-    if not node.started:
-        return
     endpoint.on = False
-    _pending_commissioned_off[0] = None
 
 
 def _on_commissioning(event: object) -> None:
@@ -203,7 +193,7 @@ def _on_commissioning(event: object) -> None:
 
 
 def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
-    """Reconcile queued commissioning events with restored Matter state.
+    """Reconcile restored Matter state before cooperative delivery begins.
 
     Args:
         has_fabric: Whether the started node belongs to at least one fabric.
@@ -211,10 +201,6 @@ def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
             than any controller or commissioning event delivered during it.
     """
     _commissioned[0] = has_fabric or _commissioned[0]
-    pending_stamp = _pending_commissioned_off[0]
-    if pending_stamp is not None:
-        _finish_commissioning(pending_stamp)
-        return
     if _commissioning_state[0] is None:
         _show_state(startup_stamp)
         return
@@ -244,12 +230,10 @@ endpoint = node.create_endpoint(matter.EndpointType.EXTENDED_COLOR_LIGHT)
 
 # on_write() just stores this callback on the Python Endpoint
 # (matter/endpoint.py) -- nothing native happens here. It fires later from
-# Node._drain (ARCHITECTURE.md "A controller write coming in").
+# Node.poll() (ARCHITECTURE.md "A controller write coming in").
 endpoint.on_write(on_remote_write)
 
-# Queued transitions may be delivered before start() returns. The callback
-# records any action that requires a started node and _show_post_start_state()
-# completes it below.
+# Startup transitions stay native until the first explicit poll below.
 node.on_commissioning(_on_commissioning)
 
 # start() -> _matter.start() -> stack.cpp matter_stack_start() ->
@@ -259,8 +243,25 @@ node.on_commissioning(_on_commissioning)
 node.start()
 
 # A commissioned board restores its last controller-owned colour. An
-# uncommissioned board shows whichever pairing state the transitions queued
-# during startup left it in — normally purple, because the stack opens a window
-# for a board that belongs to no fabric. fabrics() takes the same bounded
-# request.cpp round trip as the attribute writes above.
+# uncommissioned board shows the boot baseline until the first poll delivers
+# retained pairing state. fabrics() takes the same bounded request.cpp round
+# trip as the attribute writes above.
 _show_post_start_state(has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp)
+
+
+def run() -> None:
+    """Poll Matter cooperatively, reporting each failure period once."""
+    failure_reported = False
+    while True:
+        try:
+            node.poll()
+        except OSError as exception:
+            if not failure_reported:
+                error("matter_poll", str(exception))
+            failure_reported = True
+        else:
+            failure_reported = False
+        time.sleep_ms(POLL_INTERVAL_MS)
+
+
+run()
