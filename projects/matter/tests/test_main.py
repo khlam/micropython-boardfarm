@@ -65,6 +65,42 @@ def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
     ]
 
 
+def test_poll_loop_recovers_when_commissioning_publication_fails(load_main, monkeypatch, capsys):
+    module = load_main().module
+    native_poll = module.node.poll
+    polls = 0
+
+    def poll():
+        nonlocal polls
+        polls += 1
+        return native_poll()
+
+    sleeps = 0
+
+    def stop_after_two_polls(_delay_ms):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 2:
+            raise StopLoopError
+
+    monkeypatch.setattr(module.node, "poll", poll)
+    monkeypatch.setattr(module.time, "sleep_ms", stop_after_two_polls)
+    _matter.inject_commissioning_event(1)  # SESSION COMPLETE
+    _matter.fail_next("attributes_publish")
+    capsys.readouterr()
+
+    with pytest.raises(StopLoopError):
+        module.run()
+
+    assert polls == 2
+    errors = [
+        line
+        for line in _json_lines(capsys.readouterr().out)
+        if line.get("component") == "matter_poll"
+    ]
+    assert [line["message"] for line in errors] == ["[Errno 5] injected attributes_publish failure"]
+
+
 def test_unsupported_board_fails_before_hardware_setup(load_main):
     with pytest.raises(RuntimeError, match="unsupported board: RP2040"):
         load_main(machine_name="RP2040")

@@ -258,13 +258,13 @@ def run() -> None:
     while True:
         try:
             events = node.poll()
+            handle_events(events)
         except OSError as exception:
             if not failure_reported:
                 error("matter_poll", str(exception))
             failure_reported = True
         else:
             failure_reported = False
-            handle_events(events)
         time.sleep_ms(POLL_INTERVAL_MS)
 
 
