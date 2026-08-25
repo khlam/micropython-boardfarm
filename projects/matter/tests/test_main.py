@@ -1,4 +1,4 @@
-"""End-to-end tests for the Matter example firmware boot and callbacks."""
+"""End-to-end tests for the Matter example firmware boot and events."""
 
 import json
 
@@ -41,6 +41,7 @@ def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
         outcome = next(outcomes)
         if outcome is not None:
             raise outcome
+        return ()
 
     sleeps = 0
 
@@ -111,13 +112,13 @@ def test_set_color_renders_then_publishes_attributes_and_power(load_main):
 def test_set_color_does_not_republish_power_when_already_on(load_main, monkeypatch):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     publications = []
-    native_publish = _matter.attribute_publish
+    native_publish = _matter.attributes_publish
 
-    def record(endpoint_id, cluster, attribute, value):
-        publications.append((cluster, attribute, value))
-        native_publish(endpoint_id, cluster, attribute, value)
+    def record(endpoint_id, updates):
+        publications.extend(updates)
+        native_publish(endpoint_id, updates)
 
-    monkeypatch.setattr(_matter, "attribute_publish", record)
+    monkeypatch.setattr(_matter, "attributes_publish", record)
 
     module.set_color((25, 0, 0))
 
@@ -153,18 +154,18 @@ def test_remote_writes_render_the_complete_endpoint_state(load_main):
     _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
     _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
     _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes[-1] == (0, 25, 0)
 
 
-def test_on_remote_write_skips_repeating_the_last_rendered_colour(load_main):
+def test_controller_color_render_skips_the_last_rendered_colour(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    module.on_remote_write(None)
+    module._show_controller_color()
     module.pixel.writes.clear()
-    module.on_remote_write(None)  # nothing on the endpoint changed in between
+    module._show_controller_color()
 
     assert module.pixel.writes == []
 
@@ -178,10 +179,10 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main)
     _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
     _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
     _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes[-1] == (0, 25, 0)
-    assert len(module.pixel.writes) == 3
+    assert len(module.pixel.writes) == 1
 
 
 @pytest.mark.parametrize(
@@ -197,7 +198,7 @@ def test_commissioning_status_colors_after_start(load_main, state_code, expected
     module.pixel.writes.clear()
 
     _matter.inject_commissioning_event(state_code)
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes[-1] == expected
 
@@ -208,7 +209,7 @@ def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_ma
 
     _matter.inject_commissioning_event(0)  # SESSION STARTED
     _matter.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.SESSION_COLOR, module.SESSION_COLOR]
 
@@ -219,7 +220,7 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
 
     _matter.inject_commissioning_event(3)  # WINDOW OPENED
     _matter.inject_commissioning_event(4)  # WINDOW CLOSED with nobody connected
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.STALLED_COLOR]
 
@@ -235,7 +236,7 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
 )
 def test_startup_commissioning_events_win_over_boot_state(load_main, state_code, expected):
     boot = load_main(commissioning=[state_code])
-    boot.module.node.poll()
+    boot.module.handle_events(boot.module.node.poll())
 
     assert boot.module.pixel.writes[-1] == expected
     assert boot.lines == [{"event": "matter", "state": "ready"}]
@@ -263,7 +264,7 @@ def test_show_post_start_state_renders_the_transition_seen_during_startup(
 
 def test_completion_during_start_is_published_after_node_is_started(load_main):
     boot = load_main(commissioning=[1])
-    boot.module.node.poll()
+    boot.module.handle_events(boot.module.node.poll())
 
     assert boot.module._commissioned[0] is True
     assert boot.module.endpoint.on is False
@@ -276,7 +277,7 @@ def test_a_reopened_window_clears_a_failure(load_main):
 
     _matter.inject_commissioning_event(2)  # SESSION FAILED
     _matter.inject_commissioning_event(3)  # WINDOW OPENED again by the package
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module._session_active[0] is False
     assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
@@ -288,7 +289,7 @@ def test_successful_retry_after_a_failure_commissions_the_node(load_main):
 
     _matter.inject_commissioning_event(2)  # SESSION FAILED
     _matter.inject_commissioning_event(1)  # SESSION COMPLETE
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module._commissioned[0] is True
     assert module.pixel.writes == [module.OFF_COLOR]
@@ -300,7 +301,7 @@ def test_closed_window_restores_commissioned_controller_state(load_main):
 
     _matter.inject_commissioning_event(3)
     _matter.inject_commissioning_event(4)
-    module.node.poll()
+    module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [(0, 25, 0)]
 

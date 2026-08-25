@@ -134,26 +134,24 @@ extern "C" int matter_attribute_get(uint16_t endpoint_id, uint32_t cluster_id, u
     return result;
 }
 
-// Publish a new local attribute value after the stack has started. For example,
-// MicroPython might call this when application logic decides that a light should
-// turn on or change brightness. The actual ESP-Matter update runs on the
-// CHIP task, which can then report the new value to Matter controllers.
-extern "C" int matter_attribute_publish(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id,
-                                         uint32_t value, uint8_t value_type, uint32_t timeout_ms)
+// Publish one local attribute batch after the stack has started. The fixed
+// request storage survives a caller timeout while the CHIP task finishes.
+extern "C" int matter_attributes_publish(uint16_t endpoint_id,
+                                          const matter_attribute_update *updates, size_t count,
+                                          uint32_t timeout_ms)
 {
-    if (!stack_started() || !endpoint_exists(endpoint_id)) {
+    if (!stack_started() || !endpoint_exists(endpoint_id) || updates == nullptr || count == 0 ||
+        count > MATTER_MAX_ATTRIBUTE_BATCH) {
         return EINVAL;
     }
-    RequestGuard guard(RequestKind::kPublish);
+    RequestGuard guard(RequestKind::kPublishBatch);
     Request *request = guard.get();
     if (request == nullptr) {
         return ENOMEM;
     }
     request->endpoint_id = endpoint_id;
-    request->cluster_id = cluster_id;
-    request->attribute_id = attribute_id;
-    request->value = value;
-    request->value_type = value_type;
+    std::copy_n(updates, count, request->attribute_updates);
+    request->attribute_update_count = count;
     return schedule_and_wait(request, timeout_ms);
 }
 

@@ -167,14 +167,24 @@ def attribute_get(endpoint_id: int, cluster_id: int, attribute_id: int) -> objec
     return _state.attributes[path]
 
 
-def attribute_publish(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
-    """Publish a Python value and invalidate an older retained remote write."""
-    _raise_failure("attribute_publish")
-    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
-    path = (endpoint_id, cluster_id, attribute_id)
-    if path in _state.snapshot_records:
-        del _state.snapshot_records[path]
-        _next_revision()
+def attributes_publish(endpoint_id: int, updates: tuple) -> None:
+    """Publish one preflighted batch and invalidate older remote writes."""
+    _raise_failure("attributes_publish")
+    _require_started()
+    if not 1 <= len(updates) <= 10:
+        raise OSError(errno.EINVAL, "attribute batch size is out of range")
+    paths = []
+    for cluster_id, attribute_id, _value in updates:
+        path = (endpoint_id, cluster_id, attribute_id)
+        if path not in _state.attributes:
+            raise OSError(errno.ENOENT, "attribute does not exist")
+        paths.append(path)
+    for path, (_cluster_id, _attribute_id, value) in zip(paths, updates, strict=True):
+        _state.attributes[path] = value
+        _state.persisted[path] = value
+        if path in _state.snapshot_records:
+            del _state.snapshot_records[path]
+            _next_revision()
 
 
 def inject_remote_write(

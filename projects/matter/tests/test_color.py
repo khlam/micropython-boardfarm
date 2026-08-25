@@ -108,7 +108,7 @@ def test_rgb_round_trip_preserves_color_with_rounding_tolerance(color_module, co
     assert all(abs(actual - expected) <= 3 for actual, expected in channels)
 
 
-def test_publish_triple_changes_attributes_in_safe_order_without_power(color_module):
+def test_publish_triple_sends_one_named_batch_without_power(color_module):
     endpoint = _RecordingEndpoint(
         hue=0,
         saturation=0,
@@ -120,17 +120,19 @@ def test_publish_triple_changes_attributes_in_safe_order_without_power(color_mod
 
     color_module.publish_triple(endpoint, (0, 25, 0))
 
-    assert endpoint.writes == [
-        ("hue", 85),
-        ("saturation", 254),
-        ("color_mode", color_module.ColorMode.HUE_SATURATION),
-        ("enhanced_color_mode", color_module.ColorMode.HUE_SATURATION),
-        ("level", 25),
+    assert endpoint.batches == [
+        {
+            "hue": 85,
+            "saturation": 254,
+            "color_mode": color_module.ColorMode.HUE_SATURATION,
+            "enhanced_color_mode": color_module.ColorMode.HUE_SATURATION,
+            "level": 25,
+        }
     ]
     assert endpoint.on is False
 
 
-def test_publish_triple_skips_attributes_that_already_match(color_module):
+def test_publish_triple_republishes_the_complete_explicit_batch(color_module):
     endpoint = _RecordingEndpoint(
         hue=85,
         saturation=254,
@@ -142,7 +144,9 @@ def test_publish_triple_skips_attributes_that_already_match(color_module):
 
     color_module.publish_triple(endpoint, (0, 25, 0))
 
-    assert endpoint.writes == []
+    assert len(endpoint.batches) == 1
+    assert endpoint.batches[0]["hue"] == 85
+    assert endpoint.batches[0]["level"] == 25
 
 
 def _endpoint(**changes):
@@ -162,14 +166,15 @@ def _endpoint(**changes):
 
 
 class _RecordingEndpoint:
-    """Endpoint-shaped object that records public attribute writes."""
+    """Endpoint-shaped object that records explicit publication batches."""
 
     def __init__(self, **values) -> None:
-        object.__setattr__(self, "writes", [])
+        self.batches = []
         for name, value in values.items():
-            object.__setattr__(self, name, value)
+            setattr(self, name, value)
 
-    def __setattr__(self, name, value) -> None:
-        if name != "writes":
-            self.writes.append((name, value))
-        object.__setattr__(self, name, value)
+    def set(self, **attributes) -> None:
+        """Record and apply one named publication batch."""
+        self.batches.append(attributes)
+        for name, value in attributes.items():
+            setattr(self, name, value)

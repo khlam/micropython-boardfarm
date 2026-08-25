@@ -14,6 +14,7 @@ from matter import (
     EndpointType,
     Fabric,
     Node,
+    WriteEvent,
 )
 from matter.schema import Paths
 
@@ -64,12 +65,10 @@ def test_create_endpoint_tracks_native_endpoint_despite_initial_attribute_failur
         node.create_endpoint(EndpointType.ON_OFF_LIGHT, initial={Paths.ON_OFF: True})
 
     endpoint = node._endpoints[1]
-    received = []
-    endpoint.on_write(received.append)
+    event = node._handle((1, 0, 1, *Paths.ON_OFF, False))
 
-    node._handle((1, 0, 1, *Paths.ON_OFF, False))
-
-    assert received[0].value is False
+    assert event.value is False
+    assert event.endpoint is endpoint
     assert endpoint.on is False
 
 
@@ -142,7 +141,7 @@ def test_start_raises_after_restore_retry_budget(monkeypatch):
     assert sleeps == [0.25]
     assert node.started is False
     with pytest.raises(OSError, match="not started"):
-        endpoint.on = True
+        endpoint.set(on=True)
 
 
 def test_node_cannot_start_twice(capsys):
@@ -243,60 +242,22 @@ def test_factory_reset_is_forwarded(capsys):
 )
 def test_commissioning_event_is_reported_and_delivered(state_code, expected, capsys):
     node = Node()
-    received = []
-    node.on_commissioning(received.append)
     node.start()
     capsys.readouterr()
 
     _matter.inject_commissioning_event(state_code)
-    node.poll()
+    events = node.poll()
 
-    assert received == [expected]
+    assert events == (expected,)
     assert _output(capsys) == [{"event": expected.name, "state": expected.state}]
 
 
-def test_commissioning_subscription_can_be_cleared_and_validates_callback(capsys):
+def test_poll_returns_empty_tuple_without_new_native_state(capsys):
     node = Node()
-    received = []
-    node.on_commissioning(received.append)
-    node.on_commissioning(None)
-    with pytest.raises(TypeError, match="callable or None"):
-        node.on_commissioning(42)
     node.start()
     capsys.readouterr()
 
-    _matter.inject_commissioning_event(0)
-    node.poll()
-
-    assert received == []
-    assert _output(capsys) == [{"event": Commissioning.SESSION, "state": Commissioning.STARTED}]
-
-
-def test_commissioning_callback_exception_is_contained(capsys):
-    node = Node()
-    calls = []
-
-    def callback(event):
-        calls.append(event.state)
-        raise RuntimeError("application bug")
-
-    node.on_commissioning(callback)
-    node.start()
-    capsys.readouterr()
-
-    _matter.inject_commissioning_event(0)
-    _matter.inject_commissioning_event(1)
-    node.poll()
-
-    assert calls == [Commissioning.COMPLETE]
-    assert _output(capsys) == [
-        {"event": Commissioning.SESSION, "state": Commissioning.COMPLETE},
-        {
-            "event": "error",
-            "component": "python_callback",
-            "message": "callback raised an exception",
-        },
-    ]
+    assert node.poll() == ()
 
 
 def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
@@ -306,28 +267,28 @@ def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(_matter, "snapshot", lambda: calls.append(True))
 
-    node.poll()
+    events = node.poll()
 
     assert calls == []
+    assert events == ()
 
 
 def test_repeated_writes_coalesce_and_attributes_remain_independent(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
     node.start()
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
     _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 10)
-    node.poll()
+    events = node.poll()
 
-    assert [(event.cluster, event.value) for event in received] == [
+    assert [(event.cluster, event.value) for event in events] == [
         (Clusters.ON_OFF, False),
         (Clusters.LEVEL_CONTROL, 10),
     ]
+    assert all(event.endpoint is endpoint for event in events)
 
 
 def test_snapshot_failure_retries_without_committing_generation(capsys):
@@ -342,8 +303,9 @@ def test_snapshot_failure_retries_without_committing_generation(capsys):
         node.poll()
     assert node._generation == 0
 
-    node.poll()
+    events = node.poll()
 
+    assert [event.value for event in events] == [True]
     assert endpoint.on is True
     assert node._generation == _matter.generation()
 
@@ -351,59 +313,52 @@ def test_snapshot_failure_retries_without_committing_generation(capsys):
 def test_local_publish_discards_older_pending_remote_write(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
     node.start()
     capsys.readouterr()
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
 
-    endpoint.on = False
-    node.poll()
+    endpoint.set(on=False)
+    events = node.poll()
 
     assert endpoint.on is False
-    assert received == []
+    assert events == ()
 
 
 def test_cross_kind_revision_order_keeps_newer_mutation_authoritative(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
 
-    def complete_commissioning(event):
-        if event.state == Commissioning.COMPLETE:
-            endpoint.on = False
-
-    node.on_commissioning(complete_commissioning)
     node.start()
     capsys.readouterr()
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_commissioning_event(1)
 
-    node.poll()
+    events = node.poll()
+    for event in events:
+        if isinstance(event, CommissioningEvent) and event.state == Commissioning.COMPLETE:
+            endpoint.set(on=False)
 
+    assert [type(event) for event in events] == [WriteEvent, CommissioningEvent]
     assert endpoint.on is False
     assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is False
 
 
 def test_commissioning_session_and_window_replay_in_revision_order(capsys):
     node = Node()
-    received = []
-    node.on_commissioning(lambda event: received.append(event.state))
     node.start()
     capsys.readouterr()
     _matter.inject_commissioning_event(2)
     _matter.inject_commissioning_event(3)
 
-    node.poll()
+    events = node.poll()
 
-    assert received == [Commissioning.FAILED, Commissioning.OPENED]
+    assert [event.state for event in events] == [Commissioning.FAILED, Commissioning.OPENED]
 
 
 def test_startup_restore_precedes_first_polled_write(capsys, monkeypatch):
     _matter.reset(persisted={(1, *Paths.ON_OFF): True})
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
     native_start = _matter.start
 
     def start_with_write():
@@ -414,16 +369,13 @@ def test_startup_restore_precedes_first_polled_write(capsys, monkeypatch):
     node.start()
 
     assert endpoint.on is False
-    assert received == []
-    node.poll()
-    assert [event.value for event in received] == [False]
+    events = node.poll()
+    assert [event.value for event in events] == [False]
 
 
 def test_wrapping_revisions_are_ordered_from_committed_generation(capsys):
     node = Node()
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
     node.start()
     capsys.readouterr()
     node._generation = 0xFFFFFFFE
@@ -431,9 +383,9 @@ def test_wrapping_revisions_are_ordered_from_committed_generation(capsys):
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 9)
 
-    node.poll()
+    events = node.poll()
 
-    assert [event.value for event in received] == [True, 9]
+    assert [event.value for event in events] == [True, 9]
 
 
 def _always_fail_read(*_args):

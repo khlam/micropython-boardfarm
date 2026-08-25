@@ -11,7 +11,7 @@ on a CHIP task or interrupt; applications pull retained native state by calling
 flowchart TB
     subgraph vm["MicroPython VM task"]
         app["project firmware<br/>product state and hardware"]
-        package["matter package<br/>Node, Endpoint, validation, callbacks"]
+        package["matter package<br/>Node, Endpoint, validation, events"]
         module["_matter module<br/>Python/C conversion"]
     end
     subgraph native["matter-native IDF component"]
@@ -73,15 +73,15 @@ sequenceDiagram
         py->>native: attribute_get(each mirrored path)
         native->>chip: bounded read request
     end
-    py-->>app: ready, without callbacks
+    py-->>app: ready, without events
     app->>py: poll()
     py->>native: generation(), then snapshot() when changed
-    py-->>app: retained startup callbacks on the VM task
+    py-->>app: retained startup events on the VM task
 ```
 
 Restoration is deliberately older than cooperative delivery. A controller
 write observed during startup can already be visible to an attribute read, but
-its retained revision still produces one callback on the first poll.
+its retained revision still produces one event on the first poll.
 
 ## Coalesced controller state
 
@@ -101,10 +101,11 @@ generation, `snapshot()` runs on the CHIP task and returns one coherent copy:
 ```
 
 `Node.poll()` discards records that are not newer than its committed generation,
-orders the rest by wrapping revision distance, updates endpoint mirrors, and
-delivers callbacks. It commits `captured_generation` only after the whole batch
-succeeds, so a failed request remains retryable. Fewer than half the revision
-space may elapse between successful polls.
+orders the rest by wrapping revision distance, updates every endpoint mirror,
+and returns immutable events to the application. It commits
+`captured_generation` only after the whole batch succeeds, so a failed request
+remains retryable. Fewer than half the revision space may elapse between
+successful polls.
 
 ```mermaid
 sequenceDiagram
@@ -119,7 +120,8 @@ sequenceDiagram
     app->>chip: bounded snapshot request
     chip->>snapshot: coherent copy
     chip-->>app: latest retained records
-    app->>app: order, update mirrors, invoke callbacks
+    app->>app: order and update mirrors
+    app-->>app: return immutable events
 ```
 
 There are no custom FreeRTOS event queues and no MicroPython scheduler
@@ -127,9 +129,10 @@ notification. Poll cadence and error recovery belong to each application.
 
 ## Local publication
 
-`Endpoint.publish()` validates and updates the Python mirror synchronously,
-then schedules the native mutation. The callback origin guard suppresses the
-ESP-Matter echo. After a successful native publication, the CHIP operation also
+`Endpoint.set()` validates a complete named batch, updates the Python mirror
+synchronously, then schedules one bounded native request. `Endpoint.publish()`
+uses the same path for one numeric cluster/attribute pair. The native origin
+guard suppresses ESP-Matter echoes across the batch. Each successful update
 clears any older retained remote record for that path; a later poll cannot
 replay stale controller state over the newer Python decision.
 
@@ -146,8 +149,8 @@ their cross-lifecycle order when both survive coalescing. Immediate recovery
 stays native: an unpaired node reopens a commissioning window after CHIP stops
 listening, an inactive window closes, or the final fabric is removed.
 
-Callback exceptions are contained by the Python package and emitted as compact
-JSON. They do not stop later polls.
+Commissioning events are returned from `Node.poll()` alongside controller
+writes and are also emitted as compact JSON for diagnostics.
 
 ## Build split and invariants
 
@@ -159,6 +162,6 @@ Python package is frozen separately by `manifest.py`.
 - Python executes only on the VM task and only when application code calls it.
 - CHIP callbacks never block, allocate snapshot records, or touch product hardware.
 - The snapshot retains state, not transition history; intermediate writes may coalesce.
-- Local publications remain synchronous and never produce remote callbacks.
+- Local publications remain synchronous and never produce remote write events.
 - Commissioning recovery remains immediate and native.
 - Product state, timing, pixels, pins, and hardware lifecycle remain in projects.

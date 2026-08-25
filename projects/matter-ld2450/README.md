@@ -95,7 +95,7 @@ failures do not affect occupancy publication or commissioning.
 | --- | --- |
 | Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
 | `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
-| Matter Python package | Endpoint validation, Python attribute mirror, callbacks, and node administration |
+| Matter Python package | Endpoint validation, Python attribute mirror, returned events, and node administration |
 | Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
 | Host dashboard | USB reconnection, JSON filtering, WebSocket fan-out, and visualization |
@@ -117,14 +117,13 @@ sequenceDiagram
 
     App->>LED: show boot state
     App->>Matter: create Node, Occupancy, and hold endpoints
-    App->>Matter: register commissioning callback
     App->>Matter: start()
     App->>Matter: publish fail-safe occupied
     Matter->>CHIP: start networking and event processing
     CHIP-->>App: retained commissioning state
     App->>Matter: query fabrics
     loop every 50 ms
-        App->>Matter: poll latest retained controller and commissioning state
+        App->>Matter: poll and consume returned controller and commissioning events
     end
     loop radar supervisor
         App->>Radar: open UART and wait up to 2 seconds
@@ -207,7 +206,7 @@ the radar.
 
 ## Matter boundary and concurrency
 
-Publishing `occupancy.occupancy` crosses four layers:
+Publishing `occupancy.set(occupancy=...)` crosses four layers:
 
 1. The Python endpoint validates the value as integer `0` or `1` and updates
    its local mirror.
@@ -226,7 +225,9 @@ records for each mirrored attribute plus independent commissioning session and
 window state. One shared revision preserves cross-kind order. The MicroPython
 application calls `Node.poll()` every 50 ms; unchanged generations avoid the
 bounded CHIP-task snapshot request, and failed requests remain pending for the
-next poll. Repeated writes to one path may coalesce to the latest value.
+next poll. Successful calls return ordered immutable controller and
+commissioning events after synchronizing the endpoint mirrors. Repeated writes
+to one path may coalesce to the latest value.
 
 ## Commissioning and status pixel
 

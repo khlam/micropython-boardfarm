@@ -6,7 +6,6 @@ from collections import namedtuple
 import _matter
 from micropython import const
 
-from matter.emit import error as emit_error
 from matter.emit import event as emit_event
 from matter.endpoint import Endpoint
 from matter.schema import (
@@ -63,7 +62,6 @@ class Node:
         _matter.node_create()
         self._endpoints = {}
         self._started = False
-        self._commissioning = None
         self._generation = _matter.generation()
         _active_node[0] = self
 
@@ -123,7 +121,7 @@ class Node:
         return endpoint
 
     def start(self) -> None:
-        """Start ESP-Matter and restore persisted state without invoking callbacks."""
+        """Start ESP-Matter and restore persisted endpoint state."""
         if self._started:
             raise OSError(114, "Matter node is already started")
         _matter.start()
@@ -131,12 +129,16 @@ class Node:
         self._started = True
         emit_event("matter", "ready")
 
-    def poll(self) -> None:
-        """Synchronize the latest retained native state into Python.
+    def poll(self) -> tuple:
+        """Synchronize native state and return ordered immutable events.
 
         Applications call this cooperatively. A native failure leaves the
         committed generation unchanged, so the same work remains visible to a
-        later poll.
+        later poll. Every endpoint mirror is updated before this method returns.
+
+        Returns:
+            Controller writes and commissioning transitions ordered by their
+            shared native revision, or an empty tuple when nothing changed.
 
         Raises:
             OSError: The node is not started or the bounded snapshot request
@@ -145,7 +147,7 @@ class Node:
         if not self._started:
             raise OSError(22, "Matter node is not started")
         if _matter.generation() == self._generation:
-            return
+            return ()
         generation, records = _matter.snapshot()
         pending = []
         for record in records:
@@ -153,9 +155,13 @@ class Node:
             if 0 < distance < _HALF_REVISION_RANGE:
                 pending.append((distance, record))
         pending.sort(key=lambda item: item[0])
+        events = []
         for _distance, record in pending:
-            self._handle(record)
+            event = self._handle(record)
+            if event is not None:
+                events.append(event)
         self._generation = generation
+        return tuple(events)
 
     def open_commissioning_window(self, timeout_s: int = 300) -> None:
         """Open a basic commissioning window for a bounded duration."""
@@ -194,24 +200,6 @@ class Node:
         _require_started(self._started)
         _matter.factory_reset()
 
-    def on_commissioning(self, callback: object | None) -> None:
-        """Subscribe to commissioning transitions, or unsubscribe with ``None``.
-
-        Register before :meth:`start` when startup state matters. Delivery begins
-        only when the application calls :meth:`poll`; the states themselves stay
-        reported as JSON whether or not anyone subscribes.
-
-        Args:
-            callback: Callable receiving one immutable
-                :class:`CommissioningEvent` during :meth:`poll`.
-
-        Raises:
-            TypeError: The callback is neither callable nor ``None``.
-        """
-        if callback is not None and not callable(callback):
-            raise TypeError("callback must be callable or None")
-        self._commissioning = callback
-
     def _restore_endpoints(self) -> None:
         """Hydrate every endpoint once the freshly started stack answers reads.
 
@@ -234,30 +222,21 @@ class Node:
             else:
                 return
 
-    def _handle(self, record: tuple) -> None:
-        """Route one retained record on the MicroPython VM task."""
+    def _handle(self, record: tuple) -> object | None:
+        """Apply one retained record and return its public event."""
         _revision, kind, endpoint_id, cluster, attribute, value = record
         if kind == _EVENT_ATTRIBUTE:
             endpoint = self._endpoints.get(endpoint_id)
             if endpoint is None:
-                return
-            endpoint._accept_remote(  # noqa: SLF001 - Node owns callback dispatch
+                return None
+            return endpoint._accept_remote(  # noqa: SLF001 - Node owns its Endpoint instances
                 cluster, attribute, value
             )
-            return
         if kind == _EVENT_COMMISSIONING and 0 <= value < len(_COMMISSIONING_STATES):
-            self._dispatch_commissioning(_COMMISSIONING_STATES[value])
-
-    def _dispatch_commissioning(self, event: tuple) -> None:
-        """Report one commissioning transition and hand it to the subscriber."""
-        emit_event(*event)
-        callback = self._commissioning
-        if callback is None:
-            return
-        try:
-            callback(event)  # ty: ignore[call-top-callable]
-        except Exception:  # noqa: BLE001 - user callbacks cannot stop event delivery
-            emit_error("python_callback", "callback raised an exception")
+            event = _COMMISSIONING_STATES[value]
+            emit_event(*event)
+            return event
+        return None
 
 
 def _require_started(started: object) -> None:

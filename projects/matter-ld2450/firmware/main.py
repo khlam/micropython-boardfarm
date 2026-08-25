@@ -117,7 +117,6 @@ class _Application:
         # Endpoint IDs persist, so always create the occupancy endpoint first.
         self._occupancy = self._node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
         self._hold_control = self._node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
-        self._node.on_commissioning(self._on_commissioning)
         self._node.start()
 
         # The product contract requires occupied during startup and radar recovery.
@@ -200,7 +199,7 @@ class _Application:
         failure_reported = False
         while True:
             try:
-                self._node.poll()
+                events = self._node.poll()
             except OSError as exception:
                 self._set_matter_health(healthy=False)
                 self._set_occupied()
@@ -212,7 +211,18 @@ class _Application:
                     emit({"diag": "matter_ok"})
                 failure_reported = False
                 self._set_matter_health(healthy=True)
+                self._handle_matter_events(events)
             await asyncio.sleep_ms(_MATTER_POLL_MS)
+
+    def _handle_matter_events(self, events: tuple) -> None:
+        """Apply explicit commissioning events returned by Matter.
+
+        Args:
+            events: Revision-ordered events returned by ``Node.poll()``.
+        """
+        for event in events:
+            if isinstance(event, matter.CommissioningEvent):
+                self._on_commissioning(event)
 
     def _publish_occupancy(self, *, force: bool = False) -> None:
         """Publish the current occupancy state and retry failures later.
@@ -226,7 +236,7 @@ class _Application:
         if not force and self._published_occupancy == occupied:
             return
         try:
-            self._occupancy.occupancy = 1 if occupied else 0
+            self._occupancy.set(occupancy=1 if occupied else 0)
         except OSError as exception:
             error("occupancy", str(exception))
             return

@@ -14,7 +14,6 @@ __all__ = [
     "ColorMode",
     "Commissioning",
     "EndpointType",
-    "Origin",
     "Paths",
     "attribute_path",
     "bounded_integer",
@@ -74,14 +73,6 @@ class ColorMode:
     XY = 1
     COLOR_TEMPERATURE = 2
     ENHANCED_HUE_SATURATION = 3
-
-
-class Origin:
-    """Origins attached to attribute events crossing the native boundary."""
-
-    REMOTE = "remote"
-    LOCAL = "local"
-    RESTORE = "restore"
 
 
 class Commissioning:

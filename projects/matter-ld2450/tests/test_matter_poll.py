@@ -60,7 +60,7 @@ def test_successful_poll_clears_failure_and_resumes_vacancy(load_application, mo
 
     assert application._matter_healthy is True
     assert _json_lines(capsys.readouterr().out)[-1] == {"diag": "matter_ok"}
-    application._hold_control.on = False
+    application._hold_control.set(on=False)
     application._apply_radar_report(occupied=False, now_ms=10)
     assert application._occupancy_state == boot.module._VACANT
 

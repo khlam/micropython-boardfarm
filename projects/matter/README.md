@@ -137,20 +137,23 @@ sequenceDiagram
     chip->>cb: kCommissioningWindowOpened
     cb->>py: retain latest window state
     py->>py: next 50 ms Node.poll()
-    py->>app: _on_commissioning(OPENED)
+    py-->>app: return CommissioningEvent(OPENED)
+    app->>app: _on_commissioning(OPENED)
     app->>app: purple — advertising over BLE and DNS-SD
 
     home->>chip: scan the QR, establish PASE against the factory verifier
     chip->>cb: kCommissioningSessionStarted
     cb->>cb: session_active = true
     cb->>py: STARTED
-    py->>app: _on_commissioning(STARTED)
+    py-->>app: return CommissioningEvent(STARTED)
+    app->>app: _on_commissioning(STARTED)
     app->>app: cyan — a commissioner is on the line
 
     chip->>cb: kCommissioningWindowClosed
     Note over cb: a commissioner took the window, so it stays closed —<br/>session_active is what tells that apart from it running out
     cb->>py: CLOSED
-    py->>app: _on_commissioning(CLOSED)
+    py-->>app: return CommissioningEvent(CLOSED)
+    app->>app: _on_commissioning(CLOSED)
     app->>app: still cyan, because the session is still up
 
     home->>chip: read attestation, prompt for the unofficial accessory
@@ -160,12 +163,14 @@ sequenceDiagram
     alt commissioning completes
         chip->>cb: kCommissioningComplete
         cb->>py: COMPLETE
-        py->>app: _on_commissioning(COMPLETE)
+        py-->>app: return CommissioningEvent(COMPLETE)
+        app->>app: _on_commissioning(COMPLETE)
         app->>app: _finish_commissioning — pixel off, publishes OnOff false
     else one attempt fails
         chip->>cb: kFailSafeTimerExpired
         cb->>py: FAILED
-        py->>app: _on_commissioning(FAILED)
+        py-->>app: return CommissioningEvent(FAILED)
+        app->>app: _on_commissioning(FAILED)
         app->>app: red
         chip->>chip: CHIP re-arms PASE on its own
         chip->>cb: kCommissioningWindowOpened
@@ -195,9 +200,9 @@ shows. Both directions are plain functions in `firmware/main.py` that funnel
 through the same `render()` helper, which is the only place that touches
 `pixel[0] = color; pixel.write()`:
 
-- A color, brightness or power change from a controller wakes
-  `on_remote_write()`, which reads the colour back off the endpoint and drives
-  the strip.
+- A color, brightness or power change from a controller is returned by
+  `Node.poll()`; `handle_events()` reads the synchronized colour from the
+  endpoint and drives the strip once for the complete batch.
 - `set_color(rgb)` drives the strip and then publishes the same color back,
   turning the light on. A local write shows exactly the bytes written, while the
   endpoint holds the nearest color its hue, saturation and level can represent.

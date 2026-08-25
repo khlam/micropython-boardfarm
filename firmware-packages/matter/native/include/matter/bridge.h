@@ -32,12 +32,11 @@ enum matter_snapshot_kind {
     MATTER_SNAPSHOT_COMMISSIONING = 1,
 };
 
-// What caused an attribute update. These codes stay aligned with the Python
-// `Origin` names even though snapshots retain remote updates only.
+// What caused an attribute update inside the native bridge. Snapshots retain
+// remote updates only; the local value brackets application publications.
 enum matter_event_origin {
     MATTER_ORIGIN_REMOTE = 0,
     MATTER_ORIGIN_LOCAL = 1,
-    MATTER_ORIGIN_RESTORE = 2,
 };
 
 // Pairing transitions reported to Python. Ordered to index the decode table in
@@ -59,6 +58,16 @@ enum matter_value_type {
     MATTER_VALUE_UINT16 = 2,
 };
 
+// One value in a MicroPython-originated publication batch. A batch belongs to
+// one endpoint, so the endpoint ID is carried once by the request rather than
+// repeated here.
+struct matter_attribute_update {
+    uint32_t cluster_id;
+    uint32_t attribute_id;
+    uint32_t value;
+    uint8_t value_type;
+};
+
 // One retained state record crossing the C boundary. Revision is drawn from a
 // node-wide sequence, allowing Python to order attributes and commissioning
 // state coherently after coalescing repeated writes.
@@ -75,6 +84,7 @@ struct matter_snapshot_record {
 // Sixteen supported endpoints can each expose at most ten Python-mirrored
 // attributes. Commissioning adds one session and one window record.
 enum {
+    MATTER_MAX_ATTRIBUTE_BATCH = 10,
     MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS = 160,
     MATTER_MAX_SNAPSHOT_RECORDS = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2,
 };
@@ -127,12 +137,15 @@ int matter_stack_start(void);
 int matter_attribute_get(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id, uint32_t *value,
                          uint8_t *value_type, uint32_t timeout_ms);
 
-// Publish a locally decided value so Matter subscribers observe it. The echo
-// this provokes is suppressed rather than queued.
+// Publish one validated batch of locally decided values so Matter subscribers
+// observe it. Every path is preflighted before the first update, and echoes are
+// suppressed rather than queued. ESP-Matter cannot roll back an unexpected
+// update failure, so earlier values in the batch may already be applied.
 // Returns the same codes as matter_attribute_get, plus ERANGE or ENOTSUP for a
-// value the attribute's stored type cannot hold.
-int matter_attribute_publish(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id, uint32_t value,
-                             uint8_t value_type, uint32_t timeout_ms);
+// value the attribute's stored type cannot hold, or EINVAL for an empty or
+// oversized batch.
+int matter_attributes_publish(uint16_t endpoint_id, const struct matter_attribute_update *updates,
+                              size_t count, uint32_t timeout_ms);
 
 // Return the current snapshot generation without scheduling onto the CHIP
 // task. Natural uint32 wrap is allowed.

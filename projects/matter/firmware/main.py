@@ -53,7 +53,7 @@ _commissioning_state = [None]
 _session_active = [False]
 _last_commissioning_stamp = [0]
 
-# Last colour on_remote_write actually rendered
+# Last controller-owned colour the event loop actually rendered.
 _last_remote_color = [None]
 
 
@@ -90,25 +90,22 @@ def set_color(color: tuple) -> None:
         color: Red, green, and blue channel values in the range 0-255.
     """
     show(color, time.ticks_ms())
-    # Below: Endpoint.publish -> _matter.attribute_publish -> request.cpp
-    # matter_attribute_publish -- a bounded round trip onto the CHIP task
+    # Below: Endpoint.set -> _matter.attributes_publish -> request.cpp
+    # matter_attributes_publish -- a bounded round trip onto the CHIP task
     # (ARCHITECTURE.md "A local change going out").
     publish_triple(endpoint, color)
     lit = endpoint.level != 0
     if endpoint.on != lit:
-        endpoint.on = lit
+        endpoint.set(on=lit)
 
 
-def on_remote_write(_event: object) -> None:
-    """Show the colour a controller just wrote, unless it repeats the last one shown.
+def _show_controller_color() -> None:
+    """Show the synchronized controller colour unless it repeats the last one shown.
 
-    The event only names the one attribute that changed, so the full colour
-    is read back from the endpoint instead of computed from the event. Comparing
-    against the last colour actually rendered drops a repeat before it
-    reaches the bit-banged NeoPixel write.
-
-    Args:
-        _event: Unused. Only wakes this callback.
+    A poll can carry several attributes for one color command. Reading the
+    fully synchronized endpoint collapses that batch to one render; comparing
+    against the last color drops its remaining write events before they reach
+    the bit-banged NeoPixel write.
     """
     color = matter_to_triple(endpoint)
     if color == _last_remote_color[0]:
@@ -163,7 +160,21 @@ def _show_state(stamp: int) -> None:
 def _finish_commissioning(stamp: int) -> None:
     """Turn the newly commissioned accessory off locally and in Matter."""
     show(OFF_COLOR, stamp)
-    endpoint.on = False
+    endpoint.set(on=False)
+
+
+def handle_events(events: tuple) -> None:
+    """Apply one explicit batch returned by :meth:`matter.Node.poll`.
+
+    Args:
+        events: Revision-ordered controller and commissioning events.
+    """
+    for event in events:
+        if isinstance(event, matter.WriteEvent):
+            if event.endpoint is endpoint:
+                _show_controller_color()
+            continue
+        _on_commissioning(event)
 
 
 def _on_commissioning(event: object) -> None:
@@ -228,14 +239,6 @@ node = matter.Node()
 # pinning one now would overwrite what persistence is about to restore.
 endpoint = node.create_endpoint(matter.EndpointType.EXTENDED_COLOR_LIGHT)
 
-# on_write() just stores this callback on the Python Endpoint
-# (matter/endpoint.py) -- nothing native happens here. It fires later from
-# Node.poll() (ARCHITECTURE.md "A controller write coming in").
-endpoint.on_write(on_remote_write)
-
-# Startup transitions stay native until the first explicit poll below.
-node.on_commissioning(_on_commissioning)
-
 # start() -> _matter.start() -> stack.cpp matter_stack_start() ->
 # esp_matter::start(): the CHIP task comes up here. After this line, native
 # calls schedule a Request onto that task and block on a semaphore
@@ -254,13 +257,14 @@ def run() -> None:
     failure_reported = False
     while True:
         try:
-            node.poll()
+            events = node.poll()
         except OSError as exception:
             if not failure_reported:
                 error("matter_poll", str(exception))
             failure_reported = True
         else:
             failure_reported = False
+            handle_events(events)
         time.sleep_ms(POLL_INTERVAL_MS)
 
 

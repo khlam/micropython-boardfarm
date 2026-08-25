@@ -22,8 +22,7 @@ def test_zero_hold_clears_on_the_first_empty_report(load_application):
 def test_hold_is_anchored_to_the_first_empty_report(load_application):
     boot = load_application()
     application = boot.application
-    application._hold_control.on = True
-    application._hold_control.level = 127
+    application._hold_control.set(on=True, level=127)
 
     application._apply_empty_report(now_ms=100)
     application._apply_empty_report(now_ms=300_099)
@@ -41,11 +40,10 @@ def test_hold_is_anchored_to_the_first_empty_report(load_application):
 def test_live_hold_shortening_applies_to_original_start(load_application):
     boot = load_application()
     application = boot.application
-    application._hold_control.on = True
-    application._hold_control.level = 254
+    application._hold_control.set(on=True, level=254)
     application._apply_empty_report(now_ms=10)
 
-    application._hold_control.level = 127
+    application._hold_control.set(level=127)
     application._apply_empty_report(now_ms=300_010)
 
     assert application._occupancy_state == boot.module._VACANT
@@ -54,11 +52,10 @@ def test_live_hold_shortening_applies_to_original_start(load_application):
 def test_live_hold_extension_pushes_deadline_out(load_application):
     boot = load_application()
     application = boot.application
-    application._hold_control.on = True
-    application._hold_control.level = 127
+    application._hold_control.set(on=True, level=127)
     application._apply_empty_report(now_ms=10)
 
-    application._hold_control.level = 254
+    application._hold_control.set(level=254)
     application._apply_empty_report(now_ms=300_010)
 
     assert application._occupancy_state == boot.module._EMPTY_HOLD
@@ -68,11 +65,10 @@ def test_live_hold_extension_pushes_deadline_out(load_application):
 def test_turning_hold_off_clears_on_next_empty_report(load_application):
     boot = load_application()
     application = boot.application
-    application._hold_control.on = True
-    application._hold_control.level = 254
+    application._hold_control.set(on=True, level=254)
     application._apply_empty_report(now_ms=25)
 
-    application._hold_control.on = False
+    application._hold_control.set(on=False)
     application._apply_empty_report(now_ms=26)
 
     assert application._occupancy_state == boot.module._VACANT
@@ -81,8 +77,7 @@ def test_turning_hold_off_clears_on_next_empty_report(load_application):
 def test_reacquiring_target_cancels_pending_clear(load_application):
     boot = load_application()
     application = boot.application
-    application._hold_control.on = True
-    application._hold_control.level = 254
+    application._hold_control.set(on=True, level=254)
     application._apply_empty_report(now_ms=100)
 
     application._apply_radar_report(occupied=True, now_ms=200)
@@ -96,8 +91,7 @@ def test_hold_uses_wrap_safe_tick_difference(load_application):
     boot = load_application()
     application = boot.application
     period = boot.time._PERIOD
-    application._hold_control.on = True
-    application._hold_control.level = 1
+    application._hold_control.set(on=True, level=1)
 
     application._apply_empty_report(now_ms=period - 1_000)
     application._apply_empty_report(now_ms=1_500)
@@ -110,7 +104,7 @@ def test_publication_failure_stays_pending_until_next_report(load_application, c
     boot = load_application()
     application = boot.application
     capsys.readouterr()
-    _matter.fail_next("attribute_publish")
+    _matter.fail_next("attributes_publish")
 
     application._apply_empty_report(now_ms=1)
 
@@ -129,7 +123,7 @@ def test_target_after_failed_clear_forces_native_value_back_to_occupied(load_app
     boot = load_application()
     application = boot.application
     capsys.readouterr()
-    _matter.fail_next("attribute_publish")
+    _matter.fail_next("attributes_publish")
     application._apply_empty_report(now_ms=1)
 
     application._set_occupied()

@@ -43,10 +43,10 @@ void finish(Request *request, int result)
 // Each operation below returns 0 on success or an errno-style error code.
 
 // Return the code-driven Occupancy Sensing cluster serving this endpoint.
-OccupancySensingCluster *get_occupancy_cluster(const Request *request)
+OccupancySensingCluster *get_occupancy_cluster(uint16_t endpoint_id, uint32_t cluster_id)
 {
     ServerClusterInterface *served = esp_matter::data_model::provider::get_instance().registry().Get(
-        ConcreteClusterPath(request->endpoint_id, request->cluster_id));
+        ConcreteClusterPath(endpoint_id, cluster_id));
     // ESP-Matter registers this concrete type for OccupancySensing; CHIP has no RTTI.
     return static_cast<OccupancySensingCluster *>(served);
 }
@@ -55,7 +55,7 @@ OccupancySensingCluster *get_occupancy_cluster(const Request *request)
 // attribute store, so reads must use the same authoritative state controllers see.
 int read_occupancy(Request *request)
 {
-    OccupancySensingCluster *served = get_occupancy_cluster(request);
+    OccupancySensingCluster *served = get_occupancy_cluster(request->endpoint_id, request->cluster_id);
     if (served == nullptr) {
         return ENOENT;
     }
@@ -93,13 +93,13 @@ int read_attribute(Request *request)
 // Occupancy is served by a code-driven cluster, not ESP-Matter's generic
 // attribute store. Its setter updates the controller-visible value and reports
 // it without producing a local attribute-callback echo.
-int publish_occupancy(const Request *request)
+int publish_occupancy(uint16_t endpoint_id, uint32_t cluster_id, uint32_t value)
 {
-    OccupancySensingCluster *served = get_occupancy_cluster(request);
+    OccupancySensingCluster *served = get_occupancy_cluster(endpoint_id, cluster_id);
     if (served == nullptr) {
         return ENOENT;
     }
-    served->SetOccupancy(request->value != 0U);
+    served->SetOccupancy(value != 0U);
     return 0;
 }
 
@@ -110,38 +110,62 @@ int publish_occupancy(const Request *request)
 // ESP-Matter also calls `attribute_callback()` for this local change, so the
 // update is bracketed as local for exactly as long as `attribute::update()`
 // runs and the echo is dropped there.
-int publish_attribute(Request *request)
+int publish_attributes(Request *request)
 {
-    if (request->cluster_id == OccupancySensing::Id &&
-        request->attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
-        const int result = publish_occupancy(request);
-        if (result == 0) {
-            clear_remote_attribute(request->endpoint_id, request->cluster_id, request->attribute_id);
+    attribute_t *handles[MATTER_MAX_ATTRIBUTE_BATCH]{};
+    esp_matter_attr_val_t values[MATTER_MAX_ATTRIBUTE_BATCH]{};
+    bool occupancy[MATTER_MAX_ATTRIBUTE_BATCH]{};
+
+    // Resolve and convert the whole batch before the first mutation. That makes
+    // path and range failures all-or-nothing even though ESP-Matter cannot roll
+    // back an unexpected failure from attribute::update().
+    for (size_t index = 0; index < request->attribute_update_count; ++index) {
+        const matter_attribute_update &update = request->attribute_updates[index];
+        occupancy[index] = update.cluster_id == OccupancySensing::Id &&
+                           update.attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+        if (occupancy[index]) {
+            if (get_occupancy_cluster(request->endpoint_id, update.cluster_id) == nullptr) {
+                return ENOENT;
+            }
+            if (update.value_type != MATTER_VALUE_UINT8 || update.value > 1U) {
+                return ERANGE;
+            }
+            continue;
         }
-        return result;
+        handles[index] = esp_matter::attribute::get(request->endpoint_id, update.cluster_id,
+                                                    update.attribute_id);
+        if (handles[index] == nullptr) {
+            return ENOENT;
+        }
+        esp_matter_attr_val_t stored{};
+        if (esp_matter::attribute::get_val(handles[index], &stored) != ESP_OK) {
+            return EIO;
+        }
+        const AttributeValue decoded =
+            event_value_to_attribute_value(stored, update.value, update.value_type);
+        if (decoded.error != 0) {
+            return decoded.error;
+        }
+        values[index] = decoded.value;
     }
-    attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, request->cluster_id,
-                                                     request->attribute_id);
-    if (handle == nullptr) {
-        return ENOENT;
-    }
-    esp_matter_attr_val_t stored{};
-    if (esp_matter::attribute::get_val(handle, &stored) != ESP_OK) {
-        return EIO;
-    }
-    AttributeValue decoded = event_value_to_attribute_value(stored, request->value, request->value_type);
-    if (decoded.error != 0) {
-        return decoded.error;
-    }
+
+    int error = 0;
     begin_local_update();
-    const esp_err_t result = esp_matter::attribute::update(request->endpoint_id, request->cluster_id,
-                                                          request->attribute_id, &decoded.value);
-    end_local_update();
-    if (result != ESP_OK) {
-        return EIO;
+    for (size_t index = 0; index < request->attribute_update_count; ++index) {
+        const matter_attribute_update &update = request->attribute_updates[index];
+        if (occupancy[index]) {
+            error = publish_occupancy(request->endpoint_id, update.cluster_id, update.value);
+        } else if (esp_matter::attribute::update(request->endpoint_id, update.cluster_id,
+                                                update.attribute_id, &values[index]) != ESP_OK) {
+            error = EIO;
+        }
+        if (error != 0) {
+            break;
+        }
+        clear_remote_attribute(request->endpoint_id, update.cluster_id, update.attribute_id);
     }
-    clear_remote_attribute(request->endpoint_id, request->cluster_id, request->attribute_id);
-    return 0;
+    end_local_update();
+    return error;
 }
 
 // Make the already-running device temporarily available for Matter pairing.
@@ -210,8 +234,8 @@ void apply_request(intptr_t argument)
     case RequestKind::kRead:
         result = read_attribute(request);
         break;
-    case RequestKind::kPublish:
-        result = publish_attribute(request);
+    case RequestKind::kPublishBatch:
+        result = publish_attributes(request);
         break;
     case RequestKind::kSnapshot:
         result = get_state_snapshot(request);

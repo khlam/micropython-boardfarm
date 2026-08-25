@@ -24,7 +24,7 @@ namespace matter_bridge {
 // request rather than exposing this request format directly.
 enum class RequestKind : uint8_t {
     kRead,
-    kPublish,
+    kPublishBatch,
     kSnapshot,
     kOpenCommissioningWindow,
     kGetFabrics,
@@ -56,6 +56,8 @@ struct Request {
     uint32_t attribute_id = 0;
     uint32_t value = 0;
     uint8_t value_type = 0;
+    matter_attribute_update attribute_updates[MATTER_MAX_ATTRIBUTE_BATCH]{};
+    size_t attribute_update_count = 0;
     uint16_t timeout_s = 0;
     uint8_t fabric_index = 0;
     matter_fabric *fabrics = nullptr;

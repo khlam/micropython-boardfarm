@@ -18,26 +18,23 @@ node = matter.Node()
 light = node.create_endpoint(matter.EndpointType.ON_OFF_LIGHT)
 
 
-def controller_write(event):
-    application_state["on"] = event.value
-    update_hardware(event.value)
-
-
-light.on_write(controller_write)
 node.start()
 update_hardware(light.get(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF))
 
 while True:
-    node.poll()
+    for event in node.poll():
+        if isinstance(event, matter.WriteEvent) and event.endpoint is light:
+            application_state["on"] = event.value
+            update_hardware(event.value)
     time.sleep_ms(50)
 ```
 
 `ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, `OCCUPANCY_SENSOR`,
 and `ON_OFF_PLUG_IN_UNIT` endpoints are supported, including multiple endpoints
-on one node. Plug-in units expose the same `.on` property and remote-write
-callback as on/off lights, but controllers classify them as an outlet-style
+on one node. Plug-in units expose the same `.on` property and write events as
+on/off lights, but controllers classify them as an outlet-style
 load. `get()` reads Python-owned state hydrated from ESP-Matter persistence
-during `Node.start()`. Restoration does not invoke callbacks.
+during `Node.start()`. Restoration does not produce events.
 
 `create_endpoint` also takes an `initial={(cluster, attribute): value}` mapping,
 which writes those attributes into the stack before it starts. A pre-start write
@@ -63,45 +60,45 @@ attribute so Matter subscribers observe the change:
 ```python
 application_state["on"] = True
 update_hardware(True)
-light.publish(matter.Clusters.ON_OFF, matter.Attributes.ON_OFF, True)
+light.set(on=True)
 ```
 
-`on_write()` receives only controller-originated events. Each immutable event
-contains `endpoint_id`, `cluster`, `attribute`, `value`, and `origin`. Local
-publication echoes are recognized by origin and excluded from the retained
-snapshot, preventing callback feedback loops. Callback exceptions produce a
-compact JSON error and do not stop subsequent delivery.
+Named properties are read-only. `set()` validates all supplied names and values
+before changing state, stores the complete MicroPython decision, and publishes
+it in one bounded CHIP-task request. `publish(cluster, attribute, value)` is the
+equivalent explicit API for a path known only at runtime. Native publication
+failure raises `OSError` while retaining the requested Python values so the same
+call can be retried; ESP-Matter cannot roll back an unexpected failure after an
+earlier value in a batch was accepted.
 
 Applications call `Node.poll()` regularly; 50 ms is the project default. The
 native bridge retains only the latest remote value for each mirrored attribute,
 so repeated controller writes between polls may coalesce. Different attributes
 and the separate commissioning session/window states retain independent values
-and share one revision sequence for deterministic delivery order. A successful
-local publication invalidates an older retained remote write for the same path.
+and share one revision sequence for deterministic delivery order. `poll()`
+synchronizes every endpoint mirror, then returns an immutable ordered tuple of
+`WriteEvent(endpoint, cluster, attribute, value)` and `CommissioningEvent`
+objects; no application code runs inside it. A successful local publication
+invalidates an older retained remote write for the same path.
 
-`on_commissioning()` subscribes to pairing transitions. Each immutable event
-contains a `name` — `Commissioning.SESSION` or `Commissioning.WINDOW` — and a
+Each commissioning event contains a `name` — `Commissioning.SESSION` or
+`Commissioning.WINDOW` — and a
 `state`: `STARTED`, `COMPLETE`, `FAILED`, `OPENED`, or `CLOSED`. The five states
 are mutually distinct, so a subscriber can decide on `state` alone. `FAILED`
 reports one failed attempt, not the end of pairing: the package reopens a
 commissioning window whenever an unpaired node would otherwise stop advertising,
-so a `FAILED` is normally followed by another `OPENED`. Register before
-`start()` when startup state matters. `start()` restores mirrors without
-callbacks; the first explicit poll delivers retained startup state:
+so a `FAILED` is normally followed by another `OPENED`. `start()` restores
+mirrors without events; the first explicit poll returns retained startup state:
 
 ```python
-def pairing_changed(event):
-    if event.state == matter.Commissioning.COMPLETE:
-        update_hardware(False)
-
-
-node.on_commissioning(pairing_changed)
 node.start()
-node.poll()
+for event in node.poll():
+    if isinstance(event, matter.CommissioningEvent):
+        if event.state == matter.Commissioning.COMPLETE:
+            update_hardware(False)
 ```
 
-Every transition is reported as JSON whether or not anyone subscribes, and a
-subscriber exception is contained exactly as an `on_write()` one is.
+Every commissioning transition is also reported as structured JSON.
 
 Node administration is available through `open_commissioning_window()`,
 `fabrics()`, `remove_fabric()`, and `factory_reset()`. Fabric records expose

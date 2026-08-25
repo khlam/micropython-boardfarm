@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // `_matter` exposes protocol primitives only. The frozen `matter` package owns
-// endpoint state, callback routing, and every application decision.
+// endpoint state, event routing, and every application decision.
 #include "matter/bridge.h"
 
 #include <errno.h>
@@ -133,22 +133,33 @@ static mp_obj_t attribute_get(size_t argument_count, const mp_obj_t *arguments)
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(attribute_get_obj, 3, 3, attribute_get);
 
-// Publish a locally decided value, taking
-// (endpoint_id, cluster, attribute, value) positionally.
-static mp_obj_t attribute_publish(size_t argument_count, const mp_obj_t *arguments)
+// Publish a locally decided batch, taking
+// (endpoint_id, ((cluster, attribute, value), ...)) positionally.
+static mp_obj_t attributes_publish(mp_obj_t endpoint_id_in, mp_obj_t updates_in)
 {
-    (void)argument_count;
-    uint16_t endpoint_id;
-    uint32_t cluster_id;
-    uint32_t attribute_id;
-    unpack_path(arguments, &endpoint_id, &cluster_id, &attribute_id);
-    uint8_t value_type = 0;
-    const uint32_t value = value_from_object(arguments[3], &value_type);
-    check(matter_attribute_publish(endpoint_id, cluster_id, attribute_id, value, value_type,
-                                   MATTER_REQUEST_TIMEOUT_MS));
+    size_t count = 0;
+    mp_obj_t *items = NULL;
+    mp_obj_get_array(updates_in, &count, &items);
+    if (count == 0 || count > MATTER_MAX_ATTRIBUTE_BATCH) {
+        mp_raise_ValueError(MP_ERROR_TEXT("attribute batch size is out of range"));
+    }
+    struct matter_attribute_update updates[MATTER_MAX_ATTRIBUTE_BATCH];
+    for (size_t index = 0; index < count; ++index) {
+        size_t field_count = 0;
+        mp_obj_t *fields = NULL;
+        mp_obj_get_array(items[index], &field_count, &fields);
+        if (field_count != 3) {
+            mp_raise_ValueError(MP_ERROR_TEXT("attribute update must have three fields"));
+        }
+        updates[index].cluster_id = mp_obj_get_int(fields[0]);
+        updates[index].attribute_id = mp_obj_get_int(fields[1]);
+        updates[index].value = value_from_object(fields[2], &updates[index].value_type);
+    }
+    check(matter_attributes_publish((uint16_t)mp_obj_get_int(endpoint_id_in), updates, count,
+                                    MATTER_REQUEST_TIMEOUT_MS));
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(attribute_publish_obj, 4, 4, attribute_publish);
+static MP_DEFINE_CONST_FUN_OBJ_2(attributes_publish_obj, attributes_publish);
 
 // Return the current native state generation without entering the CHIP task.
 static mp_obj_t generation(void)
@@ -265,7 +276,7 @@ static const mp_rom_map_elem_t native_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_attribute_set_initial), MP_ROM_PTR(&attribute_set_initial_obj)},
     {MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&stack_start_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_get), MP_ROM_PTR(&attribute_get_obj)},
-    {MP_ROM_QSTR(MP_QSTR_attribute_publish), MP_ROM_PTR(&attribute_publish_obj)},
+    {MP_ROM_QSTR(MP_QSTR_attributes_publish), MP_ROM_PTR(&attributes_publish_obj)},
     {MP_ROM_QSTR(MP_QSTR_generation), MP_ROM_PTR(&generation_obj)},
     {MP_ROM_QSTR(MP_QSTR_snapshot), MP_ROM_PTR(&snapshot_obj)},
     {MP_ROM_QSTR(MP_QSTR_open_commissioning_window), MP_ROM_PTR(&open_commissioning_window_obj)},
