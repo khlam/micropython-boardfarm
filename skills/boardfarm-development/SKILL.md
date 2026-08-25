@@ -60,6 +60,10 @@ its false-positive/false-negative tradeoff explicit.
 
 - Keep control flow explicit. Use named states when persistent behavior has meaningful
   transitions; avoid extra state when the newest valid hardware report is sufficient.
+- Order functions and methods so the file reads as a call graph, top down: constructor first, then
+  the public entry point, then the long-lived tasks it spawns in the same order it spawns them, then
+  the helpers each task calls. A helper shared by several tasks sits below all of them; a helper used
+  by one task stays with that task's group. Never interleave a task loop among the helpers it calls.
 - Preserve stable JSON keys, Matter endpoint identity/order, URLs, ports, and artifact names unless
   the requested feature changes their contract.
 - Keep independent failure domains independent. A dashboard or Matter publication failure must not
