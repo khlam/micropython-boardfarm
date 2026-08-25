@@ -18,8 +18,8 @@ dependencies = [
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
-    "micropython_stubs>=0.6.0",
-    "matter>=0.1.0",
+    "micropython_stubs>=0.7.0",
+    "matter>=0.2.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
