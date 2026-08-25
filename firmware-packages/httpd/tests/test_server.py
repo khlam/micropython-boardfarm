@@ -85,6 +85,40 @@ def test_a_malformed_request_is_rejected(server, serve, request_bytes):
     assert serve(server, request_bytes) == server_module._BAD_REQUEST
 
 
+def test_request_and_header_lines_at_the_limit_are_accepted(reader):
+    request_suffix = b" HTTP/1.1\r\n"
+    path = b"/" + b"x" * (server_module._MAX_HEADER_LINE - len(b"GET /") - len(request_suffix))
+    request_line = b"GET " + path + request_suffix
+    header_prefix = b"X-Test: "
+    header_value = b"y" * (server_module._MAX_HEADER_LINE - len(header_prefix) - len(b"\r\n"))
+    header_line = header_prefix + header_value + b"\r\n"
+    source = reader(request_line + header_line + b"\r\n")
+
+    assert len(request_line) == server_module._MAX_HEADER_LINE
+    assert len(header_line) == server_module._MAX_HEADER_LINE
+    assert asyncio.run(server_module._read_request(source)) == (
+        "GET",
+        path.decode(),
+        {"x-test": header_value.decode()},
+    )
+
+
+@pytest.mark.parametrize(
+    ("prefix", "ending"),
+    [
+        pytest.param(b"", b"\r\nignored", id="terminated request line"),
+        pytest.param(b"", b"", id="unterminated request line"),
+        pytest.param(b"GET / HTTP/1.1\r\n", b"\r\nignored", id="terminated header line"),
+        pytest.param(b"GET / HTTP/1.1\r\n", b"", id="unterminated header line"),
+    ],
+)
+def test_an_oversized_line_is_rejected_at_its_first_excess_byte(reader, prefix, ending):
+    source = reader(prefix + b"x" * (server_module._MAX_HEADER_LINE + 1) + ending)
+
+    assert asyncio.run(server_module._read_request(source)) is None
+    assert source.bytes_read == len(prefix) + server_module._MAX_HEADER_LINE + 1
+
+
 def test_a_connection_is_closed_and_forgotten_after_every_request(server, reader, writer):
     server.page("/", _BODY)
     sink = writer()

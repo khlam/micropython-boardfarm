@@ -23,6 +23,7 @@ _NOT_ALLOWED = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnect
 _UNAVAILABLE = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
 _BODY_METHODS = ("GET", "HEAD")
+_LINE_FEED = b"\n"
 
 
 class Server:
@@ -189,8 +190,8 @@ async def _read_request(reader: object) -> tuple | None:
         ``(method, path, headers)`` with header names lowercased, or None when
         the request is malformed or exceeds the header bounds.
     """
-    line = await reader.readline()
-    if not line or len(line) > _MAX_HEADER_LINE:
+    line = await _read_line(reader)
+    if not line:
         return None
     fields = line.decode().split()
     if len(fields) < 2:
@@ -199,14 +200,37 @@ async def _read_request(reader: object) -> tuple | None:
     path = fields[1].split("?", 1)[0]
     headers = {}
     for _ in range(_MAX_HEADERS):
-        line = await reader.readline()
+        line = await _read_line(reader)
+        if line is None:
+            return None
         if not line or line in (b"\r\n", b"\n"):
             return method, path, headers
-        if len(line) > _MAX_HEADER_LINE:
-            return None
         name, _separator, value = line.decode().partition(":")
         headers[name.strip().lower()] = value.strip()
     return None
+
+
+async def _read_line(reader: object) -> bytes | None:
+    """Read one line without allowing the stream to buffer past its limit.
+
+    Args:
+        reader: Stream reader positioned at the start of a line.
+
+    Returns:
+        The line through its newline, a partial line at EOF, or None when the
+        line exceeds the configured bound.
+    """
+    line = bytearray()
+    while True:
+        try:
+            byte = await reader.readexactly(1)
+        except EOFError:
+            return bytes(line)
+        if len(line) == _MAX_HEADER_LINE:
+            return None
+        line.append(byte[0])
+        if byte == _LINE_FEED:
+            return bytes(line)
 
 
 async def _write(writer: object, payload: bytes) -> None:

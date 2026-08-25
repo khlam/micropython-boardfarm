@@ -80,15 +80,10 @@ class _Reader:
         self._payload = payload
         self._at = 0
 
-    async def readline(self) -> bytes:
-        """Return bytes through the next newline, or b"" at the end."""
-        if self._at >= len(self._payload):
-            return b""
-        end = self._payload.find(b"\n", self._at)
-        end = len(self._payload) if end < 0 else end + 1
-        line = self._payload[self._at : end]
-        self._at = end
-        return line
+    @property
+    def bytes_read(self) -> int:
+        """Return how many bytes the server consumed."""
+        return self._at
 
     async def readexactly(self, count: int) -> bytes:
         """Return exactly ``count`` bytes, raising EOFError when short.
