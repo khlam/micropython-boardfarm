@@ -80,7 +80,7 @@ void release(Request *request)
 
 namespace {
 
-// Owns the VM-task side release() call for the six wrappers below, so each one
+// Owns the VM-task side release() call for the seven wrappers below, so each one
 // states only its precondition and its own fields rather than repeating
 // allocate/null-check/release around them. `get()` is nullptr exactly when
 // allocation failed; the wrapper still has to turn that into ENOMEM itself,

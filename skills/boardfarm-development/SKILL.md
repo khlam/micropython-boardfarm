@@ -48,7 +48,7 @@ its false-positive/false-negative tradeoff explicit.
   `DeviceNotFoundError` for absence.
 - Keep reusable CPython behavior in `cpython-packages/`; keep each project's dashboard body and
   presentation under its own `viz/` directory.
-- Keep Matter schemas, transport, commissioning, persistence, and native event delivery in the
+- Keep Matter schemas, transport, commissioning, persistence, and native state retention in the
   Matter package/native bridge. Keep product policy, endpoint-derived state, color or brightness
   decisions, pins, and hardware lifecycle in the project.
 - For a new project, start from the closest supported project and adapt it deliberately. Register

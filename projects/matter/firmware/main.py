@@ -92,7 +92,7 @@ def set_color(color: tuple) -> None:
     show(color, time.ticks_ms())
     # Below: Endpoint.set -> _matter.attributes_publish -> request.cpp
     # matter_attributes_publish -- a bounded round trip onto the CHIP task
-    # (ARCHITECTURE.md "A local change going out").
+    # (ARCHITECTURE.md "Local publication").
     publish_triple(endpoint, color)
     lit = endpoint.level != 0
     if endpoint.on != lit:
@@ -229,7 +229,7 @@ show(BOOT_COLOR, _startup_stamp)
 # Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
 # stack.cpp matter_node_create() -> esp_matter::node::create(). Runs directly
 # on this task -- there's no CHIP task yet to schedule onto (ARCHITECTURE.md
-# "Boot").
+# "Startup and restoration").
 node = matter.Node()
 
 # create_endpoint() crosses into stack.cpp the same way: matter_endpoint_create(),

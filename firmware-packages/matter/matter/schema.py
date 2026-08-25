@@ -95,8 +95,8 @@ class Commissioning:
 class Paths:
     """The ``(cluster, attribute)`` pair naming every mirrored attribute.
 
-    Grouped rather than left as ten module names because they are the keys the
-    schema tables, the endpoint mirror, and the named accessors all share.
+    Grouped rather than left as eleven module names because they are the keys
+    the schema tables, the endpoint mirror, and the named accessors all share.
     """
 
     IDENTIFY = (Clusters.IDENTIFY, Attributes.IDENTIFY_TIME)
