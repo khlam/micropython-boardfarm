@@ -6,8 +6,7 @@ report, from zero to ten minutes. A missing report or UART error forces
 occupancy on and restarts the radar connection.
 
 The board sends the same JSON reports over USB serial and its dashboard
-WebSocket. The dashboard is available at the network address assigned during
-Matter commissioning, so it works with or without a USB host.
+WebSocket.
 """
 
 import asyncio
