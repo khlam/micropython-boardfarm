@@ -57,14 +57,6 @@ Before changing anything, identify the area you're touching:
 | RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
 | ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
 
-<!-- TODO: revisit the dashboard-freezing clause in the "Matter build tooling" row
-     above — "it also gzips the project's viz/static/index.html into a generated
-     dashboard_page module and hands manifest.py the staging directory as
-     FROZEN_STAGING_DIR, so the board serves the same page the host viz service
-     does". It describes a cross-cutting build step (build.py + manifest.py +
-     the project's viz/ mount) from inside a row about one tools/ directory, so
-     it may belong in its own routing row or somewhere outside this table. -->
-
 ## Commands (copy/paste, run from `projects/<project>/`)
 
 #### Compile firmware

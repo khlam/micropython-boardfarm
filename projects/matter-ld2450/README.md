@@ -4,7 +4,7 @@ This project exposes an HLK-LD2450 mmWave radar as a read-only Matter Occupancy
 Sensor and a virtual Dimmable Light that configures its occupancy hold. It is an
 edge translator: detailed 10 Hz radar reports become a low-bandwidth Matter
 occupancy state, while full target telemetry remains available through the
-board's webpage or a local USB dashboard.
+board's webpage and the USB serial stream.
 
 The product contract is:
 
@@ -68,7 +68,6 @@ flowchart LR
     controller["Matter controller"]
 
     serial["USB JSON stream"]
-    backend["FastAPI host service<br/>serial → WebSocket"]
     onboard["Onboard HTTP + WebSocket"]
     browser["Plotly dashboard"]
     pixel["WS2812 status pixel"]
@@ -80,7 +79,7 @@ flowchart LR
     matter --> native --> stack
     stack <-->|Matter| controller
 
-    policy --> serial --> backend --> browser
+    policy --> serial
     policy --> onboard --> browser
     stack -.->|"commissioning events"| policy
     policy --> pixel
@@ -98,7 +97,7 @@ failures do not affect occupancy publication or commissioning.
 | Matter Python package | Endpoint validation, Python attribute mirror, returned events, and node administration |
 | Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
-| Host dashboard | USB reconnection, JSON filtering, WebSocket fan-out, and visualization |
+| `firmware-packages/httpd` | Onboard HTTP listener, WebSocket handshake and framing, and non-blocking fan-out |
 
 Product behavior stays in `firmware/main.py`; the radar driver and Matter
 bridge contain no board pins, dead-zone rules, or pixel colors. See
@@ -255,7 +254,7 @@ unpaired session stops, an inactive window expires, or the final fabric is
 removed. It first tries BLE plus DNS-SD and falls back to DNS-SD alone when BLE
 is unavailable.
 
-## USB serial and dashboard
+## Telemetry stream
 
 At most once every 500 ms, the newest valid report produces one compact JSON
 line containing targets outside the dead zone. Raw sensor fields are preserved:
@@ -264,28 +263,22 @@ line containing targets outside the dead zone. Raw sensor fields are preserved:
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
 ```
 
-The host service reads USB serial in a background thread, rejects non-JSON
-lines, and sends valid objects through a bounded asyncio queue to WebSocket
-clients. The browser derives distance, angle, and occupancy, displays
-five-second target trails, and retains 60 seconds of activity. Radar, serial,
+One `emit()` sink writes each line to both destinations: USB serial and the
+dashboard WebSocket. Read the serial side with
+`docker compose run --rm --build esp32-monitor`, setting
+`SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
+
+## The board's dashboard
+
+The board serves the dashboard from the address Matter commissioning put it on.
+To avoid overlapping the Matter startup current peak, the firmware waits 15
+seconds after boot before opening port 80, then starts the listener as soon as
+an address is available. The build gzips `viz/static/index.html` into the
+firmware, so the page ships with the image and needs no host service.
+
+The browser derives distance, angle, and occupancy from those JSON lines,
+displays five-second target trails, and retains 60 seconds of activity. Radar
 or WebSocket loss returns the dashboard to `WAITING` rather than clear.
-
-Start it at <http://localhost:18501>:
-
-```console
-docker compose up --build viz
-```
-
-Set `SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
-
-## The board's own dashboard
-
-The board automatically serves the same dashboard from the address Matter
-commissioning put it on. To avoid overlapping the Matter startup current peak,
-the firmware waits 15 seconds after boot before opening port 80, then starts the
-listener as soon as an address is available. The build gzips
-`viz/static/index.html` into the firmware. There is one copy of the page:
-whatever the `viz` service above shows is what the board shows.
 
 The address is reported once it exists, and again if the DHCP lease changes it:
 

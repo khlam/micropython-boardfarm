@@ -304,10 +304,11 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
     """Turn the project's dashboard page into a module, and return its directory.
 
     The board has no filesystem partition, so a page can only reach it as frozen
-    code. Generating the module here keeps viz/static/index.html the one copy
-    anybody edits: the same file the host viz service serves is the file the
-    board serves. It is gzipped now and sent under a Content-Encoding header
-    later, so neither the flash nor the chip ever holds the expanded page.
+    code. Generating the module here means viz/static/index.html stays the one
+    copy anybody edits — the page is authored as a file and compiled into the
+    image, never maintained as a Python string. It is gzipped now and sent under
+    a Content-Encoding header later, so neither the flash nor the chip ever
+    holds the expanded page.
 
     The directory is separate from /firmware because that mount is read-only,
     and manifest.py freezes it through FROZEN_STAGING_DIR.
