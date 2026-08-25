@@ -128,6 +128,112 @@ class _Application:
         """Run Matter polling, dashboard, and radar tasks."""
         await asyncio.gather(self._run_matter(), self._run_dashboard(), self._run_radar())
 
+    async def _run_matter(self) -> None:
+        """Poll Matter and hold fail-safe occupied through failure periods."""
+        failure_reported = False
+        while True:
+            try:
+                events = self._node.poll()
+            except OSError as exception:
+                self._set_matter_health(healthy=False)
+                self._set_occupied()
+                if not failure_reported:
+                    emit({"diag": "matter_poll_err", "err": str(exception)})
+                failure_reported = True
+            else:
+                if failure_reported:
+                    emit({"diag": "matter_ok"})
+                failure_reported = False
+                self._set_matter_health(healthy=True)
+                self._handle_matter_events(events)
+            await asyncio.sleep_ms(_MATTER_POLL_MS)
+
+    async def _run_dashboard(self) -> None:
+        """Keep the dashboard available after Matter has a network address.
+
+        Wait for Matter startup before adding a server and more network traffic.
+        The server listens on every interface, so an address change only needs
+        a new dashboard address report.
+
+        Report each dashboard failure period once and keep retrying. Dashboard
+        failures do not change occupancy.
+        """
+        address = None
+        failure_reported = False
+        await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
+
+        while True:
+            address, failure_reported, delay_ms = await self._update_dashboard(
+                address, failure_reported=failure_reported
+            )
+            await asyncio.sleep_ms(delay_ms)
+
+    async def _run_radar(self) -> None:
+        """Read radar reports and recreate the radar after a failure."""
+        radar = None
+        failure_reported = False
+        last_dashboard_report_ms = None
+
+        while True:
+            if radar is None:
+                new_radar = None
+                try:
+                    new_radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+                    await new_radar.wait_ready()
+                except (DeviceNotFoundError, OSError) as exception:
+                    diagnostic = (
+                        "no_device" if isinstance(exception, DeviceNotFoundError) else "init_err"
+                    )
+                    failure_reported = self._handle_radar_failure(
+                        new_radar,
+                        diagnostic=diagnostic,
+                        exception=exception,
+                        already_reported=failure_reported,
+                    )
+                    await asyncio.sleep_ms(_RADAR_RETRY_MS)
+                    continue
+
+                radar = new_radar
+                self._set_occupied()
+                self._set_radar_health(healthy=True)
+                emit({"diag": "radar_ok"})
+                failure_reported = False
+
+            try:
+                targets = await radar.read_latest()
+            except OSError as exception:
+                failure_reported = self._handle_radar_failure(
+                    radar,
+                    diagnostic="read_err",
+                    exception=exception,
+                    already_reported=failure_reported,
+                )
+                radar = None
+                await asyncio.sleep_ms(_RADAR_RETRY_MS)
+                continue
+
+            now_ms = time.ticks_ms()
+            if targets is None:
+                failure_reported = self._handle_radar_failure(
+                    radar,
+                    diagnostic="report_timeout",
+                    now_ms=now_ms,
+                    already_reported=failure_reported,
+                )
+                radar = None
+                await asyncio.sleep_ms(_RADAR_RETRY_MS)
+                continue
+
+            targets = tuple(target for target in targets if self._outside_dead_zone(target))
+            self._set_radar_health(healthy=True)
+            self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
+            dashboard_report_due = last_dashboard_report_ms is None or (
+                time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
+            )
+            if dashboard_report_due:
+                emit({"t": now_ms, "targets": [self._target_fields(target) for target in targets]})
+                last_dashboard_report_ms = now_ms
+
     def _set_pixel_color(self, color: tuple) -> None:
         """Set the onboard status pixel color."""
         self._pixel[0] = color
@@ -193,26 +299,6 @@ class _Application:
             return
         self._matter_healthy = healthy
         self._update_status_pixel()
-
-    async def _run_matter(self) -> None:
-        """Poll Matter and hold fail-safe occupied through failure periods."""
-        failure_reported = False
-        while True:
-            try:
-                events = self._node.poll()
-            except OSError as exception:
-                self._set_matter_health(healthy=False)
-                self._set_occupied()
-                if not failure_reported:
-                    emit({"diag": "matter_poll_err", "err": str(exception)})
-                failure_reported = True
-            else:
-                if failure_reported:
-                    emit({"diag": "matter_ok"})
-                failure_reported = False
-                self._set_matter_health(healthy=True)
-                self._handle_matter_events(events)
-            await asyncio.sleep_ms(_MATTER_POLL_MS)
 
     def _handle_matter_events(self, events: tuple) -> None:
         """Apply explicit commissioning events returned by Matter.
@@ -302,72 +388,6 @@ class _Application:
         self._hold_started_ms = None
         self._update_status_pixel()
         self._publish_occupancy(force=True)
-
-    async def _run_radar(self) -> None:
-        """Read radar reports and recreate the radar after a failure."""
-        radar = None
-        failure_reported = False
-        last_dashboard_report_ms = None
-
-        while True:
-            if radar is None:
-                new_radar = None
-                try:
-                    new_radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-                    await new_radar.wait_ready()
-                except (DeviceNotFoundError, OSError) as exception:
-                    diagnostic = (
-                        "no_device" if isinstance(exception, DeviceNotFoundError) else "init_err"
-                    )
-                    failure_reported = self._handle_radar_failure(
-                        new_radar,
-                        diagnostic=diagnostic,
-                        exception=exception,
-                        already_reported=failure_reported,
-                    )
-                    await asyncio.sleep_ms(_RADAR_RETRY_MS)
-                    continue
-
-                radar = new_radar
-                self._set_occupied()
-                self._set_radar_health(healthy=True)
-                emit({"diag": "radar_ok"})
-                failure_reported = False
-
-            try:
-                targets = await radar.read_latest()
-            except OSError as exception:
-                failure_reported = self._handle_radar_failure(
-                    radar,
-                    diagnostic="read_err",
-                    exception=exception,
-                    already_reported=failure_reported,
-                )
-                radar = None
-                await asyncio.sleep_ms(_RADAR_RETRY_MS)
-                continue
-
-            now_ms = time.ticks_ms()
-            if targets is None:
-                failure_reported = self._handle_radar_failure(
-                    radar,
-                    diagnostic="report_timeout",
-                    now_ms=now_ms,
-                    already_reported=failure_reported,
-                )
-                radar = None
-                await asyncio.sleep_ms(_RADAR_RETRY_MS)
-                continue
-
-            targets = tuple(target for target in targets if self._outside_dead_zone(target))
-            self._set_radar_health(healthy=True)
-            self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
-            dashboard_report_due = last_dashboard_report_ms is None or (
-                time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
-            )
-            if dashboard_report_due:
-                emit({"t": now_ms, "targets": [self._target_fields(target) for target in targets]})
-                last_dashboard_report_ms = now_ms
 
     def _handle_radar_failure(
         self,
@@ -496,26 +516,6 @@ class _Application:
         if current_address != address:
             self._report_dashboard_ready(current_address)
         return current_address, False, _ADDRESS_POLL_MS
-
-    async def _run_dashboard(self) -> None:
-        """Keep the dashboard available after Matter has a network address.
-
-        Wait for Matter startup before adding a server and more network traffic.
-        The server listens on every interface, so an address change only needs
-        a new dashboard address report.
-
-        Report each dashboard failure period once and keep retrying. Dashboard
-        failures do not change occupancy.
-        """
-        address = None
-        failure_reported = False
-        await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
-
-        while True:
-            address, failure_reported, delay_ms = await self._update_dashboard(
-                address, failure_reported=failure_reported
-            )
-            await asyncio.sleep_ms(delay_ms)
 
 
 main()
