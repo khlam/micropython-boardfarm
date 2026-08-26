@@ -88,7 +88,6 @@ class _Application:
 
     def __init__(self) -> None:
         """Initialize hardware and start Matter before the async services."""
-        self._commissioned = False
         self._commissioning_state = None
         self._commissioning_session_active = False
         self._matter_healthy = True
@@ -122,7 +121,7 @@ class _Application:
 
         # The product contract requires occupied during startup and radar recovery.
         self._publish_occupancy()
-        self._commissioned = bool(self._node.fabrics()) or self._commissioned
+        self._commissioned = bool(self._node.fabrics())
         self._update_status_pixel()
 
     async def run(self) -> None:
@@ -229,10 +228,9 @@ class _Application:
             targets = tuple(target for target in targets if self._outside_dead_zone(target))
             self._set_radar_health(healthy=True)
             self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
-            dashboard_report_due = last_dashboard_report_ms is None or (
+            if last_dashboard_report_ms is None or (
                 time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
-            )
-            if dashboard_report_due:
+            ):
                 emit({"t": now_ms, "targets": [self._target_fields(target) for target in targets]})
                 last_dashboard_report_ms = now_ms
 

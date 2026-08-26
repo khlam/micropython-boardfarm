@@ -205,13 +205,6 @@ int get_fabrics(Request *request)
     return 0;
 }
 
-// Copy retained state while running on the sole task that can mutate it.
-int get_state_snapshot(Request *request)
-{
-    return copy_state_snapshot(request->snapshot_records, MATTER_MAX_SNAPSHOT_RECORDS,
-                               &request->snapshot_count, &request->snapshot_generation);
-}
-
 // Remove this device's membership in one Matter fabric. If the supplied fabric
 // index no longer exists, return ENOENT so the caller can distinguish "already
 // gone" from a more general ESP-Matter failure.
@@ -235,7 +228,8 @@ void apply_request(intptr_t argument)
         result = publish_attributes(request);
         break;
     case RequestKind::kSnapshot:
-        result = get_state_snapshot(request);
+        result = copy_state_snapshot(request->snapshot_records, MATTER_MAX_SNAPSHOT_RECORDS,
+                                     &request->snapshot_count, &request->snapshot_generation);
         break;
     case RequestKind::kOpenCommissioningWindow:
         result = open_commissioning_window(request);

@@ -173,13 +173,12 @@ def attributes_publish(endpoint_id: int, updates: tuple) -> None:
     _require_started()
     if not 1 <= len(updates) <= 10:
         raise OSError(errno.EINVAL, "attribute batch size is out of range")
-    paths = []
     for cluster_id, attribute_id, _value in updates:
         path = (endpoint_id, cluster_id, attribute_id)
         if path not in _state.attributes:
             raise OSError(errno.ENOENT, "attribute does not exist")
-        paths.append(path)
-    for path, (_cluster_id, _attribute_id, value) in zip(paths, updates, strict=True):
+    for cluster_id, attribute_id, value in updates:
+        path = (endpoint_id, cluster_id, attribute_id)
         _state.attributes[path] = value
         _state.persisted[path] = value
         if path in _state.snapshot_records:

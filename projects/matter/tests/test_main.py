@@ -101,17 +101,6 @@ def test_commissioned_boot_restores_controller_owned_color(load_main):
     assert boot.module.pixel.writes[-1] == (0, 25, 0)
 
 
-def test_show_rejects_stale_commands_but_accepts_equal_stamps(load_main):
-    module = load_main().module
-    module.pixel.writes.clear()
-
-    module.show((1, 2, 3), 20)
-    module.show((4, 5, 6), 19)
-    module.show((7, 8, 9), 20)
-
-    assert module.pixel.writes == [(1, 2, 3), (7, 8, 9)]
-
-
 def test_set_color_renders_then_publishes_attributes_and_power(load_main):
     module = load_main().module
     module.pixel.writes.clear()
@@ -260,26 +249,6 @@ def test_startup_commissioning_events_win_over_boot_state(load_main, state_code,
 
     assert boot.module.pixel.writes[-1] == expected
     assert boot.lines == [{"event": "matter", "state": "ready"}]
-
-
-@pytest.mark.parametrize(
-    "state,expected",
-    [
-        (matter.Commissioning.STARTED, (0, 25, 25)),
-        (matter.Commissioning.OPENED, (25, 0, 25)),
-    ],
-)
-def test_show_post_start_state_renders_the_transition_seen_during_startup(
-    load_main, state, expected
-):
-    module = load_main().module
-    module.pixel.writes.clear()
-    module._commissioning_state[0] = state
-    module._last_commissioning_stamp[0] = 999
-
-    module._show_post_start_state(has_fabric=False, startup_stamp=0)
-
-    assert module.pixel.writes[-1] == expected
 
 
 def test_completion_during_start_is_published_after_node_is_started(load_main):

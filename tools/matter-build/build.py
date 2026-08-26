@@ -64,9 +64,6 @@ _ARTIFACT_MODE = 0o644
 # The project's own dashboard, served by the board once it is on the network.
 # Optional: a project without a viz/ mount simply builds without one.
 _DASHBOARD_SOURCE = Path("/viz/static/index.html")
-_DASHBOARD_MODULE = "dashboard_page"
-_DASHBOARD_CONTENT_TYPE = "text/html; charset=utf-8"
-_DASHBOARD_ENCODING = "gzip"
 
 _MERGED_NAME = "app.esp32-s3.bin"
 _QR_NAME = "app.esp32-s3.qr.png"
@@ -325,10 +322,10 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
     body = gzip.compress(_DASHBOARD_SOURCE.read_bytes(), compresslevel=9, mtime=0)
     staged = staging_root / "frozen"
     staged.mkdir(parents=True, exist_ok=True)
-    (staged / f"{_DASHBOARD_MODULE}.py").write_text(
+    (staged / "dashboard_page.py").write_text(
         f'"""The project dashboard, generated from its viz/static/index.html."""\n\n'
-        f'CONTENT_TYPE = "{_DASHBOARD_CONTENT_TYPE}"\n'
-        f'ENCODING = "{_DASHBOARD_ENCODING}"\n'
+        'CONTENT_TYPE = "text/html; charset=utf-8"\n'
+        'ENCODING = "gzip"\n'
         f"PAGE = {body!r}\n"
     )
     return staged

@@ -43,15 +43,10 @@ STALLED_COLOR = (25, 12, 0)
 OFF_COLOR = (0, 0, 0)
 POLL_INTERVAL_MS = 50
 
-# Tick the current colour was commanded on. Ordering only, never written to
-# flash. A list cell so `show()` below can update it without `global`.
-_stamp = [0]
-
 # Mutable cells retain the latest state delivered by cooperative polling.
 _commissioned = [False]
 _commissioning_state = [None]
 _session_active = [False]
-_last_commissioning_stamp = [0]
 
 # Last controller-owned colour the event loop actually rendered.
 _last_remote_color = [None]
@@ -63,23 +58,6 @@ def render(color: tuple) -> None:
     pixel.write()
 
 
-def show(color: tuple, stamp: int) -> None:
-    """Render a colour unless a newer one was already commanded.
-
-    Callbacks can run out of order, so an older decision could otherwise
-    overwrite a newer one. Comparing stamps stops that.
-
-    Args:
-        color: Red, green, and blue channel values in the range 0-255.
-        stamp: `time.ticks_ms()` reading from when the colour was commanded.
-            Equal stamps render, so the boot baseline still shows.
-    """
-    if time.ticks_diff(stamp, _stamp[0]) < 0:
-        return
-    _stamp[0] = stamp
-    render(color)
-
-
 def set_color(color: tuple) -> None:
     """Show a colour locally, then publish it to Matter.
 
@@ -89,7 +67,7 @@ def set_color(color: tuple) -> None:
     Args:
         color: Red, green, and blue channel values in the range 0-255.
     """
-    show(color, time.ticks_ms())
+    render(color)
     # Below: Endpoint.set -> _matter.attributes_publish -> request.cpp
     # matter_attributes_publish -- a bounded round trip onto the CHIP task
     # (ARCHITECTURE.md "Local publication").
@@ -111,7 +89,7 @@ def _show_controller_color() -> None:
     if color == _last_remote_color[0]:
         return
     _last_remote_color[0] = color
-    show(color, time.ticks_ms())
+    render(color)
 
 
 def _pairing_color() -> tuple:
@@ -136,15 +114,12 @@ def _pairing_color() -> tuple:
     return BOOT_COLOR
 
 
-def _show_state(stamp: int) -> None:
+def _show_state() -> None:
     """Render whichever of pairing state or controller-owned colour applies.
 
     Pairing wins while it is in flight, on a commissioned node too: an owner
     adding a second controller wants to watch that, not the light. Once the
     attempt settles, a paired node goes back to showing its colour.
-
-    Args:
-        stamp: Tick captured when the state being rendered was decided.
     """
     pairing = _session_active[0] or _commissioning_state[0] in (
         matter.Commissioning.OPENED,
@@ -152,14 +127,14 @@ def _show_state(stamp: int) -> None:
         matter.Commissioning.FAILED,
     )
     if _commissioned[0] and not pairing:
-        show(matter_to_triple(endpoint), stamp)
+        render(matter_to_triple(endpoint))
         return
-    show(_pairing_color(), stamp)
+    render(_pairing_color())
 
 
-def _finish_commissioning(stamp: int) -> None:
+def _finish_commissioning() -> None:
     """Turn the newly commissioned accessory off locally and in Matter."""
-    show(OFF_COLOR, stamp)
+    render(OFF_COLOR)
     endpoint.set(on=False)
 
 
@@ -188,43 +163,23 @@ def _on_commissioning(event: object) -> None:
     Args:
         event: :class:`matter.CommissioningEvent` delivered by the node.
     """
-    stamp = time.ticks_ms()
     state = event.state
     _commissioning_state[0] = state
-    _last_commissioning_stamp[0] = stamp
     if state == matter.Commissioning.STARTED:
         _session_active[0] = True
     elif state in (matter.Commissioning.COMPLETE, matter.Commissioning.FAILED):
         _session_active[0] = False
     if state == matter.Commissioning.COMPLETE:
         _commissioned[0] = True
-        _finish_commissioning(stamp)
+        _finish_commissioning()
         return
-    _show_state(stamp)
-
-
-def _show_post_start_state(*, has_fabric: bool, startup_stamp: int) -> None:
-    """Reconcile restored Matter state before cooperative delivery begins.
-
-    Args:
-        has_fabric: Whether the started node belongs to at least one fabric.
-        startup_stamp: Tick captured before startup, keeping restoration older
-            than any controller or commissioning event delivered during it.
-    """
-    _commissioned[0] = has_fabric or _commissioned[0]
-    if _commissioning_state[0] is None:
-        _show_state(startup_stamp)
-        return
-    _show_state(_last_commissioning_stamp[0])
+    _show_state()
 
 
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pixel_count)
 
-# White is the only state known before the stack starts. Later commissioning
-# events and restored controller state replace it with their own newer stamps.
-_startup_stamp = time.ticks_ms()
-_stamp[0] = _startup_stamp
-show(BOOT_COLOR, _startup_stamp)
+# White is the only state known before the stack starts.
+render(BOOT_COLOR)
 
 # Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
 # stack.cpp matter_node_create() -> esp_matter::node::create(). Runs directly
@@ -249,7 +204,8 @@ node.start()
 # uncommissioned board shows the boot baseline until the first poll delivers
 # retained pairing state. fabrics() takes the same bounded request.cpp round
 # trip as the attribute writes above.
-_show_post_start_state(has_fabric=bool(node.fabrics()), startup_stamp=_startup_stamp)
+_commissioned[0] = bool(node.fabrics())
+_show_state()
 
 
 def run() -> None:

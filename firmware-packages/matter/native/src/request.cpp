@@ -36,7 +36,7 @@ Request *new_request(RequestKind kind)
             return nullptr;
         }
     }
-    if (kind == RequestKind::kSnapshot) {
+    else if (kind == RequestKind::kSnapshot) {
         request->snapshot_records =
             new (std::nothrow) matter_snapshot_record[MATTER_MAX_SNAPSHOT_RECORDS]{};
         if (request->snapshot_records == nullptr) {
