@@ -51,15 +51,6 @@ def test_sending_with_no_clients_connected_does_nothing():
     Broadcast().send("dropped on the floor")
 
 
-def test_a_payload_that_cannot_be_encoded_is_dropped_rather_than_raised():
-    broadcast = Broadcast()
-    client = _connect(broadcast)
-
-    broadcast.send("\ud800")
-
-    assert list(client._outbox) == []
-
-
 def test_an_oversized_payload_is_dropped_rather_than_raised():
     broadcast = Broadcast()
     client = _connect(broadcast)
@@ -165,15 +156,6 @@ def test_a_client_connecting_without_a_greeting_is_sent_nothing_up_front(reader,
     asyncio.run(broadcast.serve(reader(b""), sink))
 
     assert bytes(sink.buffer) == b""
-
-
-def test_close_retires_every_connected_client(reader, writer):
-    broadcast = Broadcast()
-    clients = [_connect(broadcast) for _ in range(2)]
-
-    broadcast.close()
-
-    assert all(client.closed for client in clients)
 
 
 def test_a_write_failure_retires_the_client_rather_than_the_producer(reader, writer):

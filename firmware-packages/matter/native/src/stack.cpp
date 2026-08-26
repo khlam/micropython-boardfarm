@@ -13,8 +13,6 @@
 
 #include <cerrno>
 
-#include <app-common/zap-generated/ids/Attributes.h>
-#include <app-common/zap-generated/ids/Clusters.h>
 #include <esp_matter.h>
 #include <esp_matter_core.h>
 #include <esp_netif.h>
@@ -24,8 +22,6 @@
 #include "matter/bridge.h"
 #include "state_snapshot.h"
 #include "value_conversion.h"
-
-namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
 using esp_matter::attribute_t;
 using esp_matter::endpoint_t;
@@ -130,7 +126,7 @@ extern "C" int matter_attribute_set_initial(uint16_t endpoint_id, uint32_t clust
     if (started || !endpoint_exists(endpoint_id)) {
         return EINVAL;
     }
-    if (cluster_id == OccupancySensing::Id && attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
+    if (is_occupancy_attribute(cluster_id, attribute_id)) {
         return ENOTSUP;
     }
     attribute_t *handle = esp_matter::attribute::get(endpoint_id, cluster_id, attribute_id);

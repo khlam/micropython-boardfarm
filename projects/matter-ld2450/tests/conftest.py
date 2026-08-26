@@ -21,6 +21,26 @@ _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _MODULE_NAME = "matter_ld2450_main"
 
 
+class StopTaskError(Exception):
+    """Escape an otherwise-infinite firmware supervisor task."""
+
+
+@pytest.fixture
+def stop_task_error() -> type[Exception]:
+    """Return the marker exception that escapes an infinite supervisor task."""
+    return StopTaskError
+
+
+@pytest.fixture
+def json_lines():
+    """Return a decoder for every non-empty structured firmware line."""
+
+    def decode(output: str) -> list[dict]:
+        return [json.loads(line) for line in output.splitlines() if line]
+
+    return decode
+
+
 class FakeTime:
     """Wrap-safe monotonic time controlled directly by each test."""
 

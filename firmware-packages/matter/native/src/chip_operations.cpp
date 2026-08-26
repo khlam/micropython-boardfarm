@@ -15,12 +15,11 @@
 #include <platform/ConfigurationManager.h>
 
 #include "callbacks.h"
+#include "endpoint_schema.h"
 #include "matter/bridge.h"
 #include "request.h"
 #include "state_snapshot.h"
 #include "value_conversion.h"
-
-namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
 using chip::app::ConcreteClusterPath;
 using chip::app::ServerClusterInterface;
@@ -68,8 +67,7 @@ int read_occupancy(Request *request)
 // does not exist and EIO if its value cannot cross this bridge.
 int read_attribute(Request *request)
 {
-    if (request->cluster_id == OccupancySensing::Id &&
-        request->attribute_id == OccupancySensing::Attributes::Occupancy::Id) {
+    if (is_occupancy_attribute(request->cluster_id, request->attribute_id)) {
         return read_occupancy(request);
     }
     attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, request->cluster_id,
@@ -121,8 +119,7 @@ int publish_attributes(Request *request)
     // back an unexpected failure from attribute::update().
     for (size_t index = 0; index < request->attribute_update_count; ++index) {
         const matter_attribute_update &update = request->attribute_updates[index];
-        occupancy[index] = update.cluster_id == OccupancySensing::Id &&
-                           update.attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+        occupancy[index] = is_occupancy_attribute(update.cluster_id, update.attribute_id);
         if (occupancy[index]) {
             if (get_occupancy_cluster(request->endpoint_id, update.cluster_id) == nullptr) {
                 return ENOENT;

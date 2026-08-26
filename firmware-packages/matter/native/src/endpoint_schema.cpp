@@ -164,14 +164,18 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
     }
 }
 
+bool is_occupancy_attribute(uint32_t cluster_id, uint32_t attribute_id)
+{
+    return cluster_id == OccupancySensing::Id && attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+}
+
 bool endpoint_type_tracks_attribute(uint8_t endpoint_type, uint32_t cluster_id, uint32_t attribute_id)
 {
     if (cluster_id == Identify::Id && attribute_id == Identify::Attributes::IdentifyTime::Id) {
         return true;
     }
     if (endpoint_type == MATTER_ENDPOINT_OCCUPANCY_SENSOR) {
-        return cluster_id == OccupancySensing::Id &&
-               attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+        return is_occupancy_attribute(cluster_id, attribute_id);
     }
     if (cluster_id == OnOff::Id && attribute_id == OnOff::Attributes::OnOff::Id) {
         return true;

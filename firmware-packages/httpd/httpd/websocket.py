@@ -72,7 +72,7 @@ class Broadcast:
             return
         try:
             payload = frame(text)
-        except (ValueError, UnicodeError):
+        except ValueError:
             return
         for client in self._clients:
             client.enqueue(payload)
@@ -80,11 +80,6 @@ class Broadcast:
     def full(self) -> bool:
         """Return whether another client would exceed the connection ceiling."""
         return len(self._clients) >= _MAX_CLIENTS
-
-    def close(self) -> None:
-        """Close every connected client without waiting for socket I/O."""
-        for client in tuple(self._clients):
-            client.close()
 
     async def serve(self, reader: object, writer: object) -> None:
         """Run one client that has completed its handshake, until it goes away.

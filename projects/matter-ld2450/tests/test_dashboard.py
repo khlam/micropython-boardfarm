@@ -1,16 +1,11 @@
 """On-device dashboard polling, startup, and failure-isolation tests."""
 
 import asyncio
-import json
 
 import _matter
 import pytest
 
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
-
-class StopTaskError(Exception):
-    """Escape the dashboard supervisor after its first update."""
 
 
 def test_no_network_address_polls_and_clears_failure_period(load_application):
@@ -22,7 +17,9 @@ def test_no_network_address_polls_and_clears_failure_period(load_application):
     assert boot.server.start_calls == 0
 
 
-def test_address_lookup_error_is_reported_once_per_failure_period(load_application, capsys):
+def test_address_lookup_error_is_reported_once_per_failure_period(
+    load_application, capsys, json_lines
+):
     boot = load_application()
     capsys.readouterr()
     _matter.fail_next("network_address")
@@ -31,7 +28,7 @@ def test_address_lookup_error_is_reported_once_per_failure_period(load_applicati
     _matter.fail_next("network_address")
     second = asyncio.run(boot.application._update_dashboard(first[0], failure_reported=first[1]))
 
-    lines = _json_lines(capsys.readouterr().out)
+    lines = json_lines(capsys.readouterr().out)
     errors = [line for line in lines if line.get("component") == "dashboard"]
     assert len(errors) == 1
     assert "injected network_address failure" in errors[0]["message"]
@@ -64,7 +61,7 @@ def test_bind_failure_retries_without_changing_product_state(load_application, c
     assert '"component": "dashboard"' in capsys.readouterr().out
 
 
-def test_successful_start_reports_url_and_returns_to_polling(load_application, capsys):
+def test_successful_start_reports_url_and_returns_to_polling(load_application, capsys, json_lines):
     boot = load_application()
     _matter.set_network_address("192.0.2.20")
     capsys.readouterr()
@@ -74,7 +71,7 @@ def test_successful_start_reports_url_and_returns_to_polling(load_application, c
     assert result == ("192.0.2.20", False, boot.module._ADDRESS_POLL_MS)
     assert boot.server.running is True
     assert boot.server.start_calls == 1
-    assert _json_lines(capsys.readouterr().out) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "dashboard",
             "state": "ready",
@@ -83,7 +80,7 @@ def test_successful_start_reports_url_and_returns_to_polling(load_application, c
     ]
 
 
-def test_running_server_reports_only_address_changes(load_application, capsys):
+def test_running_server_reports_only_address_changes(load_application, capsys, json_lines):
     boot = load_application()
     boot.server.running = True
     _matter.set_network_address("192.0.2.30")
@@ -97,7 +94,7 @@ def test_running_server_reports_only_address_changes(load_application, capsys):
 
     assert unchanged == ("192.0.2.30", False, boot.module._ADDRESS_POLL_MS)
     assert changed == ("192.0.2.31", False, boot.module._ADDRESS_POLL_MS)
-    assert _json_lines(capsys.readouterr().out) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "dashboard",
             "state": "ready",
@@ -106,7 +103,9 @@ def test_running_server_reports_only_address_changes(load_application, capsys):
     ]
 
 
-def test_dashboard_supervisor_observes_boot_and_poll_delays(load_application, monkeypatch):
+def test_dashboard_supervisor_observes_boot_and_poll_delays(
+    load_application, monkeypatch, stop_task_error
+):
     boot = load_application()
     sleeps = []
     updates = []
@@ -118,18 +117,13 @@ def test_dashboard_supervisor_observes_boot_and_poll_delays(load_application, mo
     async def sleep_ms(delay_ms):
         sleeps.append(delay_ms)
         if len(sleeps) == 2:
-            raise StopTaskError
+            raise stop_task_error
 
     monkeypatch.setattr(boot.application, "_update_dashboard", update)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
 
-    with pytest.raises(StopTaskError):
+    with pytest.raises(stop_task_error):
         asyncio.run(boot.application._run_dashboard())
 
     assert sleeps == [boot.module._DASHBOARD_BOOT_DELAY_MS, 1234]
     assert updates == [(None, False)]
-
-
-def _json_lines(output: str) -> list[dict]:
-    """Decode every non-empty structured firmware line."""
-    return [json.loads(line) for line in output.splitlines() if line]

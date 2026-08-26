@@ -36,16 +36,6 @@ def test_a_page_can_declare_its_own_content_type(server, serve):
     assert b"Content-Type: application/json\r\n" in response
 
 
-def test_head_returns_the_headers_without_the_body(server, serve):
-    server.page("/", _BODY)
-
-    response = serve(server, b"HEAD / HTTP/1.1\r\n\r\n")
-
-    assert response.startswith(b"HTTP/1.1 200 OK\r\n")
-    assert b"Content-Length: " + str(len(_BODY)).encode() + b"\r\n" in response
-    assert _BODY not in response
-
-
 def test_a_query_string_still_reaches_the_page(server, serve):
     server.page("/", _BODY)
 
@@ -127,7 +117,6 @@ def test_a_connection_is_closed_and_forgotten_after_every_request(server, reader
 
     assert sink.closed
     assert sink.waited
-    assert server._connections == []
 
 
 def test_a_peer_that_drops_mid_response_does_not_escape_the_handler(server, reader, writer):
@@ -137,7 +126,6 @@ def test_a_peer_that_drops_mid_response_does_not_escape_the_handler(server, read
     asyncio.run(server._handle(reader(b"GET / HTTP/1.1\r\n\r\n"), sink))
 
     assert sink.closed
-    assert server._connections == []
 
 
 def test_a_socket_already_torn_down_still_leaves_the_connection_forgotten(server, reader, writer):
@@ -147,7 +135,6 @@ def test_a_socket_already_torn_down_still_leaves_the_connection_forgotten(server
     asyncio.run(server._handle(reader(b"GET / HTTP/1.1\r\n\r\n"), sink))
 
     assert sink.waited
-    assert server._connections == []
 
 
 def test_start_binds_the_port_once(server, listener):
@@ -163,35 +150,3 @@ def test_start_binds_the_port_once(server, listener):
     assert listener[0].port == 8080
     assert listener[0].address == server_module._BIND_ADDRESS
     assert listener[0].backlog == server_module._BACKLOG
-
-
-def test_stop_closes_the_listener_and_every_open_connection(server, listener, writer):
-    server.page("/", _BODY)
-    broadcast = server.stream("/ws")
-    sink = writer()
-
-    async def _scenario():
-        await server.start()
-        server._connections.append(sink)
-        await server.stop()
-        await server.stop()
-
-    asyncio.run(_scenario())
-
-    assert not server.running
-    assert listener[0].closed
-    assert listener[0].waited
-    assert sink.closed
-    assert broadcast._clients == []
-
-
-def test_a_stopped_server_can_be_started_again(server, listener):
-    async def _scenario():
-        await server.start()
-        await server.stop()
-        await server.start()
-
-    asyncio.run(_scenario())
-
-    assert server.running
-    assert len(listener) == 2

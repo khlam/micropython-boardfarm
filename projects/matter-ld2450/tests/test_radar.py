@@ -1,7 +1,6 @@
 """Radar supervision, recovery, filtering, and telemetry tests."""
 
 import asyncio
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +9,12 @@ _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 
 class StopTaskError(Exception):
-    """Escape an otherwise-infinite firmware supervisor."""
+    """Escape an otherwise-infinite firmware supervisor.
+
+    Declared locally, unlike the identical conftest.py fixture the other test
+    modules use, because FakeRadar below needs it at class-body scope, where a
+    fixture cannot reach.
+    """
 
 
 class FakeRadar:
@@ -86,7 +90,7 @@ def test_run_starts_matter_dashboard_and_radar_tasks(load_application, monkeypat
 
 
 def test_radar_filters_targets_and_decimates_dashboard_reports(
-    load_application, monkeypatch, capsys
+    load_application, monkeypatch, capsys, json_lines
 ):
     boot = load_application(fabrics=(_FABRIC,))
     module = boot.module
@@ -101,7 +105,7 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     with pytest.raises(StopTaskError):
         asyncio.run(boot.application._run_radar())
 
-    lines = _json_lines(capsys.readouterr().out)
+    lines = json_lines(capsys.readouterr().out)
     reports = [line for line in lines if "targets" in line]
     assert factory.calls == [{"bus_id": 1, "tx": 5, "rx": 6}]
     assert [line.get("diag") for line in lines if "diag" in line] == ["radar_ok"]
@@ -114,7 +118,7 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
 
 
 def test_repeated_readiness_failures_report_once_until_recovery(
-    load_application, monkeypatch, capsys
+    load_application, monkeypatch, capsys, json_lines
 ):
     boot = load_application()
     module = boot.module
@@ -133,7 +137,7 @@ def test_repeated_readiness_failures_report_once_until_recovery(
     with pytest.raises(StopTaskError):
         asyncio.run(boot.application._run_radar())
 
-    lines = _json_lines(capsys.readouterr().out)
+    lines = json_lines(capsys.readouterr().out)
     assert [line.get("diag") for line in lines if "diag" in line] == ["no_device", "radar_ok"]
     assert lines[0]["err"] == "absent"
     assert sleeps == [module._RADAR_RETRY_MS, module._RADAR_RETRY_MS]
@@ -144,7 +148,7 @@ def test_repeated_readiness_failures_report_once_until_recovery(
 
 
 def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
-    load_application, monkeypatch, capsys
+    load_application, monkeypatch, capsys, json_lines
 ):
     boot = load_application()
     module = boot.module
@@ -165,7 +169,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
     with pytest.raises(StopTaskError):
         asyncio.run(boot.application._run_radar())
 
-    lines = _json_lines(capsys.readouterr().out)
+    lines = json_lines(capsys.readouterr().out)
     failures = [line for line in lines if line.get("diag") in {"read_err", "report_timeout"}]
     assert failures == [
         {"diag": "read_err", "err": "read failed"},
@@ -177,7 +181,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
     assert boot.application._radar_healthy is True
 
 
-def test_failure_forces_occupied_and_ignores_close_errors(load_application, capsys):
+def test_failure_forces_occupied_and_ignores_close_errors(load_application, capsys, json_lines):
     boot = load_application(fabrics=(_FABRIC,))
     application = boot.application
     application._apply_empty_report(now_ms=0)
@@ -198,7 +202,7 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
     )
     application._close_radar(None)
 
-    lines = _json_lines(capsys.readouterr().out)
+    lines = json_lines(capsys.readouterr().out)
     assert [line for line in lines if line.get("diag") == "report_timeout"] == [
         {"diag": "report_timeout", "t": 44}
     ]
@@ -207,8 +211,3 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
     assert application._hold_started_ms is None
     assert application._radar_healthy is False
     assert application._pixel.writes[-1] == boot.module._RADAR_FAILED_COLOR
-
-
-def _json_lines(output: str) -> list[dict]:
-    """Decode every non-empty structured firmware line."""
-    return [json.loads(line) for line in output.splitlines() if line]

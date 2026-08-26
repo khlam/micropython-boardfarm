@@ -43,16 +43,8 @@ def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
             raise outcome
         return ()
 
-    sleeps = 0
-
-    def stop_after_four_polls(_delay_ms):
-        nonlocal sleeps
-        sleeps += 1
-        if sleeps == 4:
-            raise StopLoopError
-
     monkeypatch.setattr(module.node, "poll", poll)
-    monkeypatch.setattr(module.time, "sleep_ms", stop_after_four_polls)
+    monkeypatch.setattr(module.time, "sleep_ms", _stop_after(4))
     capsys.readouterr()
 
     with pytest.raises(StopLoopError):
@@ -75,16 +67,8 @@ def test_poll_loop_recovers_when_commissioning_publication_fails(load_main, monk
         polls += 1
         return native_poll()
 
-    sleeps = 0
-
-    def stop_after_two_polls(_delay_ms):
-        nonlocal sleeps
-        sleeps += 1
-        if sleeps == 2:
-            raise StopLoopError
-
     monkeypatch.setattr(module.node, "poll", poll)
-    monkeypatch.setattr(module.time, "sleep_ms", stop_after_two_polls)
+    monkeypatch.setattr(module.time, "sleep_ms", _stop_after(2))
     _matter.inject_commissioning_event(1)  # SESSION COMPLETE
     _matter.fail_next("attributes_publish")
     capsys.readouterr()
@@ -356,3 +340,16 @@ def _green_state():
 def _json_lines(output):
     """Decode every non-empty structured firmware line."""
     return [json.loads(line) for line in output.splitlines() if line]
+
+
+def _stop_after(count):
+    """Return a fake ``time.sleep_ms`` that raises StopLoopError on its ``count``-th call."""
+    calls = 0
+
+    def sleep_ms(_delay_ms):
+        nonlocal calls
+        calls += 1
+        if calls == count:
+            raise StopLoopError
+
+    return sleep_ms

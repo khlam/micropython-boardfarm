@@ -140,14 +140,10 @@ class Endpoint:
             cluster: Cluster identifier from :class:`matter.schema.Clusters`.
             attribute: Attribute identifier from :class:`matter.schema.Attributes`.
             value: New value compatible with the endpoint schema.
-
-        Raises:
-            OSError: The node is not started or native publication failed.
         """
         path = attribute_path(cluster, attribute)
         value = self._validate(path, value)
-        if not self._node.started:
-            raise OSError(22, "Matter node is not started")
+        _require_started(self._node.started)
         self._publish(((path, value),))
 
     def set(self, **attributes: object) -> None:
@@ -162,7 +158,6 @@ class Endpoint:
             **attributes: Named endpoint attributes and their requested values.
 
         Raises:
-            OSError: The node is not started or native publication failed.
             TypeError: A name is unknown or a value has the wrong Matter type.
             ValueError: No values were supplied, or the endpoint does not
                 support a name or value.
@@ -176,8 +171,7 @@ class Endpoint:
             except KeyError:
                 raise TypeError(f"unknown attribute: {name}") from None
             updates.append((path, self._validate(path, value)))
-        if not self._node.started:
-            raise OSError(22, "Matter node is not started")
+        _require_started(self._node.started)
         self._publish(tuple(updates))
 
     def _validate(self, path: tuple, value: object) -> object:
@@ -241,3 +235,9 @@ class Endpoint:
             self._state[path] = value
             native_updates.append((path[0], path[1], value))
         _matter.attributes_publish(self.id, tuple(native_updates))
+
+
+def _require_started(started: object) -> None:
+    """Raise when an application publish call precedes startup."""
+    if not started:
+        raise OSError(22, "Matter node is not started")

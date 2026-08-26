@@ -157,13 +157,3 @@ class _Listener:
         self.address = address
         self.port = port
         self.backlog = backlog
-        self.closed = False
-        self.waited = False
-
-    def close(self) -> None:
-        """Stop accepting new connections."""
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        """Record that stop() waited for the listener to finish closing."""
-        self.waited = True

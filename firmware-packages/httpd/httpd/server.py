@@ -22,7 +22,6 @@ _NOT_FOUND = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\
 _NOT_ALLOWED = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 _UNAVAILABLE = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
-_BODY_METHODS = ("GET", "HEAD")
 _LINE_FEED = b"\n"
 
 
@@ -42,7 +41,6 @@ class Server:
         self._pages = {}
         self._streams = {}
         self._listener = None
-        self._connections = []
 
     @property
     def running(self) -> bool:
@@ -101,24 +99,6 @@ class Server:
             self._handle, _BIND_ADDRESS, self._port, backlog=_BACKLOG
         )
 
-    async def stop(self) -> None:
-        """Stop accepting requests and close every active connection.
-
-        Repeated stops are harmless. The listener is detached before yielding
-        so :attr:`running` changes immediately, while closing active writers
-        also terminates WebSockets that would otherwise outlive the listener.
-        """
-        listener = self._listener
-        self._listener = None
-        if listener is not None:
-            listener.close()
-            await listener.wait_closed()
-        for broadcast in self._streams.values():
-            broadcast.close()
-        for writer in tuple(self._connections):
-            writer.close()
-        await asyncio.sleep_ms(0)
-
     async def _handle(self, reader: object, writer: object) -> None:
         """Serve one connection to completion, then close it.
 
@@ -126,7 +106,6 @@ class Server:
         or speaks nonsense is ordinary traffic on a LAN, and the loop that feeds
         this server must never see it.
         """
-        self._connections.append(writer)
         try:
             request = await _read_request(reader)
             if request is None:
@@ -141,7 +120,6 @@ class Server:
                 await writer.wait_closed()
             except OSError:
                 pass
-            self._connections.remove(writer)
 
     async def _dispatch(
         self, reader: object, writer: object, method: str, path: str, headers: dict
@@ -155,13 +133,12 @@ class Server:
         if page is None:
             await _write(writer, _NOT_FOUND)
             return
-        if method not in _BODY_METHODS:
+        if method != "GET":
             await _write(writer, _NOT_ALLOWED)
             return
         headers_bytes, body = page
         writer.write(headers_bytes)
-        if method != "HEAD":
-            writer.write(body)
+        writer.write(body)
         await writer.drain()
 
 

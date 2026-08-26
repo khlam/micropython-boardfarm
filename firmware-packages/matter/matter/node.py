@@ -139,13 +139,8 @@ class Node:
         Returns:
             Controller writes and commissioning transitions ordered by their
             shared native revision, or an empty tuple when nothing changed.
-
-        Raises:
-            OSError: The node is not started or the bounded snapshot request
-                failed.
         """
-        if not self._started:
-            raise OSError(22, "Matter node is not started")
+        _require_started(self._started)
         if _matter.generation() == self._generation:
             return ()
         generation, records = _matter.snapshot()
