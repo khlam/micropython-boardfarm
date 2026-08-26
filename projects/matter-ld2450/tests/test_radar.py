@@ -188,19 +188,13 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
     radar = FakeRadar(close_error=OSError("close failed"))
     capsys.readouterr()
 
-    already_reported = application._handle_radar_failure(
-        radar,
-        diagnostic="report_timeout",
-        already_reported=False,
-        now_ms=44,
+    application._handle_radar_failure(
+        radar, {"diag": "report_timeout", "t": 44}, already_reported=False
     )
     application._handle_radar_failure(
-        radar,
-        diagnostic="report_timeout",
-        already_reported=already_reported,
-        now_ms=45,
+        radar, {"diag": "report_timeout", "t": 45}, already_reported=True
     )
-    application._close_radar(None)
+    application._handle_radar_failure(None, {"diag": "read_err"}, already_reported=True)
 
     lines = json_lines(capsys.readouterr().out)
     assert [line for line in lines if line.get("diag") == "report_timeout"] == [

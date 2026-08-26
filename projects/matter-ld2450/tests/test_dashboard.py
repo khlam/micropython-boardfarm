@@ -36,12 +36,14 @@ def test_address_lookup_error_is_reported_once_per_failure_period(
     assert second == (None, True, boot.module._ADDRESS_POLL_MS)
 
 
-def test_bind_failure_retries_without_changing_product_state(load_application, capsys):
+def test_bind_failure_retries_once_per_period_without_changing_product_state(
+    load_application, capsys, json_lines
+):
     boot = load_application(fabrics=(_FABRIC,))
     application = boot.application
     application._set_radar_health(healthy=True)
     _matter.set_network_address("192.0.2.10")
-    boot.server.start_errors.append(OSError("address in use"))
+    boot.server.start_errors.extend([OSError("address in use"), OSError("address in use")])
     before = (
         application._occupancy_state,
         application._published_occupancy,
@@ -49,16 +51,19 @@ def test_bind_failure_retries_without_changing_product_state(load_application, c
     )
     capsys.readouterr()
 
-    result = asyncio.run(application._update_dashboard(None, failure_reported=False))
+    first = asyncio.run(application._update_dashboard(None, failure_reported=False))
+    second = asyncio.run(application._update_dashboard(first[0], failure_reported=first[1]))
 
-    assert result == (None, True, boot.module._DASHBOARD_RETRY_MS)
+    assert first == (None, True, boot.module._DASHBOARD_RETRY_MS)
+    assert second == (None, True, boot.module._DASHBOARD_RETRY_MS)
     assert boot.server.running is False
     assert (
         application._occupancy_state,
         application._published_occupancy,
         application._radar_healthy,
     ) == before
-    assert '"component": "dashboard"' in capsys.readouterr().out
+    lines = json_lines(capsys.readouterr().out)
+    assert len([line for line in lines if line.get("component") == "dashboard"]) == 1
 
 
 def test_successful_start_reports_url_and_returns_to_polling(load_application, capsys, json_lines):

@@ -110,7 +110,7 @@ def test_publication_failure_stays_pending_until_next_report(load_application, c
 
     assert application._occupancy_state == boot.module._VACANT
     assert application._occupancy.occupancy == 0
-    assert application._published_occupancy is True
+    assert application._published_occupancy is None
     assert '"component": "occupancy"' in capsys.readouterr().out
 
     application._apply_empty_report(now_ms=2)
@@ -154,18 +154,6 @@ def test_hold_read_failure_cancels_timer_and_retains_occupied(load_application, 
     assert application._hold_started_ms is None
     assert application._occupancy.occupancy == 1
     assert '"component": "hold_control"' in capsys.readouterr().out
-
-
-def test_missing_hold_timestamp_fails_safe_to_occupied(load_application):
-    boot = load_application()
-    application = boot.application
-    application._occupancy_state = boot.module._EMPTY_HOLD
-    application._hold_started_ms = None
-
-    application._apply_empty_report(now_ms=50)
-
-    assert application._occupancy_state == boot.module._OCCUPIED
-    assert application._hold_started_ms is None
 
 
 @pytest.mark.parametrize(

@@ -142,9 +142,7 @@ class Endpoint:
             value: New value compatible with the endpoint schema.
         """
         path = attribute_path(cluster, attribute)
-        value = self._validate(path, value)
-        _require_started(self._node.started)
-        self._publish(((path, value),))
+        self._publish(((path, self._validate(path, value)),))
 
     def set(self, **attributes: object) -> None:
         """Publish a validated batch of named attributes chosen by MicroPython.
@@ -171,7 +169,6 @@ class Endpoint:
             except KeyError:
                 raise TypeError(f"unknown attribute: {name}") from None
             updates.append((path, self._validate(path, value)))
-        _require_started(self._node.started)
         self._publish(tuple(updates))
 
     def _validate(self, path: tuple, value: object) -> object:
@@ -229,15 +226,11 @@ class Endpoint:
         return WriteEvent(self, cluster, attribute, value)
 
     def _publish(self, updates: tuple) -> None:
-        """Store validated desired values, then send one native batch."""
+        """Refuse before startup, store validated desired values, then send one native batch."""
+        if not self._node.started:
+            raise OSError(22, "Matter node is not started")
         native_updates = []
         for path, value in updates:
             self._state[path] = value
             native_updates.append((path[0], path[1], value))
         _matter.attributes_publish(self.id, tuple(native_updates))
-
-
-def _require_started(started: object) -> None:
-    """Raise when an application publish call precedes startup."""
-    if not started:
-        raise OSError(22, "Matter node is not started")

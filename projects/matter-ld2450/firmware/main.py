@@ -177,24 +177,25 @@ class _Application:
 
         while True:
             if radar is None:
-                new_radar = None
                 try:
-                    new_radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-                    await new_radar.wait_ready()
+                    # A failed constructor leaves radar None; a failed wait_ready
+                    # leaves the object that still has to be closed.
+                    radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+                    await radar.wait_ready()
                 except (DeviceNotFoundError, OSError) as exception:
                     diagnostic = (
                         "no_device" if isinstance(exception, DeviceNotFoundError) else "init_err"
                     )
-                    failure_reported = self._handle_radar_failure(
-                        new_radar,
-                        diagnostic=diagnostic,
-                        exception=exception,
+                    self._handle_radar_failure(
+                        radar,
+                        {"diag": diagnostic, "err": str(exception)},
                         already_reported=failure_reported,
                     )
+                    failure_reported = True
+                    radar = None
                     await asyncio.sleep_ms(_RADAR_RETRY_MS)
                     continue
 
-                radar = new_radar
                 self._set_occupied()
                 self._set_radar_health(healthy=True)
                 emit({"diag": "radar_ok"})
@@ -203,24 +204,24 @@ class _Application:
             try:
                 targets = await radar.read_latest()
             except OSError as exception:
-                failure_reported = self._handle_radar_failure(
+                self._handle_radar_failure(
                     radar,
-                    diagnostic="read_err",
-                    exception=exception,
+                    {"diag": "read_err", "err": str(exception)},
                     already_reported=failure_reported,
                 )
+                failure_reported = True
                 radar = None
                 await asyncio.sleep_ms(_RADAR_RETRY_MS)
                 continue
 
             now_ms = time.ticks_ms()
             if targets is None:
-                failure_reported = self._handle_radar_failure(
+                self._handle_radar_failure(
                     radar,
-                    diagnostic="report_timeout",
-                    now_ms=now_ms,
+                    {"diag": "report_timeout", "t": now_ms},
                     already_reported=failure_reported,
                 )
+                failure_reported = True
                 radar = None
                 await asyncio.sleep_ms(_RADAR_RETRY_MS)
                 continue
@@ -302,7 +303,10 @@ class _Application:
         self._update_status_pixel()
 
     def _handle_matter_events(self, events: tuple) -> None:
-        """Apply explicit commissioning events returned by Matter.
+        """Apply commissioning transitions returned by Matter.
+
+        Controller writes to the hold control need no handling: the occupancy
+        loop reads that endpoint when it next needs it.
 
         Args:
             events: Revision-ordered events returned by ``Node.poll()``.
@@ -311,20 +315,20 @@ class _Application:
             if isinstance(event, matter.CommissioningEvent):
                 self._on_commissioning(event)
 
-    def _publish_occupancy(self, *, force: bool = False) -> None:
+    def _publish_occupancy(self) -> None:
         """Publish the current occupancy state and retry failures later.
 
-        Args:
-            force: Publish even if this value was published successfully before.
-                A failed publish changes the Python endpoint value, so a later
-                state change must restore that value.
+        A failed publish leaves the Python endpoint holding the requested value
+        while ESP-Matter holds the previous one, so it clears the record of what
+        was published and the next call republishes whatever the state is then.
         """
         occupied = self._occupancy_state != _VACANT
-        if not force and self._published_occupancy == occupied:
+        if self._published_occupancy == occupied:
             return
         try:
             self._occupancy.set(occupancy=1 if occupied else 0)
         except OSError as exception:
+            self._published_occupancy = None
             error("occupancy", str(exception))
             return
         self._published_occupancy = occupied
@@ -349,14 +353,16 @@ class _Application:
 
     def _set_occupied(self) -> None:
         """Set occupied and cancel the current occupancy hold."""
-        force = self._occupancy_state == _VACANT
         self._occupancy_state = _OCCUPIED
         self._hold_started_ms = None
         self._update_status_pixel()
-        self._publish_occupancy(force=force)
+        self._publish_occupancy()
 
     def _apply_empty_report(self, *, now_ms: int) -> None:
         """Start, continue, or finish the occupancy hold for an empty report.
+
+        The pixel is only written when the rendered color can change, so
+        starting a hold, which still reads as occupied, leaves it alone.
 
         Args:
             now_ms: Monotonic time when the report was received.
@@ -368,7 +374,6 @@ class _Application:
         if self._occupancy_state == _OCCUPIED:
             self._occupancy_state = _EMPTY_HOLD
             self._hold_started_ms = now_ms
-            self._update_status_pixel()
 
         try:
             hold_ms = self._occupancy_hold_ms()
@@ -377,61 +382,34 @@ class _Application:
             self._set_occupied()
             return
 
-        hold_started_ms = self._hold_started_ms
-        if hold_started_ms is None:
-            self._set_occupied()
-            return
-        if time.ticks_diff(now_ms, hold_started_ms) < hold_ms:
+        if time.ticks_diff(now_ms, self._hold_started_ms) < hold_ms:
             self._publish_occupancy()
             return
 
         self._occupancy_state = _VACANT
         self._hold_started_ms = None
         self._update_status_pixel()
-        self._publish_occupancy(force=True)
+        self._publish_occupancy()
 
     def _handle_radar_failure(
-        self,
-        radar: LD2450 | None,
-        *,
-        diagnostic: str,
-        already_reported: bool,
-        exception: Exception | None = None,
-        now_ms: int | None = None,
-    ) -> bool:
+        self, radar: LD2450 | None, report: dict, *, already_reported: bool
+    ) -> None:
         """Force occupied, report the failure once, and close the radar.
 
         Args:
             radar: Current radar, if it was created.
-            diagnostic: JSON diagnostic value for the failure.
+            report: JSON diagnostic describing this failure.
             already_reported: Whether this failure period has been reported.
-            exception: Error that caused the failure, if available.
-            now_ms: Time of a missing report, if available.
-
-        Returns:
-            True because this failure period has now been reported.
         """
         self._set_occupied()
         self._set_radar_health(healthy=False)
         if not already_reported:
-            report = {"diag": diagnostic}
-            if exception is not None:
-                report["err"] = str(exception)
-            if now_ms is not None:
-                report["t"] = now_ms
             emit(report)
-        self._close_radar(radar)
-        return True
-
-    @staticmethod
-    def _close_radar(radar: LD2450 | None) -> None:
-        """Close the radar without letting a close error stop recovery."""
-        if radar is None:
-            return
-        try:
-            radar.close()
-        except OSError:
-            return
+        if radar is not None:
+            try:  # noqa: SIM105 - contextlib is not available on MicroPython
+                radar.close()
+            except OSError:
+                pass
 
     @staticmethod
     def _target_fields(target: object) -> dict:
@@ -450,46 +428,24 @@ class _Application:
         distance_squared = target.x_mm * target.x_mm + target.y_mm * target.y_mm
         return distance_squared >= _DEAD_ZONE_RADIUS_MM * _DEAD_ZONE_RADIUS_MM
 
-    def _dashboard_address(self) -> tuple[str | None, OSError | None]:
-        """Return the current network address and any lookup error."""
-        try:
-            return self._node.network_address(), None
-        except OSError as exception:
-            return None, exception
-
-    @staticmethod
-    def _report_dashboard_failure(exception: OSError, *, already_reported: bool) -> bool:
-        """Report a dashboard failure once during each failure period.
-
-        Args:
-            exception: Dashboard error to report.
-            already_reported: Whether this failure period has been reported.
-
-        Returns:
-            True because this failure period has now been reported.
-        """
-        if not already_reported:
-            error("dashboard", str(exception))
-        return True
-
     @staticmethod
     def _report_dashboard_ready(address: str) -> None:
         """Report the address of the running dashboard."""
         emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
 
-    async def _start_dashboard(self, address: str) -> OSError | None:
-        """Start the dashboard and report its address or return an error."""
-        try:
-            await self._dashboard.start()
-        except OSError as exception:
-            return exception
-        self._report_dashboard_ready(address)
-        return None
+    @staticmethod
+    def _report_dashboard_failure(exception: OSError, *, already_reported: bool) -> None:
+        """Report a dashboard failure once during each failure period."""
+        if not already_reported:
+            error("dashboard", str(exception))
 
     async def _update_dashboard(
         self, address: str | None, *, failure_reported: bool
     ) -> tuple[str | None, bool, int]:
         """Check the dashboard and return the state for the next check.
+
+        A failure keeps the last reported address so the next success reports
+        the address again, and is written out only once per failure period.
 
         Args:
             address: Last reported address for the dashboard server.
@@ -498,23 +454,21 @@ class _Application:
         Returns:
             Address, error-report flag, and delay before the next check.
         """
-        current_address, address_error = self._dashboard_address()
-        if address_error is not None:
-            failure_reported = self._report_dashboard_failure(
-                address_error, already_reported=failure_reported
-            )
-            return address, failure_reported, _ADDRESS_POLL_MS
+        try:
+            current_address = self._node.network_address()
+        except OSError as exception:
+            self._report_dashboard_failure(exception, already_reported=failure_reported)
+            return address, True, _ADDRESS_POLL_MS
         if current_address is None:
             return None, False, _ADDRESS_POLL_MS
         if not self._dashboard.running:
-            start_error = await self._start_dashboard(current_address)
-            if start_error is not None:
-                failure_reported = self._report_dashboard_failure(
-                    start_error, already_reported=failure_reported
-                )
-                return address, failure_reported, _DASHBOARD_RETRY_MS
-            return current_address, False, _ADDRESS_POLL_MS
-        if current_address != address:
+            try:
+                await self._dashboard.start()
+            except OSError as exception:
+                self._report_dashboard_failure(exception, already_reported=failure_reported)
+                return address, True, _DASHBOARD_RETRY_MS
+            self._report_dashboard_ready(current_address)
+        elif current_address != address:
             self._report_dashboard_ready(current_address)
         return current_address, False, _ADDRESS_POLL_MS
 

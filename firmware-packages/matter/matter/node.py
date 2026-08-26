@@ -144,9 +144,11 @@ class Node:
         if _matter.generation() == self._generation:
             return ()
         generation, records = _matter.snapshot()
+        # Distance from the last committed generation, so revisions that wrapped
+        # past 2**32 still order after the ones they follow.
         pending = []
         for record in records:
-            distance = _revision_distance(record[0], self._generation)
+            distance = (record[0] - self._generation) & _REVISION_MASK
             if 0 < distance < _HALF_REVISION_RANGE:
                 pending.append((distance, record))
         pending.sort(key=lambda item: item[0])
@@ -238,8 +240,3 @@ def _require_started(started: object) -> None:
     """Raise when a node administration call precedes startup."""
     if not started:
         raise OSError(22, "Matter node is not started")
-
-
-def _revision_distance(revision: int, baseline: int) -> int:
-    """Return one unsigned wrapping revision distance."""
-    return (revision - baseline) & _REVISION_MASK
