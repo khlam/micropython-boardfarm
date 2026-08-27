@@ -324,7 +324,6 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
     staged.mkdir(parents=True, exist_ok=True)
     (staged / "dashboard_page.py").write_text(
         f'"""The project dashboard, generated from its viz/static/index.html."""\n\n'
-        'CONTENT_TYPE = "text/html; charset=utf-8"\n'
         'ENCODING = "gzip"\n'
         f"PAGE = {body!r}\n"
     )

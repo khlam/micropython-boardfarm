@@ -25,15 +25,15 @@ def test_accepts_an_image_carrying_its_factory_partition(image, identity):
 
 
 @pytest.mark.parametrize(
-    "resize",
+    "size",
     [
-        pytest.param(lambda _data: b"", id="empty"),
-        pytest.param(lambda _data: b"\x00" * (_FLASH_SIZE + 1), id="larger than flash"),
-        pytest.param(lambda data: data[:-1], id="not padded to flash"),
+        pytest.param(0, id="empty"),
+        pytest.param(_FLASH_SIZE + 1, id="larger than flash"),
+        pytest.param(_FLASH_SIZE - 1, id="not padded to flash"),
     ],
 )
-def test_rejects_an_image_of_the_wrong_size(image, identity, resize):
-    image.merged.write_bytes(resize(image.merged.read_bytes()))
+def test_rejects_an_image_of_the_wrong_size(image, identity, size):
+    image.merged.write_bytes(b"\x00" * size)
     with pytest.raises(ValueError, match="merged image must be exactly"):
         build._validate_merged_image(image.merged, image.factory, image.qr, identity)
 

@@ -30,7 +30,6 @@ _DRAIN_BUFFER_LEN = const(120)
 # during normal reads and two seconds for device detection during startup.
 _REPORT_TIMEOUT_MS = const(500)
 _STARTUP_TIMEOUT_MS = const(2_000)
-_NO_PENDING = object()
 
 Target = namedtuple(
     "Target",
@@ -82,7 +81,7 @@ class LD2450:
         self._candidate_len = 0
         self._latest_report = bytearray(_REPORT_LEN)
         self._has_latest_report = False
-        self._pending = _NO_PENDING
+        self._pending = None
         self._ready = False
         self._reading = False
         self._closed = False
@@ -146,11 +145,11 @@ class LD2450:
             self._drain_uart()
             targets = self._take_latest_targets()
             if targets is not None:
-                self._pending = _NO_PENDING
+                self._pending = None
                 return targets
-            if self._pending is not _NO_PENDING:
+            if self._pending is not None:
                 targets = self._pending
-                self._pending = _NO_PENDING
+                self._pending = None
                 return targets
             return await self._wait_for_latest(_REPORT_TIMEOUT_MS)
         except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.

@@ -22,7 +22,7 @@ constexpr uint32_t COMMISSIONING_WINDOW_SECONDS = 300;
 
 // Written by the task publishing a local update and read by the callback that
 // would otherwise retain the echo, so it crosses tasks and must be atomic.
-std::atomic<uint8_t> update_origin{MATTER_ORIGIN_REMOTE};
+std::atomic<bool> local_update{false};
 
 // True from the moment a commissioner completes PASE until that attempt ends,
 // whichever way it ends. CHIP closes the window as soon as a commissioner
@@ -73,18 +73,15 @@ esp_err_t attribute_callback(esp_matter::attribute::callback_type_t type, uint16
     // Attribute updates made by MicroPython also trigger this callback. Those are
     // local echoes, not new commands from a phone or hub, so do not send them
     // back to Python.
-    if (type != esp_matter::attribute::POST_UPDATE || update_origin.load() != MATTER_ORIGIN_REMOTE ||
-        !endpoint_exists(endpoint_id)) {
+    if (type != esp_matter::attribute::POST_UPDATE || local_update.load() ||
+        !endpoint_tracks_attribute(endpoint_id, cluster_id, attribute_id)) {
         return ESP_OK;
     }
     const EventValue encoded = attribute_value_to_event_value(*value);
     if (!encoded.supported) {
         return ESP_OK;
     }
-    if (endpoint_tracks_attribute(endpoint_id, cluster_id, attribute_id)) {
-        record_remote_attribute(endpoint_id, cluster_id, attribute_id, encoded.value,
-                                encoded.value_type);
-    }
+    record_remote_attribute(endpoint_id, cluster_id, attribute_id, encoded.value, encoded.value_type);
     return ESP_OK;
 }
 
@@ -153,12 +150,12 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
 
 void begin_local_update(void)
 {
-    update_origin.store(MATTER_ORIGIN_LOCAL);
+    local_update.store(true);
 }
 
 void end_local_update(void)
 {
-    update_origin.store(MATTER_ORIGIN_REMOTE);
+    local_update.store(false);
 }
 
 } // namespace matter_bridge

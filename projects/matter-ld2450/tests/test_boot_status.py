@@ -27,9 +27,9 @@ def test_boot_builds_routes_and_stable_matter_endpoints(load_application):
 
     assert module.Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21) == module.BOARD
     assert machine.pin_constructions == [(21, machine.Pin.OUT)]
-    assert application._pixel.writes == [module._BOOT_COLOR, module._BOOT_COLOR]
+    assert application._pixel.writes == [module._BOOT_COLOR]
     assert boot.server.port == 80
-    assert boot.server.pages == [("/", b"dashboard", "text/html", "gzip")]
+    assert boot.server.pages == [("/", b"dashboard", "gzip")]
     assert boot.server.streams[0][0] == "/ws"
     assert json.loads(boot.server.broadcast.greeting) == {
         "event": "connected",
@@ -77,8 +77,7 @@ def test_closed_session_stays_active_until_completion(load_application):
 
     assert application._commissioned is True
     assert application._commissioning_session_active is False
-    assert application._pixel.writes[-3:] == [
-        boot.module._COMMISSIONING_SESSION_COLOR,
+    assert application._pixel.writes[-2:] == [
         boot.module._COMMISSIONING_SESSION_COLOR,
         boot.module._OCCUPIED_COLOR,
     ]

@@ -103,8 +103,6 @@ def _pairing_color() -> tuple:
     state = _commissioning_state[0]
     if state == matter.Commissioning.FAILED:
         return FAILED_COLOR
-    if state == matter.Commissioning.STARTED:
-        return SESSION_COLOR
     if state == matter.Commissioning.OPENED:
         return WINDOW_COLOR
     if _session_active[0]:
@@ -123,7 +121,6 @@ def _show_state() -> None:
     """
     pairing = _session_active[0] or _commissioning_state[0] in (
         matter.Commissioning.OPENED,
-        matter.Commissioning.STARTED,
         matter.Commissioning.FAILED,
     )
     if _commissioned[0] and not pairing:
@@ -205,7 +202,8 @@ node.start()
 # retained pairing state. fabrics() takes the same bounded request.cpp round
 # trip as the attribute writes above.
 _commissioned[0] = bool(node.fabrics())
-_show_state()
+if _commissioned[0]:
+    _show_state()
 
 
 def run() -> None:

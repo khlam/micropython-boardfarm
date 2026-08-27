@@ -94,9 +94,9 @@ class FakeServer:
         self.start_errors = []
         type(self).instances.append(self)
 
-    def page(self, path: str, body: bytes, *, content_type: str, encoding: str) -> None:
+    def page(self, path: str, body: bytes, *, encoding: str) -> None:
         """Record one fixed-page route."""
-        self.pages.append((path, body, content_type, encoding))
+        self.pages.append((path, body, encoding))
 
     def stream(self, path: str, *, greeting: str) -> FakeBroadcast:
         """Record one WebSocket route and return its broadcaster."""
@@ -112,25 +112,25 @@ class FakeServer:
         self.running = True
 
 
+def _reset_state(*, persisted: dict | None = None, fabrics: tuple = ()) -> None:
+    """Reset every process-wide fake used by the firmware module."""
+    machine.reset()
+    neopixel.reset()
+    _matter.reset(persisted=persisted)
+    _matter.seed_fabrics(list(fabrics))
+    matter_node._active_node[0] = None
+    matter_emit._sinks.clear()
+    FakeServer.instances.clear()
+    sys.modules.pop(_MODULE_NAME, None)
+
+
 @pytest.fixture(autouse=True)
 def reset_runtime(monkeypatch):
     """Reset process-wide MCU and Matter fakes around every test."""
     asyncio_extras.install(monkeypatch)
-    machine.reset()
-    neopixel.reset()
-    _matter.reset()
-    matter_node._active_node[0] = None
-    matter_emit._sinks.clear()
-    FakeServer.instances.clear()
-    sys.modules.pop(_MODULE_NAME, None)
+    _reset_state()
     yield
-    machine.reset()
-    neopixel.reset()
-    _matter.reset()
-    matter_node._active_node[0] = None
-    matter_emit._sinks.clear()
-    FakeServer.instances.clear()
-    sys.modules.pop(_MODULE_NAME, None)
+    _reset_state()
 
 
 @pytest.fixture
@@ -143,14 +143,7 @@ def load_firmware(monkeypatch):
         persisted: dict | None = None,
         fabrics: tuple = (),
     ) -> SimpleNamespace:
-        _matter.reset(persisted=persisted)
-        _matter.seed_fabrics(list(fabrics))
-        matter_node._active_node[0] = None
-        matter_emit._sinks.clear()
-        machine.reset()
-        neopixel.reset()
-        FakeServer.instances.clear()
-        sys.modules.pop(_MODULE_NAME, None)
+        _reset_state(persisted=persisted, fabrics=fabrics)
 
         clock = FakeTime()
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
@@ -158,7 +151,7 @@ def load_firmware(monkeypatch):
         monkeypatch.setitem(
             sys.modules,
             "dashboard_page",
-            SimpleNamespace(PAGE=b"dashboard", CONTENT_TYPE="text/html", ENCODING="gzip"),
+            SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
         )
         monkeypatch.setitem(sys.modules, "httpd", SimpleNamespace(Server=FakeServer))
 

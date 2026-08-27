@@ -112,15 +112,13 @@ int publish_attributes(Request *request)
 {
     attribute_t *handles[MATTER_MAX_ATTRIBUTE_BATCH]{};
     esp_matter_attr_val_t values[MATTER_MAX_ATTRIBUTE_BATCH]{};
-    bool occupancy[MATTER_MAX_ATTRIBUTE_BATCH]{};
 
     // Resolve and convert the whole batch before the first mutation. That makes
     // path and range failures all-or-nothing even though ESP-Matter cannot roll
     // back an unexpected failure from attribute::update().
     for (size_t index = 0; index < request->attribute_update_count; ++index) {
         const matter_attribute_update &update = request->attribute_updates[index];
-        occupancy[index] = is_occupancy_attribute(update.cluster_id, update.attribute_id);
-        if (occupancy[index]) {
+        if (is_occupancy_attribute(update.cluster_id, update.attribute_id)) {
             if (get_occupancy_cluster(request->endpoint_id, update.cluster_id) == nullptr) {
                 return ENOENT;
             }
@@ -150,7 +148,7 @@ int publish_attributes(Request *request)
     begin_local_update();
     for (size_t index = 0; index < request->attribute_update_count; ++index) {
         const matter_attribute_update &update = request->attribute_updates[index];
-        if (occupancy[index]) {
+        if (is_occupancy_attribute(update.cluster_id, update.attribute_id)) {
             error = publish_occupancy(request->endpoint_id, update.cluster_id, update.value);
         } else if (esp_matter::attribute::update(request->endpoint_id, update.cluster_id,
                                                 update.attribute_id, &values[index]) != ESP_OK) {

@@ -72,7 +72,6 @@ _VACANT_COLOR = (0, 0, 8)
 # below.
 _COMMISSIONING_COLORS = {
     matter.Commissioning.FAILED: _COMMISSIONING_FAILED_COLOR,
-    matter.Commissioning.STARTED: _COMMISSIONING_SESSION_COLOR,
     matter.Commissioning.OPENED: _COMMISSIONING_WINDOW_COLOR,
 }
 
@@ -104,7 +103,6 @@ class _Application:
         self._dashboard.page(
             "/",
             dashboard_page.PAGE,
-            content_type=dashboard_page.CONTENT_TYPE,
             encoding=dashboard_page.ENCODING,
         )
         dashboard_reports = self._dashboard.stream(
@@ -235,7 +233,9 @@ class _Application:
                 last_dashboard_report_ms = now_ms
 
     def _set_pixel_color(self, color: tuple) -> None:
-        """Set the onboard status pixel color."""
+        """Update the onboard status pixel when its color changes."""
+        if self._pixel[0] == color:
+            return
         self._pixel[0] = color
         self._pixel.write()
 
@@ -287,16 +287,12 @@ class _Application:
         self._update_status_pixel()
 
     def _set_radar_health(self, *, healthy: bool) -> None:
-        """Record radar health and update the status pixel when it changes."""
-        if self._radar_healthy == healthy:
-            return
+        """Record radar health and update the status pixel."""
         self._radar_healthy = healthy
         self._update_status_pixel()
 
     def _set_matter_health(self, *, healthy: bool) -> None:
         """Record Matter synchronization health and update the status pixel."""
-        if self._matter_healthy == healthy:
-            return
         self._matter_healthy = healthy
         self._update_status_pixel()
 

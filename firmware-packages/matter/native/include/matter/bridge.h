@@ -32,13 +32,6 @@ enum matter_snapshot_kind {
     MATTER_SNAPSHOT_COMMISSIONING = 1,
 };
 
-// What caused an attribute update inside the native bridge. Snapshots retain
-// remote updates only; the local value brackets application publications.
-enum matter_event_origin {
-    MATTER_ORIGIN_REMOTE = 0,
-    MATTER_ORIGIN_LOCAL = 1,
-};
-
 // Pairing transitions reported to Python. Ordered to index the decode table in
 // the `matter` package, which pairs each state with its lifecycle name.
 enum matter_commissioning_state {

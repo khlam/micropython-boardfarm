@@ -252,14 +252,6 @@ def test_commissioning_event_is_reported_and_delivered(state_code, expected, cap
     assert _output(capsys) == [{"event": expected.name, "state": expected.state}]
 
 
-def test_poll_returns_empty_tuple_without_new_native_state(capsys):
-    node = Node()
-    node.start()
-    capsys.readouterr()
-
-    assert node.poll() == ()
-
-
 def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
     node = Node()
     node.start()

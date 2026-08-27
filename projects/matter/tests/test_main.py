@@ -25,7 +25,7 @@ def test_supported_boot_builds_pixel_and_reports_ready(load_main):
     assert len(neopixel.NeoPixel.instances) == 1
     # Nothing was reported during startup, so the boot baseline is all the board
     # can honestly claim; a real one has a window open by this point.
-    assert boot.module.pixel.writes == [boot.module.BOOT_COLOR, boot.module.BOOT_COLOR]
+    assert boot.module.pixel.writes == [boot.module.BOOT_COLOR]
     assert boot.lines == [{"event": "matter", "state": "ready"}]
 
 
@@ -152,20 +152,6 @@ def test_set_color_black_turns_off_an_already_lit_endpoint(load_main):
 
     assert module.endpoint.on is False
     assert module.pixel.writes == [module.OFF_COLOR]
-
-
-def test_remote_writes_render_the_complete_endpoint_state(load_main):
-    module = load_main().module
-    module.pixel.writes.clear()
-
-    _matter.inject_remote_write(module.endpoint.id, *Paths.ON_OFF, True)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.HUE, 85)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
-    module.handle_events(module.node.poll())
-
-    assert module.pixel.writes[-1] == (0, 25, 0)
 
 
 def test_controller_color_render_skips_the_last_rendered_colour(load_main):
