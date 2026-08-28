@@ -29,12 +29,10 @@ while True:
     time.sleep_ms(50)
 ```
 
-`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, `OCCUPANCY_SENSOR`,
-and `ON_OFF_PLUG_IN_UNIT` endpoints are supported, including multiple endpoints
-on one node. Plug-in units expose the same `.on` property and write events as
-on/off lights, but controllers classify them as an outlet-style
-load. `get()` reads Python-owned state hydrated from ESP-Matter persistence
-during `Node.start()`. Restoration does not produce events.
+`ON_OFF_LIGHT`, `DIMMABLE_LIGHT`, `EXTENDED_COLOR_LIGHT`, and `OCCUPANCY_SENSOR`
+endpoints are supported, including multiple endpoints on one node. `get()`
+reads Python-owned state hydrated from ESP-Matter persistence during
+`Node.start()`. Restoration does not produce events.
 
 `create_endpoint` also takes an `initial={(cluster, attribute): value}` mapping,
 which writes those attributes into the stack before it starts. A pre-start write
@@ -65,11 +63,10 @@ light.set(on=True)
 
 Named properties are read-only. `set()` validates all supplied names and values
 before changing state, stores the complete MicroPython decision, and publishes
-it in one bounded CHIP-task request. `publish(cluster, attribute, value)` is the
-equivalent explicit API for a path known only at runtime. Native publication
-failure raises `OSError` while retaining the requested Python values so the same
-call can be retried; ESP-Matter cannot roll back an unexpected failure after an
-earlier value in a batch was accepted.
+it in one bounded CHIP-task request. Native publication failure raises `OSError`
+while retaining the requested Python values so the same call can be retried;
+ESP-Matter cannot roll back an unexpected failure after an earlier value in a
+batch was accepted.
 
 Applications call `Node.poll()` regularly; 50 ms is the project default. The
 native bridge retains only the latest remote value for each mirrored attribute,

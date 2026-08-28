@@ -22,7 +22,6 @@ enum matter_endpoint_type {
     MATTER_ENDPOINT_DIMMABLE_LIGHT = 1,
     MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT = 2,
     MATTER_ENDPOINT_OCCUPANCY_SENSOR = 3,
-    MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT = 4,
 };
 
 // Which fields of a snapshot record carry meaning. An attribute record fills

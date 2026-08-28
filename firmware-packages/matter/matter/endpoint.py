@@ -4,8 +4,8 @@ A Matter *endpoint* is one addressable feature of a device (for example,
 "the light's on/off switch"), identified by a ``(cluster, attribute)`` pair.
 ESP-Matter (native, C++) is the authoritative protocol store for those values;
 this module keeps a plain Python dict synchronized with it. Application writes
-are explicit calls to :meth:`Endpoint.set` or :meth:`Endpoint.publish`.
-Controller writes arrive through :meth:`Endpoint._accept_remote` while
+are explicit calls to :meth:`Endpoint.set`. Controller writes arrive
+through :meth:`Endpoint._accept_remote` while
 ``Node.poll()`` constructs the immutable events returned to the application.
 """
 
@@ -129,28 +129,15 @@ class Endpoint:
         except KeyError:
             raise ValueError("attribute is not supported by this endpoint") from None
 
-    def publish(self, cluster: int, attribute: int, value: object) -> None:
-        """Publish one numeric Matter path chosen by MicroPython.
-
-        Python is authoritative for values it sets: the Python copy keeps the new
-        value even if the native publish call below fails, so application
-        code can retain its decision and retry rather than silently reverting.
-
-        Args:
-            cluster: Cluster identifier from :class:`matter.schema.Clusters`.
-            attribute: Attribute identifier from :class:`matter.schema.Attributes`.
-            value: New value compatible with the endpoint schema.
-        """
-        path = attribute_path(cluster, attribute)
-        self._publish(((path, self._validate(path, value)),))
-
     def set(self, **attributes: object) -> None:
         """Publish a validated batch of named attributes chosen by MicroPython.
 
-        Every explicitly supplied value crosses the native boundary, including
-        values already present in the Python state, so retrying the same call
-        after ``OSError`` retries the complete decision. The Python state keeps
-        the requested batch if native publication fails.
+        Python is authoritative for values it sets: the Python copy keeps the
+        requested batch even if native publication fails, so application code can
+        retain its decision and retry rather than silently reverting. Every
+        explicitly supplied value crosses the native boundary, including values
+        already present in the Python state, so retrying the same call after
+        ``OSError`` retries the complete decision.
 
         Args:
             **attributes: Named endpoint attributes and their requested values.
@@ -174,9 +161,9 @@ class Endpoint:
     def _validate(self, path: tuple, value: object) -> object:
         """Validate one value against this endpoint's schema.
 
-        Shared by :meth:`publish` and :meth:`_accept_remote` so a value is
-        checked the same way regardless of whether it originated locally or
-        from a remote controller.
+        Shared by :meth:`set` and :meth:`_accept_remote` so a value is checked
+        the same way regardless of whether it originated locally or from a
+        remote controller.
         """
         return validate_value(self._schema, path, value)
 

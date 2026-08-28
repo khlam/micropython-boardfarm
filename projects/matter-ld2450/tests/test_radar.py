@@ -8,15 +8,6 @@ import pytest
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 
-class StopTaskError(Exception):
-    """Escape an otherwise-infinite firmware supervisor.
-
-    Declared locally, unlike the identical conftest.py fixture the other test
-    modules use, because FakeRadar below needs it at class-body scope, where a
-    fixture cannot reach.
-    """
-
-
 class FakeRadar:
     """Script readiness, reports, closure, and close errors."""
 
@@ -36,8 +27,6 @@ class FakeRadar:
 
     async def read_latest(self):
         """Return or raise the next scripted report outcome."""
-        if not self.reports:
-            raise StopTaskError
         outcome = self.reports.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -90,19 +79,19 @@ def test_run_starts_matter_dashboard_and_radar_tasks(load_application, monkeypat
 
 
 def test_radar_filters_targets_and_decimates_dashboard_reports(
-    load_application, monkeypatch, capsys, json_lines
+    load_application, monkeypatch, capsys, json_lines, stop_task_error
 ):
     boot = load_application(fabrics=(_FABRIC,))
     module = boot.module
     near = SimpleNamespace(slot=0, x_mm=3, y_mm=4, speed_cm_s=1, resolution_mm=10)
     far = SimpleNamespace(slot=1, x_mm=60, y_mm=80, speed_cm_s=2, resolution_mm=20)
-    radar = FakeRadar(reports=[(near, far), (), (far,), StopTaskError()])
+    radar = FakeRadar(reports=[(near, far), (), (far,), stop_task_error()])
     factory = RadarFactory([radar])
     boot.time.script = [0, 499, 500]
     monkeypatch.setattr(module, "LD2450", factory)
     capsys.readouterr()
 
-    with pytest.raises(StopTaskError):
+    with pytest.raises(stop_task_error):
         asyncio.run(boot.application._run_radar())
 
     lines = json_lines(capsys.readouterr().out)
@@ -118,12 +107,12 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
 
 
 def test_repeated_readiness_failures_report_once_until_recovery(
-    load_application, monkeypatch, capsys, json_lines
+    load_application, monkeypatch, capsys, json_lines, stop_task_error
 ):
     boot = load_application()
     module = boot.module
     not_ready = FakeRadar(ready=OSError("uart init"))
-    recovered = FakeRadar(reports=[StopTaskError()])
+    recovered = FakeRadar(reports=[stop_task_error()])
     factory = RadarFactory([module.DeviceNotFoundError("absent"), not_ready, recovered])
     sleeps = []
 
@@ -134,7 +123,7 @@ def test_repeated_readiness_failures_report_once_until_recovery(
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 
-    with pytest.raises(StopTaskError):
+    with pytest.raises(stop_task_error):
         asyncio.run(boot.application._run_radar())
 
     lines = json_lines(capsys.readouterr().out)
@@ -148,13 +137,13 @@ def test_repeated_readiness_failures_report_once_until_recovery(
 
 
 def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
-    load_application, monkeypatch, capsys, json_lines
+    load_application, monkeypatch, capsys, json_lines, stop_task_error
 ):
     boot = load_application()
     module = boot.module
     read_error = FakeRadar(reports=[OSError("read failed")])
     timeout = FakeRadar(reports=[None])
-    recovered = FakeRadar(reports=[StopTaskError()])
+    recovered = FakeRadar(reports=[stop_task_error()])
     factory = RadarFactory([read_error, timeout, recovered])
     sleeps = []
 
@@ -166,7 +155,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 
-    with pytest.raises(StopTaskError):
+    with pytest.raises(stop_task_error):
         asyncio.run(boot.application._run_radar())
 
     lines = json_lines(capsys.readouterr().out)

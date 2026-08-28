@@ -223,6 +223,7 @@ extend-exclude = [
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
   ".vulture_allowlist.py",
+  ".vulture_source_only_allowlist.py",
   "manifest.py",
 ]
 

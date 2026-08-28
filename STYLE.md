@@ -84,6 +84,12 @@ Pydantic is appropriate for CPython APIs that need validation or serialization. 
 
 On MicroPython, lightweight tuples, dictionaries, buffers, and simple classes are fine when their meaning is clear.
 
+### A test is not a caller
+
+Every function, method, and class must have a caller in `firmware-packages/`, `projects/`, `cpython-packages/`, or `tools/`. A test exercising it does not count. Add the consumer and the API in the same change, or do not add the API.
+
+`micropython_stubs` is exempt: it exists to support host tests, so test-only use is its purpose.
+
 ## Docstrings
 
 Production modules, classes, functions, and methods should use Google-style docstrings.
@@ -275,6 +281,7 @@ Before considering a change complete:
 * MicroPython code avoids CPython-only dependencies;
 * hardware initializes explicitly, not at import time;
 * project wiring stays separate from reusable behavior;
+* every new callable has a caller outside the tests;
 * expected failures are handled specifically;
 * unexpected bugs are not swallowed;
 * hot MCU loops avoid unnecessary allocation;

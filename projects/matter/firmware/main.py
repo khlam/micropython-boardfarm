@@ -142,11 +142,10 @@ def handle_events(events: tuple) -> None:
         events: Revision-ordered controller and commissioning events.
     """
     for event in events:
-        if isinstance(event, matter.WriteEvent):
-            if event.endpoint is endpoint:
-                _show_controller_color()
-            continue
-        _on_commissioning(event)
+        if not isinstance(event, matter.WriteEvent):
+            _on_commissioning(event)
+        elif event.endpoint is endpoint:
+            _show_controller_color()
 
 
 def _on_commissioning(event: object) -> None:

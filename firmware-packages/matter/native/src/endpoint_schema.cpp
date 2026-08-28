@@ -152,13 +152,6 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
     }
     case MATTER_ENDPOINT_OCCUPANCY_SENSOR:
         return create_occupancy_sensor(node);
-    case MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT: {
-        esp_matter::endpoint::on_off_plug_in_unit::config_t config;
-        config.on_off.on_off = false;
-        config.on_off_lighting.start_up_on_off = nullptr;
-        return esp_matter::endpoint::on_off_plug_in_unit::create(node, &config, esp_matter::ENDPOINT_FLAG_NONE,
-                                                                nullptr);
-    }
     default:
         return nullptr;
     }
@@ -180,8 +173,7 @@ bool endpoint_type_tracks_attribute(uint8_t endpoint_type, uint32_t cluster_id, 
     if (cluster_id == OnOff::Id && attribute_id == OnOff::Attributes::OnOff::Id) {
         return true;
     }
-    if (endpoint_type == MATTER_ENDPOINT_ON_OFF_LIGHT ||
-        endpoint_type == MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT) {
+    if (endpoint_type == MATTER_ENDPOINT_ON_OFF_LIGHT) {
         return false;
     }
     if (cluster_id == LevelControl::Id &&

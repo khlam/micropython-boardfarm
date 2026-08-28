@@ -68,13 +68,6 @@ _COMMISSIONING_STOPPED_COLOR = (8, 4, 0)
 _RADAR_FAILED_COLOR = (8, 8, 0)
 _VACANT_COLOR = (0, 0, 8)
 
-# CLOSED needs the tracked session state, so _commissioning_color handles it
-# below.
-_COMMISSIONING_COLORS = {
-    matter.Commissioning.FAILED: _COMMISSIONING_FAILED_COLOR,
-    matter.Commissioning.OPENED: _COMMISSIONING_WINDOW_COLOR,
-}
-
 
 def main() -> None:
     """Initialize the product and run its tasks."""
@@ -90,7 +83,7 @@ class _Application:
         self._commissioning_state = None
         self._commissioning_session_active = False
         self._matter_healthy = True
-        self._radar_healthy = None
+        self._radar_healthy = True
         self._occupancy_state = _OCCUPIED
         self._published_occupancy = None
         self._hold_started_ms = None
@@ -245,14 +238,16 @@ class _Application:
         A closed window can mean that commissioning started or that the window
         expired. The active-session flag distinguishes those cases.
         """
-        color = _COMMISSIONING_COLORS.get(self._commissioning_state)
-        if color is not None:
-            return color
+        state = self._commissioning_state
+        if state == matter.Commissioning.FAILED:
+            return _COMMISSIONING_FAILED_COLOR
+        if state == matter.Commissioning.OPENED:
+            return _COMMISSIONING_WINDOW_COLOR
         if self._commissioning_session_active:
             return _COMMISSIONING_SESSION_COLOR
         if self._commissioned:
             return None
-        if self._commissioning_state == matter.Commissioning.CLOSED:
+        if state == matter.Commissioning.CLOSED:
             return _COMMISSIONING_STOPPED_COLOR
         return _BOOT_COLOR
 
@@ -260,7 +255,7 @@ class _Application:
         """Show the highest-priority commissioning or product state."""
         color = self._commissioning_color()
         if color is None:
-            if not self._matter_healthy or self._radar_healthy is False:
+            if not (self._matter_healthy and self._radar_healthy):
                 color = _RADAR_FAILED_COLOR
             else:
                 color = _VACANT_COLOR if self._occupancy_state == _VACANT else _OCCUPIED_COLOR
@@ -361,28 +356,22 @@ class _Application:
         Args:
             now_ms: Monotonic time when the report was received.
         """
-        if self._occupancy_state == _VACANT:
-            self._publish_occupancy()
-            return
-
         if self._occupancy_state == _OCCUPIED:
             self._occupancy_state = _EMPTY_HOLD
             self._hold_started_ms = now_ms
 
-        try:
-            hold_ms = self._occupancy_hold_ms()
-        except (OSError, ValueError) as exception:
-            error("hold_control", str(exception))
-            self._set_occupied()
-            return
+        if self._occupancy_state == _EMPTY_HOLD:
+            try:
+                hold_ms = self._occupancy_hold_ms()
+            except (OSError, ValueError) as exception:
+                error("hold_control", str(exception))
+                self._set_occupied()
+                return
+            if time.ticks_diff(now_ms, self._hold_started_ms) >= hold_ms:
+                self._occupancy_state = _VACANT
+                self._hold_started_ms = None
+                self._update_status_pixel()
 
-        if time.ticks_diff(now_ms, self._hold_started_ms) < hold_ms:
-            self._publish_occupancy()
-            return
-
-        self._occupancy_state = _VACANT
-        self._hold_started_ms = None
-        self._update_status_pixel()
         self._publish_occupancy()
 
     def _handle_radar_failure(

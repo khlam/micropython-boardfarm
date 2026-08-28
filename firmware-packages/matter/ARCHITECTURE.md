@@ -130,8 +130,7 @@ notification. Poll cadence and error recovery belong to each application.
 ## Local publication
 
 `Endpoint.set()` validates a complete named batch, updates the Python mirror
-synchronously, then schedules one bounded native request. `Endpoint.publish()`
-uses the same path for one numeric cluster/attribute pair. The native origin
+synchronously, then schedules one bounded native request. The native origin
 guard suppresses ESP-Matter echoes across the batch. Each successful update
 clears any older retained remote record for that path; a later poll cannot
 replay stale controller state over the newer Python decision.

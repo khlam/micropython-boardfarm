@@ -33,10 +33,11 @@ to 0-10 minutes. Turning the virtual light off selects zero delay; turning it on
 uses its current brightness.
 
 Matter persists the virtual light's power and brightness. A newly added endpoint
-starts off, preserving immediate clearing until a controller configures it. If
-the setting changes during a countdown, the new duration applies to the original
-empty-transition time: shortening may clear on the next valid empty report,
-while extending pushes the deadline out.
+starts off, preserving immediate clearing until a controller configures it. The
+timer uses wrap-safe monotonic ticks and stays anchored to the first empty
+report, so a setting changed mid-countdown applies to that original transition
+time: shortening may clear on the next valid empty report, while extending
+pushes the deadline out.
 
 Only valid reports advance the policy. A radar failure discards the empty-start
 timestamp, forces occupied, and begins a new observation period after recovery.
@@ -50,10 +51,6 @@ The policy has three explicit states:
 | `OCCUPIED` | 1 | Boot, recovery, a target observation, or a fail-safe fault value |
 | `EMPTY_HOLD` | 1 | Valid empty reports are continuing while the live hold runs |
 | `VACANT` | 0 | Valid empty reports continued through the selected hold |
-
-The clear timer uses wrap-safe monotonic ticks and always remains anchored to
-the first empty report. Turning the virtual light off selects zero milliseconds;
-turning it on maps level 0-254 linearly to 0-600,000 ms.
 
 ## System architecture
 

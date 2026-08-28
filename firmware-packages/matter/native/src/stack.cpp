@@ -102,7 +102,7 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
     if (endpoint_count >= MAXIMUM_ENDPOINTS) {
         return ENOSPC;
     }
-    if (endpoint_type > MATTER_ENDPOINT_ON_OFF_PLUG_IN_UNIT) {
+    if (endpoint_type > MATTER_ENDPOINT_OCCUPANCY_SENSOR) {
         return EINVAL;
     }
     endpoint_t *endpoint = endpoint_type_to_endpoint(matter_node, endpoint_type);

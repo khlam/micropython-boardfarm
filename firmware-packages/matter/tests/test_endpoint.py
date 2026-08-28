@@ -167,25 +167,6 @@ def test_failed_batch_keeps_requested_state_and_full_retry(capsys, monkeypatch):
     assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
 
 
-def test_raw_publish_uses_the_same_explicit_path(capsys, monkeypatch):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    node.start()
-    capsys.readouterr()
-    calls = []
-    native_publish = _matter.attributes_publish
-
-    def record(endpoint_id, updates):
-        calls.append((endpoint_id, updates))
-        native_publish(endpoint_id, updates)
-
-    monkeypatch.setattr(_matter, "attributes_publish", record)
-
-    endpoint.publish(Clusters.ON_OFF, Attributes.ON_OFF, True)
-
-    assert calls == [(endpoint.id, ((Clusters.ON_OFF, Attributes.ON_OFF, True),))]
-    assert endpoint.on is True
-
-
 def test_remote_write_updates_mirror_and_poll_returns_immutable_event(capsys):
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()

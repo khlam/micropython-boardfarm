@@ -55,6 +55,22 @@ if (( ${#py_files[@]} > 0 )); then
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
     -- "${py_files[@]}" .vulture_allowlist.py || fail=1
 
+  # Second vulture pass over source with the tests held out, so a definition
+  # kept alive only by its own test is reported instead of looking used.
+  echo "[lint] vulture (source only, tests held out)"
+  mapfile -t src_files < <(git ls-files '*.py' \
+    | grep -v -e '/tests/' -e '/test_' -e 'conftest\.py' -e 'micropython_stubs/')
+  uncalled=$(docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
+    --min-confidence 60 -- "${src_files[@]}" .vulture_allowlist.py \
+    .vulture_source_only_allowlist.py \
+    | grep -E "unused (method|function|class)" || true)
+  if [[ -n "$uncalled" ]]; then
+    echo "$uncalled"
+    echo "[lint] the above are defined and tested but never called by source."
+    echo "[lint] Delete them, or justify them in .vulture_source_only_allowlist.py."
+    fail=1
+  fi
+
   echo "[lint] pydoclint (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
     --style=google --allow-init-docstring=True -- "${py_files[@]}" || fail=1
