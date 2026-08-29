@@ -366,8 +366,11 @@ artifacts matching the flashed image after either operation.
 
 ## Wiring
 
-Connect board TX to radar RX and board RX to radar TX. Power the radar from 5 V
-with more than 200 mA available, not from 3V3.
+Connect board TX to radar RX and board RX to radar TX.
+
+### HLK-LD2450
+
+Power the LD2450 from 5 V with more than 200 mA available, not from 3V3.
 
 | ESP32-S3-Zero | UART role | HLK-LD2450 | Purpose |
 | --- | --- | --- | --- |
@@ -375,6 +378,18 @@ with more than 200 mA available, not from 3V3.
 | `GND` | — | `GND` | Common power and signal ground |
 | `GPIO5` | UART1 TX | `RX` | MCU commands to radar |
 | `GPIO6` | UART1 RX | `TX` | Radar reports to MCU |
+
+### HLK-LD2420
+
+Power the LD2420 from 3V3, not 5V. Its `OT2` presence output is not used.
+
+| ESP32-S3-Zero | UART role | HLK-LD2420 | Purpose |
+| --- | --- | --- | --- |
+| `3V3` | — | `3V3` | Radar power |
+| `GND` | — | `GND` | Common power and signal ground |
+| `GPIO5` | UART1 TX | `RX` | MCU commands to radar |
+| `GPIO6` | UART1 RX | `OT1` | Radar reports to MCU |
+| — | — | `OT2` | Not connected |
 
 ## Design tradeoffs and production considerations
 
