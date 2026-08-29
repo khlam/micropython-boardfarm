@@ -51,7 +51,6 @@ _ENDPOINT_DEFAULTS = (
     _DIMMABLE_DEFAULTS,
     _EXTENDED_COLOR_DEFAULTS,
     _OCCUPANCY_DEFAULTS,
-    _BASE_DEFAULTS,
 )
 
 
@@ -190,8 +189,12 @@ def inject_remote_write(
     endpoint_id: int, cluster_id: int, attribute_id: int, value: object
 ) -> None:
     """Inject a controller write for host tests."""
-    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
     path = (endpoint_id, cluster_id, attribute_id)
+    _require_started()
+    if path not in _state.attributes:
+        raise OSError(errno.ENOENT, "attribute does not exist")
+    _state.attributes[path] = value
+    _state.persisted[path] = value
     _state.snapshot_records[path] = (_next_revision(), value)
 
 
@@ -280,16 +283,6 @@ def factory_reset() -> None:
 def factory_reset_was_requested() -> bool:
     """Return whether host code requested a factory reset."""
     return _state.factory_reset_requested
-
-
-def _store_attribute(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
-    """Update the fake native and persistent attribute mirrors."""
-    _require_started()
-    path = (endpoint_id, cluster_id, attribute_id)
-    if path not in _state.attributes:
-        raise OSError(errno.ENOENT, "attribute does not exist")
-    _state.attributes[path] = value
-    _state.persisted[path] = value
 
 
 def _next_revision() -> int:

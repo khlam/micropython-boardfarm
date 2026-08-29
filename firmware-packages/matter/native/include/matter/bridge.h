@@ -4,7 +4,6 @@
 // C boundary between MicroPython and the native ESP-Matter protocol bridge.
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -76,8 +75,9 @@ struct matter_snapshot_record {
 // Sixteen supported endpoints can each expose at most ten Python-mirrored
 // attributes. Commissioning adds one session and one window record.
 enum {
+    MATTER_MAX_ENDPOINTS = 16,
     MATTER_MAX_ATTRIBUTE_BATCH = 10,
-    MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS = 160,
+    MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS = MATTER_MAX_ENDPOINTS * MATTER_MAX_ATTRIBUTE_BATCH,
     MATTER_MAX_SNAPSHOT_RECORDS = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2,
 };
 

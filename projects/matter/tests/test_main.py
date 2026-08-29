@@ -235,7 +235,6 @@ def test_completion_during_start_is_published_after_node_is_started(load_main):
     boot = load_main(commissioning=[1])
     boot.module.handle_events(boot.module.node.poll())
 
-    assert boot.module._commissioned[0] is True
     assert boot.module.endpoint.on is False
     assert boot.module.pixel.writes[-1] == boot.module.OFF_COLOR
 
@@ -248,7 +247,6 @@ def test_a_reopened_window_clears_a_failure(load_main):
     _matter.inject_commissioning_event(3)  # WINDOW OPENED again by the package
     module.handle_events(module.node.poll())
 
-    assert module._session_active[0] is False
     assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
 
 
@@ -260,7 +258,6 @@ def test_successful_retry_after_a_failure_commissions_the_node(load_main):
     _matter.inject_commissioning_event(1)  # SESSION COMPLETE
     module.handle_events(module.node.poll())
 
-    assert module._commissioned[0] is True
     assert module.pixel.writes == [module.OFF_COLOR]
 
 

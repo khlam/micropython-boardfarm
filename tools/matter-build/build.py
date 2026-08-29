@@ -346,9 +346,11 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
             build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
     """
     (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
-    environment = dict(os.environ, MATTER_NATIVE_PATH=str(_MATTER_NATIVE))
-    if staged is not None:
-        environment["FROZEN_STAGING_DIR"] = str(staged)
+    environment = dict(
+        os.environ,
+        MATTER_NATIVE_PATH=str(_MATTER_NATIVE),
+        FROZEN_STAGING_DIR=str(staged or ""),
+    )
     _run(
         [
             "idf.py",

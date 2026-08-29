@@ -35,8 +35,6 @@ BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RADAR_RETRY_MS = const(1_000)
 _MATTER_POLL_MS = const(50)
-# Matter uses UDP ports 5540 and 5353, leaving the standard HTTP port available.
-_DASHBOARD_PORT = const(80)
 # Poll because Matter does not report address changes to this application.
 _ADDRESS_POLL_MS = const(1_000)
 # Let Matter finish its high-current startup before starting more network work.
@@ -92,7 +90,7 @@ class _Application:
         self._set_pixel_color(_BOOT_COLOR)
 
         # Define routes now. Start the server after Matter has a network address.
-        self._dashboard = httpd.Server(port=_DASHBOARD_PORT)
+        self._dashboard = httpd.Server()
         self._dashboard.page(
             "/",
             dashboard_page.PAGE,
@@ -121,21 +119,20 @@ class _Application:
 
     async def _run_matter(self) -> None:
         """Poll Matter and hold fail-safe occupied through failure periods."""
-        failure_reported = False
         while True:
             try:
                 events = self._node.poll()
             except OSError as exception:
-                self._set_matter_health(healthy=False)
+                first_failure = self._matter_healthy
+                if first_failure:
+                    self._set_matter_health(healthy=False)
                 self._set_occupied()
-                if not failure_reported:
+                if first_failure:
                     emit({"diag": "matter_poll_err", "err": str(exception)})
-                failure_reported = True
             else:
-                if failure_reported:
+                if not self._matter_healthy:
                     emit({"diag": "matter_ok"})
-                failure_reported = False
-                self._set_matter_health(healthy=True)
+                    self._set_matter_health(healthy=True)
                 self._handle_matter_events(events)
             await asyncio.sleep_ms(_MATTER_POLL_MS)
 
@@ -162,7 +159,6 @@ class _Application:
     async def _run_radar(self) -> None:
         """Read radar reports and recreate the radar after a failure."""
         radar = None
-        failure_reported = False
         last_dashboard_report_ms = None
 
         while True:
@@ -179,9 +175,7 @@ class _Application:
                     self._handle_radar_failure(
                         radar,
                         {"diag": diagnostic, "err": str(exception)},
-                        already_reported=failure_reported,
                     )
-                    failure_reported = True
                     radar = None
                     await asyncio.sleep_ms(_RADAR_RETRY_MS)
                     continue
@@ -189,7 +183,6 @@ class _Application:
                 self._set_occupied()
                 self._set_radar_health(healthy=True)
                 emit({"diag": "radar_ok"})
-                failure_reported = False
 
             try:
                 targets = await radar.read_latest()
@@ -197,9 +190,7 @@ class _Application:
                 self._handle_radar_failure(
                     radar,
                     {"diag": "read_err", "err": str(exception)},
-                    already_reported=failure_reported,
                 )
-                failure_reported = True
                 radar = None
                 await asyncio.sleep_ms(_RADAR_RETRY_MS)
                 continue
@@ -209,9 +200,7 @@ class _Application:
                 self._handle_radar_failure(
                     radar,
                     {"diag": "report_timeout", "t": now_ms},
-                    already_reported=failure_reported,
                 )
-                failure_reported = True
                 radar = None
                 await asyncio.sleep_ms(_RADAR_RETRY_MS)
                 continue
@@ -222,7 +211,21 @@ class _Application:
             if last_dashboard_report_ms is None or (
                 time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
             ):
-                emit({"t": now_ms, "targets": [self._target_fields(target) for target in targets]})
+                emit(
+                    {
+                        "t": now_ms,
+                        "targets": [
+                            {
+                                "slot": target.slot,
+                                "x_mm": target.x_mm,
+                                "y_mm": target.y_mm,
+                                "speed_cm_s": target.speed_cm_s,
+                                "resolution_mm": target.resolution_mm,
+                            }
+                            for target in targets
+                        ],
+                    }
+                )
                 last_dashboard_report_ms = now_ms
 
     def _set_pixel_color(self, color: tuple) -> None:
@@ -292,14 +295,7 @@ class _Application:
         self._update_status_pixel()
 
     def _handle_matter_events(self, events: tuple) -> None:
-        """Apply commissioning transitions returned by Matter.
-
-        Controller writes to the hold control need no handling: the occupancy
-        loop reads that endpoint when it next needs it.
-
-        Args:
-            events: Revision-ordered events returned by ``Node.poll()``.
-        """
+        """Apply the commissioning transitions returned by Matter."""
         for event in events:
             if isinstance(event, matter.CommissioningEvent):
                 self._on_commissioning(event)
@@ -374,19 +370,17 @@ class _Application:
 
         self._publish_occupancy()
 
-    def _handle_radar_failure(
-        self, radar: LD2450 | None, report: dict, *, already_reported: bool
-    ) -> None:
+    def _handle_radar_failure(self, radar: LD2450 | None, report: dict) -> None:
         """Force occupied, report the failure once, and close the radar.
 
         Args:
             radar: Current radar, if it was created.
             report: JSON diagnostic describing this failure.
-            already_reported: Whether this failure period has been reported.
         """
+        first_failure = self._radar_healthy
         self._set_occupied()
         self._set_radar_health(healthy=False)
-        if not already_reported:
+        if first_failure:
             emit(report)
         if radar is not None:
             try:  # noqa: SIM105 - contextlib is not available on MicroPython
@@ -395,26 +389,10 @@ class _Application:
                 pass
 
     @staticmethod
-    def _target_fields(target: object) -> dict:
-        """Return one radar target in the dashboard JSON format."""
-        return {
-            "slot": target.slot,
-            "x_mm": target.x_mm,
-            "y_mm": target.y_mm,
-            "speed_cm_s": target.speed_cm_s,
-            "resolution_mm": target.resolution_mm,
-        }
-
-    @staticmethod
     def _outside_dead_zone(target: object) -> bool:
         """Return whether a target is outside the ignored sensor radius."""
         distance_squared = target.x_mm * target.x_mm + target.y_mm * target.y_mm
         return distance_squared >= _DEAD_ZONE_RADIUS_MM * _DEAD_ZONE_RADIUS_MM
-
-    @staticmethod
-    def _report_dashboard_ready(address: str) -> None:
-        """Report the address of the running dashboard."""
-        emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
 
     @staticmethod
     def _report_dashboard_failure(exception: OSError, *, already_reported: bool) -> None:
@@ -444,15 +422,19 @@ class _Application:
             return address, True, _ADDRESS_POLL_MS
         if current_address is None:
             return None, False, _ADDRESS_POLL_MS
-        if not self._dashboard.running:
-            try:
-                await self._dashboard.start()
-            except OSError as exception:
-                self._report_dashboard_failure(exception, already_reported=failure_reported)
-                return address, True, _DASHBOARD_RETRY_MS
-            self._report_dashboard_ready(current_address)
-        elif current_address != address:
-            self._report_dashboard_ready(current_address)
+        try:
+            await self._dashboard.start()
+        except OSError as exception:
+            self._report_dashboard_failure(exception, already_reported=failure_reported)
+            return address, True, _DASHBOARD_RETRY_MS
+        if current_address != address:
+            emit(
+                {
+                    "event": "dashboard",
+                    "state": "ready",
+                    "url": "http://" + current_address + "/",
+                }
+            )
         return current_address, False, _ADDRESS_POLL_MS
 
 

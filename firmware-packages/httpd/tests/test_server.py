@@ -109,31 +109,21 @@ def test_an_oversized_line_is_rejected_at_its_first_excess_byte(reader, prefix, 
     assert source.bytes_read == len(prefix) + server_module._MAX_HEADER_LINE + 1
 
 
-def test_a_connection_is_closed_and_forgotten_after_every_request(server, reader, writer):
+@pytest.mark.parametrize(
+    "writer_kwargs",
+    [
+        pytest.param({}, id="ordinary request"),
+        pytest.param({"fail_on_write": True}, id="peer drops mid-response"),
+        pytest.param({"fail_on_wait_closed": True}, id="socket already torn down"),
+    ],
+)
+def test_every_request_is_closed_and_forgotten(server, reader, writer, writer_kwargs):
     server.page("/", _BODY)
-    sink = writer()
+    sink = writer(**writer_kwargs)
 
     asyncio.run(server._handle(reader(b"GET / HTTP/1.1\r\n\r\n"), sink))
 
     assert sink.closed
-    assert sink.waited
-
-
-def test_a_peer_that_drops_mid_response_does_not_escape_the_handler(server, reader, writer):
-    server.page("/", _BODY)
-    sink = writer(fail_on_write=True)
-
-    asyncio.run(server._handle(reader(b"GET / HTTP/1.1\r\n\r\n"), sink))
-
-    assert sink.closed
-
-
-def test_a_socket_already_torn_down_still_leaves_the_connection_forgotten(server, reader, writer):
-    server.page("/", _BODY)
-    sink = writer(fail_on_wait_closed=True)
-
-    asyncio.run(server._handle(reader(b"GET / HTTP/1.1\r\n\r\n"), sink))
-
     assert sink.waited
 
 

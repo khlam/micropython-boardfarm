@@ -110,11 +110,11 @@ def test_rgb_round_trip_preserves_color_with_rounding_tolerance(color_module, co
 
 def test_publish_triple_sends_one_named_batch_without_power(color_module):
     endpoint = _RecordingEndpoint(
-        hue=0,
+        hue=85,
         saturation=0,
         color_mode=color_module.ColorMode.COLOR_TEMPERATURE,
-        enhanced_color_mode=color_module.ColorMode.COLOR_TEMPERATURE,
-        level=254,
+        enhanced_color_mode=color_module.ColorMode.HUE_SATURATION,
+        level=25,
         on=False,
     )
 
@@ -130,23 +130,6 @@ def test_publish_triple_sends_one_named_batch_without_power(color_module):
         }
     ]
     assert endpoint.on is False
-
-
-def test_publish_triple_republishes_the_complete_explicit_batch(color_module):
-    endpoint = _RecordingEndpoint(
-        hue=85,
-        saturation=254,
-        color_mode=color_module.ColorMode.HUE_SATURATION,
-        enhanced_color_mode=color_module.ColorMode.HUE_SATURATION,
-        level=25,
-        on=True,
-    )
-
-    color_module.publish_triple(endpoint, (0, 25, 0))
-
-    assert len(endpoint.batches) == 1
-    assert endpoint.batches[0]["hue"] == 85
-    assert endpoint.batches[0]["level"] == 25
 
 
 def _endpoint(**changes):

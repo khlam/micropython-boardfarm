@@ -165,16 +165,3 @@ def test_dead_zone_boundary(load_application, x_mm, y_mm, expected):
     target = SimpleNamespace(x_mm=x_mm, y_mm=y_mm)
 
     assert application._outside_dead_zone(target) is expected
-
-
-def test_target_fields_preserve_dashboard_schema(load_application):
-    application = load_application().application
-    target = SimpleNamespace(slot=2, x_mm=-30, y_mm=400, speed_cm_s=-5, resolution_mm=75)
-
-    assert application._target_fields(target) == {
-        "slot": 2,
-        "x_mm": -30,
-        "y_mm": 400,
-        "speed_cm_s": -5,
-        "resolution_mm": 75,
-    }

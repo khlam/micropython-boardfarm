@@ -229,7 +229,7 @@ def run_stream(main_ns: types.SimpleNamespace, sensor: Any) -> list[dict]:
     buf = io.StringIO()
     with redirect_stdout(buf), pytest.raises(StopLoopError):
         stream(sensor)
-    return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
+    return json_lines(buf.getvalue())
 
 
 def run_async_stream(main_ns: types.SimpleNamespace, sensor: Any) -> list[dict]:
@@ -246,7 +246,7 @@ def run_async_stream(main_ns: types.SimpleNamespace, sensor: Any) -> list[dict]:
     buf = io.StringIO()
     with redirect_stdout(buf), pytest.raises(StopLoopError):
         asyncio.run(stream(sensor))
-    return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
+    return json_lines(buf.getvalue())
 
 
 def samples(lines: list[dict]) -> list[dict]:

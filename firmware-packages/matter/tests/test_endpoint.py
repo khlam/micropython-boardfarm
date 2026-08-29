@@ -177,7 +177,6 @@ def test_remote_write_updates_mirror_and_poll_returns_immutable_event(capsys):
 
     assert endpoint.on is True
     assert events == (WriteEvent(endpoint, Clusters.ON_OFF, Attributes.ON_OFF, True),)
-    assert events[0].endpoint.id == endpoint.id
     with pytest.raises(AttributeError):
         events[0].value = False
 

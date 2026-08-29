@@ -12,9 +12,6 @@
       --text: #e5e7eb;
       --muted: #9ca3af;
       --dim: #6b7280;
-      --slot1: #22c55e;
-      --slot2: #38bdf8;
-      --slot3: #f97316;
     }
     * { box-sizing: border-box; }
     body {
@@ -466,7 +463,6 @@
         setConnection(false, $("port").textContent, "WebSocket closed; reconnecting");
         setTimeout(connect, RECONNECT_MS);
       };
-      ws.onerror = () => { /* onclose owns reconnection. */ };
     }
 
     setInterval(refreshFreshness, 250);

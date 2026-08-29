@@ -36,26 +36,7 @@ _NAMED_PATHS = {
 
 
 def _attribute_property(path: tuple) -> property:
-    """Build a read-only Endpoint property for one attribute path.
-
-    Declared above Endpoint because the class body evaluates these calls, so it
-    cannot follow the usual private-helpers-last ordering. Naming every
-    attribute kept in the Python copy is what lets application code read and
-    write an endpoint without naming a cluster — or importing this package
-    at all.
-
-    Reading goes straight to the Python copy rather than through
-    :meth:`Endpoint.get`. The path is a constant this module built, so
-    re-checking that it holds two integers and rebuilding it as a tuple on
-    every read buys nothing, and a rendering pass reads the whole endpoint
-    each time a controller writes to it.
-
-    Args:
-        path: Constant ``(cluster, attribute)`` pair this property exposes.
-
-    Returns:
-        A property reading the attribute's synchronized Python value.
-    """
+    """Build a read-only property for one constant attribute path."""
 
     def read(self: "Endpoint") -> object:
         """Return this property's attribute from the Python copy."""

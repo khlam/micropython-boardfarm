@@ -28,10 +28,6 @@ using esp_matter::endpoint_t;
 
 namespace matter_bridge {
 
-// The endpoint count is capped so the callback code can quickly check whether
-// an update belongs to this bridge.
-constexpr size_t MAXIMUM_ENDPOINTS = 16;
-
 // The key ESP-IDF gives the default Wi-Fi station interface. CHIP creates that
 // interface during commissioning; nothing in this bridge creates one.
 constexpr const char *STATION_INTERFACE_KEY = "WIFI_STA_DEF";
@@ -40,8 +36,8 @@ constexpr const char *STATION_INTERFACE_KEY = "WIFI_STA_DEF";
 // the C entry points below reach them through a using-directive. Only the VM
 // task writes them, and only before the stack starts.
 static esp_matter::node_t *matter_node = nullptr;
-static uint16_t endpoint_ids[MAXIMUM_ENDPOINTS]{};
-static uint8_t endpoint_types[MAXIMUM_ENDPOINTS]{};
+static uint16_t endpoint_ids[MATTER_MAX_ENDPOINTS]{};
+static uint8_t endpoint_types[MATTER_MAX_ENDPOINTS]{};
 static size_t endpoint_count = 0;
 static bool started = false;
 
@@ -99,7 +95,7 @@ extern "C" int matter_endpoint_create(uint8_t endpoint_type, uint16_t *endpoint_
     if (endpoint_id == nullptr || matter_node == nullptr || started) {
         return EINVAL;
     }
-    if (endpoint_count >= MAXIMUM_ENDPOINTS) {
+    if (endpoint_count >= MATTER_MAX_ENDPOINTS) {
         return ENOSPC;
     }
     if (endpoint_type > MATTER_ENDPOINT_OCCUPANCY_SENSOR) {

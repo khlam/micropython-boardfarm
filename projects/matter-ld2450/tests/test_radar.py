@@ -98,11 +98,18 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
 
     lines = json_lines(capsys.readouterr().out)
     reports = [line for line in lines if "targets" in line]
+    far_fields = {
+        "slot": 1,
+        "x_mm": 60,
+        "y_mm": 80,
+        "speed_cm_s": 2,
+        "resolution_mm": 20,
+    }
     assert factory.calls == [{"bus_id": 1, "tx": 5, "rx": 6}]
     assert [line.get("diag") for line in lines if "diag" in line] == ["radar_ok"]
     assert reports == [
-        {"t": 0, "targets": [boot.application._target_fields(far)]},
-        {"t": 500, "targets": [boot.application._target_fields(far)]},
+        {"t": 0, "targets": [far_fields]},
+        {"t": 500, "targets": [far_fields]},
     ]
     assert boot.application._occupancy_state == module._OCCUPIED
     assert boot.application._radar_healthy is True
@@ -179,13 +186,9 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
     radar = FakeRadar(close_error=OSError("close failed"))
     capsys.readouterr()
 
-    application._handle_radar_failure(
-        radar, {"diag": "report_timeout", "t": 44}, already_reported=False
-    )
-    application._handle_radar_failure(
-        radar, {"diag": "report_timeout", "t": 45}, already_reported=True
-    )
-    application._handle_radar_failure(None, {"diag": "read_err"}, already_reported=True)
+    application._handle_radar_failure(radar, {"diag": "report_timeout", "t": 44})
+    application._handle_radar_failure(radar, {"diag": "report_timeout", "t": 45})
+    application._handle_radar_failure(None, {"diag": "read_err"})
 
     lines = json_lines(capsys.readouterr().out)
     assert [line for line in lines if line.get("diag") == "report_timeout"] == [

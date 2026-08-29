@@ -43,10 +43,10 @@ STALLED_COLOR = (25, 12, 0)
 OFF_COLOR = (0, 0, 0)
 POLL_INTERVAL_MS = 50
 
-# Mutable cells retain the latest state delivered by cooperative polling.
-_commissioned = [False]
-_commissioning_state = [None]
-_session_active = [False]
+# Latest state delivered by cooperative polling.
+_commissioned = False
+_commissioning_state = None
+_session_active = False
 
 
 def render(color: tuple) -> None:
@@ -98,14 +98,14 @@ def _pairing_color() -> tuple | None:
     pairing, the second leaves the node advertising nothing — so the tracked
     session, not the closure, decides which colour it gets.
     """
-    state = _commissioning_state[0]
+    state = _commissioning_state
     if state == matter.Commissioning.FAILED:
         return FAILED_COLOR
     if state == matter.Commissioning.OPENED:
         return WINDOW_COLOR
-    if _session_active[0]:
+    if _session_active:
         return SESSION_COLOR
-    if _commissioned[0]:
+    if _commissioned:
         return None
     if state == matter.Commissioning.CLOSED:
         return STALLED_COLOR
@@ -116,12 +116,6 @@ def _show_state() -> None:
     """Render whichever of pairing state or controller-owned colour applies."""
     color = _pairing_color()
     render(matter_to_triple(endpoint) if color is None else color)
-
-
-def _finish_commissioning() -> None:
-    """Turn the newly commissioned accessory off locally and in Matter."""
-    render(OFF_COLOR)
-    endpoint.set(on=False)
 
 
 def handle_events(events: tuple) -> None:
@@ -150,15 +144,18 @@ def _on_commissioning(event: object) -> None:
     Args:
         event: :class:`matter.CommissioningEvent` delivered by the node.
     """
+    global _commissioned, _commissioning_state, _session_active  # noqa: PLW0603
+
     state = event.state
-    _commissioning_state[0] = state
+    _commissioning_state = state
     if state == matter.Commissioning.STARTED:
-        _session_active[0] = True
+        _session_active = True
     elif state in (matter.Commissioning.COMPLETE, matter.Commissioning.FAILED):
-        _session_active[0] = False
+        _session_active = False
     if state == matter.Commissioning.COMPLETE:
-        _commissioned[0] = True
-        _finish_commissioning()
+        _commissioned = True
+        render(OFF_COLOR)
+        endpoint.set(on=False)
         return
     _show_state()
 
@@ -191,8 +188,8 @@ node.start()
 # uncommissioned board shows the boot baseline until the first poll delivers
 # retained pairing state. fabrics() takes the same bounded request.cpp round
 # trip as the attribute writes above.
-_commissioned[0] = bool(node.fabrics())
-if _commissioned[0]:
+_commissioned = bool(node.fabrics())
+if _commissioned:
     _show_state()
 
 

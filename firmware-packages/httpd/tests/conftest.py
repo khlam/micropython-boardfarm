@@ -58,9 +58,9 @@ def listener(monkeypatch):
     """Replace asyncio.start_server so start() binds a recorded fake listener."""
     created = []
 
-    async def _start_server(handler, address, port, backlog=None):
+    async def _start_server(_handler, address, port, backlog=None):
         """Record one bind and hand back a listener the test can inspect."""
-        fake = _Listener(handler, address, port, backlog)
+        fake = _Listener(address, port, backlog)
         created.append(fake)
         return fake
 
@@ -151,9 +151,8 @@ class _Writer:
 class _Listener:
     """The object asyncio.start_server hands back, recording its bind."""
 
-    def __init__(self, handler: object, address: str, port: int, backlog: int | None) -> None:
+    def __init__(self, address: str, port: int, backlog: int | None) -> None:
         """Record the arguments start() bound with."""
-        self.handler = handler
         self.address = address
         self.port = port
         self.backlog = backlog

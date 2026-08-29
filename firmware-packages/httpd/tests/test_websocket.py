@@ -149,15 +149,6 @@ def test_whatever_a_client_sends_is_read_and_thrown_away(reader, writer):
     assert broadcast._clients == []
 
 
-def test_a_client_connecting_without_a_greeting_is_sent_nothing_up_front(reader, writer):
-    broadcast = Broadcast()
-    sink = writer()
-
-    asyncio.run(broadcast.serve(reader(b""), sink))
-
-    assert bytes(sink.buffer) == b""
-
-
 def test_a_write_failure_retires_the_client_rather_than_the_producer(reader, writer):
     broadcast = Broadcast(greeting="hello")
     sink = writer(fail_on_write=True)

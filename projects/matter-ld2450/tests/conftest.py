@@ -1,6 +1,5 @@
 """Shared deterministic runtime for the matter-ld2450 firmware tests."""
 
-import json
 import os
 import pathlib
 import sys
@@ -45,25 +44,12 @@ class FakeTime:
         return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
 
 
-class FakeBroadcast:
-    """Record the WebSocket greeting and every emitted JSON line."""
-
-    def __init__(self, greeting: str | None) -> None:
-        """Create an empty line log."""
-        self.greeting = greeting
-        self.lines = []
-
-    def send(self, line: str) -> None:
-        """Record one non-blocking broadcast line."""
-        self.lines.append(json.loads(line))
-
-
 class FakeServer:
     """Record routes and provide scripted dashboard startup."""
 
     instances: ClassVar[list] = []
 
-    def __init__(self, port: int) -> None:
+    def __init__(self, port: int = 80) -> None:
         """Create a stopped server on ``port``."""
         self.port = port
         self.pages = []
@@ -78,25 +64,27 @@ class FakeServer:
         """Record one fixed-page route."""
         self.pages.append((path, body, encoding))
 
-    def stream(self, path: str, *, greeting: str) -> FakeBroadcast:
+    def stream(self, path: str, *, greeting: str) -> object:
         """Record one WebSocket route and return its broadcaster."""
-        self.broadcast = FakeBroadcast(greeting)
+        self.broadcast = SimpleNamespace(greeting=greeting, send=lambda _line: None)
         self.streams.append((path, self.broadcast))
         return self.broadcast
 
     async def start(self) -> None:
         """Raise the next scripted error or mark the server running."""
+        if self.running:
+            return
         self.start_calls += 1
         if self.start_errors:
             raise self.start_errors.pop(0)
         self.running = True
 
 
-def _reset_state(*, persisted: dict | None = None, fabrics: tuple = ()) -> None:
+def _reset_state(*, fabrics: tuple = ()) -> None:
     """Reset every process-wide fake used by the firmware module."""
     machine.reset()
     neopixel.reset()
-    _matter.reset(persisted=persisted)
+    _matter.reset()
     _matter.seed_fabrics(list(fabrics))
     matter_node._active_node[0] = None
     matter_emit._sinks.clear()
@@ -120,10 +108,9 @@ def load_firmware(monkeypatch):
     def load(
         *,
         machine_name: str = "Generic ESP32S3 module with ESP32S3",
-        persisted: dict | None = None,
         fabrics: tuple = (),
     ) -> SimpleNamespace:
-        _reset_state(persisted=persisted, fabrics=fabrics)
+        _reset_state(fabrics=fabrics)
 
         clock = FakeTime()
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))

@@ -61,8 +61,7 @@ if (( ${#py_files[@]} > 0 )); then
   mapfile -t src_files < <(git ls-files '*.py' \
     | grep -v -e '/tests/' -e '/test_' -e 'conftest\.py' -e 'micropython_stubs/')
   uncalled=$(docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
-    --min-confidence 60 -- "${src_files[@]}" .vulture_allowlist.py \
-    .vulture_source_only_allowlist.py \
+    --min-confidence 60 -- "${src_files[@]}" \
     | grep -E "unused (method|function|class)" || true)
   if [[ -n "$uncalled" ]]; then
     echo "$uncalled"

@@ -165,7 +165,7 @@ sequenceDiagram
         cb->>py: COMPLETE
         py-->>app: return CommissioningEvent(COMPLETE)
         app->>app: _on_commissioning(COMPLETE)
-        app->>app: _finish_commissioning — pixel off, publishes OnOff false
+        app->>app: pixel off, publish OnOff false
     else one attempt fails
         chip->>cb: kFailSafeTimerExpired
         cb->>py: FAILED
