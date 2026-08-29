@@ -52,23 +52,11 @@ class Endpoint:
     """Local Python copy of one native Matter endpoint's attributes.
 
     Every attribute an endpoint's schema tracks is also reachable by name
-    (``endpoint.on``, ``endpoint.hue``, …) via the properties defined below
-    with :func:`_attribute_property`. Properties are reads only; application
-    writes go through :meth:`set`. A name the schema does not expose raises
-    ``ValueError``.
+    (``endpoint.on``, ``endpoint.hue``, …) via a property installed for each
+    ``_NAMED_PATHS`` entry after this class body. Properties are reads only;
+    application writes go through :meth:`set`. A name the schema does not
+    expose raises ``ValueError``.
     """
-
-    identify_time = _attribute_property(Paths.IDENTIFY)
-    on = _attribute_property(Paths.ON_OFF)
-    level = _attribute_property(Paths.LEVEL)
-    hue = _attribute_property(Paths.HUE)
-    saturation = _attribute_property(Paths.SATURATION)
-    x = _attribute_property(Paths.X)
-    y = _attribute_property(Paths.Y)
-    temperature = _attribute_property(Paths.TEMPERATURE)
-    color_mode = _attribute_property(Paths.COLOR_MODE)
-    enhanced_color_mode = _attribute_property(Paths.ENHANCED_COLOR_MODE)
-    occupancy = _attribute_property(Paths.OCCUPANCY)
 
     def __init__(self, node: object, endpoint_id: int, endpoint_type: int, state: dict) -> None:
         """Bind a native endpoint ID to its validated Python state.
@@ -190,3 +178,7 @@ class Endpoint:
             return None
         self._state[path] = value
         return WriteEvent(self, cluster, attribute, value)
+
+
+for _name, _path in _NAMED_PATHS.items():
+    setattr(Endpoint, _name, _attribute_property(_path))

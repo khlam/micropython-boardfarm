@@ -57,21 +57,13 @@ def test_set_before_start_fails_without_changing_python_state():
     assert endpoint.on is False
 
 
-def test_set_publishes_one_named_batch(monkeypatch):
+def test_set_publishes_one_named_batch(publishes):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    batches = []
-    native_publish = _matter.attributes_publish
-
-    def record(endpoint_id, updates):
-        batches.append((endpoint_id, updates))
-        native_publish(endpoint_id, updates)
-
-    monkeypatch.setattr(_matter, "attributes_publish", record)
 
     endpoint.set(on=True, hue=42, saturation=200)
 
-    assert batches == [
+    assert publishes == [
         (
             endpoint.id,
             (
@@ -84,39 +76,27 @@ def test_set_publishes_one_named_batch(monkeypatch):
     assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
 
 
-def test_set_republishes_explicit_values_that_already_match(monkeypatch):
+def test_set_republishes_explicit_values_that_already_match(publishes):
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    calls = []
-    native_publish = _matter.attributes_publish
-
-    def record(endpoint_id, updates):
-        calls.append(updates)
-        native_publish(endpoint_id, updates)
-
-    monkeypatch.setattr(_matter, "attributes_publish", record)
 
     endpoint.set(on=False)
     endpoint.set(on=False)
 
-    assert calls == [
-        ((Clusters.ON_OFF, Attributes.ON_OFF, False),),
-        ((Clusters.ON_OFF, Attributes.ON_OFF, False),),
-    ]
+    batch = (endpoint.id, ((Clusters.ON_OFF, Attributes.ON_OFF, False),))
+    assert publishes == [batch, batch]
 
 
-def test_set_validates_whole_batch_before_changing_state(monkeypatch):
+def test_set_validates_whole_batch_before_changing_state(publishes):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    calls = []
-    monkeypatch.setattr(_matter, "attributes_publish", lambda *_args: calls.append(True))
 
     with pytest.raises(ValueError, match="between 0 and 254"):
         endpoint.set(on=True, hue=255)
 
     assert endpoint.on is False
     assert endpoint.hue == 0
-    assert calls == []
+    assert publishes == []
 
 
 @pytest.mark.parametrize(
@@ -135,7 +115,7 @@ def test_set_rejects_invalid_named_batches(attributes, exception, message):
         endpoint.set(**attributes)
 
 
-def test_failed_batch_keeps_requested_state_and_full_retry(monkeypatch):
+def test_failed_batch_keeps_requested_state_and_full_retry(publishes):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
     requested = {"on": True, "hue": 42, "saturation": 200}
@@ -147,18 +127,12 @@ def test_failed_batch_keeps_requested_state_and_full_retry(monkeypatch):
     assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
     assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is False
 
-    calls = []
-    native_publish = _matter.attributes_publish
-
-    def record(endpoint_id, updates):
-        calls.append(updates)
-        native_publish(endpoint_id, updates)
-
-    monkeypatch.setattr(_matter, "attributes_publish", record)
     endpoint.set(**requested)
 
-    assert len(calls) == 1
-    assert len(calls[0]) == 3
+    # The retry re-sends the identical full batch the failed attempt carried.
+    assert len(publishes) == 2
+    assert publishes[1] == publishes[0]
+    assert len(publishes[0][1]) == 3
     assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
 
 
@@ -228,6 +202,20 @@ def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
         },
         {"event": "matter", "state": "ready"},
     ]
+
+
+@pytest.fixture
+def publishes(monkeypatch):
+    """Record every (endpoint_id, updates) batch while still applying it natively."""
+    batches = []
+    native_publish = _matter.attributes_publish
+
+    def record(endpoint_id, updates):
+        batches.append((endpoint_id, updates))
+        native_publish(endpoint_id, updates)
+
+    monkeypatch.setattr(_matter, "attributes_publish", record)
+    return batches
 
 
 def _endpoint(endpoint_type):

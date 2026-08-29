@@ -124,8 +124,7 @@ class _Application:
                 events = self._node.poll()
             except OSError as exception:
                 first_failure = self._matter_healthy
-                if first_failure:
-                    self._set_matter_health(healthy=False)
+                self._set_matter_health(healthy=False)
                 self._set_occupied()
                 if first_failure:
                     emit({"diag": "matter_poll_err", "err": str(exception)})
