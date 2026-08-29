@@ -11,7 +11,7 @@ members = [
     "ld2450-demo",
     "led-effects",
     "matter-example",
-    "matter-ld2450",
+    "matter-radar-sensor",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -652,9 +652,9 @@ dependencies = [
 requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
-name = "matter-ld2450"
+name = "matter-radar-sensor"
 version = "0.1.0"
-source = { virtual = "projects/matter-ld2450" }
+source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
     { name = "micropython-boardfarm" },
 ]

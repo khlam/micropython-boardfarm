@@ -1,4 +1,4 @@
-"""Shared deterministic runtime for the matter-ld2450 firmware tests."""
+"""Shared deterministic runtime for the matter-radar-sensor firmware tests."""
 
 import os
 import pathlib
@@ -17,7 +17,7 @@ from micropython_stubs import asyncio_extras
 from micropython_stubs.testing import load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
-_MODULE_NAME = "matter_ld2450_main"
+_MODULE_NAME = "matter_radar_sensor_main"
 
 
 class FakeTime:

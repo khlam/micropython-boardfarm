@@ -91,7 +91,7 @@ jobs:
           - ld2450
           - led-effects
           - matter
-          - matter-ld2450
+          - matter-radar-sensor
           - multizone-ranging
         target:
           - rp
@@ -100,7 +100,7 @@ jobs:
           # Matter projects are ESP32-S3-only and have no pi-compile service.
           - project: matter
             target: rp
-          - project: matter-ld2450
+          - project: matter-radar-sensor
             target: rp
         include:
           # max_bytes: per-artifact size budgets (cloud-only). See CI.md
@@ -119,7 +119,7 @@ jobs:
           - project: matter
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
-          - project: matter-ld2450
+          - project: matter-radar-sensor
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
     steps:
