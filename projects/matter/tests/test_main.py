@@ -1,7 +1,5 @@
 """End-to-end tests for the Matter example firmware boot and events."""
 
-import json
-
 import _matter
 import machine
 import neopixel
@@ -9,12 +7,9 @@ import pytest
 
 import matter
 from matter.schema import Paths
+from micropython_stubs.testing import StopLoopError, json_lines
 
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
-
-class StopLoopError(Exception):
-    """Escape the firmware's intentional infinite polling loop."""
 
 
 def test_supported_boot_builds_pixel_and_reports_ready(load_main):
@@ -51,7 +46,7 @@ def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
         module.run()
 
     assert module.pixel.writes == pixel_writes
-    assert [line["message"] for line in _json_lines(capsys.readouterr().out)] == [
+    assert [line["message"] for line in json_lines(capsys.readouterr().out)] == [
         "first",
         "second",
     ]
@@ -79,7 +74,7 @@ def test_poll_loop_recovers_when_commissioning_publication_fails(load_main, monk
     assert polls == 2
     errors = [
         line
-        for line in _json_lines(capsys.readouterr().out)
+        for line in json_lines(capsys.readouterr().out)
         if line.get("component") == "matter_poll"
     ]
     assert [line["message"] for line in errors] == ["[Errno 5] injected attributes_publish failure"]
@@ -154,15 +149,14 @@ def test_set_color_black_turns_off_an_already_lit_endpoint(load_main):
     assert module.pixel.writes == [module.OFF_COLOR]
 
 
-def test_controller_color_render_skips_the_last_rendered_colour(load_main):
+def test_render_skips_a_colour_the_pixel_already_shows(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    module._show_controller_color()
-    module.pixel.writes.clear()
-    module._show_controller_color()
+    module.render((1, 2, 3))
+    module.render((1, 2, 3))
 
-    assert module.pixel.writes == []
+    assert module.pixel.writes == [(1, 2, 3)]
 
 
 def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main):
@@ -206,7 +200,7 @@ def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_ma
     _matter.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
     module.handle_events(module.node.poll())
 
-    assert module.pixel.writes == [module.SESSION_COLOR, module.SESSION_COLOR]
+    assert module.pixel.writes == [module.SESSION_COLOR]
 
 
 def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
@@ -278,7 +272,10 @@ def test_closed_window_restores_commissioned_controller_state(load_main):
     _matter.inject_commissioning_event(4)
     module.handle_events(module.node.poll())
 
-    assert module.pixel.writes == [(0, 25, 0)]
+    # The controller's colour is already lit, so the window closing leaves it
+    # alone rather than flashing a pairing colour over it.
+    assert module.pixel[0] == (0, 25, 0)
+    assert module.pixel.writes == []
 
 
 def _green_state():
@@ -290,11 +287,6 @@ def _green_state():
         (1, *Paths.COLOR_MODE): 0,
         (1, *Paths.ENHANCED_COLOR_MODE): 0,
     }
-
-
-def _json_lines(output):
-    """Decode every non-empty structured firmware line."""
-    return [json.loads(line) for line in output.splitlines() if line]
 
 
 def _stop_after(count):

@@ -48,12 +48,20 @@ _commissioned = [False]
 _commissioning_state = [None]
 _session_active = [False]
 
-# Last controller-owned colour the event loop actually rendered.
-_last_remote_color = [None]
-
 
 def render(color: tuple) -> None:
-    """Drive the strip. Every hardware touch in this project is these two lines."""
+    """Drive the strip, skipping a write that would change nothing.
+
+    The one place this project touches hardware. A poll can carry several
+    attributes for one colour command, and a status transition can leave the
+    colour where it already was, so both repeats stop here rather than reaching
+    the bit-banged NeoPixel write.
+
+    Args:
+        color: Red, green, and blue channel values in the range 0-255.
+    """
+    if pixel[0] == color:
+        return
     pixel[0] = color
     pixel.write()
 
@@ -77,23 +85,13 @@ def set_color(color: tuple) -> None:
         endpoint.set(on=lit)
 
 
-def _show_controller_color() -> None:
-    """Show the synchronized controller colour unless it repeats the last one shown.
+def _pairing_color() -> tuple | None:
+    """Return the colour describing where pairing stands, or None once it is done.
 
-    A poll can carry several attributes for one color command. Reading the
-    fully synchronized endpoint collapses that batch to one render; comparing
-    against the last color drops its remaining write events before they reach
-    the bit-banged NeoPixel write.
-    """
-    color = matter_to_triple(endpoint)
-    if color == _last_remote_color[0]:
-        return
-    _last_remote_color[0] = color
-    render(color)
-
-
-def _pairing_color() -> tuple:
-    """Return the colour describing where pairing currently stands.
+    Pairing wins while it is in flight, on a commissioned node too: an owner
+    adding a second controller wants to watch that, not the light. Once the
+    attempt settles, a paired node has no pairing colour and goes back to
+    showing the controller's.
 
     A closed window is the ambiguous one: it closes both when a commissioner
     takes it and when it simply runs out. The first is the middle of a healthy
@@ -107,26 +105,17 @@ def _pairing_color() -> tuple:
         return WINDOW_COLOR
     if _session_active[0]:
         return SESSION_COLOR
+    if _commissioned[0]:
+        return None
     if state == matter.Commissioning.CLOSED:
         return STALLED_COLOR
     return BOOT_COLOR
 
 
 def _show_state() -> None:
-    """Render whichever of pairing state or controller-owned colour applies.
-
-    Pairing wins while it is in flight, on a commissioned node too: an owner
-    adding a second controller wants to watch that, not the light. Once the
-    attempt settles, a paired node goes back to showing its colour.
-    """
-    pairing = _session_active[0] or _commissioning_state[0] in (
-        matter.Commissioning.OPENED,
-        matter.Commissioning.FAILED,
-    )
-    if _commissioned[0] and not pairing:
-        render(matter_to_triple(endpoint))
-        return
-    render(_pairing_color())
+    """Render whichever of pairing state or controller-owned colour applies."""
+    color = _pairing_color()
+    render(matter_to_triple(endpoint) if color is None else color)
 
 
 def _finish_commissioning() -> None:
@@ -145,7 +134,9 @@ def handle_events(events: tuple) -> None:
         if not isinstance(event, matter.WriteEvent):
             _on_commissioning(event)
         elif event.endpoint is endpoint:
-            _show_controller_color()
+            # The whole endpoint is synchronized by now, so the batch behind one
+            # colour command collapses to a single rendered colour.
+            render(matter_to_triple(endpoint))
 
 
 def _on_commissioning(event: object) -> None:

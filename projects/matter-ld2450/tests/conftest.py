@@ -1,11 +1,10 @@
 """Shared deterministic runtime for the matter-ld2450 firmware tests."""
 
-import ast
 import json
 import os
 import pathlib
 import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from typing import ClassVar
 
 import _matter
@@ -16,29 +15,10 @@ import pytest
 import matter.emit as matter_emit
 import matter.node as matter_node
 from micropython_stubs import asyncio_extras
+from micropython_stubs.testing import load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _MODULE_NAME = "matter_ld2450_main"
-
-
-class StopTaskError(Exception):
-    """Escape an otherwise-infinite firmware supervisor task."""
-
-
-@pytest.fixture
-def stop_task_error() -> type[Exception]:
-    """Return the marker exception that escapes an infinite supervisor task."""
-    return StopTaskError
-
-
-@pytest.fixture
-def json_lines():
-    """Return a decoder for every non-empty structured firmware line."""
-
-    def decode(output: str) -> list[dict]:
-        return [json.loads(line) for line in output.splitlines() if line]
-
-    return decode
 
 
 class FakeTime:
@@ -155,18 +135,7 @@ def load_firmware(monkeypatch):
         )
         monkeypatch.setitem(sys.modules, "httpd", SimpleNamespace(Server=FakeServer))
 
-        tree = ast.parse(_FIRMWARE.read_text(), filename=str(_FIRMWARE))
-        entry_call = tree.body.pop()
-        assert isinstance(entry_call, ast.Expr)
-        assert isinstance(entry_call.value, ast.Call)
-        assert isinstance(entry_call.value.func, ast.Name)
-        assert entry_call.value.func.id == "main"
-        ast.fix_missing_locations(tree)
-
-        module = ModuleType(_MODULE_NAME)
-        module.__file__ = str(_FIRMWARE)
-        sys.modules[_MODULE_NAME] = module
-        exec(compile(tree, str(_FIRMWARE), "exec"), module.__dict__)
+        module = load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
         return SimpleNamespace(module=module, time=clock)
 
     return load

@@ -73,8 +73,8 @@ class Endpoint:
     Every attribute an endpoint's schema tracks is also reachable by name
     (``endpoint.on``, ``endpoint.hue``, …) via the properties defined below
     with :func:`_attribute_property`. Properties are reads only; application
-    writes use :meth:`set` for named attributes or :meth:`publish` for a
-    numeric Matter path. A name the schema does not expose raises ``ValueError``.
+    writes go through :meth:`set`. A name the schema does not expose raises
+    ``ValueError``.
     """
 
     identify_time = _attribute_property(Paths.IDENTIFY)
@@ -143,6 +143,7 @@ class Endpoint:
             **attributes: Named endpoint attributes and their requested values.
 
         Raises:
+            OSError: The node is not started, or native publication failed.
             TypeError: A name is unknown or a value has the wrong Matter type.
             ValueError: No values were supplied, or the endpoint does not
                 support a name or value.
@@ -155,17 +156,16 @@ class Endpoint:
                 path = _NAMED_PATHS[name]
             except KeyError:
                 raise TypeError(f"unknown attribute: {name}") from None
-            updates.append((path, self._validate(path, value)))
-        self._publish(tuple(updates))
-
-    def _validate(self, path: tuple, value: object) -> object:
-        """Validate one value against this endpoint's schema.
-
-        Shared by :meth:`set` and :meth:`_accept_remote` so a value is checked
-        the same way regardless of whether it originated locally or from a
-        remote controller.
-        """
-        return validate_value(self._schema, path, value)
+            updates.append((path, validate_value(self._schema, path, value)))
+        # Refused before the first mirror write, so a pre-start call leaves the
+        # Python copy exactly as it found it.
+        if not self._node.started:
+            raise OSError(22, "Matter node is not started")
+        native_updates = []
+        for path, value in updates:
+            self._state[path] = value
+            native_updates.append((path[0], path[1], value))
+        _matter.attributes_publish(self.id, tuple(native_updates))
 
     def _restore(self) -> None:
         """Overwrite the Python copy with whatever native currently holds.
@@ -180,7 +180,7 @@ class Endpoint:
         for path in state:
             value = _matter.attribute_get(self.id, path[0], path[1])
             try:
-                state[path] = self._validate(path, value)
+                state[path] = validate_value(self._schema, path, value)
             except (TypeError, ValueError):
                 emit_error("python_validation", "restored value rejected by schema")
 
@@ -205,19 +205,9 @@ class Endpoint:
         if path not in self._state:
             return None
         try:
-            value = self._validate(path, value)
+            value = validate_value(self._schema, path, value)
         except (TypeError, ValueError):
             emit_error("python_validation", "remote value rejected by schema")
             return None
         self._state[path] = value
         return WriteEvent(self, cluster, attribute, value)
-
-    def _publish(self, updates: tuple) -> None:
-        """Refuse before startup, store validated desired values, then send one native batch."""
-        if not self._node.started:
-            raise OSError(22, "Matter node is not started")
-        native_updates = []
-        for path, value in updates:
-            self._state[path] = value
-            native_updates.append((path[0], path[1], value))
-        _matter.attributes_publish(self.id, tuple(native_updates))

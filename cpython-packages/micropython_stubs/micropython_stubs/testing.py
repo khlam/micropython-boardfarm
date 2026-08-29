@@ -7,6 +7,7 @@ import asyncio
 import io
 import json
 import pathlib
+import sys
 import types
 from contextlib import redirect_stdout
 from typing import Any, ClassVar
@@ -90,6 +91,56 @@ def load_firmware_code(firmware_path: pathlib.Path, keep_funcs: set[str]) -> typ
     module = ast.Module(body=kept, type_ignores=[])
     ast.fix_missing_locations(module)
     return compile(module, str(firmware_path), "exec")
+
+
+def load_firmware_module(
+    firmware_path: pathlib.Path, module_name: str, entry: str
+) -> types.ModuleType:
+    """Execute a whole firmware main.py as a module, minus its final entry call.
+
+    A project's main.py ends by calling the entry point that never returns on
+    the device. Dropping that one statement runs the real boot sequence and
+    leaves every definition reachable, while the tests drive the loops
+    themselves.
+
+    Args:
+        firmware_path: Path to the firmware main.py file.
+        module_name: Name to register the executed module under in sys.modules.
+        entry: Name of the entry call the module must end with.
+
+    Returns:
+        The executed module, already registered in sys.modules.
+
+    Raises:
+        ValueError: The module does not end with a call to ``entry``.
+    """
+    tree = ast.parse(firmware_path.read_text(), filename=str(firmware_path))
+    entry_call = tree.body.pop()
+    if (
+        not isinstance(entry_call, ast.Expr)
+        or not isinstance(entry_call.value, ast.Call)
+        or not isinstance(entry_call.value.func, ast.Name)
+        or entry_call.value.func.id != entry
+    ):
+        raise ValueError(f"{firmware_path} must end with a call to {entry}()")
+    ast.fix_missing_locations(tree)
+    module = types.ModuleType(module_name)
+    module.__file__ = str(firmware_path)
+    sys.modules[module_name] = module
+    exec(compile(tree, str(firmware_path), "exec"), module.__dict__)  # noqa: S102
+    return module
+
+
+def json_lines(output: str) -> list[dict]:
+    """Decode every non-empty structured firmware line.
+
+    Args:
+        output: Captured stdout, one JSON object per line.
+
+    Returns:
+        One parsed dict per non-blank line.
+    """
+    return [json.loads(line) for line in output.splitlines() if line.strip()]
 
 
 def firmware_namespace(

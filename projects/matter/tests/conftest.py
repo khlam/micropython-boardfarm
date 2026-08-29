@@ -1,13 +1,11 @@
 """Shared fixtures for the Matter example firmware tests."""
 
-import ast
 import io
-import json
 import os
 import pathlib
 import sys
 from contextlib import redirect_stdout
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import _matter
 import machine
@@ -15,7 +13,7 @@ import neopixel
 import pytest
 
 import matter.node as matter_node
-from micropython_stubs.testing import FakeTime
+from micropython_stubs.testing import FakeTime, json_lines, load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware"
 _MAIN = _FIRMWARE / "main.py"
@@ -84,21 +82,9 @@ def load_main(monkeypatch):
 
             monkeypatch.setattr(_matter, "start", start_with_events)
 
-        tree = ast.parse(_MAIN.read_text(), filename=str(_MAIN))
-        entry_call = tree.body.pop()
-        assert isinstance(entry_call, ast.Expr)
-        assert isinstance(entry_call.value, ast.Call)
-        assert isinstance(entry_call.value.func, ast.Name)
-        assert entry_call.value.func.id == "run"
-        ast.fix_missing_locations(tree)
-
-        module = ModuleType(_MAIN_MODULE)
-        module.__file__ = str(_MAIN)
-        sys.modules[_MAIN_MODULE] = module
         output = io.StringIO()
         with redirect_stdout(output):
-            exec(compile(tree, str(_MAIN), "exec"), module.__dict__)
-        lines = [json.loads(line) for line in output.getvalue().splitlines() if line]
-        return SimpleNamespace(module=module, time=fake_time, lines=lines)
+            module = load_firmware_module(_MAIN, _MAIN_MODULE, "run")
+        return SimpleNamespace(module=module, time=fake_time, lines=json_lines(output.getvalue()))
 
     return load

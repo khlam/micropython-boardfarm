@@ -99,19 +99,15 @@ bool record_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t
 
 bool clear_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id)
 {
-    for (AttributeSlot &slot : attributes) {
-        if (!slot.present) {
-            continue;
-        }
-        const matter_snapshot_record &record = slot.record;
-        if (record.endpoint_id == endpoint_id && record.cluster_id == cluster_id &&
-            record.attribute_id == attribute_id) {
-            slot.present = false;
-            next_revision();
-            return true;
-        }
+    // find_attribute() answers with a free slot when the path is not retained,
+    // so `present` is what separates a hit from an empty one.
+    AttributeSlot *slot = find_attribute(endpoint_id, cluster_id, attribute_id);
+    if (slot == nullptr || !slot->present) {
+        return false;
     }
-    return false;
+    slot->present = false;
+    next_revision();
+    return true;
 }
 
 void record_commissioning_state(matter_commissioning_state state)
