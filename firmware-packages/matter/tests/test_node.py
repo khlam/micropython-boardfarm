@@ -1,7 +1,5 @@
 """Integration tests for Matter node lifecycle, routing, and recovery."""
 
-import json
-
 import _matter
 import pytest
 
@@ -17,6 +15,7 @@ from matter import (
     WriteEvent,
 )
 from matter.schema import Paths
+from micropython_stubs.testing import json_lines
 
 
 def test_node_enforces_process_wide_singleton():
@@ -72,10 +71,9 @@ def test_create_endpoint_tracks_native_endpoint_despite_initial_attribute_failur
     assert endpoint.on is False
 
 
-def test_create_endpoint_is_forbidden_after_start(capsys):
+def test_create_endpoint_is_forbidden_after_start():
     node = Node()
     node.start()
-    capsys.readouterr()
 
     with pytest.raises(OSError, match=r"before Node\.start"):
         node.create_endpoint(EndpointType.ON_OFF_LIGHT)
@@ -144,10 +142,9 @@ def test_start_raises_after_restore_retry_budget(monkeypatch):
         endpoint.set(on=True)
 
 
-def test_node_cannot_start_twice(capsys):
+def test_node_cannot_start_twice():
     node = Node()
     node.start()
-    capsys.readouterr()
 
     with pytest.raises(OSError, match="already started"):
         node.start()
@@ -170,10 +167,9 @@ def test_administration_requires_started_node(method, args):
         getattr(node, method)(*args)
 
 
-def test_commissioning_window_validates_and_forwards_timeout(capsys):
+def test_commissioning_window_validates_and_forwards_timeout():
     node = Node()
     node.start()
-    capsys.readouterr()
 
     node.open_commissioning_window()
     node.open_commissioning_window(1)
@@ -183,22 +179,20 @@ def test_commissioning_window_validates_and_forwards_timeout(capsys):
 
 
 @pytest.mark.parametrize("timeout", [True, 0, 65536])
-def test_commissioning_window_rejects_invalid_timeout(timeout, capsys):
+def test_commissioning_window_rejects_invalid_timeout(timeout):
     node = Node()
     node.start()
-    capsys.readouterr()
 
     with pytest.raises((TypeError, ValueError)):
         node.open_commissioning_window(timeout)
 
 
-def test_fabric_snapshot_and_removal(capsys):
+def test_fabric_snapshot_and_removal():
     first = (1, 101, 201, 301, "home")
     second = (2, 102, 202, 302, "lab")
     _matter.seed_fabrics([first, second])
     node = Node()
     node.start()
-    capsys.readouterr()
 
     assert node.fabrics() == (Fabric(*first), Fabric(*second))
     node.remove_fabric(1)
@@ -211,19 +205,17 @@ def test_fabric_snapshot_and_removal(capsys):
 
 
 @pytest.mark.parametrize("index", [True, 0, 255])
-def test_remove_fabric_rejects_invalid_index(index, capsys):
+def test_remove_fabric_rejects_invalid_index(index):
     node = Node()
     node.start()
-    capsys.readouterr()
 
     with pytest.raises((TypeError, ValueError)):
         node.remove_fabric(index)
 
 
-def test_factory_reset_is_forwarded(capsys):
+def test_factory_reset_is_forwarded():
     node = Node()
     node.start()
-    capsys.readouterr()
 
     node.factory_reset()
 
@@ -252,10 +244,9 @@ def test_commissioning_event_is_reported_and_delivered(state_code, expected, cap
     assert _output(capsys) == [{"event": expected.name, "state": expected.state}]
 
 
-def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
+def test_unchanged_generation_skips_snapshot(monkeypatch):
     node = Node()
     node.start()
-    capsys.readouterr()
     calls = []
     monkeypatch.setattr(_matter, "snapshot", lambda: calls.append(True))
 
@@ -265,11 +256,10 @@ def test_unchanged_generation_skips_snapshot(monkeypatch, capsys):
     assert events == ()
 
 
-def test_repeated_writes_coalesce_and_attributes_remain_independent(capsys):
+def test_repeated_writes_coalesce_and_attributes_remain_independent():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
     node.start()
-    capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
@@ -283,11 +273,10 @@ def test_repeated_writes_coalesce_and_attributes_remain_independent(capsys):
     assert all(event.endpoint is endpoint for event in events)
 
 
-def test_snapshot_failure_retries_without_committing_generation(capsys):
+def test_snapshot_failure_retries_without_committing_generation():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    capsys.readouterr()
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.fail_next("snapshot")
 
@@ -302,11 +291,10 @@ def test_snapshot_failure_retries_without_committing_generation(capsys):
     assert node._generation == _matter.generation()
 
 
-def test_local_publish_discards_older_pending_remote_write(capsys):
+def test_local_publish_discards_older_pending_remote_write():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    capsys.readouterr()
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
 
     endpoint.set(on=False)
@@ -316,12 +304,11 @@ def test_local_publish_discards_older_pending_remote_write(capsys):
     assert events == ()
 
 
-def test_cross_kind_revision_order_keeps_newer_mutation_authoritative(capsys):
+def test_cross_kind_revision_order_keeps_newer_mutation_authoritative():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
 
     node.start()
-    capsys.readouterr()
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
     _matter.inject_commissioning_event(1)
 
@@ -335,10 +322,9 @@ def test_cross_kind_revision_order_keeps_newer_mutation_authoritative(capsys):
     assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is False
 
 
-def test_commissioning_session_and_window_replay_in_revision_order(capsys):
+def test_commissioning_session_and_window_replay_in_revision_order():
     node = Node()
     node.start()
-    capsys.readouterr()
     _matter.inject_commissioning_event(2)
     _matter.inject_commissioning_event(3)
 
@@ -347,7 +333,7 @@ def test_commissioning_session_and_window_replay_in_revision_order(capsys):
     assert [event.state for event in events] == [Commissioning.FAILED, Commissioning.OPENED]
 
 
-def test_startup_restore_precedes_first_polled_write(capsys, monkeypatch):
+def test_startup_restore_precedes_first_polled_write(monkeypatch):
     _matter.reset(persisted={(1, *Paths.ON_OFF): True})
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
@@ -365,11 +351,10 @@ def test_startup_restore_precedes_first_polled_write(capsys, monkeypatch):
     assert [event.value for event in events] == [False]
 
 
-def test_wrapping_revisions_are_ordered_from_committed_generation(capsys):
+def test_wrapping_revisions_are_ordered_from_committed_generation():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
     node.start()
-    capsys.readouterr()
     node._generation = 0xFFFFFFFE
     _matter._state.generation = 0xFFFFFFFE
     _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
@@ -387,4 +372,4 @@ def _always_fail_read(*_args):
 
 def _output(capsys):
     """Parse every non-empty stdout line as JSON."""
-    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    return json_lines(capsys.readouterr().out)

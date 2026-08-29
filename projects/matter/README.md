@@ -98,9 +98,8 @@ time what it is able to say at all, and at the default `NONE` it cannot report
 why a commissioning attempt failed — which is the only thing worth knowing when
 Apple Home refuses to pair. Expect `[chip]` lines interleaved with the JSON;
 `Commissioning failed (attempt N)` and the `CHIP_ERROR` beside it name the stage
-that gave up. The viz reader drops every line that is not JSON, so the dashboard
-is unaffected. Drop the line from `native/board/ESP32_S3_MATTER/sdkconfig.board`
-to go back to a silent build.
+that gave up. Drop the line from
+`native/board/ESP32_S3_MATTER/sdkconfig.board` to go back to a silent build.
 
 `MONITOR_PROBE=1` sends a newline on connect — a `>>>` prompt in the reply means
 no program is running. `MONITOR_SEND='…'` types one line at the REPL, and

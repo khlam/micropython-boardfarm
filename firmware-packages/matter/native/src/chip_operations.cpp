@@ -42,10 +42,10 @@ void finish(Request *request, int result)
 // Each operation below returns 0 on success or an errno-style error code.
 
 // Return the code-driven Occupancy Sensing cluster serving this endpoint.
-OccupancySensingCluster *get_occupancy_cluster(uint16_t endpoint_id, uint32_t cluster_id)
+OccupancySensingCluster *get_occupancy_cluster(uint16_t endpoint_id)
 {
     ServerClusterInterface *served = esp_matter::data_model::provider::get_instance().registry().Get(
-        ConcreteClusterPath(endpoint_id, cluster_id));
+        ConcreteClusterPath(endpoint_id, chip::app::Clusters::OccupancySensing::Id));
     // ESP-Matter registers this concrete type for OccupancySensing; CHIP has no RTTI.
     return static_cast<OccupancySensingCluster *>(served);
 }
@@ -54,7 +54,7 @@ OccupancySensingCluster *get_occupancy_cluster(uint16_t endpoint_id, uint32_t cl
 // attribute store, so reads must use the same authoritative state controllers see.
 int read_occupancy(Request *request)
 {
-    OccupancySensingCluster *served = get_occupancy_cluster(request->endpoint_id, request->cluster_id);
+    OccupancySensingCluster *served = get_occupancy_cluster(request->endpoint_id);
     if (served == nullptr) {
         return ENOENT;
     }
@@ -91,9 +91,9 @@ int read_attribute(Request *request)
 // Occupancy is served by a code-driven cluster, not ESP-Matter's generic
 // attribute store. Its setter updates the controller-visible value and reports
 // it without producing a local attribute-callback echo.
-int publish_occupancy(uint16_t endpoint_id, uint32_t cluster_id, uint32_t value)
+int publish_occupancy(uint16_t endpoint_id, uint32_t value)
 {
-    OccupancySensingCluster *served = get_occupancy_cluster(endpoint_id, cluster_id);
+    OccupancySensingCluster *served = get_occupancy_cluster(endpoint_id);
     if (served == nullptr) {
         return ENOENT;
     }
@@ -119,7 +119,7 @@ int publish_attributes(Request *request)
     for (size_t index = 0; index < request->attribute_update_count; ++index) {
         const matter_attribute_update &update = request->attribute_updates[index];
         if (is_occupancy_attribute(update.cluster_id, update.attribute_id)) {
-            if (get_occupancy_cluster(request->endpoint_id, update.cluster_id) == nullptr) {
+            if (get_occupancy_cluster(request->endpoint_id) == nullptr) {
                 return ENOENT;
             }
             if (update.value_type != MATTER_VALUE_UINT8 || update.value > 1U) {
@@ -149,7 +149,7 @@ int publish_attributes(Request *request)
     for (size_t index = 0; index < request->attribute_update_count; ++index) {
         const matter_attribute_update &update = request->attribute_updates[index];
         if (is_occupancy_attribute(update.cluster_id, update.attribute_id)) {
-            error = publish_occupancy(request->endpoint_id, update.cluster_id, update.value);
+            error = publish_occupancy(request->endpoint_id, update.value);
         } else if (esp_matter::attribute::update(request->endpoint_id, update.cluster_id,
                                                 update.attribute_id, &values[index]) != ESP_OK) {
             error = EIO;

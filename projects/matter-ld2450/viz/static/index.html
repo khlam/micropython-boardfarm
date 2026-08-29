@@ -350,22 +350,13 @@
       Plotly.react("speed", [1, 2, 3].map((slot) => slotTrace(slot, "speed_cm_s", 1, "cm/s")), axisLayout("cm/s"), config);
     }
 
-    function renderLive() {
-      renderRadar();
-      renderCards();
-    }
-
-    function renderAll() {
-      renderLive();
-      renderAnalytics();
-    }
-
     function scheduleLiveRender() {
       if (liveRenderPending) return;
       liveRenderPending = true;
       requestAnimationFrame(() => {
         liveRenderPending = false;
-        renderLive();
+        renderRadar();
+        renderCards();
       });
     }
 
@@ -407,7 +398,9 @@
       setOccupancy(null);
       appendHistory([], now);
       $("diag").textContent = message || "";
-      renderAll();
+      renderRadar();
+      renderCards();
+      renderAnalytics();
     }
 
     function setConnection(isConnected, port, error) {

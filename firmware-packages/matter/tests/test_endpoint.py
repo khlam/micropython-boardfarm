@@ -1,11 +1,10 @@
 """Integration tests for explicit endpoint state and publication."""
 
-import json
-
 import _matter
 import pytest
 
 from matter import Attributes, Clusters, ColorMode, EndpointType, Node, WriteEvent
+from micropython_stubs.testing import json_lines
 
 
 def test_named_properties_expose_each_extended_color_default():
@@ -58,10 +57,9 @@ def test_set_before_start_fails_without_changing_python_state():
     assert endpoint.on is False
 
 
-def test_set_publishes_one_named_batch(capsys, monkeypatch):
+def test_set_publishes_one_named_batch(monkeypatch):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    capsys.readouterr()
     batches = []
     native_publish = _matter.attributes_publish
 
@@ -86,10 +84,9 @@ def test_set_publishes_one_named_batch(capsys, monkeypatch):
     assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
 
 
-def test_set_republishes_explicit_values_that_already_match(capsys, monkeypatch):
+def test_set_republishes_explicit_values_that_already_match(monkeypatch):
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    capsys.readouterr()
     calls = []
     native_publish = _matter.attributes_publish
 
@@ -108,10 +105,9 @@ def test_set_republishes_explicit_values_that_already_match(capsys, monkeypatch)
     ]
 
 
-def test_set_validates_whole_batch_before_changing_state(capsys, monkeypatch):
+def test_set_validates_whole_batch_before_changing_state(monkeypatch):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    capsys.readouterr()
     calls = []
     monkeypatch.setattr(_matter, "attributes_publish", lambda *_args: calls.append(True))
 
@@ -139,10 +135,9 @@ def test_set_rejects_invalid_named_batches(attributes, exception, message):
         endpoint.set(**attributes)
 
 
-def test_failed_batch_keeps_requested_state_and_full_retry(capsys, monkeypatch):
+def test_failed_batch_keeps_requested_state_and_full_retry(monkeypatch):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    capsys.readouterr()
     requested = {"on": True, "hue": 42, "saturation": 200}
     _matter.fail_next("attributes_publish")
 
@@ -167,10 +162,9 @@ def test_failed_batch_keeps_requested_state_and_full_retry(capsys, monkeypatch):
     assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
 
 
-def test_remote_write_updates_mirror_and_poll_returns_immutable_event(capsys):
+def test_remote_write_updates_mirror_and_poll_returns_immutable_event():
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
     events = node.poll()
@@ -244,4 +238,4 @@ def _endpoint(endpoint_type):
 
 def _output(capsys):
     """Parse every non-empty stdout line as JSON."""
-    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    return json_lines(capsys.readouterr().out)

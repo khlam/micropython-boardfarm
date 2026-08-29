@@ -144,12 +144,10 @@ class LD2450:
         try:
             self._drain_uart()
             targets = self._take_latest_targets()
-            if targets is not None:
-                self._pending = None
-                return targets
-            if self._pending is not None:
+            if targets is None:
                 targets = self._pending
-                self._pending = None
+            self._pending = None
+            if targets is not None:
                 return targets
             return await self._wait_for_latest(_REPORT_TIMEOUT_MS)
         except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.
@@ -228,11 +226,7 @@ class LD2450:
 
     def _finish_candidate(self) -> None:
         """Keep a valid report as newest or retain bytes useful for resync."""
-        trailer_at = _REPORT_LEN - len(_TRAILER)
-        if (
-            self._candidate[trailer_at] == _TRAILER[0]
-            and self._candidate[trailer_at + 1] == _TRAILER[1]
-        ):
+        if self._candidate.endswith(_TRAILER):
             self._candidate, self._latest_report = self._latest_report, self._candidate
             self._has_latest_report = True
             self._candidate_len = 0

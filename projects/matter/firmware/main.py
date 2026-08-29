@@ -45,7 +45,6 @@ POLL_INTERVAL_MS = 50
 
 # Latest state delivered by cooperative polling.
 _commissioned = False
-_commissioning_state = None
 _session_active = False
 
 
@@ -85,39 +84,6 @@ def set_color(color: tuple) -> None:
         endpoint.set(on=lit)
 
 
-def _pairing_color() -> tuple | None:
-    """Return the colour describing where pairing stands, or None once it is done.
-
-    Pairing wins while it is in flight, on a commissioned node too: an owner
-    adding a second controller wants to watch that, not the light. Once the
-    attempt settles, a paired node has no pairing colour and goes back to
-    showing the controller's.
-
-    A closed window is the ambiguous one: it closes both when a commissioner
-    takes it and when it simply runs out. The first is the middle of a healthy
-    pairing, the second leaves the node advertising nothing — so the tracked
-    session, not the closure, decides which colour it gets.
-    """
-    state = _commissioning_state
-    if state == matter.Commissioning.FAILED:
-        return FAILED_COLOR
-    if state == matter.Commissioning.OPENED:
-        return WINDOW_COLOR
-    if _session_active:
-        return SESSION_COLOR
-    if _commissioned:
-        return None
-    if state == matter.Commissioning.CLOSED:
-        return STALLED_COLOR
-    return BOOT_COLOR
-
-
-def _show_state() -> None:
-    """Render whichever of pairing state or controller-owned colour applies."""
-    color = _pairing_color()
-    render(matter_to_triple(endpoint) if color is None else color)
-
-
 def handle_events(events: tuple) -> None:
     """Apply one explicit batch returned by :meth:`matter.Node.poll`.
 
@@ -144,20 +110,31 @@ def _on_commissioning(event: object) -> None:
     Args:
         event: :class:`matter.CommissioningEvent` delivered by the node.
     """
-    global _commissioned, _commissioning_state, _session_active  # noqa: PLW0603
+    global _commissioned, _session_active  # noqa: PLW0603
 
     state = event.state
-    _commissioning_state = state
-    if state == matter.Commissioning.STARTED:
-        _session_active = True
-    elif state in (matter.Commissioning.COMPLETE, matter.Commissioning.FAILED):
-        _session_active = False
     if state == matter.Commissioning.COMPLETE:
+        _session_active = False
         _commissioned = True
         render(OFF_COLOR)
         endpoint.set(on=False)
         return
-    _show_state()
+    if state == matter.Commissioning.STARTED:
+        _session_active = True
+        color = SESSION_COLOR
+    elif state == matter.Commissioning.FAILED:
+        _session_active = False
+        color = FAILED_COLOR
+    elif state == matter.Commissioning.OPENED:
+        color = WINDOW_COLOR
+    elif _session_active:
+        # A commissioner took the window, so its closure is still in-session.
+        color = SESSION_COLOR
+    elif _commissioned:
+        color = matter_to_triple(endpoint)
+    else:
+        color = STALLED_COLOR
+    render(color)
 
 
 pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pixel_count)
@@ -190,7 +167,7 @@ node.start()
 # trip as the attribute writes above.
 _commissioned = bool(node.fabrics())
 if _commissioned:
-    _show_state()
+    render(matter_to_triple(endpoint))
 
 
 def run() -> None:

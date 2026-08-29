@@ -1,8 +1,7 @@
 """Tests for the Matter facade's single JSON stdout boundary."""
 
-import json
-
 from matter.emit import emit, error, event
+from micropython_stubs.testing import json_lines
 
 
 def test_emit_writes_one_json_object(capsys):
@@ -31,4 +30,4 @@ def test_error_writes_recoverable_fault(capsys):
 
 def _output(capsys):
     """Parse every non-empty stdout line as JSON."""
-    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    return json_lines(capsys.readouterr().out)

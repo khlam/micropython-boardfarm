@@ -206,7 +206,6 @@ class _Application:
                 continue
 
             targets = tuple(target for target in targets if self._outside_dead_zone(target))
-            self._set_radar_health(healthy=True)
             self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
             if last_dashboard_report_ms is None or (
                 time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
@@ -394,12 +393,6 @@ class _Application:
         distance_squared = target.x_mm * target.x_mm + target.y_mm * target.y_mm
         return distance_squared >= _DEAD_ZONE_RADIUS_MM * _DEAD_ZONE_RADIUS_MM
 
-    @staticmethod
-    def _report_dashboard_failure(exception: OSError, *, already_reported: bool) -> None:
-        """Report a dashboard failure once during each failure period."""
-        if not already_reported:
-            error("dashboard", str(exception))
-
     async def _update_dashboard(
         self, address: str | None, *, failure_reported: bool
     ) -> tuple[str | None, bool, int]:
@@ -418,14 +411,16 @@ class _Application:
         try:
             current_address = self._node.network_address()
         except OSError as exception:
-            self._report_dashboard_failure(exception, already_reported=failure_reported)
+            if not failure_reported:
+                error("dashboard", str(exception))
             return address, True, _ADDRESS_POLL_MS
         if current_address is None:
             return None, False, _ADDRESS_POLL_MS
         try:
             await self._dashboard.start()
         except OSError as exception:
-            self._report_dashboard_failure(exception, already_reported=failure_reported)
+            if not failure_reported:
+                error("dashboard", str(exception))
             return address, True, _DASHBOARD_RETRY_MS
         if current_address != address:
             emit(

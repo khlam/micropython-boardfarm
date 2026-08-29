@@ -137,16 +137,14 @@ class Endpoint:
                 path = _NAMED_PATHS[name]
             except KeyError:
                 raise TypeError(f"unknown attribute: {name}") from None
-            updates.append((path, validate_value(self._schema, path, value)))
+            updates.append((path[0], path[1], validate_value(self._schema, path, value)))
         # Refused before the first mirror write, so a pre-start call leaves the
         # Python copy exactly as it found it.
         if not self._node.started:
             raise OSError(22, "Matter node is not started")
-        native_updates = []
-        for path, value in updates:
-            self._state[path] = value
-            native_updates.append((path[0], path[1], value))
-        _matter.attributes_publish(self.id, tuple(native_updates))
+        for cluster, attribute, value in updates:
+            self._state[(cluster, attribute)] = value
+        _matter.attributes_publish(self.id, tuple(updates))
 
     def _restore(self) -> None:
         """Overwrite the Python copy with whatever native currently holds.

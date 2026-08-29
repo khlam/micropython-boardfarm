@@ -109,18 +109,16 @@ def test_rgb_round_trip_preserves_color_with_rounding_tolerance(color_module, co
 
 
 def test_publish_triple_sends_one_named_batch_without_power(color_module):
-    endpoint = _RecordingEndpoint(
-        hue=85,
-        saturation=0,
-        color_mode=color_module.ColorMode.COLOR_TEMPERATURE,
-        enhanced_color_mode=color_module.ColorMode.HUE_SATURATION,
-        level=25,
-        on=False,
-    )
+    batches = []
+
+    def record(**attributes):
+        batches.append(attributes)
+
+    endpoint = SimpleNamespace(set=record)
 
     color_module.publish_triple(endpoint, (0, 25, 0))
 
-    assert endpoint.batches == [
+    assert batches == [
         {
             "hue": 85,
             "saturation": 254,
@@ -129,7 +127,6 @@ def test_publish_triple_sends_one_named_batch_without_power(color_module):
             "level": 25,
         }
     ]
-    assert endpoint.on is False
 
 
 def _endpoint(**changes):
@@ -146,18 +143,3 @@ def _endpoint(**changes):
     }
     values.update(changes)
     return SimpleNamespace(**values)
-
-
-class _RecordingEndpoint:
-    """Endpoint-shaped object that records explicit publication batches."""
-
-    def __init__(self, **values) -> None:
-        self.batches = []
-        for name, value in values.items():
-            setattr(self, name, value)
-
-    def set(self, **attributes) -> None:
-        """Record and apply one named publication batch."""
-        self.batches.append(attributes)
-        for name, value in attributes.items():
-            setattr(self, name, value)
