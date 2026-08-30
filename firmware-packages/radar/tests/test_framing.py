@@ -1,7 +1,9 @@
-"""Host tests for UART frame synchronization and resync-after-garbage."""
+"""Host tests for UART frame synchronization, resync-after-garbage, and field reads."""
 
 import machine
 from fake_stream import Stream, build_report
+
+from radar.stream import u16
 
 HEADER = Stream.HEADER
 FOOTER = Stream.FOOTER
@@ -79,3 +81,7 @@ def test_bad_footer_with_no_header_fragment_anywhere_resets_fully(stream):
     stream._drain_uart()
     assert stream._take_latest_targets() is None
     assert stream._candidate_len == 0
+
+
+def test_u16_reads_a_little_endian_field():
+    assert u16(bytes([0x34, 0x12]), 0) == 0x1234

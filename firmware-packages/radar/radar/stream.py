@@ -143,11 +143,14 @@ class ReportStream:
         validated but not decoded. An empty tuple means the newest report saw
         nobody. ``None`` means no complete report arrived in time.
 
+        A failing UART raises ``OSError`` out of the read itself. Unlike
+        :meth:`wait_ready`, this leaves the driver open, so a caller that can
+        recover the bus may keep reading it.
+
         Returns:
             The detected targets, an empty tuple, or ``None`` after a timeout.
 
         Raises:
-            OSError: If reading the UART connection fails.
             RuntimeError: If startup is incomplete, the driver is closed, or
                 another coroutine is reading.
         """
@@ -166,8 +169,6 @@ class ReportStream:
             if targets is not None:
                 return targets
             return await self._wait_for_latest(self.REPORT_TIMEOUT_MS)
-        except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.
-            raise
         finally:
             self._reading = False
 
@@ -308,3 +309,19 @@ class ReportStream:
             return None
         self._has_latest_report = False
         return self._decode(self._latest_report)
+
+
+def u16(data: bytes | bytearray, offset: int) -> int:
+    """Read a two-byte unsigned value stored with its low byte first.
+
+    Every supported radar encodes its report fields this way, so the decoders
+    share one reader.
+
+    Args:
+        data: Buffer holding the value.
+        offset: Index of its low byte.
+
+    Returns:
+        The unsigned value.
+    """
+    return data[offset] | data[offset + 1] << 8

@@ -1,11 +1,7 @@
 """Host tests for the LD2420 decoder and ACK framing: no async."""
 
 from radar import Target
-from radar.ld2420 import _ack_frame_end, _u16
-
-
-def test_u16_little_endian():
-    assert _u16(bytes([0x34, 0x12]), 0) == 0x1234
+from radar.ld2420 import _ack_frame_end
 
 
 def test_decode_targets_absent_presence_byte_returns_empty_tuple(ld2420, build_ld2420_report):

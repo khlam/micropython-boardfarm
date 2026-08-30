@@ -73,7 +73,9 @@ async def detect(*, bus_id: int, tx: int, rx: int) -> tuple:
     """Probe each supported radar in turn and return whichever answered.
 
     Every probe that stays silent is released before the next one opens, so the
-    radars can share one UART and one pair of pins.
+    radars can share one UART and one pair of pins. A failing UART raises
+    ``OSError`` out of the probe itself, distinguishing a broken bus from the
+    silent-but-working one ``NoRadarError`` reports.
 
     Args:
         bus_id: UART number used by the microcontroller.
@@ -85,16 +87,15 @@ async def detect(*, bus_id: int, tx: int, rx: int) -> tuple:
 
     Raises:
         NoRadarError: No supported radar answered.
-        OSError: The UART connection failed.
     """
     for model, driver_type in DRIVERS:
         device = driver_type(bus_id=bus_id, tx=tx, rx=rx)
         try:
             await device.wait_ready()
         except DeviceNotFoundError:
-            # wait_ready() already closed this UART on its way out.
+            # wait_ready() already closed this UART on its way out. An OSError
+            # is left to propagate: the bus itself failed, so no later probe on
+            # it would mean anything.
             continue
-        except OSError:  # noqa: TRY203 - make the indirect UART failure contract explicit.
-            raise
         return model, device
     raise NoRadarError("no supported radar answered")

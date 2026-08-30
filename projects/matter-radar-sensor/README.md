@@ -177,22 +177,12 @@ radar answered.
 
 ### Radar ingestion
 
-The LD2450 sends one fixed 30-byte report approximately every 100 ms. Each
-report contains three eight-byte target slots. The LD2420 sends a fixed 45-byte
-report at a comparable rate carrying a presence flag, a distance, and sixteen
-gate energies. Both reusable drivers are designed for bounded memory and current
-data:
-
-- A UART receive-idle interrupt only wakes the asyncio reader; UART reads and
-  decoding run outside the interrupt.
-- A 512-byte UART ring holds about 1.7 seconds of documented traffic.
-- Reused 120-byte and 30-byte buffers avoid repeated allocation.
-- Header and trailer markers frame reports and recover synchronization after
-  invalid bytes.
-- When reports accumulate, the driver validates them all but decodes only the
-  newest one.
-
-Either driver returns:
+Either radar reports roughly ten times per second, and each read returns the
+newest report only — the product never acts on a stale one. Framing, buffering,
+resynchronization, and the one-reader rule belong to the shared driver and are
+documented in
+[`../../firmware-packages/radar/`](../../firmware-packages/radar/). What this
+project acts on is the outcome of a read:
 
 | Result | Meaning |
 | --- | --- |
@@ -202,11 +192,8 @@ Either driver returns:
 | `DeviceNotFoundError` | No valid startup report within two seconds |
 | `OSError` | UART initialization or read failure |
 
-Both use their factory 8-N-1 serial settings. The LD2450 driver never changes
-radar settings; the LD2420 driver writes only the system mode, so its report
-format does not depend on the mode the module was last left in. Only one
-coroutine may wait on a driver at a time. On ESP32-S3, MicroPython implements
-`UART.IRQ_RXIDLE` with `Timer(0)`, which this project reserves for the driver.
+On ESP32-S3, MicroPython implements `UART.IRQ_RXIDLE` with `Timer(0)`, which
+this project reserves for the driver.
 
 ### Occupancy decision and failure handling
 

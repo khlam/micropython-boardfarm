@@ -90,7 +90,11 @@ re-runs `ci.yml`, so new pins are build-verified before merge.
 ## Linter infrastructure
 
 [Dockerfile.linters](Dockerfile.linters) defines one image per tool — `ruff-lint`,
-`hadolint-lint`, `yamllint-lint`, `vulture-lint`, `pydoclint-lint`, and `uv-secure`.
+`hadolint-lint`, `yamllint-lint`, `vulture-lint`, `vulture-source-lint`,
+`pydoclint-lint`, and `uv-secure`. `vulture-source-lint` runs the same tool over the
+same files with the tests held out, so a definition kept alive only by its own test
+is reported instead of looking used; like `uv-secure`, it owns its exclusions,
+output filtering, and exit code inside its own `ENTRYPOINT`.
 Tool versions are pinned in [pyproject.toml](pyproject.toml)'s `lint` dependency-group
 and resolved through [uv.lock](uv.lock), so local and CI runs use identical versions.
 Both [.githooks/run-linters.sh](.githooks/run-linters.sh) (CI) and the `precommit`
@@ -122,6 +126,7 @@ Standalone linter configs live at the repo root:
 | [.hadolint.yaml](.hadolint.yaml) | hadolint (Dockerfile lint) — error-level rules block CI |
 | [.yamllint.yaml](.yamllint.yaml) | yamllint (YAML style) |
 | [.vulture_allowlist.py](.vulture_allowlist.py) | vulture — names that look unused but are load-bearing |
+| [.vulture_source_only_allowlist.py](.vulture_source_only_allowlist.py) | vulture source-only pass — names that are tested but deliberately uncalled by source |
 | `[tool.ruff]` / `[tool.ty.*]` / `[tool.pydoclint]` / `[tool.vulture]` in [pyproject.toml](pyproject.toml) | ruff, ty, pydoclint, vulture config |
 
 ## Removing the CI

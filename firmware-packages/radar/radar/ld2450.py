@@ -8,7 +8,7 @@ driver reads data only and never changes the radar's settings.
 
 from micropython import const
 
-from radar.stream import ReportStream, Target
+from radar.stream import ReportStream, Target, u16
 
 __all__ = ["LD2450"]
 
@@ -48,10 +48,10 @@ class LD2450(ReportStream):
         targets = []
         for index in range(_TARGET_COUNT):
             start = len(self.HEADER) + index * _TARGET_LEN
-            x = _u16(report, start)
-            y = _u16(report, start + 2)
-            speed = _u16(report, start + 4)
-            resolution = _u16(report, start + 6)
+            x = u16(report, start)
+            y = u16(report, start + 2)
+            speed = u16(report, start + 4)
+            resolution = u16(report, start + 6)
             if not (x or y or speed or resolution):
                 continue
             targets.append(
@@ -64,11 +64,6 @@ class LD2450(ReportStream):
                 )
             )
         return tuple(targets)
-
-
-def _u16(data: bytes | bytearray, offset: int) -> int:
-    """Read a two-byte unsigned value stored with its low byte first."""
-    return data[offset] | data[offset + 1] << 8
 
 
 def _decode_signed_magnitude(value: int) -> int:

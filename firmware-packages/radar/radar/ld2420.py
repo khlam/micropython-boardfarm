@@ -15,7 +15,7 @@ import asyncio
 import utime
 from micropython import const
 
-from radar.stream import DeviceNotFoundError, ReportStream, Target
+from radar.stream import DeviceNotFoundError, ReportStream, Target, u16
 
 __all__ = ["LD2420"]
 
@@ -77,20 +77,6 @@ class LD2420(ReportStream):
     STARTUP_TIMEOUT_MS = 2_000
     REPORT_TIMEOUT_MS = 500
 
-    def __init__(self, *, bus_id: int, tx: int, rx: int) -> None:
-        """Open the radar UART and allocate the command-ACK buffer.
-
-        Args:
-            bus_id: UART number used by the microcontroller.
-            tx: GPIO number connected to the radar RX pin.
-            rx: GPIO number connected to the radar OT1 pin.
-        """
-        super().__init__(bus_id=bus_id, tx=tx, rx=rx)
-        # Rebound rather than trimmed in place, because a MicroPython bytearray
-        # supports no slice deletion. Only the three startup command frames pay
-        # for that allocation; the report path keeps its preallocated buffers.
-        self._ack_buffer = bytearray()
-
     async def _prepare(self) -> None:
         """Force energy mode so the report format does not depend on history."""
         for command, payload in _CONFIGURATION:
@@ -111,10 +97,16 @@ class LD2420(ReportStream):
         """
         if not report[_PRESENCE_AT]:
             return ()
-        return (Target(_SLOT, 0, _u16(report, _DISTANCE_AT) * _MM_PER_CM, 0, 0),)
+        return (Target(_SLOT, 0, u16(report, _DISTANCE_AT) * _MM_PER_CM, 0, 0),)
 
     def _send_command(self, command: int, payload: bytes) -> None:
-        """Write one command frame and discard bytes received before its ACK."""
+        """Write one command frame and discard bytes received before its ACK.
+
+        The ACK buffer is created here, and rebound rather than trimmed in place
+        below, because a MicroPython bytearray supports no slice deletion. Only
+        the three startup command frames pay for that allocation; the report path
+        keeps the preallocated buffers it inherits.
+        """
         length = len(payload) + 2
         self._ack_buffer = bytearray()
         self._uart.write(
@@ -183,8 +175,8 @@ class LD2420(ReportStream):
             frame_end = _ack_frame_end(buffer, start)
             if frame_end is None:
                 return None
-            if _u16(buffer, start + _ACK_ECHO_AT) == echo:
-                status = _u16(buffer, start + _ACK_STATUS_AT)
+            if u16(buffer, start + _ACK_ECHO_AT) == echo:
+                status = u16(buffer, start + _ACK_STATUS_AT)
                 self._ack_buffer = buffer[frame_end:]
                 return status
             start = buffer.find(_COMMAND_HEADER, frame_end)
@@ -196,7 +188,7 @@ def _ack_frame_end(buffer: bytearray, start: int) -> int | None:
     body_at = start + len(_COMMAND_HEADER) + 2
     if len(buffer) < body_at:
         return None
-    length = _u16(buffer, start + len(_COMMAND_HEADER))
+    length = u16(buffer, start + len(_COMMAND_HEADER))
     if length < _ACK_BODY_MINIMUM:
         return None
     end = body_at + length + len(_COMMAND_FOOTER)
@@ -205,8 +197,3 @@ def _ack_frame_end(buffer: bytearray, start: int) -> int | None:
     if buffer[end - len(_COMMAND_FOOTER) : end] != _COMMAND_FOOTER:
         return None
     return end
-
-
-def _u16(data: bytes | bytearray, offset: int) -> int:
-    """Read a two-byte unsigned value stored with its low byte first."""
-    return data[offset] | data[offset + 1] << 8
