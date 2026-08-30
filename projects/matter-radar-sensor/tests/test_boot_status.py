@@ -33,7 +33,7 @@ def test_boot_builds_routes_and_stable_matter_endpoints(load_application):
     assert boot.server.streams[0][0] == "/ws"
     assert json.loads(boot.server.broadcast.greeting) == {
         "event": "connected",
-        "port": "ld2450 uart1",
+        "port": "radar uart1",
     }
     assert application._occupancy.id == 1
     assert application._occupancy.type == matter.EndpointType.OCCUPANCY_SENSOR

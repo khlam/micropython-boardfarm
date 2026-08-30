@@ -1,10 +1,14 @@
 # ESP32-S3-Zero Matter occupancy sensor
 
-This project exposes an HLK-LD2450 mmWave radar as a read-only Matter Occupancy
-Sensor and a virtual Dimmable Light that configures its occupancy hold. It is an
-edge translator: detailed 10 Hz radar reports become a low-bandwidth Matter
-occupancy state, while full target telemetry remains available through the
-board's webpage and the USB serial stream.
+This project exposes an HLK-LD2450 or HLK-LD2420 mmWave radar as a read-only
+Matter Occupancy Sensor and a virtual Dimmable Light that configures its
+occupancy hold. It is an edge translator: detailed 10 Hz radar reports become a
+low-bandwidth Matter occupancy state, while full target telemetry remains
+available through the board's webpage and the USB serial stream.
+
+Both radars wire to the same UART pins and one firmware image serves either.
+The board detects which one is attached at startup, and the product contract
+below holds identically for both.
 
 The product contract is:
 
@@ -90,7 +94,9 @@ failures do not affect occupancy publication or commissioning.
 | Layer | Responsibility |
 | --- | --- |
 | Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
+| `firmware/radar.py` | Probe order across supported radars, UART handover between probes, and normalizing range-only reports into the published target shape |
 | `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
+| `firmware-packages/ld2420` | The same, plus the energy-mode command sequence and presence/range decoding |
 | Matter Python package | Endpoint validation, Python attribute mirror, returned events, and node administration |
 | Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
@@ -142,11 +148,42 @@ sequenceDiagram
 Matter starts before radar initialization, so a missing radar does not prevent
 commissioning or fabric administration.
 
+### Radar detection
+
+`firmware/radar.py` probes the supported radars in turn on the shared UART and
+presents whichever answered as one report stream. The LD2450 is probed first
+because its driver only reads, so an attached LD2450 is never written to. Each
+driver that does not answer is closed before the next is constructed, since they
+all claim the same UART.
+
+| Order | Model | Serial | Startup writes |
+| --- | --- | --- | --- |
+| 1 | HLK-LD2450 | 256000 8-N-1 | none |
+| 2 | HLK-LD2420 | 115200 8-N-1 | commands system mode `0x0004`, the energy mode |
+
+A radar answers within two seconds or the probe moves on, so detecting an
+attached LD2420 costs about two extra seconds at boot. Occupancy is already
+fail-safe occupied during startup, so nothing observable changes. Only when
+every driver fails does `NoRadarError` reach the retry loop as `no_device`.
+
+Because the radar task recreates the whole `Radar` after any failure,
+re-detection is automatic: swapping one radar for the other while the retry loop
+is running picks up the new model without a reflash. The detected model is
+reported with the `radar_ok` diagnostic and shown in the dashboard header.
+
+The LD2420 measures range only. Its detections are published as one target at
+`x_mm = 0`, `y_mm = distance`, with `speed_cm_s` and `resolution_mm` zero — those
+zeros mean "not measured", not measurements. The dead zone, occupancy state
+machine, hold timer, status pixel, and Matter endpoints are untouched by which
+radar answered.
+
 ### Radar ingestion
 
 The LD2450 sends one fixed 30-byte report approximately every 100 ms. Each
-report contains three eight-byte target slots. The reusable driver is designed
-for bounded memory and current data:
+report contains three eight-byte target slots. The LD2420 sends a fixed 45-byte
+report at a comparable rate carrying a presence flag, a distance, and sixteen
+gate energies. Both reusable drivers are designed for bounded memory and current
+data:
 
 - A UART receive-idle interrupt only wakes the asyncio reader; UART reads and
   decoding run outside the interrupt.
@@ -157,7 +194,7 @@ for bounded memory and current data:
 - When reports accumulate, the driver validates them all but decodes only the
   newest one.
 
-The driver returns:
+Either driver returns:
 
 | Result | Meaning |
 | --- | --- |
@@ -167,10 +204,11 @@ The driver returns:
 | `DeviceNotFoundError` | No valid startup report within two seconds |
 | `OSError` | UART initialization or read failure |
 
-The driver reads the factory 256000-baud, 8-N-1 stream and never changes radar
-settings. Only one coroutine may wait on it at a time. On ESP32-S3,
-MicroPython implements `UART.IRQ_RXIDLE` with `Timer(0)`, which this project
-reserves for the driver.
+Both use their factory 8-N-1 serial settings. The LD2450 driver never changes
+radar settings; the LD2420 driver writes only the system mode, so its report
+format does not depend on the mode the module was last left in. Only one
+coroutine may wait on a driver at a time. On ESP32-S3, MicroPython implements
+`UART.IRQ_RXIDLE` with `Timer(0)`, which this project reserves for the driver.
 
 ### Occupancy decision and failure handling
 
@@ -258,6 +296,14 @@ line containing targets outside the dead zone. Raw sensor fields are preserved:
 
 ```json
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
+```
+
+The schema does not change with the radar, so an LD2420 detection at 1.45 m
+reads `{"slot":1,"x_mm":0,"y_mm":1450,"speed_cm_s":0,"resolution_mm":0}`. Which
+radar produced it is reported once per detection:
+
+```json
+{"diag":"radar_ok","model":"ld2420"}
 ```
 
 One `emit()` sink writes each line to both destinations: USB serial and the

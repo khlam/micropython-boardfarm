@@ -13,11 +13,12 @@ _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 class FakeRadar:
     """Script readiness, reports, closure, and close errors."""
 
-    def __init__(self, *, ready=None, reports=(), close_error=None) -> None:
+    def __init__(self, *, ready=None, reports=(), close_error=None, model="ld2450") -> None:
         """Store the scripted outcomes."""
         self.ready = ready
         self.reports = list(reports)
         self.close_error = close_error
+        self.model = model
         self.wait_calls = 0
         self.close_calls = 0
 
@@ -90,7 +91,7 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     radar = FakeRadar(reports=[(near, far), (), (far,), StopLoopError()])
     factory = RadarFactory([radar])
     boot.time.script = [0, 499, 500]
-    monkeypatch.setattr(module, "LD2450", factory)
+    monkeypatch.setattr(module, "Radar", factory)
     capsys.readouterr()
 
     with pytest.raises(StopLoopError):
@@ -122,13 +123,13 @@ def test_repeated_readiness_failures_report_once_until_recovery(
     module = boot.module
     not_ready = FakeRadar(ready=OSError("uart init"))
     recovered = FakeRadar(reports=[StopLoopError()])
-    factory = RadarFactory([module.DeviceNotFoundError("absent"), not_ready, recovered])
+    factory = RadarFactory([module.NoRadarError("absent"), not_ready, recovered])
     sleeps = []
 
     async def sleep_ms(delay_ms):
         sleeps.append(delay_ms)
 
-    monkeypatch.setattr(module, "LD2450", factory)
+    monkeypatch.setattr(module, "Radar", factory)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 
@@ -160,7 +161,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
         sleeps.append(delay_ms)
 
     boot.time.script = [321]
-    monkeypatch.setattr(module, "LD2450", factory)
+    monkeypatch.setattr(module, "Radar", factory)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 

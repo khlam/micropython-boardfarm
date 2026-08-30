@@ -19,7 +19,22 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+# Peak-current mitigations. This board's supply has almost no margin: the
+# brownout detector is already at its least sensitive threshold (2.51 V) and
+# still fires, so the rail collapses below that when the radios draw hard.
+#
+# Dynamic frequency scaling drops the CPU toward the 40 MHz crystal whenever no
+# peripheral holds a power-management lock. Removing it costs a commissioning
+# attempt outright: the board logged 72 "Brownout detector was triggered" resets
+# in five minutes, the first one arriving seven seconds after PASE completed,
+# exactly as Wi-Fi came up. It is paid for in WS2812 and UART timing accuracy,
+# because MicroPython bit-bangs the pixel from a CPU-cycle counter read at write
+# time. Do not remove it without watching a whole pairing attempt on the serial
+# monitor.
 CONFIG_PM_DFS_INIT_AUTO=y
+# Wi-Fi association is the current peak that trips the detector, and the power
+# amplifier is most of it. 13 dBm trades range for a supply this board can hold.
+CONFIG_ESP_PHY_MAX_WIFI_TX_POWER=13
 
 CONFIG_ENABLE_CHIP_SHELL=n
 CONFIG_ENABLE_OTA_REQUESTOR=n
@@ -40,8 +55,11 @@ CONFIG_DEVICE_VENDOR_ID=0xFFF1
 CONFIG_DEVICE_PRODUCT_ID=0x8002
 
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
-CONFIG_LOG_DEFAULT_LEVEL_NONE=y
-CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT=y
-CONFIG_LOG_MAXIMUM_LEVEL=0
+# CHIP_LOG_DEFAULT_LEVEL follows LOG_DEFAULT_LEVEL, and CHIP decides at compile
+# time what it can say at all: at NONE the stack cannot report why a
+# commissioning attempt failed, which is the one thing worth knowing when Apple
+# Home refuses to pair. Log lines are not JSON, and both the viz reader and the
+# dashboard drop every line that is not, so neither is affected.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.16.0"
+version = "0.17.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,6 +11,7 @@ dependencies = [
     "atgm336h>=0.1.0",
     "httpd>=0.1.0",
     "i2c_bus>=0.2.0",
+    "ld2420>=0.1.0",
     "ld2450>=0.1.1",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
@@ -18,7 +19,7 @@ dependencies = [
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
-    "micropython_stubs>=0.7.0",
+    "micropython_stubs>=0.8.0",
     "matter>=0.2.0",
 ]
 
@@ -28,6 +29,9 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = [
     "/tools/matter-build",
+    # main.py imports its sibling radar.py, which is frozen as a top-level
+    # module on the device rather than installed as a package here.
+    "/projects/matter-radar-sensor/firmware",
     "/firmware-packages/atgm336h/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/qmc5883p/tests",
@@ -59,6 +63,7 @@ boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
 httpd = { index = "internal" }
 i2c_bus = { index = "internal" }
+ld2420 = { index = "internal" }
 ld2450 = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
@@ -90,6 +95,7 @@ test = [
     "atgm336h",
     "httpd",
     "i2c_bus",
+    "ld2420",
     "ld2450",
     "mpu6050",
     "qmc5883p",
@@ -126,6 +132,7 @@ source_pkgs = [
   "atgm336h",
   "httpd",
   "i2c_bus",
+  "ld2420",
   "ld2450",
   "mpu6050",
   "qmc5883p",
@@ -312,6 +319,7 @@ known-first-party = [
   "atgm336h",
   "httpd",
   "i2c_bus",
+  "ld2420",
   "ld2450",
   "mpu6050",
   "qmc5883p",

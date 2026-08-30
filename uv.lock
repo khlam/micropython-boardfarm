@@ -585,6 +585,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ld2420"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/ld2420-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/ld2420-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "ld2450"
 version = "0.1.1"
 source = { registry = "/wheels" }
@@ -653,7 +662,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "matter-radar-sensor"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -673,13 +682,14 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.16.0"
+version = "0.17.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "httpd" },
     { name = "i2c-bus" },
+    { name = "ld2420" },
     { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
@@ -708,6 +718,7 @@ test = [
     { name = "httpd" },
     { name = "httpx" },
     { name = "i2c-bus" },
+    { name = "ld2420" },
     { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
@@ -735,9 +746,10 @@ requires-dist = [
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "ld2420", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "ld2450", specifier = ">=0.1.1", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.7.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -763,6 +775,7 @@ test = [
     { name = "httpd", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
+    { name = "ld2420", index = "file:///wheels" },
     { name = "ld2450", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
@@ -782,11 +795,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.7.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.8.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.7.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.8.0-py3-none-any.whl" },
 ]
 
 [[package]]

@@ -1,9 +1,11 @@
-"""Publish HLK-LD2450 occupancy and its configurable hold through Matter.
+"""Publish radar occupancy and its configurable hold through Matter.
 
-Each valid radar report updates a read-only Occupancy Sensor endpoint. A virtual
-Dimmable Light controls how long occupancy stays on after the first empty
-report, from zero to ten minutes. A missing report or UART error forces
-occupancy on and restarts the radar connection.
+An HLK-LD2450 or HLK-LD2420 wired to the same UART is detected at startup, and
+the product behaves identically either way. Each valid radar report updates a
+read-only Occupancy Sensor endpoint. A virtual Dimmable Light controls how long
+occupancy stays on after the first empty report, from zero to ten minutes. A
+missing report or UART error forces occupancy on and restarts the radar
+connection.
 
 The board sends the same JSON reports over USB serial and its dashboard
 WebSocket.
@@ -19,14 +21,15 @@ import machine
 import neopixel
 import ujson
 from micropython import const
+from radar import NoRadarError, Radar
 
 import httpd
 import matter
-from ld2450 import LD2450, DeviceNotFoundError
 from matter.emit import add_sink, emit, error
 
-# Pin map for this board. ``tx`` connects to radar RX, ``rx`` to radar TX, and
-# ``led_pin`` drives the onboard WS2812. Only ESP32-S3 is supported.
+# Pin map for this board, shared by every supported radar. ``tx`` connects to
+# radar RX, ``rx`` to radar TX, and ``led_pin`` drives the onboard WS2812. Only
+# ESP32-S3 is supported.
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx", "led_pin"))
 _machine = os.uname().machine
 if "ESP32S3" not in _machine:
@@ -98,7 +101,9 @@ class _Application:
         )
         dashboard_reports = self._dashboard.stream(
             "/ws",
-            greeting=ujson.dumps({"event": "connected", "port": f"ld2450 uart{BOARD.uart_id}"}),
+            # The radar model is only known after detection, so it arrives later
+            # with the radar_ok diagnostic instead.
+            greeting=ujson.dumps({"event": "connected", "port": f"radar uart{BOARD.uart_id}"}),
         )
         add_sink(dashboard_reports.send)
 
@@ -156,21 +161,19 @@ class _Application:
             await asyncio.sleep_ms(delay_ms)
 
     async def _run_radar(self) -> None:
-        """Read radar reports and recreate the radar after a failure."""
+        """Read radar reports and re-detect the radar after a failure."""
         radar = None
         last_dashboard_report_ms = None
 
         while True:
             if radar is None:
                 try:
-                    # A failed constructor leaves radar None; a failed wait_ready
-                    # leaves the object that still has to be closed.
-                    radar = LD2450(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+                    # Constructing claims no hardware, so only detection fails
+                    # here, and it leaves an object that still has to be closed.
+                    radar = Radar(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
                     await radar.wait_ready()
-                except (DeviceNotFoundError, OSError) as exception:
-                    diagnostic = (
-                        "no_device" if isinstance(exception, DeviceNotFoundError) else "init_err"
-                    )
+                except (NoRadarError, OSError) as exception:
+                    diagnostic = "no_device" if isinstance(exception, NoRadarError) else "init_err"
                     self._handle_radar_failure(
                         radar,
                         {"diag": diagnostic, "err": str(exception)},
@@ -181,7 +184,7 @@ class _Application:
 
                 self._set_occupied()
                 self._set_radar_health(healthy=True)
-                emit({"diag": "radar_ok"})
+                emit({"diag": "radar_ok", "model": radar.model})
 
             try:
                 targets = await radar.read_latest()
@@ -368,7 +371,7 @@ class _Application:
 
         self._publish_occupancy()
 
-    def _handle_radar_failure(self, radar: LD2450 | None, report: dict) -> None:
+    def _handle_radar_failure(self, radar: Radar | None, report: dict) -> None:
         """Force occupied, report the failure once, and close the radar.
 
         Args:

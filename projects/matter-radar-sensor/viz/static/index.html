@@ -431,6 +431,9 @@
           report_timeout: "Radar report timeout",
         };
         $("diag").textContent = labels[obj.diag] || obj.diag;
+        // The greeting cannot name the radar, so swap its placeholder model
+        // word once detection reports which one answered.
+        if (obj.model) $("port").textContent = $("port").textContent.replace(/^\S+/, obj.model);
         if (obj.diag === "report_timeout" || obj.diag === "read_err") markGap($("diag").textContent);
         return;
       }
