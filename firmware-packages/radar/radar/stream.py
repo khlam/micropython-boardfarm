@@ -1,15 +1,13 @@
-"""Internal fixed-length UART report reader, consumed only by radar drivers.
+"""Fixed-length UART report reader shared by every radar driver in this package.
 
 A radar streams fixed-size reports framed by a constant header and footer, and
 every one of them is read the same way: an RX-idle interrupt wakes one asyncio
 reader, which drains the UART a byte at a time through a resynchronizing
 matcher and keeps only the newest complete report. That machinery lives here
 once. A driver subclasses :class:`ReportStream`, declares its framing as class
-attributes, and decodes the bytes; the project never sees this package.
+attributes, and decodes the bytes into :class:`Target` values.
 
-Example (inside a driver):
-    from uart_reports import DeviceNotFoundError, ReportStream
-
+Example (inside a driver submodule):
     class LD2450(ReportStream):
         NAME = "LD2450"
         BAUDRATE = 256_000
@@ -24,6 +22,7 @@ Example (inside a driver):
 """
 
 import asyncio
+from collections import namedtuple
 
 import utime
 from micropython import const
@@ -32,6 +31,14 @@ from micropython import const
 # drain buffer fits four whole reports and is reused for every UART read.
 _UART_RX_BUFFER_LEN = const(512)
 _DRAIN_BUFFER_REPORTS = const(4)
+
+# Every driver decodes into this one shape, so a caller reads any supported
+# radar the same way. A radar that does not measure a field reports it as zero;
+# that is "not measured", not a measurement.
+Target = namedtuple(
+    "Target",
+    ("slot", "x_mm", "y_mm", "speed_cm_s", "resolution_mm"),
+)
 
 
 class DeviceNotFoundError(Exception):

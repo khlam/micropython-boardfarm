@@ -3,7 +3,7 @@
 The radar is commanded into energy mode during startup so its report format does
 not depend on the mode the module was last left in, then it streams fixed 45-byte
 reports. Framing, wakeups, and report selection are
-`uart_reports.ReportStream`; this module declares the LD2420's framing and
+`radar.stream.ReportStream`; this module declares the LD2420's framing and
 supplies its startup command sequence and decoder.
 
 The radar measures range only: one presence flag and one distance, with no
@@ -11,14 +11,13 @@ bearing and no speed.
 """
 
 import asyncio
-from collections import namedtuple
 
 import utime
 from micropython import const
 
-from uart_reports import DeviceNotFoundError, ReportStream
+from radar.stream import DeviceNotFoundError, ReportStream, Target
 
-__all__ = ["LD2420", "DeviceNotFoundError", "Target"]
+__all__ = ["LD2420"]
 
 # Command and report framing from the HLK-LD2420 serial command protocol. A
 # command frame is header, two-byte length, two-byte command, payload, footer;
@@ -56,7 +55,8 @@ _MM_PER_CM = const(10)
 # Five expected reports is a generous budget for one command answer.
 _ACK_TIMEOUT_MS = const(500)
 
-Target = namedtuple("Target", ("distance_mm",))
+# The radar tracks one target at a time, so it always fills the first slot.
+_SLOT = const(1)
 
 
 class LD2420(ReportStream):
@@ -100,6 +100,9 @@ class LD2420(ReportStream):
     def _decode(self, report: bytes | bytearray) -> tuple:
         """Convert a valid report into the detected target, if the radar saw one.
 
+        The range lands in ``y_mm``, the forward axis. This radar measures no
+        bearing, speed, or distance step, so those fields report zero.
+
         Args:
             report: One complete 45-byte energy-mode report.
 
@@ -108,7 +111,7 @@ class LD2420(ReportStream):
         """
         if not report[_PRESENCE_AT]:
             return ()
-        return (Target(_u16(report, _DISTANCE_AT) * _MM_PER_CM),)
+        return (Target(_SLOT, 0, _u16(report, _DISTANCE_AT) * _MM_PER_CM, 0, 0),)
 
     def _send_command(self, command: int, payload: bytes) -> None:
         """Write one command frame and discard bytes received before its ACK."""

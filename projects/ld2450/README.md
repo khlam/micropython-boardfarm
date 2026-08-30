@@ -132,5 +132,6 @@ parity, and one stop bit. It never changes the radar configuration. See the
 On ESP32-S3, MicroPython implements the receive-idle UART interrupt with
 `Timer(0)`. This project leaves that timer reserved for the radar driver.
 
-The reusable radar driver is documented in
-[`../../firmware-packages/ld2450/`](../../firmware-packages/ld2450/).
+The reusable radar drivers are documented in
+[`../../firmware-packages/radar/`](../../firmware-packages/radar/). This project
+selects one by name with `driver(Model.LD2450, ...)`.

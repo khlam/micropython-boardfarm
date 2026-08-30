@@ -94,9 +94,7 @@ failures do not affect occupancy publication or commissioning.
 | Layer | Responsibility |
 | --- | --- |
 | Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
-| `firmware/radar.py` | Probe order across supported radars, UART handover between probes, and normalizing range-only reports into the published target shape |
-| `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
-| `firmware-packages/ld2420` | The same, plus the energy-mode command sequence and presence/range decoding |
+| `firmware-packages/radar` | Probe order across supported radars, UART handover between probes, UART ownership, IRQ wakeup, byte framing, resynchronization, and decoding every radar into one target shape |
 | Matter Python package | Endpoint validation, Python attribute mirror, returned events, and node administration |
 | Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
@@ -150,8 +148,8 @@ commissioning or fabric administration.
 
 ### Radar detection
 
-`firmware/radar.py` probes the supported radars in turn on the shared UART and
-presents whichever answered as one report stream. The LD2450 is probed first
+`radar.detect()` probes the supported radars in turn on the shared UART and
+returns whichever answered. The LD2450 is probed first
 because its driver only reads, so an attached LD2450 is never written to. Each
 driver that does not answer is closed before the next is constructed, since they
 all claim the same UART.
@@ -166,7 +164,7 @@ attached LD2420 costs about two extra seconds at boot. Occupancy is already
 fail-safe occupied during startup, so nothing observable changes. Only when
 every driver fails does `NoRadarError` reach the retry loop as `no_device`.
 
-Because the radar task recreates the whole `Radar` after any failure,
+Because the radar task calls `detect()` again after any failure,
 re-detection is automatic: swapping one radar for the other while the retry loop
 is running picks up the new model without a reflash. The detected model is
 reported with the `radar_ok` diagnostic and shown in the dashboard header.

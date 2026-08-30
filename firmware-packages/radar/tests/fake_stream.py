@@ -1,6 +1,6 @@
 """A minimal ReportStream driver standing in for a real radar."""
 
-from uart_reports import ReportStream
+from radar.stream import ReportStream
 
 MARKER_AT = 4
 

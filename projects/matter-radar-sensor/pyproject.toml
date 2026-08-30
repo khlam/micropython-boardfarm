@@ -1,6 +1,6 @@
 [project]
 name = "matter-radar-sensor"
-version = "0.2.0"
+version = "0.3.0"
 description = "MicroPython Matter occupancy-sensor firmware for an HLK-LD2450 or HLK-LD2420 radar."
 readme = "README.md"
 requires-python = ">=3.12"

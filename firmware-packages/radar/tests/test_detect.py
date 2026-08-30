@@ -1,15 +1,12 @@
-"""Radar detection over the shared UART, and normalization of what it reports."""
+"""Radar detection over a shared UART, and the one target shape every driver decodes into."""
 
 import asyncio
 
 import machine
 import pytest
-from radar import NoRadarError, Radar, Target
 
-from ld2420 import LD2420
-from ld2420 import ld2420 as ld2420_module
-from ld2450 import LD2450
-from ld2450 import ld2450 as ld2450_module
+from radar import LD2420, LD2450, NoRadarError, Target, detect
+from radar import ld2420 as ld2420_module
 
 _BUS = {"bus_id": 1, "tx": 5, "rx": 6}
 
@@ -28,94 +25,76 @@ def _fast_probes(monkeypatch):
     monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 5)
 
 
-def test_model_is_unknown_before_detection():
-    radar = Radar(**_BUS)
-    assert radar.model is None
-    assert machine.uart_constructions == []  # constructing claims no hardware
-
-
 def test_ld2450_answers_first_and_its_targets_pass_through_unchanged():
     async def _run():
-        radar = Radar(**_BUS)
         machine.feed_uart_bytes(_ld2450_report((100, 200, -5, 30)))
-        await radar.wait_ready()
-        return radar, await radar.read_latest()
+        model, device = await detect(**_BUS)
+        return model, await device.read_latest()
 
-    radar, targets = asyncio.run(_run())
-    assert radar.model == "ld2450"
-    assert targets == (ld2450_module.Target(1, 100, 200, -5, 30),)
+    model, targets = asyncio.run(_run())
+    assert model == "ld2450"
+    assert targets == (Target(1, 100, 200, -5, 30),)
     assert len(machine.uart_constructions) == 1  # the LD2420 was never probed
 
 
 def test_ld2420_is_probed_after_the_ld2450_stays_silent():
     async def _run():
-        radar = Radar(**_BUS)
         machine.queue_uart_replies(_ld2420_acks())
-        ready = asyncio.create_task(radar.wait_ready())
+        detecting = asyncio.create_task(detect(**_BUS))
         await _feed_once_ld2420_is_configured(_ld2420_report(distance_cm=145))
-        await ready
-        return radar, await radar.read_latest()
+        model, device = await detecting
+        return model, await device.read_latest()
 
-    radar, targets = asyncio.run(_run())
-    assert radar.model == "ld2420"
+    model, targets = asyncio.run(_run())
+    assert model == "ld2420"
     # Range only: x and speed are "not measured", not measurements.
     assert targets == (Target(slot=1, x_mm=0, y_mm=1450, speed_cm_s=0, resolution_mm=0),)
     assert machine.uart_constructions[0].deinitialized is True  # LD2450 released first
 
 
 def test_no_radar_answering_raises_and_releases_every_probe():
-    radar = Radar(**_BUS)
     with pytest.raises(NoRadarError):
-        asyncio.run(radar.wait_ready())
+        asyncio.run(detect(**_BUS))
 
     assert [uart.deinitialized for uart in machine.uart_constructions] == [True, True]
-    assert radar.model is None
 
 
 def test_detection_oserror_propagates_instead_of_reading_as_absence():
     """`_run_radar()` reports init_err, not no_device, only if this stays an OSError."""
-    radar = Radar(**_BUS)
     machine.fail_uart_reads(OSError("bus fault"))
 
     with pytest.raises(OSError, match="bus fault"):
-        asyncio.run(radar.wait_ready())
+        asyncio.run(detect(**_BUS))
     assert len(machine.uart_constructions) == 1  # gave up on the first probe
 
 
 def test_read_timeout_passes_through_as_none():
     async def _run():
-        radar = Radar(**_BUS)
         machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
-        await radar.wait_ready()
-        await radar.read_latest()  # consume the retained startup report
-        return await radar.read_latest()
+        _model, device = await detect(**_BUS)
+        await device.read_latest()  # consume the retained startup report
+        return await device.read_latest()
 
     assert asyncio.run(_run()) is None
 
 
 def test_read_oserror_propagates():
     async def _run():
-        radar = Radar(**_BUS)
         machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
-        await radar.wait_ready()
-        await radar.read_latest()  # consume the retained startup report
+        _model, device = await detect(**_BUS)
+        await device.read_latest()  # consume the retained startup report
         machine.fail_uart_reads(OSError("bus fault"))
-        await radar.read_latest()
+        await device.read_latest()
 
     with pytest.raises(OSError, match="bus fault"):
         asyncio.run(_run())
 
 
-def test_close_before_detection_is_a_noop():
-    Radar(**_BUS).close()  # no driver to release, no error
-
-
-def test_close_after_detection_releases_the_detected_driver():
+def test_close_releases_the_detected_driver():
     async def _run():
-        radar = Radar(**_BUS)
         machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
-        await radar.wait_ready()
-        radar.close()
+        _model, device = await detect(**_BUS)
+        device.close()
 
     asyncio.run(_run())
     assert machine.uart_constructions[0].deinitialized is True

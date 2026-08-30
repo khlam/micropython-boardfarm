@@ -1,13 +1,14 @@
-"""Shared fixtures for LD2420 driver host tests."""
+"""Shared fixtures for the report-stream and radar-driver host tests."""
 
 import asyncio
 
 import machine
 import pytest
+from fake_stream import Stream
 
-from ld2420 import LD2420
-from ld2420 import ld2420 as ld2420_module
 from micropython_stubs import asyncio_extras
+from radar import LD2420, LD2450
+from radar import ld2420 as ld2420_module
 
 _GATE_COUNT = 16
 
@@ -28,14 +29,31 @@ def _micropython_asyncio(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fast_timeouts(monkeypatch):
-    """Shrink the driver's timeout constants so timeout paths run in milliseconds."""
+    """Shrink every driver's timeout constants so timeout paths run in milliseconds."""
     monkeypatch.setattr(ld2420_module, "_ACK_TIMEOUT_MS", 10)
-    monkeypatch.setattr(LD2420, "STARTUP_TIMEOUT_MS", 10)
-    monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 10)
+    for driver_type in (LD2450, LD2420):
+        monkeypatch.setattr(driver_type, "STARTUP_TIMEOUT_MS", 10)
+        monkeypatch.setattr(driver_type, "REPORT_TIMEOUT_MS", 10)
 
 
 @pytest.fixture
-def radar():
+def stream():
+    """A constructed stream against the fake UART, closed after the test."""
+    device = Stream(bus_id=0, tx=0, rx=1)
+    yield device
+    device.close()
+
+
+@pytest.fixture
+def ld2450():
+    """A constructed LD2450 driver against the fake UART, closed after the test."""
+    device = LD2450(bus_id=0, tx=0, rx=1)
+    yield device
+    device.close()
+
+
+@pytest.fixture
+def ld2420():
     """A constructed LD2420 driver against the fake UART, closed after the test."""
     device = LD2420(bus_id=0, tx=0, rx=1)
     yield device
@@ -43,8 +61,35 @@ def radar():
 
 
 @pytest.fixture
+def build_ld2450_report():
+    """Return a builder assembling one 30-byte LD2450 report from up to three slots."""
+
+    def _build(*slots: tuple[int, int, int, int] | None) -> bytes:
+        """Assemble one 30-byte report from up to three slots.
+
+        Each slot is an (x_mm, y_mm, speed_cm_s, resolution_mm) tuple or None
+        for an empty (all-zero) slot. Fewer than three slots pads the
+        remainder with empty slots.
+        """
+        padded = ([*slots, None, None, None])[:3]
+        body = bytearray()
+        for slot in padded:
+            if slot is None:
+                body += bytes(8)
+                continue
+            x, y, speed, resolution = slot
+            body += _encode(x).to_bytes(2, "little")
+            body += _encode(y).to_bytes(2, "little")
+            body += _encode(speed).to_bytes(2, "little")
+            body += resolution.to_bytes(2, "little")
+        return LD2450.HEADER + bytes(body) + LD2450.FOOTER
+
+    return _build
+
+
+@pytest.fixture
 def build_ack():
-    """Return a builder assembling one command ACK frame."""
+    """Return a builder assembling one LD2420 command ACK frame."""
 
     def _build(command: int, *, status: int = 0, payload: bytes = b"") -> bytes:
         """Assemble the ACK the radar sends back for ``command``.
@@ -70,12 +115,12 @@ def build_ack():
 
 @pytest.fixture
 def configuration_acks(build_ack):
-    """The three success ACKs the startup sequence expects, in order."""
+    """The three success ACKs the LD2420 startup sequence expects, in order."""
     return [build_ack(command) for command, _payload in ld2420_module._CONFIGURATION]
 
 
 @pytest.fixture
-def build_report():
+def build_ld2420_report():
     """Return a builder assembling one 45-byte LD2420 energy-mode report."""
 
     def _build(*, distance_cm: int = 0, present: bool = True, gates: tuple = ()) -> bytes:
@@ -131,6 +176,11 @@ def start_ready(ready_radar):
         asyncio.run(ready_radar(device, report, acks))
 
     return _start
+
+
+def _encode(value: int) -> int:
+    """Encode a signed value into the LD2450's sign-magnitude raw u16 format."""
+    return -value if value < 0 else value | 0x8000
 
 
 def _u16le(value: int) -> bytes:

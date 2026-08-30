@@ -21,11 +21,11 @@ import machine
 import neopixel
 import ujson
 from micropython import const
-from radar import NoRadarError, Radar
 
 import httpd
 import matter
 from matter.emit import add_sink, emit, error
+from radar import NoRadarError, ReportStream, detect
 
 # Pin map for this board, shared by every supported radar. ``tx`` connects to
 # radar RX, ``rx`` to radar TX, and ``led_pin`` drives the onboard WS2812. Only
@@ -164,23 +164,21 @@ class _Application:
         while True:
             if radar is None:
                 try:
-                    # Constructing claims no hardware, so only detection fails
-                    # here, and it leaves an object that still has to be closed.
-                    radar = Radar(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-                    await radar.wait_ready()
+                    model, radar = await detect(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
                 except (NoRadarError, OSError) as exception:
                     diagnostic = "no_device" if isinstance(exception, NoRadarError) else "init_err"
+                    # detect() released every probe it opened, so there is
+                    # nothing left here to close.
                     self._handle_radar_failure(
-                        radar,
+                        None,
                         {"diag": diagnostic, "err": str(exception)},
                     )
-                    radar = None
                     await asyncio.sleep_ms(_RADAR_RETRY_MS)
                     continue
 
                 self._set_occupied()
                 self._set_radar_health(healthy=True)
-                emit({"diag": "radar_ok", "model": radar.model})
+                emit({"diag": "radar_ok", "model": model})
 
             try:
                 targets = await radar.read_latest()
@@ -367,7 +365,7 @@ class _Application:
 
         self._publish_occupancy()
 
-    def _handle_radar_failure(self, radar: Radar | None, report: dict) -> None:
+    def _handle_radar_failure(self, radar: ReportStream | None, report: dict) -> None:
         """Force occupied, report the failure once, and close the radar.
 
         Args:

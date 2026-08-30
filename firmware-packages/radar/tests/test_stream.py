@@ -6,7 +6,7 @@ import machine
 import pytest
 from fake_stream import Stream, build_report
 
-from uart_reports import DeviceNotFoundError
+from radar import DeviceNotFoundError
 
 
 def test_constructor_opens_uart_and_registers_irq():

@@ -1,28 +1,21 @@
 """Read current target reports from an HLK-LD2450 radar sensor.
 
 The radar sends ten 30-byte reports each second over a UART serial connection.
-Framing, wakeups, and report selection are `uart_reports.ReportStream`; this
+Framing, wakeups, and report selection are `radar.stream.ReportStream`; this
 module declares the LD2450's framing and decodes its three target slots. The
 driver reads data only and never changes the radar's settings.
 """
 
-from collections import namedtuple
-
 from micropython import const
 
-from uart_reports import DeviceNotFoundError, ReportStream
+from radar.stream import ReportStream, Target
 
-__all__ = ["LD2450", "DeviceNotFoundError", "Target"]
+__all__ = ["LD2450"]
 
 # The HLK-LD2450 serial protocol V1.03 calls each 30-byte report a data frame.
 # This driver calls it a report. Sections 1.1 and 2.3 define these values.
 _TARGET_LEN = const(8)  # x, y, speed, and resolution are each two bytes.
 _TARGET_COUNT = const(3)
-
-Target = namedtuple(
-    "Target",
-    ("slot", "x_mm", "y_mm", "speed_cm_s", "resolution_mm"),
-)
 
 
 class LD2450(ReportStream):
