@@ -67,7 +67,9 @@ one waiter.
 Each energy-mode report is 45 bytes: it starts with `F4 F3 F2 F1`, ends with
 `F8 F7 F6 F5`, and carries a presence byte, a two-byte distance in centimetres,
 and one two-byte energy value for each of the sixteen range gates. The gate
-energies are validated as part of the report but are not decoded.
+energies are validated as part of the report but are not decoded. Framing and
+report selection are the shared [uart_reports](../uart_reports/) reader; this
+package supplies the markers, the command sequence, and the decoder.
 
 Command frames start with `FD FC FB FA` and end with `04 03 02 01`. An
 acknowledgement echoes the command word with bit 8 set and follows it with a

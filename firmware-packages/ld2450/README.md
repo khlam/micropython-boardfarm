@@ -62,8 +62,9 @@ objects for reports that will be discarded. Only one coroutine may call
 `wait_ready()` or `read_latest()` at a time. A concurrent reader raises
 `RuntimeError` because the interrupt flag has one waiter.
 
-Each report starts with `AA FF 03 00` and ends with `55 CC`. The driver uses
-these markers to reject invalid data. A UART read failure raises `OSError`.
+Each report starts with `AA FF 03 00` and ends with `55 CC`. The shared
+[uart_reports](../uart_reports/) reader uses these markers to reject invalid
+data; this package supplies them and decodes the target slots. A UART read failure raises `OSError`.
 Call `close()` to disable the interrupt and deinitialize the UART; repeated
 calls are harmless. The driver never changes tracking mode, baud rate,
 Bluetooth, detection zones, or other saved radar settings. See the

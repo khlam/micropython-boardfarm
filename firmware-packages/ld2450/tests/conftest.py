@@ -4,7 +4,6 @@ import machine
 import pytest
 
 from ld2450 import LD2450
-from ld2450 import ld2450 as ld2450_module
 from micropython_stubs import asyncio_extras
 
 
@@ -25,8 +24,8 @@ def _micropython_asyncio(monkeypatch):
 @pytest.fixture(autouse=True)
 def _fast_timeouts(monkeypatch):
     """Shrink the driver's timeout constants so timeout paths run in milliseconds."""
-    monkeypatch.setattr(ld2450_module, "_STARTUP_TIMEOUT_MS", 10)
-    monkeypatch.setattr(ld2450_module, "_REPORT_TIMEOUT_MS", 10)
+    monkeypatch.setattr(LD2450, "STARTUP_TIMEOUT_MS", 10)
+    monkeypatch.setattr(LD2450, "REPORT_TIMEOUT_MS", 10)
 
 
 @pytest.fixture
@@ -64,6 +63,6 @@ def build_report():
             body += _encode(y).to_bytes(2, "little")
             body += _encode(speed).to_bytes(2, "little")
             body += resolution.to_bytes(2, "little")
-        return ld2450_module._HEADER + bytes(body) + ld2450_module._TRAILER
+        return LD2450.HEADER + bytes(body) + LD2450.FOOTER
 
     return _build

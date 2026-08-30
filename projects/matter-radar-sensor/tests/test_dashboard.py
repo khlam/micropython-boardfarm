@@ -12,28 +12,32 @@ _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 def test_no_network_address_polls_and_clears_failure_period(load_application):
     boot = load_application()
+    boot.application._dashboard_address = "old-address"
+    boot.application._dashboard_failed = True
 
-    result = asyncio.run(boot.application._update_dashboard("old-address", failure_reported=True))
+    delay = asyncio.run(boot.application._update_dashboard())
 
-    assert result == (None, False, boot.module._ADDRESS_POLL_MS)
+    assert delay == boot.module._ADDRESS_POLL_MS
+    assert boot.application._dashboard_address is None
+    assert boot.application._dashboard_failed is False
     assert boot.server.start_calls == 0
 
 
 def test_address_lookup_error_is_reported_once_per_failure_period(load_application, capsys):
     boot = load_application()
     capsys.readouterr()
-    _matter.fail_next("network_address")
 
-    first = asyncio.run(boot.application._update_dashboard(None, failure_reported=False))
-    _matter.fail_next("network_address")
-    second = asyncio.run(boot.application._update_dashboard(first[0], failure_reported=first[1]))
+    delays = []
+    for _ in range(2):
+        _matter.fail_next("network_address")
+        delays.append(asyncio.run(boot.application._update_dashboard()))
 
-    lines = json_lines(capsys.readouterr().out)
-    errors = [line for line in lines if line.get("component") == "dashboard"]
+    errors = [
+        line for line in json_lines(capsys.readouterr().out) if line.get("component") == "dashboard"
+    ]
+    assert delays == [boot.module._ADDRESS_POLL_MS] * 2
     assert len(errors) == 1
     assert "injected network_address failure" in errors[0]["message"]
-    assert first == (None, True, boot.module._ADDRESS_POLL_MS)
-    assert second == (None, True, boot.module._ADDRESS_POLL_MS)
 
 
 def test_bind_failure_retries_once_per_period_without_changing_product_state(
@@ -51,11 +55,10 @@ def test_bind_failure_retries_once_per_period_without_changing_product_state(
     )
     capsys.readouterr()
 
-    first = asyncio.run(application._update_dashboard(None, failure_reported=False))
-    second = asyncio.run(application._update_dashboard(first[0], failure_reported=first[1]))
+    delays = [asyncio.run(application._update_dashboard()) for _ in range(2)]
 
-    assert first == (None, True, boot.module._DASHBOARD_RETRY_MS)
-    assert second == (None, True, boot.module._DASHBOARD_RETRY_MS)
+    assert delays == [boot.module._DASHBOARD_RETRY_MS] * 2
+    assert application._dashboard_address is None
     assert boot.server.running is False
     assert (
         application._occupancy_state,
@@ -68,12 +71,15 @@ def test_bind_failure_retries_once_per_period_without_changing_product_state(
 
 def test_successful_start_reports_url_and_returns_to_polling(load_application, capsys):
     boot = load_application()
+    boot.application._dashboard_failed = True
     _matter.set_network_address("192.0.2.20")
     capsys.readouterr()
 
-    result = asyncio.run(boot.application._update_dashboard(None, failure_reported=True))
+    delay = asyncio.run(boot.application._update_dashboard())
 
-    assert result == ("192.0.2.20", False, boot.module._ADDRESS_POLL_MS)
+    assert delay == boot.module._ADDRESS_POLL_MS
+    assert boot.application._dashboard_address == "192.0.2.20"
+    assert boot.application._dashboard_failed is False
     assert boot.server.running is True
     assert boot.server.start_calls == 1
     assert json_lines(capsys.readouterr().out) == [
@@ -88,17 +94,15 @@ def test_successful_start_reports_url_and_returns_to_polling(load_application, c
 def test_running_server_reports_only_address_changes(load_application, capsys):
     boot = load_application()
     boot.server.running = True
+    boot.application._dashboard_address = "192.0.2.30"
     _matter.set_network_address("192.0.2.30")
     capsys.readouterr()
 
-    unchanged = asyncio.run(
-        boot.application._update_dashboard("192.0.2.30", failure_reported=False)
-    )
+    asyncio.run(boot.application._update_dashboard())
     _matter.set_network_address("192.0.2.31")
-    changed = asyncio.run(boot.application._update_dashboard(unchanged[0], failure_reported=False))
+    asyncio.run(boot.application._update_dashboard())
 
-    assert unchanged == ("192.0.2.30", False, boot.module._ADDRESS_POLL_MS)
-    assert changed == ("192.0.2.31", False, boot.module._ADDRESS_POLL_MS)
+    assert boot.application._dashboard_address == "192.0.2.31"
     assert json_lines(capsys.readouterr().out) == [
         {
             "event": "dashboard",
@@ -113,9 +117,9 @@ def test_dashboard_supervisor_observes_boot_and_poll_delays(load_application, mo
     sleeps = []
     updates = []
 
-    async def update(address, *, failure_reported):
-        updates.append((address, failure_reported))
-        return "192.0.2.40", False, 1234
+    async def update():
+        updates.append(len(sleeps))
+        return 1234
 
     async def sleep_ms(delay_ms):
         sleeps.append(delay_ms)
@@ -129,4 +133,4 @@ def test_dashboard_supervisor_observes_boot_and_poll_delays(load_application, mo
         asyncio.run(boot.application._run_dashboard())
 
     assert sleeps == [boot.module._DASHBOARD_BOOT_DELAY_MS, 1234]
-    assert updates == [(None, False)]
+    assert updates == [1]

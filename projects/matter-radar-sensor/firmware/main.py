@@ -88,6 +88,8 @@ class _Application:
         self._occupancy_state = _OCCUPIED
         self._published_occupancy = None
         self._hold_started_ms = None
+        self._dashboard_address = None
+        self._dashboard_failed = False
 
         self._pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
         self._set_pixel_color(_BOOT_COLOR)
@@ -150,15 +152,9 @@ class _Application:
         Report each dashboard failure period once and keep retrying. Dashboard
         failures do not change occupancy.
         """
-        address = None
-        failure_reported = False
         await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
-
         while True:
-            address, failure_reported, delay_ms = await self._update_dashboard(
-                address, failure_reported=failure_reported
-            )
-            await asyncio.sleep_ms(delay_ms)
+            await asyncio.sleep_ms(await self._update_dashboard())
 
     async def _run_radar(self) -> None:
         """Read radar reports and re-detect the radar after a failure."""
@@ -395,44 +391,41 @@ class _Application:
         distance_squared = target.x_mm * target.x_mm + target.y_mm * target.y_mm
         return distance_squared >= _DEAD_ZONE_RADIUS_MM * _DEAD_ZONE_RADIUS_MM
 
-    async def _update_dashboard(
-        self, address: str | None, *, failure_reported: bool
-    ) -> tuple[str | None, bool, int]:
-        """Check the dashboard and return the state for the next check.
+    async def _update_dashboard(self) -> int:
+        """Check the dashboard once and return the delay before the next check.
 
-        A failure keeps the last reported address so the next success reports
+        A failure keeps the last reported address, so the next success reports
         the address again, and is written out only once per failure period.
 
-        Args:
-            address: Last reported address for the dashboard server.
-            failure_reported: Whether this failure period has been reported.
-
         Returns:
-            Address, error-report flag, and delay before the next check.
+            Milliseconds to wait before checking again.
         """
         try:
-            current_address = self._node.network_address()
+            address = self._node.network_address()
         except OSError as exception:
-            if not failure_reported:
-                error("dashboard", str(exception))
-            return address, True, _ADDRESS_POLL_MS
-        if current_address is None:
-            return None, False, _ADDRESS_POLL_MS
-        try:
-            await self._dashboard.start()
-        except OSError as exception:
-            if not failure_reported:
-                error("dashboard", str(exception))
-            return address, True, _DASHBOARD_RETRY_MS
-        if current_address != address:
-            emit(
-                {
-                    "event": "dashboard",
-                    "state": "ready",
-                    "url": "http://" + current_address + "/",
-                }
-            )
-        return current_address, False, _ADDRESS_POLL_MS
+            self._report_dashboard_failure(exception)
+            return _ADDRESS_POLL_MS
+        if address is not None:
+            try:
+                await self._dashboard.start()
+            except OSError as exception:
+                self._report_dashboard_failure(exception)
+                return _DASHBOARD_RETRY_MS
+            if address != self._dashboard_address:
+                emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
+        self._dashboard_address = address
+        self._dashboard_failed = False
+        return _ADDRESS_POLL_MS
+
+    def _report_dashboard_failure(self, exception: OSError) -> None:
+        """Write out one dashboard failure per failure period.
+
+        Args:
+            exception: Failure from the address lookup or the server bind.
+        """
+        if not self._dashboard_failed:
+            error("dashboard", str(exception))
+        self._dashboard_failed = True
 
 
 main()

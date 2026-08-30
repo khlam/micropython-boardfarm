@@ -6,7 +6,9 @@ import machine
 import pytest
 from radar import NoRadarError, Radar, Target
 
+from ld2420 import LD2420
 from ld2420 import ld2420 as ld2420_module
+from ld2450 import LD2450
 from ld2450 import ld2450 as ld2450_module
 
 _BUS = {"bus_id": 1, "tx": 5, "rx": 6}
@@ -19,11 +21,11 @@ def _fast_probes(monkeypatch):
     The LD2420 keeps a generous startup budget: its probe only begins once the
     LD2450 has been ruled out, and the test feeds its first report after that.
     """
-    monkeypatch.setattr(ld2450_module, "_STARTUP_TIMEOUT_MS", 5)
-    monkeypatch.setattr(ld2450_module, "_REPORT_TIMEOUT_MS", 5)
+    monkeypatch.setattr(LD2450, "STARTUP_TIMEOUT_MS", 5)
+    monkeypatch.setattr(LD2450, "REPORT_TIMEOUT_MS", 5)
     monkeypatch.setattr(ld2420_module, "_ACK_TIMEOUT_MS", 5)
-    monkeypatch.setattr(ld2420_module, "_STARTUP_TIMEOUT_MS", 500)
-    monkeypatch.setattr(ld2420_module, "_REPORT_TIMEOUT_MS", 5)
+    monkeypatch.setattr(LD2420, "STARTUP_TIMEOUT_MS", 500)
+    monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 5)
 
 
 def test_model_is_unknown_before_detection():
@@ -154,7 +156,7 @@ def _ld2450_report(*slots) -> bytes:
         for value in signed:
             body += (-value if value < 0 else value | 0x8000).to_bytes(2, "little")
         body += resolution.to_bytes(2, "little")
-    return ld2450_module._HEADER + bytes(body) + ld2450_module._TRAILER
+    return LD2450.HEADER + bytes(body) + LD2450.FOOTER
 
 
 def _ld2420_acks() -> list:
@@ -171,7 +173,7 @@ def _ld2420_acks() -> list:
 def _ld2420_report(*, distance_cm: int) -> bytes:
     """Assemble one 45-byte LD2420 energy-mode report showing somebody present."""
     body = b"\x01" + _u16le(distance_cm) + bytes(32)
-    return ld2420_module._REPORT_HEADER + _u16le(len(body)) + body + ld2420_module._REPORT_FOOTER
+    return LD2420.HEADER + _u16le(len(body)) + body + LD2420.FOOTER
 
 
 def _u16le(value: int) -> bytes:

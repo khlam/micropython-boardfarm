@@ -30,8 +30,8 @@ def _micropython_asyncio(monkeypatch):
 def _fast_timeouts(monkeypatch):
     """Shrink the driver's timeout constants so timeout paths run in milliseconds."""
     monkeypatch.setattr(ld2420_module, "_ACK_TIMEOUT_MS", 10)
-    monkeypatch.setattr(ld2420_module, "_STARTUP_TIMEOUT_MS", 10)
-    monkeypatch.setattr(ld2420_module, "_REPORT_TIMEOUT_MS", 10)
+    monkeypatch.setattr(LD2420, "STARTUP_TIMEOUT_MS", 10)
+    monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 10)
 
 
 @pytest.fixture
@@ -93,9 +93,7 @@ def build_report():
         body = bytes((1 if present else 0,)) + _u16le(distance_cm)
         for energy in padded:
             body += _u16le(energy)
-        return (
-            ld2420_module._REPORT_HEADER + _u16le(len(body)) + body + ld2420_module._REPORT_FOOTER
-        )
+        return LD2420.HEADER + _u16le(len(body)) + body + LD2420.FOOTER
 
     return _build
 
