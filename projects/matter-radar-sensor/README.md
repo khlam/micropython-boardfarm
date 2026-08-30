@@ -60,8 +60,8 @@ The policy has three explicit states:
 
 ```mermaid
 flowchart LR
-    radar["HLK-LD2450<br/>3 target slots · 10 Hz"]
-    driver["LD2450 driver<br/>UART framing + decode"]
+    radar["HLK-LD2450 or HLK-LD2420<br/>up to 3 target slots · 10 Hz"]
+    driver["Detected radar driver<br/>UART framing + decode"]
     policy["MicroPython main.py<br/>dead zone + occupancy policy"]
     matter["Matter Python API<br/>Occupancy + hold endpoints"]
     native["Native bridge<br/>C + C++"]

@@ -86,7 +86,8 @@ remove-ci:
 	rm -rf .github; \
 	rm -f .githooks/pre-commit .githooks/.initialized \
 	      .githooks/run-linters.sh .githooks/check_version_bumps.sh; \
-	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
+	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml \
+	      .vulture_allowlist.py .vulture_source_only_allowlist.py; \
 	git config --local --unset core.hooksPath 2>/dev/null || true; \
 	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
 	echo "Done. Removed CI / pre-commit / linting scaffolding."; \
