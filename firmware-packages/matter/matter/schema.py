@@ -131,8 +131,10 @@ _EXTENDED_COLOR_SCHEMA.update(
 )
 
 # Occupancy is a Matter map8, so accept its defined 0/1 values but not bool.
-_OCCUPANCY_SCHEMA = {Paths.IDENTIFY: _BASE_SCHEMA[Paths.IDENTIFY]}
-_OCCUPANCY_SCHEMA[Paths.OCCUPANCY] = (_TYPE_UINT8, 0, 1, 0)
+_OCCUPANCY_SCHEMA = {
+    Paths.IDENTIFY: _BASE_SCHEMA[Paths.IDENTIFY],
+    Paths.OCCUPANCY: (_TYPE_UINT8, 0, 1, 0),
+}
 
 SCHEMAS = {
     EndpointType.ON_OFF_LIGHT: _BASE_SCHEMA,

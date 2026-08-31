@@ -11,22 +11,14 @@ _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 
 class FakeRadar:
-    """Script readiness, reports, closure, and close errors."""
+    """Script reports, closure, and close errors for an already-detected radar."""
 
-    def __init__(self, *, ready=None, reports=(), close_error=None, model="ld2450") -> None:
+    def __init__(self, *, reports=(), close_error=None, model="ld2450") -> None:
         """Store the scripted outcomes."""
-        self.ready = ready
         self.reports = list(reports)
         self.close_error = close_error
         self.model = model
-        self.wait_calls = 0
         self.close_calls = 0
-
-    async def wait_ready(self) -> None:
-        """Raise the scripted readiness failure, if any."""
-        self.wait_calls += 1
-        if isinstance(self.ready, Exception):
-            raise self.ready
 
     async def read_latest(self):
         """Return or raise the next scripted report outcome."""
@@ -42,21 +34,21 @@ class FakeRadar:
             raise self.close_error
 
 
-class RadarFactory:
-    """Return or raise one construction outcome at a time."""
+class FakeDetect:
+    """Stand in for radar.detect(), returning or raising one outcome at a time."""
 
     def __init__(self, outcomes) -> None:
-        """Store construction outcomes and arguments."""
+        """Store detection outcomes and arguments."""
         self.outcomes = list(outcomes)
         self.calls = []
 
-    def __call__(self, **kwargs) -> object:
-        """Return or raise the next outcome."""
+    async def __call__(self, **kwargs) -> tuple:
+        """Return the next detected (model, driver) pair, or raise its failure."""
         self.calls.append(kwargs)
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        return outcome
+        return outcome.model, outcome
 
 
 def test_run_starts_matter_dashboard_and_radar_tasks(load_application, monkeypatch):
@@ -89,9 +81,9 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     near = SimpleNamespace(slot=0, x_mm=3, y_mm=4, speed_cm_s=1, resolution_mm=10)
     far = SimpleNamespace(slot=1, x_mm=60, y_mm=80, speed_cm_s=2, resolution_mm=20)
     radar = FakeRadar(reports=[(near, far), (), (far,), StopLoopError()])
-    factory = RadarFactory([radar])
+    factory = FakeDetect([radar])
     boot.time.script = [0, 499, 500]
-    monkeypatch.setattr(module, "Radar", factory)
+    monkeypatch.setattr(module, "detect", factory)
     capsys.readouterr()
 
     with pytest.raises(StopLoopError):
@@ -121,15 +113,16 @@ def test_repeated_readiness_failures_report_once_until_recovery(
 ):
     boot = load_application()
     module = boot.module
-    not_ready = FakeRadar(ready=OSError("uart init"))
     recovered = FakeRadar(reports=[StopLoopError()])
-    factory = RadarFactory([module.NoRadarError("absent"), not_ready, recovered])
+    # detect() owns probing, so both failures surface from it: an absent radar
+    # and then a UART that failed while probing one.
+    factory = FakeDetect([module.NoRadarError("absent"), OSError("uart init"), recovered])
     sleeps = []
 
     async def sleep_ms(delay_ms):
         sleeps.append(delay_ms)
 
-    monkeypatch.setattr(module, "Radar", factory)
+    monkeypatch.setattr(module, "detect", factory)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 
@@ -140,8 +133,7 @@ def test_repeated_readiness_failures_report_once_until_recovery(
     assert [line.get("diag") for line in lines if "diag" in line] == ["no_device", "radar_ok"]
     assert lines[0]["err"] == "absent"
     assert sleeps == [module._RADAR_RETRY_MS, module._RADAR_RETRY_MS]
-    assert not_ready.close_calls == 1
-    assert recovered.wait_calls == 1
+    assert factory.outcomes == []  # every failure re-detected from scratch
     assert boot.application._radar_healthy is True
     assert boot.application._occupancy_state == module._OCCUPIED
 
@@ -154,14 +146,14 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
     read_error = FakeRadar(reports=[OSError("read failed")])
     timeout = FakeRadar(reports=[None])
     recovered = FakeRadar(reports=[StopLoopError()])
-    factory = RadarFactory([read_error, timeout, recovered])
+    factory = FakeDetect([read_error, timeout, recovered])
     sleeps = []
 
     async def sleep_ms(delay_ms):
         sleeps.append(delay_ms)
 
     boot.time.script = [321]
-    monkeypatch.setattr(module, "Radar", factory)
+    monkeypatch.setattr(module, "detect", factory)
     monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
     capsys.readouterr()
 

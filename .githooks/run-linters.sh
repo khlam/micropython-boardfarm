@@ -15,6 +15,7 @@ cd "$repo_root"
 
 IMAGE_TAG_RUFF="local/ruff:latest"
 IMAGE_TAG_VULTURE="local/vulture:latest"
+IMAGE_TAG_VULTURE_SOURCE="local/vulture-source:latest"
 IMAGE_TAG_PYDOCLINT="local/pydoclint:latest"
 IMAGE_TAG_HADOLINT="local/hadolint:latest"
 IMAGE_TAG_YAMLLINT="local/yamllint:latest"
@@ -41,7 +42,7 @@ done
 fail=0
 
 if (( ${#py_files[@]} > 0 )); then
-  "${bake[@]}" ruff pydoclint vulture typecheck || fail=1
+  "${bake[@]}" ruff pydoclint vulture vulture-source typecheck || fail=1
 
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -55,20 +56,11 @@ if (( ${#py_files[@]} > 0 )); then
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
     -- "${py_files[@]}" .vulture_allowlist.py || fail=1
 
-  # Second vulture pass over source with the tests held out, so a definition
-  # kept alive only by its own test is reported instead of looking used.
+  # Same files again with the tests held out; the image owns the exclusions and
+  # the pass/fail decision. No `--` here: the stage's own ENTRYPOINT supplies it.
   echo "[lint] vulture (source only, tests held out)"
-  mapfile -t src_files < <(git ls-files '*.py' \
-    | grep -v -e '/tests/' -e '/test_' -e 'conftest\.py' -e 'micropython_stubs/')
-  uncalled=$(docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
-    --min-confidence 60 -- "${src_files[@]}" \
-    | grep -E "unused (method|function|class)" || true)
-  if [[ -n "$uncalled" ]]; then
-    echo "$uncalled"
-    echo "[lint] the above are defined and tested but never called by source."
-    echo "[lint] Delete them, or justify them in .vulture_source_only_allowlist.py."
-    fail=1
-  fi
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE_SOURCE" \
+    "${py_files[@]}" || fail=1
 
   echo "[lint] pydoclint (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \

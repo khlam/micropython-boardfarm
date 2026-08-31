@@ -14,7 +14,7 @@ from math import atan2, degrees, sqrt
 import ujson
 
 from boot_status_led import status
-from ld2450 import LD2450, DeviceNotFoundError
+from radar import DeviceNotFoundError, Model, ReportStream, driver
 
 # This table is the wiring used by each supported board. ``uart_id`` selects a
 # UART, ``tx`` connects to radar RX, and ``rx`` connects to radar TX.
@@ -37,7 +37,7 @@ def emit(obj: dict) -> None:
     print(ujson.dumps(obj))
 
 
-async def init_sensor() -> LD2450:
+async def init_sensor() -> ReportStream:
     """Connect to the radar, retrying until it sends a valid report.
 
     Returns:
@@ -46,7 +46,8 @@ async def init_sensor() -> LD2450:
     status.uart_init()
     while True:
         try:
-            radar = LD2450(
+            radar = driver(
+                Model.LD2450,
                 bus_id=BOARD.uart_id,
                 tx=BOARD.tx,
                 rx=BOARD.rx,
@@ -65,7 +66,7 @@ async def init_sensor() -> LD2450:
             return radar
 
 
-async def stream(radar: LD2450) -> None:
+async def stream(radar: ReportStream) -> None:
     """Send the newest targets and recover from missing reports or UART errors."""
     timed_out = False
     status.streaming()

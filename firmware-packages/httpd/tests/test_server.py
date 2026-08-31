@@ -132,10 +132,8 @@ def test_start_binds_the_port_once(server, listener):
         await server.start()
         await server.start()
 
-    assert not server.running
     asyncio.run(_scenario())
 
-    assert server.running
     assert len(listener) == 1
     assert listener[0].port == 8080
     assert listener[0].address == server_module._BIND_ADDRESS

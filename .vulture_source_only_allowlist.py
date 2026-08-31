@@ -9,8 +9,7 @@ websocket_endpoint  # noqa: F821
 # by code.
 set_color  # noqa: F821
 
-# Driver presence checks, part of each sensor's public contract: a project that
-# hot-plugs or re-probes hardware calls these. Kept deliberately even though the
+# A driver presence check, part of the sensor's public contract: a project that
+# hot-plugs or re-probes hardware calls it. Kept deliberately even though the
 # in-tree projects all construct their sensor once at boot.
 is_alive  # noqa: F821
-ping  # noqa: F821

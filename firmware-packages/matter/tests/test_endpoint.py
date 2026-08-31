@@ -158,7 +158,7 @@ def test_remote_write_outside_schema_is_reported_and_omitted(capsys):
 
     assert node.poll() == ()
     assert endpoint.level == 254
-    assert _output(capsys) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "error",
             "component": "python_validation",
@@ -184,7 +184,7 @@ def test_restore_hydrates_state_without_an_event(capsys):
 
     assert endpoint.on is True
     assert node.poll() == ()
-    assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+    assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
 def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
@@ -194,7 +194,7 @@ def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
     node.start()
 
     assert endpoint.level == 254
-    assert _output(capsys) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "error",
             "component": "python_validation",
@@ -222,8 +222,3 @@ def _endpoint(endpoint_type):
     """Create one endpoint on a fresh, unstarted node."""
     node = Node()
     return node, node.create_endpoint(endpoint_type)
-
-
-def _output(capsys):
-    """Parse every non-empty stdout line as JSON."""
-    return json_lines(capsys.readouterr().out)

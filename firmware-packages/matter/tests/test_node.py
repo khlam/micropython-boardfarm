@@ -93,7 +93,7 @@ def test_requested_initial_value_overrides_seeded_persistence(capsys):
 
     assert endpoint.on is True
     assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is True
-    assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+    assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
 def test_identify_initial_value_is_left_to_native_constructor(capsys):
@@ -108,7 +108,7 @@ def test_identify_initial_value_is_left_to_native_constructor(capsys):
 
     assert endpoint.identify_time == 0
     assert _matter.attribute_get(endpoint.id, *Paths.IDENTIFY) == 0
-    assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+    assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
 def test_start_retries_transient_restore_failure(monkeypatch, capsys):
@@ -122,7 +122,7 @@ def test_start_retries_transient_restore_failure(monkeypatch, capsys):
 
     assert node.started is True
     assert sleeps == [0.25]
-    assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+    assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
 def test_start_raises_after_restore_retry_budget(monkeypatch):
@@ -241,7 +241,9 @@ def test_commissioning_event_is_reported_and_delivered(state_code, expected, cap
     events = node.poll()
 
     assert events == (expected,)
-    assert _output(capsys) == [{"event": expected.name, "state": expected.state}]
+    assert json_lines(capsys.readouterr().out) == [
+        {"event": expected.name, "state": expected.state}
+    ]
 
 
 def test_unchanged_generation_skips_snapshot(monkeypatch):
@@ -368,8 +370,3 @@ def test_wrapping_revisions_are_ordered_from_committed_generation():
 def _always_fail_read(*_args):
     """Raise a persistent fake CHIP read failure."""
     raise OSError("persistent read failure")
-
-
-def _output(capsys):
-    """Parse every non-empty stdout line as JSON."""
-    return json_lines(capsys.readouterr().out)

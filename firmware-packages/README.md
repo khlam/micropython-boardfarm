@@ -18,11 +18,10 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [boot_status_led](boot_status_led/) | Boot/runtime indicator LED state machine. |
 | [httpd](httpd/) | On-device HTTP page server and WebSocket broadcast for board-hosted dashboards. |
 | [i2c_bus](i2c_bus/) | Import-time–selected `SoftI2C` / `I2C` instance per chip |
-| [ld2420](ld2420/) | UART driver for HLK-LD2420 presence and range reports; commands energy mode at startup. |
-| [ld2450](ld2450/) | Read-only UART driver for HLK-LD2450 three-target reports. |
 | [matter](matter/) | Reusable MicroPython endpoint API over native ESP-Matter. |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
 | [qmc5883p](qmc5883p/) | Driver for the QST QMC5883P 3-axis magnetometer. |
+| [radar](radar/) | UART drivers for the HLK-LD2450 and HLK-LD2420 presence radars, selected by model or detected on the wire. |
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
 | [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
 

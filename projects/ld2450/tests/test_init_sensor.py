@@ -1,8 +1,8 @@
 """Host CPython pytest tests for init_sensor() in ld2450 firmware.
 
 The driver opens its own UART and waits for a valid report, so init_sensor()
-takes no arguments and constructs LD2450(bus_id=, tx=, rx=) from BOARD, then
-awaits wait_ready(). Covers: happy path, no_device retry (DeviceNotFoundError
+takes no arguments and constructs driver(Model.LD2450, bus_id=, tx=, rx=) from
+BOARD, then awaits wait_ready(). Covers: happy path, no_device retry (DeviceNotFoundError
 from wait_ready()), and init error retry (OSError from wait_ready()).
 """
 
@@ -12,8 +12,8 @@ import pathlib
 from collections import namedtuple
 from typing import ClassVar
 
-from ld2450 import DeviceNotFoundError
 from micropython_stubs.testing import firmware_namespace
+from radar import DeviceNotFoundError, Model
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "init_sensor"}
@@ -22,7 +22,7 @@ _TEST_BOARD = Board(name="RP2040-Zero", uart_id=1, tx=4, rx=5)
 
 
 class _FakeLD2450:
-    """LD2450 stand-in: records construction args; wait_ready() raises from a script.
+    """Stands in for radar.driver(): records what was selected and opened.
 
     Unlike a ScriptedFake, the fault fires from wait_ready() rather than
     __init__ — matching the real driver, whose constructor never raises.
@@ -30,7 +30,8 @@ class _FakeLD2450:
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, bus_id, tx, rx) -> None:
+    def __init__(self, model, *, bus_id, tx, rx) -> None:
+        self.model = model
         self.bus_id = bus_id
         self.tx = tx
         self.rx = rx
@@ -52,7 +53,8 @@ def _make_init_ns():
         namedtuple=namedtuple,
         asyncio=asyncio,
         BOARD=_TEST_BOARD,
-        LD2450=_FakeLD2450,
+        driver=_FakeLD2450,
+        Model=Model,
         DeviceNotFoundError=DeviceNotFoundError,
     )
 
@@ -61,6 +63,7 @@ def test_init_sensor_happy_path():
     init_ns = _make_init_ns()
     radar = asyncio.run(init_ns.ns["init_sensor"]())
     assert isinstance(radar, _FakeLD2450)
+    assert radar.model == Model.LD2450
     assert radar.bus_id == _TEST_BOARD.uart_id
     assert radar.tx == _TEST_BOARD.tx
     assert radar.rx == _TEST_BOARD.rx

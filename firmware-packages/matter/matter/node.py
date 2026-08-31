@@ -150,10 +150,10 @@ class Node:
         for record in records:
             distance = (record[0] - self._generation) & _REVISION_MASK
             if 0 < distance < _HALF_REVISION_RANGE:
-                pending.append(record)
-        pending.sort(key=lambda record: (record[0] - self._generation) & _REVISION_MASK)
+                pending.append((distance, record))
+        pending.sort(key=lambda entry: entry[0])
         events = []
-        for record in pending:
+        for _distance, record in pending:
             event = self._handle(record)
             if event is not None:
                 events.append(event)

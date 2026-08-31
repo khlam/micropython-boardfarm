@@ -60,8 +60,8 @@ The policy has three explicit states:
 
 ```mermaid
 flowchart LR
-    radar["HLK-LD2450<br/>3 target slots · 10 Hz"]
-    driver["LD2450 driver<br/>UART framing + decode"]
+    radar["HLK-LD2450 or HLK-LD2420<br/>up to 3 target slots · 10 Hz"]
+    driver["Detected radar driver<br/>UART framing + decode"]
     policy["MicroPython main.py<br/>dead zone + occupancy policy"]
     matter["Matter Python API<br/>Occupancy + hold endpoints"]
     native["Native bridge<br/>C + C++"]
@@ -94,9 +94,7 @@ failures do not affect occupancy publication or commissioning.
 | Layer | Responsibility |
 | --- | --- |
 | Project firmware | Board pins, dead zone, occupancy/hold policy, retry behavior, LED arbitration, and JSON schema |
-| `firmware/radar.py` | Probe order across supported radars, UART handover between probes, and normalizing range-only reports into the published target shape |
-| `firmware-packages/ld2450` | UART ownership, IRQ wakeup, byte framing, resynchronization, and target decoding |
-| `firmware-packages/ld2420` | The same, plus the energy-mode command sequence and presence/range decoding |
+| `firmware-packages/radar` | Probe order across supported radars, UART handover between probes, UART ownership, IRQ wakeup, byte framing, resynchronization, and decoding every radar into one target shape |
 | Matter Python package | Endpoint validation, Python attribute mirror, returned events, and node administration |
 | Native Matter bridge | CHIP-task scheduling, coalesced state snapshots, Occupancy publication, and commissioning recovery |
 | ESP-Matter / CHIP | BLE and Wi-Fi commissioning, secure sessions, fabrics, persistence, and controller reporting |
@@ -150,8 +148,8 @@ commissioning or fabric administration.
 
 ### Radar detection
 
-`firmware/radar.py` probes the supported radars in turn on the shared UART and
-presents whichever answered as one report stream. The LD2450 is probed first
+`radar.detect()` probes the supported radars in turn on the shared UART and
+returns whichever answered. The LD2450 is probed first
 because its driver only reads, so an attached LD2450 is never written to. Each
 driver that does not answer is closed before the next is constructed, since they
 all claim the same UART.
@@ -166,7 +164,7 @@ attached LD2420 costs about two extra seconds at boot. Occupancy is already
 fail-safe occupied during startup, so nothing observable changes. Only when
 every driver fails does `NoRadarError` reach the retry loop as `no_device`.
 
-Because the radar task recreates the whole `Radar` after any failure,
+Because the radar task calls `detect()` again after any failure,
 re-detection is automatic: swapping one radar for the other while the retry loop
 is running picks up the new model without a reflash. The detected model is
 reported with the `radar_ok` diagnostic and shown in the dashboard header.
@@ -179,22 +177,12 @@ radar answered.
 
 ### Radar ingestion
 
-The LD2450 sends one fixed 30-byte report approximately every 100 ms. Each
-report contains three eight-byte target slots. The LD2420 sends a fixed 45-byte
-report at a comparable rate carrying a presence flag, a distance, and sixteen
-gate energies. Both reusable drivers are designed for bounded memory and current
-data:
-
-- A UART receive-idle interrupt only wakes the asyncio reader; UART reads and
-  decoding run outside the interrupt.
-- A 512-byte UART ring holds about 1.7 seconds of documented traffic.
-- Reused 120-byte and 30-byte buffers avoid repeated allocation.
-- Header and trailer markers frame reports and recover synchronization after
-  invalid bytes.
-- When reports accumulate, the driver validates them all but decodes only the
-  newest one.
-
-Either driver returns:
+Either radar reports roughly ten times per second, and each read returns the
+newest report only — the product never acts on a stale one. Framing, buffering,
+resynchronization, and the one-reader rule belong to the shared driver and are
+documented in
+[`../../firmware-packages/radar/`](../../firmware-packages/radar/). What this
+project acts on is the outcome of a read:
 
 | Result | Meaning |
 | --- | --- |
@@ -204,11 +192,8 @@ Either driver returns:
 | `DeviceNotFoundError` | No valid startup report within two seconds |
 | `OSError` | UART initialization or read failure |
 
-Both use their factory 8-N-1 serial settings. The LD2450 driver never changes
-radar settings; the LD2420 driver writes only the system mode, so its report
-format does not depend on the mode the module was last left in. Only one
-coroutine may wait on a driver at a time. On ESP32-S3, MicroPython implements
-`UART.IRQ_RXIDLE` with `Timer(0)`, which this project reserves for the driver.
+On ESP32-S3, MicroPython implements `UART.IRQ_RXIDLE` with `Timer(0)`, which
+this project reserves for the driver.
 
 ### Occupancy decision and failure handling
 
