@@ -25,9 +25,9 @@ def _fast_probes(monkeypatch):
     monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 5)
 
 
-def test_ld2450_answers_first_and_its_targets_pass_through_unchanged():
+def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(build_ld2450_report):
     async def _run():
-        machine.feed_uart_bytes(_ld2450_report((100, 200, -5, 30)))
+        machine.feed_uart_bytes(build_ld2450_report((100, 200, -5, 30)))
         model, device = await detect(**_BUS)
         return model, await device.read_latest()
 
@@ -37,11 +37,11 @@ def test_ld2450_answers_first_and_its_targets_pass_through_unchanged():
     assert len(machine.uart_constructions) == 1  # the LD2420 was never probed
 
 
-def test_ld2420_is_probed_after_the_ld2450_stays_silent():
+def test_ld2420_is_probed_after_the_ld2450_stays_silent(build_ld2420_report, configuration_acks):
     async def _run():
-        machine.queue_uart_replies(_ld2420_acks())
+        machine.queue_uart_replies(configuration_acks)
         detecting = asyncio.create_task(detect(**_BUS))
-        await _feed_once_ld2420_is_configured(_ld2420_report(distance_cm=145))
+        await _feed_once_ld2420_is_configured(build_ld2420_report(distance_cm=145))
         model, device = await detecting
         return model, await device.read_latest()
 
@@ -68,9 +68,9 @@ def test_detection_oserror_propagates_instead_of_reading_as_absence():
     assert len(machine.uart_constructions) == 1  # gave up on the first probe
 
 
-def test_read_timeout_passes_through_as_none():
+def test_read_timeout_passes_through_as_none(build_ld2450_report):
     async def _run():
-        machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
+        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
         _model, device = await detect(**_BUS)
         await device.read_latest()  # consume the retained startup report
         return await device.read_latest()
@@ -78,9 +78,9 @@ def test_read_timeout_passes_through_as_none():
     assert asyncio.run(_run()) is None
 
 
-def test_read_oserror_propagates():
+def test_read_oserror_propagates(build_ld2450_report):
     async def _run():
-        machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
+        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
         _model, device = await detect(**_BUS)
         await device.read_latest()  # consume the retained startup report
         machine.fail_uart_reads(OSError("bus fault"))
@@ -90,9 +90,9 @@ def test_read_oserror_propagates():
         asyncio.run(_run())
 
 
-def test_close_releases_the_detected_driver():
+def test_close_releases_the_detected_driver(build_ld2450_report):
     async def _run():
-        machine.feed_uart_bytes(_ld2450_report((1, 1, 0, 1)))
+        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
         _model, device = await detect(**_BUS)
         device.close()
 
@@ -119,42 +119,3 @@ async def _feed_once_ld2420_is_configured(report: bytes) -> None:
             return
         await asyncio.sleep(0.001)
     raise AssertionError("the LD2420 never finished its command sequence")
-
-
-def _ld2450_report(*slots) -> bytes:
-    """Assemble one 30-byte LD2450 report from up to three target slots.
-
-    Position and speed are sign-magnitude encoded; resolution is plain.
-    """
-    body = bytearray()
-    for slot in ([*slots, None, None, None])[:3]:
-        if slot is None:
-            body += bytes(8)
-            continue
-        *signed, resolution = slot
-        for value in signed:
-            body += (-value if value < 0 else value | 0x8000).to_bytes(2, "little")
-        body += resolution.to_bytes(2, "little")
-    return LD2450.HEADER + bytes(body) + LD2450.FOOTER
-
-
-def _ld2420_acks() -> list:
-    """The success ACKs for every command the LD2420 driver sends at startup."""
-    acks = []
-    for command, _payload in ld2420_module._CONFIGURATION:
-        body = _u16le(int(command) | int(ld2420_module._ACK_FLAG)) + _u16le(0)
-        acks.append(
-            ld2420_module._COMMAND_HEADER + _u16le(len(body)) + body + ld2420_module._COMMAND_FOOTER
-        )
-    return acks
-
-
-def _ld2420_report(*, distance_cm: int) -> bytes:
-    """Assemble one 45-byte LD2420 energy-mode report showing somebody present."""
-    body = b"\x01" + _u16le(distance_cm) + bytes(32)
-    return LD2420.HEADER + _u16le(len(body)) + body + LD2420.FOOTER
-
-
-def _u16le(value: int) -> bytes:
-    """Encode one two-byte unsigned value with its low byte first."""
-    return bytes((value & 0xFF, value >> 8))

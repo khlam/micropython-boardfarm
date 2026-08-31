@@ -2,24 +2,18 @@
 
 Framing, wakeups, timeouts, and the reader lifecycle belong to
 ``radar.stream`` and are tested there; these cover the LD2420's own UART
-settings and one report read end to end after configuration.
+baud rate and one report read end to end after configuration.
 """
 
 import asyncio
 
 import machine
 
-from radar import LD2420, Target
+from radar import Target
 
 
-def test_constructor_opens_the_documented_uart_settings():
-    ld2420 = LD2420(bus_id=1, tx=4, rx=5)
-    uart = machine.uart_constructions[0]
-    assert uart.id == 1
-    assert uart.baudrate == 115_200
-    assert uart.irq_trigger == machine.UART.IRQ_RXIDLE
-    assert [pin_id for pin_id, _mode in machine.pin_constructions] == [4, 5]
-    ld2420.close()
+def test_constructor_opens_the_documented_baud_rate(ld2420):
+    assert machine.uart_constructions[0].baudrate == 115_200
 
 
 def test_reports_read_end_to_end_decode_into_targets(

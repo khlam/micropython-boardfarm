@@ -144,38 +144,29 @@ def build_ld2420_report():
 
 
 @pytest.fixture
-def ready_radar():
-    """Return an async helper that brings a driver up inside the caller's loop.
+def start_ready():
+    """Return a helper that configures a driver and hands it its first report."""
+
+    def _start(device, report: bytes, acks: list) -> None:
+        """Bring ``device`` up on a loop of its own."""
+        asyncio.run(_bring_up(device, report, acks))
+
+    return _start
+
+
+async def _bring_up(device, report: bytes, acks: list) -> None:
+    """Answer ``device``'s command sequence with ``acks``, then hand it ``report``.
 
     Bytes arriving while the driver still awaits a command ACK are consumed by
     the ACK reader, exactly as on hardware, so the first report has to be
     delivered once configuration has finished and the reader is parked.
-
-    A driver that parked keeps its wakeup flag bound to the loop it parked on,
-    so any test whose next step also awaits has to stay on this one loop.
     """
-
-    async def _ready(device, report: bytes, acks: list) -> None:
-        """Configure ``device`` with ``acks``, then hand it ``report``."""
-        machine.queue_uart_replies(list(acks))
-        ready = asyncio.create_task(device.wait_ready())
-        for _ in range(5):
-            await asyncio.sleep(0)
-        machine.feed_uart_bytes(report)
-        await ready
-
-    return _ready
-
-
-@pytest.fixture
-def start_ready(ready_radar):
-    """Return a blocking wrapper around ``ready_radar`` for single-step tests."""
-
-    def _start(device, report: bytes, acks: list) -> None:
-        """Bring ``device`` up on a loop of its own."""
-        asyncio.run(ready_radar(device, report, acks))
-
-    return _start
+    machine.queue_uart_replies(list(acks))
+    ready = asyncio.create_task(device.wait_ready())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    machine.feed_uart_bytes(report)
+    await ready
 
 
 def _encode(value: int) -> int:

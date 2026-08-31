@@ -42,11 +42,6 @@ class Server:
         self._streams = {}
         self._listener = None
 
-    @property
-    def running(self) -> bool:
-        """Return whether the server is accepting new connections."""
-        return self._listener is not None
-
     def page(
         self,
         path: str,

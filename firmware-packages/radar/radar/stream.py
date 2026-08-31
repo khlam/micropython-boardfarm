@@ -234,17 +234,16 @@ class ReportStream:
             if targets is not None:
                 return targets
 
-            elapsed_ms = utime.ticks_diff(utime.ticks_ms(), started_ms)
-            remaining_ms = timeout_ms - elapsed_ms
+            remaining_ms = timeout_ms - utime.ticks_diff(utime.ticks_ms(), started_ms)
             if remaining_ms <= 0:
-                self._drain_uart()
-                return self._take_latest_targets()
+                return None
 
-            try:
+            # A wakeup that never came is not an answer either: loop back, drain
+            # whatever did arrive, and let the budget above end the wait.
+            try:  # noqa: SIM105 - contextlib is not available on MicroPython
                 await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
             except asyncio.TimeoutError:  # noqa: UP041 - distinct on MicroPython.
-                self._drain_uart()
-                return self._take_latest_targets()
+                pass
 
     def _drain_uart(self) -> None:
         """Read every available UART byte into the bounded report synchronizer."""
@@ -271,11 +270,10 @@ class ReportStream:
 
         self._candidate[self._candidate_len] = value
         self._candidate_len += 1
-        if self._candidate_len == self.REPORT_LEN:
-            self._finish_candidate()
-
-    def _finish_candidate(self) -> None:
-        """Keep a valid report as newest or retain bytes useful for resync."""
+        if self._candidate_len < self.REPORT_LEN:
+            return
+        # A complete candidate either ends where a report must end, and becomes
+        # the newest one, or it was never a report and its bytes are resynced.
         if self._candidate.endswith(self.FOOTER):
             self._candidate, self._latest_report = self._latest_report, self._candidate
             self._has_latest_report = True

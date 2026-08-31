@@ -39,8 +39,8 @@ asyncio.run(main())
 ```
 
 `Server()` only records routes; `start()` is the idempotent operation that binds
-the port, and `running` reports whether the listener is active. Build the server
-wherever it reads best and open it once the network is actually up.
+the port. Build the server wherever it reads best and open it once the network
+is actually up.
 
 ## Bounds
 

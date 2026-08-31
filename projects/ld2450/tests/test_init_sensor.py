@@ -2,8 +2,7 @@
 
 The driver opens its own UART and waits for a valid report, so init_sensor()
 takes no arguments and constructs driver(Model.LD2450, bus_id=, tx=, rx=) from
-BOARD, then
-awaits wait_ready(). Covers: happy path, no_device retry (DeviceNotFoundError
+BOARD, then awaits wait_ready(). Covers: happy path, no_device retry (DeviceNotFoundError
 from wait_ready()), and init error retry (OSError from wait_ready()).
 """
 
