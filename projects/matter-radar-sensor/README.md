@@ -414,6 +414,12 @@ artifacts matching the flashed image after either operation.
 
 Connect board TX to radar RX and board RX to radar TX.
 
+The ESP32-S3-Zero has little regulator margin while powering the LD2420. Its
+firmware therefore runs the CPU at up to 80 MHz, PSRAM at 40 MHz, and BLE at
+0 dBm. Use a short USB cable and a source that can sustain the board and radar
+together; any `Brownout detector was triggered` message on the serial monitor
+means the source, cable, or power wiring is still inadequate.
+
 ### HLK-LD2450
 
 Power the LD2450 from 5 V with more than 200 mA available, not from 3V3.
