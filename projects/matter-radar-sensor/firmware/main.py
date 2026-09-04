@@ -345,17 +345,12 @@ class _Application:
             self._occupancy_state = _EMPTY_HOLD
             self._hold_started_ms = now_ms
 
-        if self._occupancy_state == _EMPTY_HOLD:
-            try:
-                hold_ms = self._occupancy_hold_ms()
-            except (OSError, ValueError) as exception:
-                error("hold_control", str(exception))
-                self._set_occupied()
-                return
-            if time.ticks_diff(now_ms, self._hold_started_ms) >= hold_ms:
-                self._occupancy_state = _VACANT
-                self._hold_started_ms = None
-                self._update_status_pixel()
+        if self._occupancy_state == _EMPTY_HOLD and (
+            time.ticks_diff(now_ms, self._hold_started_ms) >= self._occupancy_hold_ms()
+        ):
+            self._occupancy_state = _VACANT
+            self._hold_started_ms = None
+            self._update_status_pixel()
 
         self._publish_occupancy()
 

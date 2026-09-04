@@ -133,29 +133,6 @@ def test_target_after_failed_clear_forces_native_value_back_to_occupied(load_app
     assert application._published_occupancy is True
 
 
-@pytest.mark.parametrize("exception", [OSError("read failed"), ValueError("bad level")])
-def test_hold_read_failure_cancels_timer_and_retains_occupied(load_application, capsys, exception):
-    boot = load_application()
-    application = boot.application
-
-    class BadHold:
-        """Raise the scripted controller-state read failure."""
-
-        @property
-        def on(self):
-            raise exception
-
-    application._hold_control = BadHold()
-    capsys.readouterr()
-
-    application._apply_empty_report(now_ms=50)
-
-    assert application._occupancy_state == boot.module._OCCUPIED
-    assert application._hold_started_ms is None
-    assert application._occupancy.occupancy == 1
-    assert '"component": "hold_control"' in capsys.readouterr().out
-
-
 @pytest.mark.parametrize(
     ("x_mm", "y_mm", "expected"),
     [(0, 0, False), (6, 7, False), (6, 8, True), (10, 0, True), (-10, 0, True)],

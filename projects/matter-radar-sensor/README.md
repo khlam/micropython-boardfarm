@@ -45,8 +45,6 @@ pushes the deadline out.
 
 Only valid reports advance the policy. A radar failure discards the empty-start
 timestamp, forces occupied, and begins a new observation period after recovery.
-If the dimmer state cannot be read, the firmware also cancels the timer and
-retains occupied, but it leaves the healthy radar connection running.
 
 The policy has three explicit states:
 
@@ -209,7 +207,6 @@ edge is delayed by the virtual dimmer and canceled if a target returns.
 | UART read failure | `read_err` | Force occupied, close the driver, and recreate after one second |
 | No report for 500 ms | `report_timeout` | Force occupied, close the driver, and recreate after one second |
 | Newly created radar becomes ready | `radar_ok` | Start a fresh occupied observation period and resume reports |
-| Dimmer state cannot be read | Hold-control error event | Retain occupied and cancel the timer without recreating the radar |
 | Matter publication fails | Matter error event | Leave the transition pending so the next report retries it |
 | Matter snapshot fails | `matter_poll_err` | Force occupied, keep other tasks alive, and retry after 50 ms |
 | Matter snapshot recovers | `matter_ok` | Clear synchronization failure; the next valid radar report resumes vacancy timing |
