@@ -230,33 +230,27 @@ class _Application:
         self._pixel[0] = color
         self._pixel.write()
 
-    def _commissioning_color(self) -> tuple | None:
-        """Return the commissioning color, or None after commissioning.
+    def _update_status_pixel(self) -> None:
+        """Show the highest-priority commissioning or product state.
 
-        A closed window can mean that commissioning started or that the window
-        expired. The active-session flag distinguishes those cases.
+        Commissioning outranks product state until the node is paired. A closed
+        window can mean that commissioning started or that the window expired,
+        so the active-session flag distinguishes those cases.
         """
         state = self._commissioning_state
         if state == matter.Commissioning.FAILED:
-            return _COMMISSIONING_FAILED_COLOR
-        if state == matter.Commissioning.OPENED:
-            return _COMMISSIONING_WINDOW_COLOR
-        if self._commissioning_session_active:
-            return _COMMISSIONING_SESSION_COLOR
-        if self._commissioned:
-            return None
-        if state == matter.Commissioning.CLOSED:
-            return _COMMISSIONING_STOPPED_COLOR
-        return _BOOT_COLOR
-
-    def _update_status_pixel(self) -> None:
-        """Show the highest-priority commissioning or product state."""
-        color = self._commissioning_color()
-        if color is None:
-            if not (self._matter_healthy and self._radar_healthy):
-                color = _RADAR_FAILED_COLOR
-            else:
-                color = _VACANT_COLOR if self._occupancy_state == _VACANT else _OCCUPIED_COLOR
+            color = _COMMISSIONING_FAILED_COLOR
+        elif state == matter.Commissioning.OPENED:
+            color = _COMMISSIONING_WINDOW_COLOR
+        elif self._commissioning_session_active:
+            color = _COMMISSIONING_SESSION_COLOR
+        elif not self._commissioned:
+            closed = state == matter.Commissioning.CLOSED
+            color = _COMMISSIONING_STOPPED_COLOR if closed else _BOOT_COLOR
+        elif not (self._matter_healthy and self._radar_healthy):
+            color = _RADAR_FAILED_COLOR
+        else:
+            color = _VACANT_COLOR if self._occupancy_state == _VACANT else _OCCUPIED_COLOR
         self._set_pixel_color(color)
 
     def _on_commissioning(self, event: object) -> None:

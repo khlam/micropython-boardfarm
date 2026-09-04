@@ -94,7 +94,6 @@ class ReportStream:
         self._candidate_len = 0
         self._latest_report = bytearray(self.REPORT_LEN)
         self._has_latest_report = False
-        self._pending = None
         self._ready = False
         self._reading = False
         self._closed = False
@@ -105,7 +104,7 @@ class ReportStream:
         )
 
     async def wait_ready(self) -> None:
-        """Prepare the radar and retain its first report for ``read_latest()``.
+        """Prepare the radar and retain its first raw report for ``read_latest()``.
 
         Raises:
             DeviceNotFoundError: If preparation failed or no valid report
@@ -121,19 +120,18 @@ class ReportStream:
         self._claim_reader()
         try:
             await self._prepare()
-            targets = await self._wait_for_latest(self.STARTUP_TIMEOUT_MS)
+            arrived = await self._wait_for_report(self.STARTUP_TIMEOUT_MS)
         except (DeviceNotFoundError, OSError):
             self.close()
             raise
         finally:
             self._reading = False
 
-        if targets is None:
+        if not arrived:
             self.close()
             raise DeviceNotFoundError(
                 f"no valid {self.NAME} report within {self.STARTUP_TIMEOUT_MS} ms"
             )
-        self._pending = targets
         self._ready = True
 
     async def read_latest(self) -> tuple | None:
@@ -161,14 +159,9 @@ class ReportStream:
 
         self._claim_reader()
         try:
-            self._drain_uart()
-            targets = self._take_latest_targets()
-            if targets is None:
-                targets = self._pending
-            self._pending = None
-            if targets is not None:
-                return targets
-            return await self._wait_for_latest(self.REPORT_TIMEOUT_MS)
+            if not await self._wait_for_report(self.REPORT_TIMEOUT_MS):
+                return None
+            return self._take_latest_targets()
         finally:
             self._reading = False
 
@@ -218,32 +211,46 @@ class ReportStream:
         """Wake the asyncio reader after the UART receive line becomes idle."""
         self._rx_ready.set()
 
-    async def _wait_for_latest(self, timeout_ms: int) -> tuple | None:
-        """Drain on each wake until a valid report arrives or time expires.
+    async def _wait_for_report(self, timeout_ms: int) -> bool:
+        """Drain on each wake until a valid report is retained or time expires.
 
         Args:
             timeout_ms: Budget for a complete report to arrive.
 
         Returns:
-            The decoded targets, or ``None`` once the budget expires.
+            Whether a valid report is now waiting in :meth:`_take_latest_targets`.
         """
         started_ms = utime.ticks_ms()
         while True:
             self._drain_uart()
-            targets = self._take_latest_targets()
-            if targets is not None:
-                return targets
+            if self._has_latest_report:
+                return True
+            if not await self._wait_rx(started_ms, timeout_ms):
+                return False
 
-            remaining_ms = timeout_ms - utime.ticks_diff(utime.ticks_ms(), started_ms)
-            if remaining_ms <= 0:
-                return None
+    async def _wait_rx(self, started_ms: int, timeout_ms: int) -> bool:
+        """Sleep until the next receive-idle wake, unless the budget is spent.
 
-            # A wakeup that never came is not an answer either: loop back, drain
-            # whatever did arrive, and let the budget above end the wait.
-            try:  # noqa: SIM105 - contextlib is not available on MicroPython
-                await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
-            except asyncio.TimeoutError:  # noqa: UP041 - distinct on MicroPython.
-                pass
+        Shared by the report reader above and by a driver waiting on a command
+        answer, because both spend their budget the same way.
+
+        Args:
+            started_ms: Tick the budget started at.
+            timeout_ms: Total budget measured from ``started_ms``.
+
+        Returns:
+            Whether budget remained. A wakeup that never came is not an answer
+            either, so the caller loops back, reads whatever did arrive, and
+            lets a later call end the wait.
+        """
+        remaining_ms = timeout_ms - utime.ticks_diff(utime.ticks_ms(), started_ms)
+        if remaining_ms <= 0:
+            return False
+        try:  # noqa: SIM105 - contextlib is not available on MicroPython
+            await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
+        except asyncio.TimeoutError:  # noqa: UP041 - distinct on MicroPython.
+            pass
+        return True
 
     def _drain_uart(self) -> None:
         """Read every available UART byte into the bounded report synchronizer."""
@@ -282,24 +289,23 @@ class ReportStream:
         self._resynchronize_candidate()
 
     def _resynchronize_candidate(self) -> None:
-        """Retain an embedded header or partial header after a bad footer."""
+        """Retain an embedded header, or a trailing partial one, after a bad footer."""
         header = self.HEADER
         header_at = self._candidate.find(header, 1)
-        if header_at >= 0:
-            retained = self.REPORT_LEN - header_at
-            for index in range(retained):
-                self._candidate[index] = self._candidate[header_at + index]
-            self._candidate_len = retained
-            return
-
-        for length in range(len(header) - 1, 0, -1):
-            if self._candidate.endswith(header[:length]):
-                suffix_at = self.REPORT_LEN - length
-                for index in range(length):
-                    self._candidate[index] = self._candidate[suffix_at + index]
-                self._candidate_len = length
+        if header_at < 0:
+            # No whole header inside the candidate, so the only bytes worth
+            # keeping are a trailing prefix of one that the next read completes.
+            for length in range(len(header) - 1, 0, -1):
+                if self._candidate.endswith(header[:length]):
+                    header_at = self.REPORT_LEN - length
+                    break
+            else:
+                self._candidate_len = 0
                 return
-        self._candidate_len = 0
+        retained = self.REPORT_LEN - header_at
+        for index in range(retained):
+            self._candidate[index] = self._candidate[header_at + index]
+        self._candidate_len = retained
 
     def _take_latest_targets(self) -> tuple | None:
         """Decode and clear the newest valid raw report, if one is available."""

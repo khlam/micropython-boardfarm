@@ -10,8 +10,6 @@ The radar measures range only: one presence flag and one distance, with no
 bearing and no speed.
 """
 
-import asyncio
-
 import utime
 from micropython import const
 
@@ -137,15 +135,8 @@ class LD2420(ReportStream):
                 return
             if status is not None:
                 raise DeviceNotFoundError(f"LD2420 rejected command {command:#06x}: {status}")
-
-            elapsed_ms = utime.ticks_diff(utime.ticks_ms(), started_ms)
-            remaining_ms = _ACK_TIMEOUT_MS - elapsed_ms
-            if remaining_ms <= 0:
+            if not await self._wait_rx(started_ms, _ACK_TIMEOUT_MS):
                 raise DeviceNotFoundError(f"no LD2420 ACK for command {command:#06x}")
-            try:  # noqa: SIM105 - contextlib is not available on MicroPython
-                await asyncio.wait_for_ms(self._rx_ready.wait(), remaining_ms)
-            except asyncio.TimeoutError:  # noqa: UP041 - distinct on MicroPython.
-                pass
 
     def _drain_ack(self) -> None:
         """Accumulate received bytes while a command ACK is outstanding."""

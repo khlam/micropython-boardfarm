@@ -1,23 +1,22 @@
 """Host tests for the LD2450 decoder: no framing, no async."""
 
+import pytest
+
 from radar import Target
 from radar.ld2450 import _decode_signed_magnitude
 
 
-def test_decode_signed_magnitude_bit_set_is_positive():
-    assert _decode_signed_magnitude(0x8000 | 100) == 100
-
-
-def test_decode_signed_magnitude_bit_clear_is_negative():
-    assert _decode_signed_magnitude(100) == -100
-
-
-def test_decode_signed_magnitude_zero_with_bit_set_is_zero():
-    assert _decode_signed_magnitude(0x8000) == 0
-
-
-def test_decode_signed_magnitude_max_magnitude_is_negative():
-    assert _decode_signed_magnitude(0x7FFF) == -32767
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (0x8000 | 100, 100),  # sign bit set is positive
+        (100, -100),  # sign bit clear is negative
+        (0x8000, 0),  # positive zero
+        (0x7FFF, -32767),  # largest magnitude, negative
+    ],
+)
+def test_decode_signed_magnitude(raw, expected):
+    assert _decode_signed_magnitude(raw) == expected
 
 
 def test_decode_targets_all_empty_returns_empty_tuple(ld2450, build_ld2450_report):
@@ -29,11 +28,7 @@ def test_decode_targets_skips_raw_zero_slots(ld2450, build_ld2450_report):
     report = build_ld2450_report((100, 200, 0, 50))
     targets = ld2450._decode(report)
     assert len(targets) == 1
-
-
-def test_decode_targets_slot_numbering_is_one_based(ld2450, build_ld2450_report):
-    report = build_ld2450_report((100, 200, 0, 50))
-    assert ld2450._decode(report)[0].slot == 1
+    assert targets[0].slot == 1  # slot numbering is one-based
 
 
 def test_decode_targets_middle_slot_keeps_slot_two(ld2450, build_ld2450_report):
