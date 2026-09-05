@@ -8,11 +8,9 @@ import pytest
 from matter.schema import Paths
 from micropython_stubs.testing import StopLoopError, json_lines
 
-_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
 
 def test_poll_failure_forces_occupied_and_reports_once(load_application, monkeypatch, capsys):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     application = boot.application
     application._apply_empty_report(now_ms=1)
     _matter.inject_remote_write(application._hold_control.id, *Paths.ON_OFF, True)

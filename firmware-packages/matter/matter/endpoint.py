@@ -40,10 +40,7 @@ def _attribute_property(path: tuple) -> property:
 
     def read(self: "Endpoint") -> object:
         """Return this property's attribute from the Python copy."""
-        try:
-            return self._state[path]
-        except KeyError:
-            raise ValueError("attribute is not supported by this endpoint") from None
+        return self.get(*path)
 
     return property(read)
 

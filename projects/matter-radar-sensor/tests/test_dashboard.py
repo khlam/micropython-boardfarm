@@ -7,8 +7,6 @@ import pytest
 
 from micropython_stubs.testing import StopLoopError, json_lines
 
-_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
 
 def test_no_network_address_polls_and_clears_failure_period(load_application):
     boot = load_application()
@@ -43,7 +41,7 @@ def test_address_lookup_error_is_reported_once_per_failure_period(load_applicati
 def test_bind_failure_retries_once_per_period_without_changing_product_state(
     load_application, capsys
 ):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     application = boot.application
     application._set_radar_health(healthy=True)
     _matter.set_network_address("192.0.2.10")

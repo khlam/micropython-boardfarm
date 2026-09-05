@@ -5,11 +5,9 @@ from types import SimpleNamespace
 import _matter
 import pytest
 
-_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
 
 def test_zero_hold_clears_on_the_first_empty_report(load_application):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
 
     boot.application._apply_radar_report(occupied=False, now_ms=100)
 

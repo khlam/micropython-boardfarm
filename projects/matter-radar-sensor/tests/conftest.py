@@ -18,6 +18,8 @@ from micropython_stubs.testing import load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _MODULE_NAME = "matter_radar_sensor_main"
+# The one fabric a commissioned boot restores: index, fabric, node, vendor, label.
+_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 
 class FakeTime:
@@ -80,12 +82,12 @@ class FakeServer:
         self.running = True
 
 
-def _reset_state(*, fabrics: tuple = ()) -> None:
+def _reset_state(*, commissioned: bool = False) -> None:
     """Reset every process-wide fake used by the firmware module."""
     machine.reset()
     neopixel.reset()
     _matter.reset()
-    _matter.seed_fabrics(list(fabrics))
+    _matter.seed_fabrics([_FABRIC] if commissioned else [])
     matter_node._active_node[0] = None
     matter_emit._sinks.clear()
     FakeServer.instances.clear()
@@ -108,9 +110,9 @@ def load_firmware(monkeypatch):
     def load(
         *,
         machine_name: str = "Generic ESP32S3 module with ESP32S3",
-        fabrics: tuple = (),
+        commissioned: bool = False,
     ) -> SimpleNamespace:
-        _reset_state(fabrics=fabrics)
+        _reset_state(commissioned=commissioned)
 
         clock = FakeTime()
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))

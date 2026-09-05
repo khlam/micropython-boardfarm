@@ -9,8 +9,6 @@ import pytest
 
 import matter
 
-_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
 
 def test_unsupported_board_fails_before_hardware_setup(load_firmware):
     with pytest.raises(RuntimeError, match="unsupported board: RP2040"):
@@ -45,7 +43,7 @@ def test_boot_builds_routes_and_stable_matter_endpoints(load_application):
 
 
 def test_commissioned_boot_restores_product_status(load_application):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
 
     assert boot.application._commissioned is True
     assert boot.application._pixel.writes[-1] == boot.module._OCCUPIED_COLOR
@@ -60,7 +58,7 @@ def test_commissioned_boot_restores_product_status(load_application):
     ],
 )
 def test_active_commissioning_states_have_priority(load_application, state, expected):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     boot.application._set_radar_health(healthy=False)
     boot.application._on_commissioning(SimpleNamespace(state=state))
 
@@ -93,7 +91,7 @@ def test_closed_uncommissioned_window_is_amber(load_application):
 
 
 def test_product_status_prioritizes_radar_then_occupancy(load_application):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     application = boot.application
     application._pixel.writes.clear()
 

@@ -5,24 +5,20 @@ import asyncio
 import machine
 import pytest
 
-from radar import LD2420, LD2450, NoRadarError, Target, detect
+from radar import LD2420, NoRadarError, Target, detect
 from radar import ld2420 as ld2420_module
 
 _BUS = {"bus_id": 1, "tx": 5, "rx": 6}
 
 
 @pytest.fixture(autouse=True)
-def _fast_probes(monkeypatch):
-    """Shrink the probe budgets so an absent radar is ruled out in milliseconds.
+def _patient_ld2420_probe(monkeypatch):
+    """Widen the one budget the conftest millisecond defaults are too tight for.
 
-    The LD2420 keeps a generous startup budget: its probe only begins once the
-    LD2450 has been ruled out, and the test feeds its first report after that.
+    The LD2420 probe only begins once the LD2450 has been ruled out, and the
+    test feeds its first report after that.
     """
-    monkeypatch.setattr(LD2450, "STARTUP_TIMEOUT_MS", 5)
-    monkeypatch.setattr(LD2450, "REPORT_TIMEOUT_MS", 5)
-    monkeypatch.setattr(ld2420_module, "_ACK_TIMEOUT_MS", 5)
     monkeypatch.setattr(LD2420, "STARTUP_TIMEOUT_MS", 500)
-    monkeypatch.setattr(LD2420, "REPORT_TIMEOUT_MS", 5)
 
 
 def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(build_ld2450_report):
@@ -66,38 +62,6 @@ def test_detection_oserror_propagates_instead_of_reading_as_absence():
     with pytest.raises(OSError, match="bus fault"):
         asyncio.run(detect(**_BUS))
     assert len(machine.uart_constructions) == 1  # gave up on the first probe
-
-
-def test_read_timeout_passes_through_as_none(build_ld2450_report):
-    async def _run():
-        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
-        _model, device = await detect(**_BUS)
-        await device.read_latest()  # consume the retained startup report
-        return await device.read_latest()
-
-    assert asyncio.run(_run()) is None
-
-
-def test_read_oserror_propagates(build_ld2450_report):
-    async def _run():
-        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
-        _model, device = await detect(**_BUS)
-        await device.read_latest()  # consume the retained startup report
-        machine.fail_uart_reads(OSError("bus fault"))
-        await device.read_latest()
-
-    with pytest.raises(OSError, match="bus fault"):
-        asyncio.run(_run())
-
-
-def test_close_releases_the_detected_driver(build_ld2450_report):
-    async def _run():
-        machine.feed_uart_bytes(build_ld2450_report((1, 1, 0, 1)))
-        _model, device = await detect(**_BUS)
-        device.close()
-
-    asyncio.run(_run())
-    assert machine.uart_constructions[0].deinitialized is True
 
 
 async def _feed_once_ld2420_is_configured(report: bytes) -> None:

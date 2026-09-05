@@ -7,8 +7,6 @@ import pytest
 
 from micropython_stubs.testing import StopLoopError, json_lines
 
-_FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
-
 
 class FakeRadar:
     """Script reports, closure, and close errors for an already-detected radar."""
@@ -76,7 +74,7 @@ def test_run_starts_matter_dashboard_and_radar_tasks(load_application, monkeypat
 def test_radar_filters_targets_and_decimates_dashboard_reports(
     load_application, monkeypatch, capsys
 ):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     module = boot.module
     near = SimpleNamespace(slot=0, x_mm=3, y_mm=4, speed_cm_s=1, resolution_mm=10)
     far = SimpleNamespace(slot=1, x_mm=60, y_mm=80, speed_cm_s=2, resolution_mm=20)
@@ -173,7 +171,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
 
 
 def test_failure_forces_occupied_and_ignores_close_errors(load_application, capsys):
-    boot = load_application(fabrics=(_FABRIC,))
+    boot = load_application(commissioned=True)
     application = boot.application
     application._apply_empty_report(now_ms=0)
     radar = FakeRadar(close_error=OSError("close failed"))
