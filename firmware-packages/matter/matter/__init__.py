@@ -21,7 +21,6 @@ from matter.schema import (
     ColorMode,
     Commissioning,
     EndpointType,
-    Origin,
 )
 
 __all__ = [
@@ -34,6 +33,5 @@ __all__ = [
     "EndpointType",
     "Fabric",
     "Node",
-    "Origin",
     "WriteEvent",
 ]

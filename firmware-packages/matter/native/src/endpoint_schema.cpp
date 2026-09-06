@@ -5,7 +5,10 @@
 #include "matter/bridge.h"
 
 namespace ColorControl = chip::app::Clusters::ColorControl;
+namespace Identify = chip::app::Clusters::Identify;
 namespace LevelControl = chip::app::Clusters::LevelControl;
+namespace OnOff = chip::app::Clusters::OnOff;
+namespace OccupancySensing = chip::app::Clusters::OccupancySensing;
 
 namespace matter_bridge {
 namespace {
@@ -18,6 +21,12 @@ constexpr uint8_t DEFAULT_LEVEL = 254;
 constexpr uint16_t DEFAULT_TEMPERATURE_MIREDS = 250;
 constexpr uint16_t MINIMUM_TEMPERATURE_MIREDS = 153;
 constexpr uint16_t MAXIMUM_TEMPERATURE_MIREDS = 500;
+
+// Matter has no radar modality, so the required type metadata declares PIR.
+constexpr uint8_t OCCUPANCY_SENSOR_TYPE_PIR =
+    static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeEnum::kPir);
+constexpr uint8_t OCCUPANCY_SENSOR_TYPE_BITMAP_PIR =
+    static_cast<uint8_t>(OccupancySensing::OccupancySensorTypeBitmap::kPir);
 
 bool defer_persistence(esp_matter::endpoint_t *endpoint, uint32_t cluster_id, uint32_t attribute_id)
 {
@@ -49,6 +58,27 @@ esp_matter::endpoint_t *destroy_and_fail(esp_matter::node_t *node, esp_matter::e
 {
     esp_matter::endpoint::destroy(node, endpoint);
     return nullptr;
+}
+
+// Occupancy is republished after boot rather than persisted. ESP-Matter can
+// return an endpoint without its required sensing cluster, so verify it here.
+esp_matter::endpoint_t *create_occupancy_sensor(esp_matter::node_t *node)
+{
+    esp_matter::endpoint::occupancy_sensor::config_t config;
+    config.occupancy_sensing.occupancy = 0;
+    config.occupancy_sensing.occupancy_sensor_type = OCCUPANCY_SENSOR_TYPE_PIR;
+    config.occupancy_sensing.occupancy_sensor_type_bitmap = OCCUPANCY_SENSOR_TYPE_BITMAP_PIR;
+    config.occupancy_sensing.feature_flags =
+        esp_matter::cluster::occupancy_sensing::feature::passive_infrared::get_id();
+    esp_matter::endpoint_t *endpoint = esp_matter::endpoint::occupancy_sensor::create(
+        node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (endpoint == nullptr) {
+        return nullptr;
+    }
+    if (esp_matter::cluster::get(endpoint, OccupancySensing::Id) == nullptr) {
+        return destroy_and_fail(node, endpoint);
+    }
+    return endpoint;
 }
 
 } // namespace
@@ -120,9 +150,46 @@ esp_matter::endpoint_t *endpoint_type_to_endpoint(esp_matter::node_t *node, uint
         }
         return endpoint;
     }
+    case MATTER_ENDPOINT_OCCUPANCY_SENSOR:
+        return create_occupancy_sensor(node);
     default:
         return nullptr;
     }
+}
+
+bool is_occupancy_attribute(uint32_t cluster_id, uint32_t attribute_id)
+{
+    return cluster_id == OccupancySensing::Id && attribute_id == OccupancySensing::Attributes::Occupancy::Id;
+}
+
+bool endpoint_type_tracks_attribute(uint8_t endpoint_type, uint32_t cluster_id, uint32_t attribute_id)
+{
+    if (cluster_id == Identify::Id && attribute_id == Identify::Attributes::IdentifyTime::Id) {
+        return true;
+    }
+    if (endpoint_type == MATTER_ENDPOINT_OCCUPANCY_SENSOR) {
+        return is_occupancy_attribute(cluster_id, attribute_id);
+    }
+    if (cluster_id == OnOff::Id && attribute_id == OnOff::Attributes::OnOff::Id) {
+        return true;
+    }
+    if (endpoint_type == MATTER_ENDPOINT_ON_OFF_LIGHT) {
+        return false;
+    }
+    if (cluster_id == LevelControl::Id &&
+        attribute_id == LevelControl::Attributes::CurrentLevel::Id) {
+        return true;
+    }
+    if (endpoint_type != MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT || cluster_id != ColorControl::Id) {
+        return false;
+    }
+    return attribute_id == ColorControl::Attributes::CurrentHue::Id ||
+           attribute_id == ColorControl::Attributes::CurrentSaturation::Id ||
+           attribute_id == ColorControl::Attributes::CurrentX::Id ||
+           attribute_id == ColorControl::Attributes::CurrentY::Id ||
+           attribute_id == ColorControl::Attributes::ColorTemperatureMireds::Id ||
+           attribute_id == ColorControl::Attributes::ColorMode::Id ||
+           attribute_id == ColorControl::Attributes::EnhancedColorMode::Id;
 }
 
 } // namespace matter_bridge
