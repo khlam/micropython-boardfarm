@@ -44,7 +44,7 @@ def test_run_propagates_a_failing_tool(stub_tool):
 
 
 def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
-    build._build_firmware(tmp_path)
+    build._build_firmware(tmp_path, None)
 
     command, kwargs = recorder[0]
     assert command[0] == "idf.py"
