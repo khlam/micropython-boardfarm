@@ -95,6 +95,8 @@ class Broadcast:
             if self._greeting is not None:
                 client.enqueue(frame(self._greeting))
             await client.drain_outbox()
+        except OSError:
+            pass
         finally:
             incoming.cancel()
             self._clients.remove(client)
@@ -166,21 +168,13 @@ class _Client:
         self._outbox.append(payload)
         self._ready.set()
 
-    def close(self) -> None:
-        """Mark the client gone and wake the writer so it can retire."""
-        self.closed = True
-        self._ready.set()
-
     async def drain_outbox(self) -> None:
         """Write queued frames until the connection ends."""
         while not self.closed:
             await self._ready.wait()
-            try:
-                while self._outbox:
-                    self._writer.write(self._outbox.popleft())
-                    await self._writer.drain()
-            except OSError:
-                self.close()
+            while self._outbox:
+                self._writer.write(self._outbox.popleft())
+                await self._writer.drain()
 
     async def discard_input(self) -> None:
         """Consume whatever the client sends, honouring only its close frame.
@@ -190,11 +184,12 @@ class _Client:
         browser says a tab went away.
         """
         try:
-            while not self.closed and await self._read_frame():
+            while await self._read_frame():
                 pass
         except (OSError, EOFError):
             pass
-        self.close()
+        self.closed = True
+        self._ready.set()
 
     async def _read_frame(self) -> bool:
         """Discard one client frame, returning False when it was a close."""
