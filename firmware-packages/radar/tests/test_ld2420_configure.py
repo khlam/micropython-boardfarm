@@ -90,11 +90,9 @@ def test_ack_with_a_bad_footer_is_not_accepted(ld2420, build_ack):
 
 def test_ack_buffer_is_trimmed_to_its_limit(ld2420):
     """Unanswered chatter cannot grow the shared heap without bound."""
-    machine.queue_uart_replies([bytes(_ACK_BUFFER_LIMIT + 44)])
+    machine.feed_uart_bytes(bytes(_ACK_BUFFER_LIMIT + 44))
 
-    with pytest.raises(DeviceNotFoundError, match="no LD2420 ACK"):
-        asyncio.run(ld2420.wait_ready())
-    assert len(ld2420._ack_buffer) == _ACK_BUFFER_LIMIT
+    assert len(ld2420._drain_ack(bytearray())) == _ACK_BUFFER_LIMIT
 
 
 def test_write_failure_closes_and_reraises(ld2420):

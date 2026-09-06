@@ -78,11 +78,10 @@ class LD2420(ReportStream):
     async def _prepare(self) -> None:
         """Force energy mode so the report format does not depend on history.
 
-        ACK buffers are rebound because MicroPython bytearrays cannot delete
-        slices. Only startup commands allocate; reports reuse fixed buffers.
+        This sequence is the only place the driver allocates; reports reuse
+        fixed buffers.
         """
         for command, payload in _CONFIGURATION:
-            self._ack_buffer = bytearray()
             length = len(payload) + 2
             self._uart.write(
                 _COMMAND_HEADER
@@ -121,10 +120,11 @@ class LD2420(ReportStream):
         Raises:
             DeviceNotFoundError: If the ACK reports a failure or never arrives.
         """
+        buffer = bytearray()
         started_ms = utime.ticks_ms()
         while True:
-            self._drain_ack()
-            status = self._ack_status(command)
+            buffer = self._drain_ack(buffer)
+            status = _ack_status(buffer, command)
             if status == _ACK_OK:
                 return
             if status is not None:
@@ -132,38 +132,46 @@ class LD2420(ReportStream):
             if not await self._wait_rx(started_ms, _ACK_TIMEOUT_MS):
                 raise DeviceNotFoundError(f"no LD2420 ACK for command {command:#06x}")
 
-    def _drain_ack(self) -> None:
-        """Accumulate received bytes while a command ACK is outstanding."""
+    def _drain_ack(self, buffer: bytearray) -> bytearray:
+        """Append every waiting byte to the ACK accumulator, keeping it bounded.
+
+        Args:
+            buffer: Bytes accumulated for the outstanding ACK so far.
+
+        Returns:
+            The accumulated bytes, oldest dropped past the limit. Trimming
+            returns a new buffer because MicroPython bytearrays cannot delete
+            slices.
+        """
         while True:
             count = self._uart.readinto(self._drain_buffer)
             if not count:
                 break
-            self._ack_buffer += self._drain_buffer[:count]
-        overflow = len(self._ack_buffer) - _ACK_BUFFER_LIMIT
-        if overflow > 0:
-            self._ack_buffer = self._ack_buffer[overflow:]
+            buffer += self._drain_buffer[:count]
+        overflow = len(buffer) - _ACK_BUFFER_LIMIT
+        return buffer[overflow:] if overflow > 0 else buffer
 
-    def _ack_status(self, command: int) -> int | None:
-        """Return the status word of a complete ACK for ``command``.
 
-        Args:
-            command: Command word whose echo identifies the expected ACK.
+def _ack_status(buffer: bytearray, command: int) -> int | None:
+    """Return the status word of a complete ACK for ``command``.
 
-        Returns:
-            The status word, or ``None`` while no complete matching ACK has
-            arrived.
-        """
-        buffer = self._ack_buffer
-        echo = command | _ACK_FLAG
-        start = buffer.find(_COMMAND_HEADER)
-        while start >= 0:
-            frame_end = _ack_frame_end(buffer, start)
-            if frame_end is None:
-                return None
-            if u16(buffer, start + _ACK_ECHO_AT) == echo:
-                return u16(buffer, start + _ACK_STATUS_AT)
-            start = buffer.find(_COMMAND_HEADER, frame_end)
-        return None
+    Args:
+        buffer: Bytes received since the command was sent.
+        command: Command word whose echo identifies the expected ACK.
+
+    Returns:
+        The status word, or ``None`` while no complete matching ACK has arrived.
+    """
+    echo = command | _ACK_FLAG
+    start = buffer.find(_COMMAND_HEADER)
+    while start >= 0:
+        frame_end = _ack_frame_end(buffer, start)
+        if frame_end is None:
+            return None
+        if u16(buffer, start + _ACK_ECHO_AT) == echo:
+            return u16(buffer, start + _ACK_STATUS_AT)
+        start = buffer.find(_COMMAND_HEADER, frame_end)
+    return None
 
 
 def _ack_frame_end(buffer: bytearray, start: int) -> int | None:
