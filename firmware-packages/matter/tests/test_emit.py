@@ -17,12 +17,12 @@ def test_event_writes_named_transition(capsys):
 
 
 def test_error_writes_recoverable_fault(capsys):
-    error("python_callback", "callback raised an exception")
+    error("python_validation", "restored value rejected by schema")
 
     assert json_lines(capsys.readouterr().out) == [
         {
             "event": "error",
-            "component": "python_callback",
-            "message": "callback raised an exception",
+            "component": "python_validation",
+            "message": "restored value rejected by schema",
         }
     ]

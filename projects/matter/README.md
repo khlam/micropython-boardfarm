@@ -110,7 +110,7 @@ can accept it.
 
 1. Power or reset the flashed board and leave it running. A board that has never
    been paired turns purple once it opens its window, and stays that way — the
-   window no longer times out silently after fifteen minutes.
+   bridge reopens the window whenever the stack would otherwise stop advertising.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
    `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.

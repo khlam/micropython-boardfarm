@@ -20,22 +20,23 @@ _MAIN = _FIRMWARE / "main.py"
 _MAIN_MODULE = "matter_project_main"
 
 
-@pytest.fixture(autouse=True)
-def reset_runtime():
+def _reset_state(*, persisted=None, fabrics=()) -> None:
     """Reset every process-wide fake used by the firmware import."""
     machine.reset()
     neopixel.reset()
-    _matter.reset()
+    _matter.reset(persisted=persisted)
+    _matter.seed_fabrics(list(fabrics))
     matter_node._active_node[0] = None
     for name in (_MAIN_MODULE, "color", "color.convert"):
         sys.modules.pop(name, None)
+
+
+@pytest.fixture(autouse=True)
+def reset_runtime():
+    """Reset process-wide MCU and Matter fakes around every test."""
+    _reset_state()
     yield
-    machine.reset()
-    neopixel.reset()
-    _matter.reset()
-    matter_node._active_node[0] = None
-    for name in (_MAIN_MODULE, "color", "color.convert"):
-        sys.modules.pop(name, None)
+    _reset_state()
 
 
 @pytest.fixture
@@ -59,13 +60,7 @@ def load_main(monkeypatch):
         fabrics=(),
         commissioning=(),
     ):
-        _matter.reset(persisted=persisted)
-        _matter.seed_fabrics(list(fabrics))
-        matter_node._active_node[0] = None
-        machine.reset()
-        neopixel.reset()
-        for name in (_MAIN_MODULE, "color", "color.convert"):
-            sys.modules.pop(name, None)
+        _reset_state(persisted=persisted, fabrics=fabrics)
 
         fake_time = FakeTime()
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))

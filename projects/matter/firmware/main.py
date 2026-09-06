@@ -175,8 +175,7 @@ def run() -> None:
     failure_reported = False
     while True:
         try:
-            events = node.poll()
-            handle_events(events)
+            handle_events(node.poll())
         except OSError as exception:
             if not failure_reported:
                 error("matter_poll", str(exception))

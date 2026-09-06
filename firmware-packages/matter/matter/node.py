@@ -145,15 +145,16 @@ class Node:
             return ()
         generation, records = _matter.snapshot()
         # Distance from the last committed generation, so revisions that wrapped
-        # past 2**32 still order after the ones they follow.
+        # past 2**32 still order after the ones they follow. It leads each pair,
+        # so the sort reuses the distance the filter already measured.
         pending = []
         for record in records:
             distance = (record[0] - self._generation) & _REVISION_MASK
             if 0 < distance < _HALF_REVISION_RANGE:
-                pending.append(record)
-        pending.sort(key=lambda record: (record[0] - self._generation) & _REVISION_MASK)
+                pending.append((distance, record))
+        pending.sort()
         events = []
-        for record in pending:
+        for _distance, record in pending:
             event = self._handle(record)
             if event is not None:
                 events.append(event)

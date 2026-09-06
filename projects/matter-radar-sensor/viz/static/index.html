@@ -403,23 +403,18 @@
       renderAnalytics();
     }
 
-    function setConnection(isConnected, port, error) {
+    function setConnection(isConnected, error) {
       connected = isConnected;
       const pill = $("conn");
       pill.textContent = isConnected ? "Connected" : "Disconnected";
       pill.className = "pill " + (isConnected ? "ok" : "err");
-      if (port) $("port").textContent = port;
-      if (error) $("diag").textContent = error;
-      if (!isConnected) markGap(error || "USB serial disconnected");
+      if (!isConnected) markGap(error);
     }
 
     function onMessage(obj) {
       if (obj.event === "connected") {
-        setConnection(true, obj.port, null);
-        return;
-      }
-      if (obj.event === "disconnected") {
-        setConnection(false, obj.port, obj.error);
+        $("port").textContent = obj.port;
+        setConnection(true);
         return;
       }
       if (obj.diag !== undefined) {
@@ -456,7 +451,7 @@
         try { onMessage(JSON.parse(event.data)); } catch { /* Ignore malformed host data. */ }
       };
       ws.onclose = () => {
-        setConnection(false, $("port").textContent, "WebSocket closed; reconnecting");
+        setConnection(false, "WebSocket closed; reconnecting");
         setTimeout(connect, RECONNECT_MS);
       };
     }

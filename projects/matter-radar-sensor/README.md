@@ -317,7 +317,7 @@ because until then the listener is delayed or the board has no address. Serial
 output remains available at a power-conscious two reports per second; the
 WebSocket is a second destination for those same lines, not a replacement.
 
-The page still loads Plotly from `cdn.plot.ly`, so the **viewing device** needs
+The page loads Plotly from `cdn.plot.ly`, so the **viewing device** needs
 internet access for the charts; the board itself does not. Up to three browsers
 can watch at once, and a fourth is refused rather than served slowly.
 
