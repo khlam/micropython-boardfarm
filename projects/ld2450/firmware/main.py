@@ -14,14 +14,14 @@ from math import atan2, degrees, sqrt
 import ujson
 
 from boot_status_led import status
-from ld2450 import LD2450, DeviceNotFoundError
+from radar import LD2450, DeviceNotFoundError
 
 # This table is the wiring used by each supported board. ``uart_id`` selects a
 # UART, ``tx`` connects to radar RX, and ``rx`` connects to radar TX.
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
-    BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=17, rx=18)
+    BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6)
 elif "RP2350" in _machine:
     BOARD = Board(name="RP2350", uart_id=0, tx=0, rx=1)
 else:

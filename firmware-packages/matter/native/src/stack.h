@@ -15,6 +15,9 @@ namespace matter_bridge {
 // to MicroPython.
 bool endpoint_exists(uint16_t endpoint_id);
 
+// Return whether one endpoint path is mirrored by the frozen Python package.
+bool endpoint_tracks_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id);
+
 // Return true once `matter_stack_start()` has brought CHIP up. Before that,
 // setup code may modify ESP-Matter directly from the caller's task; afterwards
 // every mutation must be marshalled onto the CHIP task instead.

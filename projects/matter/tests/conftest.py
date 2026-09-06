@@ -1,8 +1,6 @@
 """Shared fixtures for the Matter example firmware tests."""
 
-import importlib.util
 import io
-import json
 import os
 import pathlib
 import sys
@@ -15,29 +13,30 @@ import neopixel
 import pytest
 
 import matter.node as matter_node
-from micropython_stubs.testing import FakeTime
+from micropython_stubs.testing import FakeTime, json_lines, load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware"
 _MAIN = _FIRMWARE / "main.py"
 _MAIN_MODULE = "matter_project_main"
 
 
-@pytest.fixture(autouse=True)
-def reset_runtime():
+def _reset_state(*, persisted=None, fabrics=()) -> None:
     """Reset every process-wide fake used by the firmware import."""
     machine.reset()
     neopixel.reset()
-    _matter.reset()
+    _matter.reset(persisted=persisted)
+    _matter.seed_fabrics(list(fabrics))
     matter_node._active_node[0] = None
     for name in (_MAIN_MODULE, "color", "color.convert"):
         sys.modules.pop(name, None)
+
+
+@pytest.fixture(autouse=True)
+def reset_runtime():
+    """Reset process-wide MCU and Matter fakes around every test."""
+    _reset_state()
     yield
-    machine.reset()
-    neopixel.reset()
-    _matter.reset()
-    matter_node._active_node[0] = None
-    for name in (_MAIN_MODULE, "color", "color.convert"):
-        sys.modules.pop(name, None)
+    _reset_state()
 
 
 @pytest.fixture
@@ -61,13 +60,7 @@ def load_main(monkeypatch):
         fabrics=(),
         commissioning=(),
     ):
-        _matter.reset(persisted=persisted)
-        _matter.seed_fabrics(list(fabrics))
-        matter_node._active_node[0] = None
-        machine.reset()
-        neopixel.reset()
-        for name in (_MAIN_MODULE, "color", "color.convert"):
-            sys.modules.pop(name, None)
+        _reset_state(persisted=persisted, fabrics=fabrics)
 
         fake_time = FakeTime()
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
@@ -84,13 +77,9 @@ def load_main(monkeypatch):
 
             monkeypatch.setattr(_matter, "start", start_with_events)
 
-        spec = importlib.util.spec_from_file_location(_MAIN_MODULE, _MAIN)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[_MAIN_MODULE] = module
         output = io.StringIO()
         with redirect_stdout(output):
-            spec.loader.exec_module(module)
-        lines = [json.loads(line) for line in output.getvalue().splitlines() if line]
-        return SimpleNamespace(module=module, time=fake_time, lines=lines)
+            module = load_firmware_module(_MAIN, _MAIN_MODULE, "run")
+        return SimpleNamespace(module=module, time=fake_time, lines=json_lines(output.getvalue()))
 
     return load

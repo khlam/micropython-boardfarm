@@ -15,6 +15,7 @@ cd "$repo_root"
 
 IMAGE_TAG_RUFF="local/ruff:latest"
 IMAGE_TAG_VULTURE="local/vulture:latest"
+IMAGE_TAG_VULTURE_SOURCE="local/vulture-source:latest"
 IMAGE_TAG_PYDOCLINT="local/pydoclint:latest"
 IMAGE_TAG_HADOLINT="local/hadolint:latest"
 IMAGE_TAG_YAMLLINT="local/yamllint:latest"
@@ -41,7 +42,7 @@ done
 fail=0
 
 if (( ${#py_files[@]} > 0 )); then
-  "${bake[@]}" ruff pydoclint vulture typecheck || fail=1
+  "${bake[@]}" ruff pydoclint vulture vulture-source typecheck || fail=1
 
   echo "[lint] ruff format --check (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_RUFF" \
@@ -54,6 +55,12 @@ if (( ${#py_files[@]} > 0 )); then
   echo "[lint] vulture (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE" \
     -- "${py_files[@]}" .vulture_allowlist.py || fail=1
+
+  # Same files again with the tests held out; the image owns the exclusions and
+  # the pass/fail decision. No `--` here: the stage's own ENTRYPOINT supplies it.
+  echo "[lint] vulture (source only, tests held out)"
+  docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_VULTURE_SOURCE" \
+    "${py_files[@]}" || fail=1
 
   echo "[lint] pydoclint (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \

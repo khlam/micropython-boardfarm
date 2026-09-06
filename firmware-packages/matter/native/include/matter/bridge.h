@@ -4,7 +4,6 @@
 // C boundary between MicroPython and the native ESP-Matter protocol bridge.
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,23 +20,14 @@ enum matter_endpoint_type {
     MATTER_ENDPOINT_ON_OFF_LIGHT = 0,
     MATTER_ENDPOINT_DIMMABLE_LIGHT = 1,
     MATTER_ENDPOINT_EXTENDED_COLOR_LIGHT = 2,
+    MATTER_ENDPOINT_OCCUPANCY_SENSOR = 3,
 };
 
-// Which fields of a queued event carry meaning. An attribute event fills the
-// whole path; a commissioning event carries its state in `value` alone.
-enum matter_event_kind {
-    MATTER_EVENT_ATTRIBUTE = 0,
-    MATTER_EVENT_COMMISSIONING = 1,
-};
-
-// What caused an attribute update. Only remote updates are ever enqueued — the
-// bridge drops its own echo at the source — but the codes stay aligned with
-// the Python `Origin` names, MATTER_ORIGIN_RESTORE included, so the two sides
-// describe an update the same way.
-enum matter_event_origin {
-    MATTER_ORIGIN_REMOTE = 0,
-    MATTER_ORIGIN_LOCAL = 1,
-    MATTER_ORIGIN_RESTORE = 2,
+// Which fields of a snapshot record carry meaning. An attribute record fills
+// the whole path; a commissioning record carries its state in `value` alone.
+enum matter_snapshot_kind {
+    MATTER_SNAPSHOT_ATTRIBUTE = 0,
+    MATTER_SNAPSHOT_COMMISSIONING = 1,
 };
 
 // Pairing transitions reported to Python. Ordered to index the decode table in
@@ -59,17 +49,36 @@ enum matter_value_type {
     MATTER_VALUE_UINT16 = 2,
 };
 
-// One event crossing the queue. Flat and pointer-free by design, because
-// FreeRTOS copies it in and out by value: an event can therefore outlive the
-// CHIP task that produced it without referring to anything that task owns.
-struct matter_event {
+// One value in a MicroPython-originated publication batch. A batch belongs to
+// one endpoint, so the endpoint ID is carried once by the request rather than
+// repeated here.
+struct matter_attribute_update {
+    uint32_t cluster_id;
+    uint32_t attribute_id;
+    uint32_t value;
+    uint8_t value_type;
+};
+
+// One retained state record crossing the C boundary. Revision is drawn from a
+// node-wide sequence, allowing Python to order attributes and commissioning
+// state coherently after coalescing repeated writes.
+struct matter_snapshot_record {
+    uint32_t revision;
     uint8_t kind;
     uint16_t endpoint_id;
     uint32_t cluster_id;
     uint32_t attribute_id;
     uint32_t value;
     uint8_t value_type;
-    uint8_t origin;
+};
+
+// Sixteen supported endpoints can each expose at most ten Python-mirrored
+// attributes. Commissioning adds one session and one window record.
+enum {
+    MATTER_MAX_ENDPOINTS = 16,
+    MATTER_MAX_ATTRIBUTE_BATCH = 10,
+    MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS = MATTER_MAX_ENDPOINTS * MATTER_MAX_ATTRIBUTE_BATCH,
+    MATTER_MAX_SNAPSHOT_RECORDS = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2,
 };
 
 // The label size is the Matter maximum plus its terminator. The fabric ceiling
@@ -91,8 +100,8 @@ struct matter_fabric {
 // OSError. The setup calls below run on the caller's task straight against
 // esp_matter, which is safe only because nothing is started yet.
 
-// Create the sole node and the queue its callbacks publish into.
-// Returns EALREADY when a node exists, ENOMEM, or EIO.
+// Create the sole node and reset the state its callbacks publish into.
+// Returns EALREADY when a node exists, or EIO.
 int matter_node_create(void);
 
 // Add one endpoint of `endpoint_type` and write back the ID the stack assigned.
@@ -120,20 +129,25 @@ int matter_stack_start(void);
 int matter_attribute_get(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id, uint32_t *value,
                          uint8_t *value_type, uint32_t timeout_ms);
 
-// Publish a locally decided value so Matter subscribers observe it. The echo
-// this provokes is suppressed rather than queued.
+// Publish one validated batch of locally decided values so Matter subscribers
+// observe it. Every path is preflighted before the first update, and echoes are
+// suppressed rather than queued. ESP-Matter cannot roll back an unexpected
+// update failure, so earlier values in the batch may already be applied.
 // Returns the same codes as matter_attribute_get, plus ERANGE or ENOTSUP for a
-// value the attribute's stored type cannot hold.
-int matter_attribute_publish(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id, uint32_t value,
-                             uint8_t value_type, uint32_t timeout_ms);
+// value the attribute's stored type cannot hold, or EINVAL for an empty or
+// oversized batch.
+int matter_attributes_publish(uint16_t endpoint_id, const struct matter_attribute_update *updates,
+                              size_t count, uint32_t timeout_ms);
 
-// Pop one queued event without waiting, returning false when the queue is dry.
-bool matter_next_event(struct matter_event *event);
+// Return the current snapshot generation without scheduling onto the CHIP
+// task. Natural uint32 wrap is allowed.
+uint32_t matter_state_generation(void);
 
-// Return the attribute queue's overflow generation without consuming it.
-// Python records a generation only after it successfully re-reads state, so a
-// failed resynchronization remains pending. Natural uint32 wrap is allowed.
-uint32_t matter_overflow_generation(void);
+// Copy one coherent snapshot from the CHIP task. The output remains untouched
+// when `capacity` is too small. Returns the scheduling errnos listed for
+// matter_attribute_get, or ENOSPC.
+int matter_get_state_snapshot(struct matter_snapshot_record *records, size_t capacity, size_t *count,
+                              uint32_t *generation, uint32_t timeout_ms);
 
 // Reopen pairing for `timeout_s`. Returns EALREADY when a window is already
 // open, or the scheduling errnos matter_attribute_get lists.
@@ -156,9 +170,16 @@ int matter_remove_fabric(uint8_t fabric_index, uint32_t timeout_ms);
 // errnos above on failure.
 int matter_factory_reset(uint32_t timeout_ms);
 
-// Implemented by matter_module.c. CHIP tasks use it only after enqueueing an
-// event; it schedules the registered drain callback onto the VM task.
-void matter_bridge_notify_event(void);
+// Enough for "255.255.255.255" and its terminator.
+enum { MATTER_ADDRESS_SIZE = 16 };
+
+// Copy the IPv4 address commissioning obtained for the Wi-Fi station interface.
+// Nothing here configures the radio: CHIP owns it, and this only reads back what
+// it already brought up, which is the one piece of that state an application
+// cannot reach any other way.
+// Returns ENOTCONN while the interface has no address, EINVAL for a buffer
+// smaller than MATTER_ADDRESS_SIZE, or EIO.
+int matter_network_address(char *address, size_t capacity);
 
 #ifdef __cplusplus
 }

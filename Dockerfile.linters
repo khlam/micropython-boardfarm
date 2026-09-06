@@ -23,6 +23,24 @@ ENTRYPOINT ["yamllint"]
 FROM python-lint-base AS vulture-lint
 ENTRYPOINT ["vulture"]
 
+# Second vulture pass over the same files with the tests held out, so a
+# definition kept alive only by its own test is reported instead of looking
+# used. --exclude replaces pyproject.toml's [tool.vulture] exclude list rather
+# than merging with it, so the vendored driver and manifest.py named there are
+# restated below. The trailing "--" is the $0 sentinel: callers pass paths
+# directly, with no -- separator of their own.
+FROM python-lint-base AS vulture-source-lint
+ENTRYPOINT ["sh", "-c", "\
+  out=\"$(vulture --min-confidence 60 \
+    --exclude '*/tests/*,*/test_*,*conftest.py,*micropython_stubs*,*vl53l0x/vl53l0x.py,*/manifest.py' \
+    -- \"$@\" | grep -E 'unused (method|function|class)' || true)\"; \
+  if [ -n \"$out\" ]; then \
+    echo \"$out\"; \
+    echo '[lint] the above are defined and tested but never called by source.'; \
+    echo '[lint] Delete them, or justify them in .vulture_source_only_allowlist.py.'; \
+    exit 1; \
+  fi", "--"]
+
 FROM python-lint-base AS pydoclint-lint
 ENTRYPOINT ["pydoclint"]
 

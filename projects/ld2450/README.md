@@ -122,8 +122,8 @@ supply, connect its ground to the board's `GND`.
 | --- | --- | --- | --- |
 | `5V` | — | `5V` | Radar power |
 | `GND` | — | `GND` | Common power and signal ground |
-| `GPIO17` | UART1 TX | `RX` | MCU to radar |
-| `GPIO18` | UART1 RX | `TX` | Radar reports to MCU |
+| `GPIO5` | UART1 TX | `RX` | MCU to radar |
+| `GPIO6` | UART1 RX | `TX` | Radar reports to MCU |
 
 The demo expects the factory serial settings: 256000 baud, eight data bits, no
 parity, and one stop bit. It never changes the radar configuration. See the
@@ -132,5 +132,6 @@ parity, and one stop bit. It never changes the radar configuration. See the
 On ESP32-S3, MicroPython implements the receive-idle UART interrupt with
 `Timer(0)`. This project leaves that timer reserved for the radar driver.
 
-The reusable radar driver is documented in
-[`../../firmware-packages/ld2450/`](../../firmware-packages/ld2450/).
+The reusable radar drivers are documented in
+[`../../firmware-packages/radar/`](../../firmware-packages/radar/). This project
+is wired to one radar, so it constructs `LD2450` directly.

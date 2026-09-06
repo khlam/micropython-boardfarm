@@ -7,6 +7,7 @@
     "./firmware-packages/i2c_bus",
     "./firmware-packages/mpu6050",
     "./firmware-packages/qmc5883p",
+    "./firmware-packages/radar",
     "./firmware-packages/smoothing",
     "./firmware-packages/vl53l0x",
     "./firmware-packages/vl53l5cx",

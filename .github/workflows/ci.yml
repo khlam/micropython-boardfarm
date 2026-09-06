@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Run native Matter queue tests
+      - name: Run native Matter state snapshot tests
         run: docker compose up matter-native-test --build --exit-code-from matter-native-test
       - name: Run pytest
         run: docker compose up pytest --build --exit-code-from pytest
@@ -91,14 +91,16 @@ jobs:
           - ld2450
           - led-effects
           - matter
+          - matter-radar-sensor
           - multizone-ranging
         target:
           - rp
           - esp32
         exclude:
-          # Matter is ESP32-S3-only — projects/matter/docker-compose.yaml has
-          # no pi-compile service.
+          # Matter projects are ESP32-S3-only and have no pi-compile service.
           - project: matter
+            target: rp
+          - project: matter-radar-sensor
             target: rp
         include:
           # max_bytes: per-artifact size budgets (cloud-only). See CI.md
@@ -113,8 +115,11 @@ jobs:
             label: ESP32-S3
             pattern: outputs/*.bin
             max_bytes: 2097152  # 2 MiB per .bin
-          # esp32-matter's build.py enforces 4 MiB flash-size cap
+          # Matter build.py pads and validates each complete 4 MiB flash image.
           - project: matter
+            target: esp32
+            max_bytes: 4194304  # 4 MiB (board flash size)
+          - project: matter-radar-sensor
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
     steps:

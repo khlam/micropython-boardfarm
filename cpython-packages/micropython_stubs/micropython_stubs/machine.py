@@ -11,6 +11,8 @@ _devices: dict[int, object] = {}
 _uart_lines: list[bytes] = []
 _uart_bytes = bytearray()
 _uart_read_exc: Exception | None = None
+_uart_write_exc: Exception | None = None
+_uart_replies: list[bytes] = []
 
 
 def register_device(address: int, device: object) -> None:
@@ -52,15 +54,42 @@ def fail_uart_reads(exc: Exception | None) -> None:
     _uart_read_exc = exc
 
 
+def fail_uart_writes(exc: Exception | None) -> None:
+    """Make the next `UART.write()` call raise `exc` instead of sending data.
+
+    One-shot like `fail_uart_reads()`. Pass None to cancel a pending fault.
+
+    Args:
+        exc: Exception the next `write()` call raises, or None to clear.
+    """
+    global _uart_write_exc  # noqa: PLW0603
+    _uart_write_exc = exc
+
+
+def queue_uart_replies(replies: list[bytes]) -> None:
+    """Queue one receive-queue reply per `UART.write()` call (FIFO).
+
+    Models a device that answers each command frame, which a driver awaiting an
+    acknowledgement inside its own coroutine cannot otherwise be fed. Writes
+    made after the queue empties send nothing back.
+
+    Args:
+        replies: Byte strings fed back, in order, one per write.
+    """
+    _uart_replies.extend(replies)
+
+
 def reset() -> None:
     """Clear recorded constructions, the device registry, and the UART queues."""
-    global _uart_read_exc  # noqa: PLW0603
+    global _uart_read_exc, _uart_write_exc  # noqa: PLW0603
     pin_constructions.clear()
     uart_constructions.clear()
     _devices.clear()
     _uart_lines.clear()
     _uart_bytes.clear()
+    _uart_replies.clear()
     _uart_read_exc = None
+    _uart_write_exc = None
 
 
 class Pin:
@@ -153,7 +182,8 @@ class UART:
     such as `bits`, `parity`, `stop`, `rxbuf`, and `timeout_char` stay
     inspectable without this signature tracking them. `irq()` records a
     receive-idle callback that `machine.feed_uart_bytes(...)` then fires, which
-    is how an interrupt-driven driver gets woken on the host.
+    is how an interrupt-driven driver gets woken on the host. Sent frames land
+    in `writes`, and `machine.queue_uart_replies(...)` answers them.
     """
 
     # Ports assign their own bit for this trigger, so only its identity
@@ -177,7 +207,30 @@ class UART:
         self.irq_trigger = 0
         self.irq_hard = False
         self.deinitialized = False
+        self.writes: list[bytes] = []
         uart_constructions.append(self)
+
+    def write(self, data: bytes) -> int:
+        """Record one sent frame and feed back its scripted reply, if any.
+
+        Args:
+            data: Bytes the driver sent.
+
+        Returns:
+            How many bytes were sent, as the real UART reports.
+
+        Raises:
+            exc: Whatever `fail_uart_writes()` last armed, raised once instead
+                of sending.
+        """
+        global _uart_write_exc
+        if _uart_write_exc is not None:
+            exc, _uart_write_exc = _uart_write_exc, None
+            raise exc
+        self.writes.append(bytes(data))
+        if _uart_replies:
+            feed_uart_bytes(_uart_replies.pop(0))
+        return len(data)
 
     def readline(self) -> bytes | None:
         """Return the next queued byte line, or None when the queue is empty."""

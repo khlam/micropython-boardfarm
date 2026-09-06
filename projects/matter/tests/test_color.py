@@ -108,41 +108,25 @@ def test_rgb_round_trip_preserves_color_with_rounding_tolerance(color_module, co
     assert all(abs(actual - expected) <= 3 for actual, expected in channels)
 
 
-def test_publish_triple_changes_attributes_in_safe_order_without_power(color_module):
-    endpoint = _RecordingEndpoint(
-        hue=0,
-        saturation=0,
-        color_mode=color_module.ColorMode.COLOR_TEMPERATURE,
-        enhanced_color_mode=color_module.ColorMode.COLOR_TEMPERATURE,
-        level=254,
-        on=False,
-    )
+def test_publish_triple_sends_one_named_batch_without_power(color_module):
+    batches = []
+
+    def record(**attributes):
+        batches.append(attributes)
+
+    endpoint = SimpleNamespace(set=record)
 
     color_module.publish_triple(endpoint, (0, 25, 0))
 
-    assert endpoint.writes == [
-        ("hue", 85),
-        ("saturation", 254),
-        ("color_mode", color_module.ColorMode.HUE_SATURATION),
-        ("enhanced_color_mode", color_module.ColorMode.HUE_SATURATION),
-        ("level", 25),
+    assert batches == [
+        {
+            "hue": 85,
+            "saturation": 254,
+            "color_mode": color_module.ColorMode.HUE_SATURATION,
+            "enhanced_color_mode": color_module.ColorMode.HUE_SATURATION,
+            "level": 25,
+        }
     ]
-    assert endpoint.on is False
-
-
-def test_publish_triple_skips_attributes_that_already_match(color_module):
-    endpoint = _RecordingEndpoint(
-        hue=85,
-        saturation=254,
-        color_mode=color_module.ColorMode.HUE_SATURATION,
-        enhanced_color_mode=color_module.ColorMode.HUE_SATURATION,
-        level=25,
-        on=True,
-    )
-
-    color_module.publish_triple(endpoint, (0, 25, 0))
-
-    assert endpoint.writes == []
 
 
 def _endpoint(**changes):
@@ -159,17 +143,3 @@ def _endpoint(**changes):
     }
     values.update(changes)
     return SimpleNamespace(**values)
-
-
-class _RecordingEndpoint:
-    """Endpoint-shaped object that records public attribute writes."""
-
-    def __init__(self, **values) -> None:
-        object.__setattr__(self, "writes", [])
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
-
-    def __setattr__(self, name, value) -> None:
-        if name != "writes":
-            self.writes.append((name, value))
-        object.__setattr__(self, name, value)

@@ -2,10 +2,25 @@
 
 import ujson
 
+_sinks = []
+
+
+def add_sink(sink: object) -> None:
+    """Deliver each stdout JSON line to an additional destination.
+
+    Args:
+        sink: Callable accepting the encoded line without a trailing newline.
+            It runs synchronously and must neither raise nor block.
+    """
+    _sinks.append(sink)
+
 
 def emit(obj: dict) -> None:
     """Write one compact JSON object followed by a newline."""
-    print(ujson.dumps(obj))  # noqa: T201 - the JSON writer is the one stdout boundary
+    line = ujson.dumps(obj)
+    print(line)  # noqa: T201 - the JSON writer is the one stdout boundary
+    for sink in _sinks:
+        sink(line)
 
 
 def event(name: str, state: str) -> None:

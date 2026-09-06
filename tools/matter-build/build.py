@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import fcntl
+import gzip
 import os
 import re
 import secrets
@@ -59,6 +60,10 @@ _OWNER_REFERENCE = Path("/firmware")
 _BOARD_NAME = "ESP32_S3_MATTER"
 _IDF_TARGET = "esp32s3"
 _ARTIFACT_MODE = 0o644
+
+# The project's own dashboard, served by the board once it is on the network.
+# Optional: a project without a viz/ mount simply builds without one.
+_DASHBOARD_SOURCE = Path("/viz/static/index.html")
 
 _MERGED_NAME = "app.esp32-s3.bin"
 _QR_NAME = "app.esp32-s3.qr.png"
@@ -156,7 +161,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         staging_root = Path(scratch)
         _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
-        _build_firmware(_BUILD_CACHE)
+        _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
         factory, qr, manual, payload, discriminator = _mint_credentials(
             staging_root, identity, manufacturer, serial_number, model, passcode
         )
@@ -292,8 +297,46 @@ def _run(
     subprocess.run([executable, *command[1:]], check=True, cwd=cwd, env=environment)  # noqa: S603
 
 
-def _build_firmware(build_root: Path) -> None:
-    """Compile MicroPython with the ESP-Matter native module into build_root."""
+def _stage_dashboard(staging_root: Path) -> Path | None:
+    """Turn the project's dashboard page into a module, and return its directory.
+
+    Freeze the authored HTML as gzip bytes because the board has no filesystem
+    partition. The server sends those bytes without expanding them. Stage them
+    outside the read-only /firmware mount for manifest.py's FROZEN_STAGING_DIR.
+
+    Args:
+        staging_root: Scratch directory this build owns for the whole run.
+
+    Returns:
+        The directory to freeze, or None when the project has no dashboard.
+    """
+    if not _DASHBOARD_SOURCE.is_file():
+        return None
+    # mtime=0 so the same page keeps producing the same firmware image.
+    body = gzip.compress(_DASHBOARD_SOURCE.read_bytes(), compresslevel=9, mtime=0)
+    staged = staging_root / "frozen"
+    staged.mkdir(parents=True, exist_ok=True)
+    (staged / "dashboard_page.py").write_text(
+        '"""The project dashboard, generated from its viz/static/index.html."""\n\n'
+        'ENCODING = "gzip"\n'
+        f"PAGE = {body!r}\n"
+    )
+    return staged
+
+
+def _build_firmware(build_root: Path, staged: Path | None) -> None:
+    """Compile MicroPython with the ESP-Matter native module into build_root.
+
+    Remove cached sdkconfig so idf.py applies the board's SDKCONFIG_DEFAULTS on
+    every build. There is no interactive configuration to preserve; identical
+    regenerated contents leave compiled objects untouched.
+
+    Args:
+        build_root: Directory the IDF build tree lives in.
+        staged: Directory of build-generated modules to freeze, or None when the
+            build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
+    """
+    (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
     _run(
         [
             "idf.py",
@@ -311,7 +354,11 @@ def _build_firmware(build_root: Path) -> None:
             f"USER_C_MODULES={_MATTER_NATIVE / 'micropython' / 'micropython.cmake'}",
             "build",
         ],
-        env=dict(os.environ, MATTER_NATIVE_PATH=str(_MATTER_NATIVE)),
+        env=dict(
+            os.environ,
+            MATTER_NATIVE_PATH=str(_MATTER_NATIVE),
+            FROZEN_STAGING_DIR=str(staged or ""),
+        ),
     )
 
 
@@ -400,6 +447,8 @@ def _merge_image(
             "--chip",
             _IDF_TARGET,
             "merge_bin",
+            "--fill-flash-size",
+            f"{identity.flash_size // (1024 * 1024)}MB",
             "-o",
             str(merged),
             "@flash_args",
@@ -530,13 +579,17 @@ def _validate_onboarding(
 def _validate_merged_image(
     merged_path: Path, factory_path: Path, qr_path: Path, identity: _BuildIdentity
 ) -> None:
-    """Check image bounds, factory placement, and QR image presence."""
+    """Check image size, factory placement, and QR image presence.
+
+    The merged image is padded to the whole flash, so anything else means the
+    merge did not produce the layout the board is about to be written with.
+    """
     merged = merged_path.read_bytes()
     factory = factory_path.read_bytes()
     start = identity.factory_offset
     end = start + identity.factory_size
-    if not merged or len(merged) > identity.flash_size:
-        raise ValueError(f"merged image exceeds the {identity.flash_size:#x} byte flash layout")
+    if len(merged) != identity.flash_size:
+        raise ValueError(f"merged image must be exactly {identity.flash_size:#x} bytes")
     if len(factory) != identity.factory_size:
         raise ValueError(f"factory partition must be exactly {identity.factory_size:#x} bytes")
     if merged[start:end] != factory:
