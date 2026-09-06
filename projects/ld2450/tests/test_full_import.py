@@ -56,8 +56,8 @@ def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, boa
             closed.append(self)
 
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
-    ld2450_stub = SimpleNamespace(LD2450=_FakeLD2450, DeviceNotFoundError=DeviceNotFoundError)
-    for name, module in build_full_import_stubs("ld2450", ld2450_stub, fake_status).items():
+    radar_stub = SimpleNamespace(LD2450=_FakeLD2450, DeviceNotFoundError=DeviceNotFoundError)
+    for name, module in build_full_import_stubs("radar", radar_stub, fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.delitem(sys.modules, "main", raising=False)
 
