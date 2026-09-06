@@ -1,7 +1,7 @@
 # radar
 
-UART drivers for the supported presence radars, and the vocabulary for choosing
-between them. Every driver is a submodule subclassing the shared
+UART drivers for the supported presence radars. Every driver is a submodule
+subclassing the shared
 [`ReportStream`](radar/stream.py) reader and decoding into the same `Target`
 shape, so a caller reads any supported radar the same way.
 
@@ -11,10 +11,9 @@ shape, so a caller reads any supported radar the same way.
 | [`radar/ld2420.py`](radar/ld2420.py) | HLK-LD2420 | Presence and range only. **Writes** to the radar at startup. |
 | [`radar/stream.py`](radar/stream.py) | — | The framing, wakeup, and report-selection machinery every driver shares. |
 
-## Choose a radar
+## Read one known radar
 
-MicroPython has no `enum` module, so the model vocabulary is a class of string
-constants. Each value is also the name firmware publishes in its JSON reports.
+A project wired to a known radar constructs that driver directly:
 
 ```python
 import asyncio
@@ -23,7 +22,7 @@ import radar
 
 
 async def main():
-    device = radar.driver(radar.Model.LD2450, bus_id=0, tx=0, rx=1)
+    device = radar.LD2450(bus_id=0, tx=0, rx=1)
     try:
         await device.wait_ready()
         while True:
@@ -42,24 +41,21 @@ numbers. Connect the microcontroller TX pin to the radar RX pin and the
 microcontroller RX pin to the radar transmit pin (`TX` on the LD2450, `OT1` on
 the LD2420).
 
-`DRIVERS` is the registry behind `driver()` — an ordered tuple of
-`(model, class)` pairs rather than a dict, because MicroPython dicts are not
-insertion-ordered and `detect()` depends on the order.
-
 ## Detect whichever radar is wired
 
-When both radars share one UART and one pair of pins, `detect()` probes them in
-`DRIVERS` order and returns the first that answered, releasing every probe that
-stayed silent:
+When both radars share one UART and one pair of pins, `detect()` probes the
+drivers in `DRIVERS` order and returns the first that answered, releasing every
+probe that stayed silent:
 
 ```python
 model, device = await radar.detect(bus_id=0, tx=0, rx=1)
 ```
 
-The LD2450 is probed first because its driver only reads, so an attached LD2450
-is never written to. `detect()` raises `NoRadarError` when none answered, and
-lets `OSError` through when the UART itself failed — a project's retry loop
-tells "nothing is wired here" from "the bus is broken" that way.
+`model` is the answering driver's `NAME` — the name firmware publishes in its
+JSON reports. The LD2450 is probed first because its driver only reads, so an
+attached LD2450 is never written to. `detect()` raises `NoRadarError` when none
+answered, and lets `OSError` through when the UART itself failed — a project's
+retry loop tells "nothing is wired here" from "the bus is broken" that way.
 
 ## Targets
 

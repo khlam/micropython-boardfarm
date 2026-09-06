@@ -285,7 +285,7 @@ reads `{"slot":1,"x_mm":0,"y_mm":1450,"speed_cm_s":0,"resolution_mm":0}`. Which
 radar produced it is reported once per detection:
 
 ```json
-{"diag":"radar_ok","model":"ld2420"}
+{"diag":"radar_ok","model":"LD2420"}
 ```
 
 One `emit()` sink writes each line to both destinations: USB serial and the

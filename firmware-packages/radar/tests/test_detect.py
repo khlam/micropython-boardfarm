@@ -5,7 +5,7 @@ import asyncio
 import machine
 import pytest
 
-from radar import LD2420, NoRadarError, Target, detect
+from radar import LD2420, LD2450, NoRadarError, Target, detect
 from radar import ld2420 as ld2420_module
 
 _BUS = {"bus_id": 1, "tx": 5, "rx": 6}
@@ -28,7 +28,7 @@ def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(build_ld245
         return model, await device.read_latest()
 
     model, targets = asyncio.run(_run())
-    assert model == "ld2450"
+    assert model == LD2450.NAME
     assert targets == (Target(1, 100, 200, -5, 30),)
     assert len(machine.uart_constructions) == 1  # the LD2420 was never probed
 
@@ -42,7 +42,7 @@ def test_ld2420_is_probed_after_the_ld2450_stays_silent(build_ld2420_report, con
         return model, await device.read_latest()
 
     model, targets = asyncio.run(_run())
-    assert model == "ld2420"
+    assert model == LD2420.NAME
     # Range only: x and speed are "not measured", not measurements.
     assert targets == (Target(slot=1, x_mm=0, y_mm=1450, speed_cm_s=0, resolution_mm=0),)
     assert machine.uart_constructions[0].deinitialized is True  # LD2450 released first

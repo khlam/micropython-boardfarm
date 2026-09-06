@@ -3,7 +3,7 @@
 The AST-load fixture in the other test files covers function bodies but
 skips module-level imports and the trailing asyncio.run(main()) call. This
 test stubs sys.modules for every external dependency and loads main.py as a
-real module — exercising each per-chip BOARD branch — while a fake driver
+real module — exercising each per-chip BOARD branch — while a fake LD2450
 raises after one report to escape stream() via asyncio.run(main()).
 """
 
@@ -38,9 +38,9 @@ def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, boa
     closed = []
 
     class _FakeLD2450:
-        """Stub driver that opens its own UART; second read_latest() escapes stream()."""
+        """Stub LD2450 that opens its own UART; second read_latest() escapes stream()."""
 
-        def __init__(self, model, *, bus_id, tx, rx) -> None:
+        def __init__(self, *, bus_id, tx, rx) -> None:
             self._calls = 0
 
         async def wait_ready(self) -> None:
@@ -56,12 +56,7 @@ def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, boa
             closed.append(self)
 
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
-    radar_stub = SimpleNamespace(
-        driver=_FakeLD2450,
-        Model=SimpleNamespace(LD2450="ld2450"),
-        ReportStream=object,
-        DeviceNotFoundError=DeviceNotFoundError,
-    )
+    radar_stub = SimpleNamespace(LD2450=_FakeLD2450, DeviceNotFoundError=DeviceNotFoundError)
     for name, module in build_full_import_stubs("radar", radar_stub, fake_status).items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.delitem(sys.modules, "main", raising=False)

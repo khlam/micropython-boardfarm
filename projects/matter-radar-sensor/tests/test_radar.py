@@ -11,7 +11,7 @@ from micropython_stubs.testing import StopLoopError, json_lines
 class FakeRadar:
     """Script reports, closure, and close errors for an already-detected radar."""
 
-    def __init__(self, *, reports=(), close_error=None, model="ld2450") -> None:
+    def __init__(self, *, reports=(), close_error=None, model="LD2450") -> None:
         """Store the scripted outcomes."""
         self.reports = list(reports)
         self.close_error = close_error

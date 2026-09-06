@@ -31,7 +31,6 @@ else:
 Rules no single package's README states, because they constrain its callers:
 
 - `i2c_bus` is consumed only by drivers, never by projects.
-- Each radar is a submodule; callers switch on `Model`, never on a package name.
 - `httpd` serves bodies decided before start; parses nothing it forwards. `Broadcast.send()` never raises or blocks.
 - `matter/` splits at the native boundary: `matter/` is the MicroPython interface, `native/` the ESP-Matter `_matter` bridge. [matter/ARCHITECTURE.md](matter/ARCHITECTURE.md) has the mermaid call-path diagrams across it.
 

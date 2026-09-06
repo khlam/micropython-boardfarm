@@ -134,4 +134,4 @@ On ESP32-S3, MicroPython implements the receive-idle UART interrupt with
 
 The reusable radar drivers are documented in
 [`../../firmware-packages/radar/`](../../firmware-packages/radar/). This project
-selects one by name with `driver(Model.LD2450, ...)`.
+is wired to one radar, so it constructs `LD2450` directly.
