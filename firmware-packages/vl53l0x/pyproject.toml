@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vl53l0x"
-version = "0.2.0"
+version = "0.2.1"
 description = "MicroPython wrapper around the vendored VL53L0X time-of-flight driver."
 requires-python = ">=3.12"
 
