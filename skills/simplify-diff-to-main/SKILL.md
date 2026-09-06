@@ -23,8 +23,7 @@ Never sacrifice safety, validation, readability, or meaningful test behaviors to
 
 ## Workflow
 
-First inspect the repository and working tree. Identify the repository's canonical base branch and review the complete branch diff from its merge base, including relevant uncommitted working-tree changes. Understand each logical change and distinguish essential behavior from incidental implementation. Determine intended behavior from the surrounding code and relevant documentation. Ask for clarification when intent is ambiguous.
-Prefer deletion over rewriting and direct code over speculative abstraction.
+First inspect the repository and working tree. Identify the repository's canonical base branch and review the complete branch diff from its merge base, including relevant uncommitted working-tree changes. Understand each logical change and distinguish essential behavior from incidental implementation. Determine intended behavior from the surrounding code and relevant documentation. Ask for clarification when intent is ambiguous. Prefer deletion over rewriting and direct code over speculative abstraction.
 
 ## Iterative simplification
 
