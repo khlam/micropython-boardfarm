@@ -300,15 +300,9 @@ def _run(
 def _stage_dashboard(staging_root: Path) -> Path | None:
     """Turn the project's dashboard page into a module, and return its directory.
 
-    The board has no filesystem partition, so a page can only reach it as frozen
-    code. Generating the module here means viz/static/index.html stays the one
-    copy anybody edits — the page is authored as a file and compiled into the
-    image, never maintained as a Python string. It is gzipped now and sent under
-    a Content-Encoding header later, so neither the flash nor the chip ever
-    holds the expanded page.
-
-    The directory is separate from /firmware because that mount is read-only,
-    and manifest.py freezes it through FROZEN_STAGING_DIR.
+    Freeze the authored HTML as gzip bytes because the board has no filesystem
+    partition. The server sends those bytes without expanding them. Stage them
+    outside the read-only /firmware mount for manifest.py's FROZEN_STAGING_DIR.
 
     Args:
         staging_root: Scratch directory this build owns for the whole run.
@@ -323,7 +317,7 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
     staged = staging_root / "frozen"
     staged.mkdir(parents=True, exist_ok=True)
     (staged / "dashboard_page.py").write_text(
-        f'"""The project dashboard, generated from its viz/static/index.html."""\n\n'
+        '"""The project dashboard, generated from its viz/static/index.html."""\n\n'
         'ENCODING = "gzip"\n'
         f"PAGE = {body!r}\n"
     )
@@ -333,12 +327,9 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
 def _build_firmware(build_root: Path, staged: Path | None) -> None:
     """Compile MicroPython with the ESP-Matter native module into build_root.
 
-    The cached sdkconfig is dropped first. `idf.py` treats an existing one as the
-    live configuration and stops consulting SDKCONFIG_DEFAULTS, so on every build
-    after the first the board's own sdkconfig fragment silently stops applying --
-    the repository would no longer describe the firmware. Nothing here configures
-    interactively, so there is no hand-made state to lose, and a regenerated file
-    with identical contents leaves every compiled object untouched.
+    Remove cached sdkconfig so idf.py applies the board's SDKCONFIG_DEFAULTS on
+    every build. There is no interactive configuration to preserve; identical
+    regenerated contents leave compiled objects untouched.
 
     Args:
         build_root: Directory the IDF build tree lives in.
@@ -346,11 +337,6 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
             build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
     """
     (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
-    environment = dict(
-        os.environ,
-        MATTER_NATIVE_PATH=str(_MATTER_NATIVE),
-        FROZEN_STAGING_DIR=str(staged or ""),
-    )
     _run(
         [
             "idf.py",
@@ -368,7 +354,11 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
             f"USER_C_MODULES={_MATTER_NATIVE / 'micropython' / 'micropython.cmake'}",
             "build",
         ],
-        env=environment,
+        env=dict(
+            os.environ,
+            MATTER_NATIVE_PATH=str(_MATTER_NATIVE),
+            FROZEN_STAGING_DIR=str(staged or ""),
+        ),
     )
 
 

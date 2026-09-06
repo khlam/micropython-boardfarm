@@ -9,20 +9,14 @@
 namespace matter_bridge {
 namespace {
 
-struct AttributeSlot {
+struct SnapshotSlot {
     bool present = false;
     matter_snapshot_record record{};
 };
 
-struct CommissioningSlot {
-    bool present = false;
-    matter_commissioning_state state = MATTER_COMMISSIONING_STARTED;
-    uint32_t revision = 0;
-};
-
-std::array<AttributeSlot, MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS> attributes{};
-CommissioningSlot commissioning_session{};
-CommissioningSlot commissioning_window{};
+// The final two slots are reserved for the session and window lifecycles, so
+// attribute traffic cannot evict either commissioning record.
+std::array<SnapshotSlot, MATTER_MAX_SNAPSHOT_RECORDS> slots{};
 std::atomic<uint32_t> generation{0U};
 
 uint32_t next_revision()
@@ -30,10 +24,11 @@ uint32_t next_revision()
     return generation.fetch_add(1U) + 1U;
 }
 
-AttributeSlot *find_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id)
+SnapshotSlot *find_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id)
 {
-    AttributeSlot *empty = nullptr;
-    for (AttributeSlot &slot : attributes) {
+    SnapshotSlot *empty = nullptr;
+    for (size_t index = 0; index < MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS; ++index) {
+        SnapshotSlot &slot = slots[index];
         if (!slot.present) {
             if (empty == nullptr) {
                 empty = &slot;
@@ -49,28 +44,11 @@ AttributeSlot *find_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_
     return empty;
 }
 
-void append_commissioning(matter_snapshot_record *records, size_t *count,
-                          const CommissioningSlot &slot)
-{
-    if (!slot.present) {
-        return;
-    }
-    matter_snapshot_record &record = records[(*count)++];
-    record.revision = slot.revision;
-    record.kind = MATTER_SNAPSHOT_COMMISSIONING;
-    record.value = static_cast<uint32_t>(slot.state);
-    record.value_type = MATTER_VALUE_UINT8;
-}
-
 } // namespace
 
 void reset_state_snapshot(void)
 {
-    for (AttributeSlot &slot : attributes) {
-        slot = {};
-    }
-    commissioning_session = {};
-    commissioning_window = {};
+    slots.fill({});
     generation.store(0U);
 }
 
@@ -82,7 +60,7 @@ uint32_t state_generation(void)
 bool record_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id,
                              uint32_t value, uint8_t value_type)
 {
-    AttributeSlot *slot = find_attribute(endpoint_id, cluster_id, attribute_id);
+    SnapshotSlot *slot = find_attribute(endpoint_id, cluster_id, attribute_id);
     if (slot == nullptr) {
         return false;
     }
@@ -101,7 +79,7 @@ bool clear_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t 
 {
     // find_attribute() answers with a free slot when the path is not retained,
     // so `present` is what separates a hit from an empty one.
-    AttributeSlot *slot = find_attribute(endpoint_id, cluster_id, attribute_id);
+    SnapshotSlot *slot = find_attribute(endpoint_id, cluster_id, attribute_id);
     if (slot == nullptr || !slot->present) {
         return false;
     }
@@ -112,11 +90,14 @@ bool clear_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t 
 
 void record_commissioning_state(matter_commissioning_state state)
 {
-    CommissioningSlot &slot = state <= MATTER_COMMISSIONING_FAILED ? commissioning_session
-                                                                   : commissioning_window;
+    const size_t index = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS +
+                         (state > MATTER_COMMISSIONING_FAILED ? 1U : 0U);
+    SnapshotSlot &slot = slots[index];
     slot.present = true;
-    slot.state = state;
-    slot.revision = next_revision();
+    slot.record.revision = next_revision();
+    slot.record.kind = MATTER_SNAPSHOT_COMMISSIONING;
+    slot.record.value = static_cast<uint32_t>(state);
+    slot.record.value_type = MATTER_VALUE_UINT8;
 }
 
 int copy_state_snapshot(matter_snapshot_record *records, size_t capacity, size_t *count,
@@ -125,22 +106,19 @@ int copy_state_snapshot(matter_snapshot_record *records, size_t capacity, size_t
     if (records == nullptr || count == nullptr || captured_generation == nullptr) {
         return EINVAL;
     }
-    size_t required = commissioning_session.present ? 1U : 0U;
-    required += commissioning_window.present ? 1U : 0U;
-    for (const AttributeSlot &slot : attributes) {
+    size_t required = 0;
+    for (const SnapshotSlot &slot : slots) {
         required += slot.present ? 1U : 0U;
     }
     if (required > capacity) {
         return ENOSPC;
     }
     size_t output_count = 0;
-    for (const AttributeSlot &slot : attributes) {
+    for (const SnapshotSlot &slot : slots) {
         if (slot.present) {
             records[output_count++] = slot.record;
         }
     }
-    append_commissioning(records, &output_count, commissioning_session);
-    append_commissioning(records, &output_count, commissioning_window);
     *count = output_count;
     *captured_generation = generation.load();
     return 0;

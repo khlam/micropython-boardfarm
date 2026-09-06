@@ -123,7 +123,6 @@ def load_firmware_module(
         or entry_call.value.func.id != entry
     ):
         raise ValueError(f"{firmware_path} must end with a call to {entry}()")
-    ast.fix_missing_locations(tree)
     module = types.ModuleType(module_name)
     module.__file__ = str(firmware_path)
     sys.modules[module_name] = module

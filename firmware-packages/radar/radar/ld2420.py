@@ -76,9 +76,20 @@ class LD2420(ReportStream):
     REPORT_TIMEOUT_MS = 500
 
     async def _prepare(self) -> None:
-        """Force energy mode so the report format does not depend on history."""
+        """Force energy mode so the report format does not depend on history.
+
+        ACK buffers are rebound because MicroPython bytearrays cannot delete
+        slices. Only startup commands allocate; reports reuse fixed buffers.
+        """
         for command, payload in _CONFIGURATION:
-            self._send_command(command, payload)
+            self._ack_buffer = bytearray()
+            length = len(payload) + 2
+            self._uart.write(
+                _COMMAND_HEADER
+                + bytes((length & 0xFF, length >> 8, command & 0xFF, command >> 8))
+                + payload
+                + _COMMAND_FOOTER
+            )
             await self._await_ack(command)
 
     def _decode(self, report: bytes | bytearray) -> tuple:
@@ -97,23 +108,6 @@ class LD2420(ReportStream):
             return ()
         return (Target(_SLOT, 0, u16(report, _DISTANCE_AT) * _MM_PER_CM, 0, 0),)
 
-    def _send_command(self, command: int, payload: bytes) -> None:
-        """Write one command frame and discard bytes received before its ACK.
-
-        The ACK buffer is created here, and rebound rather than trimmed in place
-        below, because a MicroPython bytearray supports no slice deletion. Only
-        the three startup command frames pay for that allocation; the report path
-        keeps the preallocated buffers it inherits.
-        """
-        length = len(payload) + 2
-        self._ack_buffer = bytearray()
-        self._uart.write(
-            _COMMAND_HEADER
-            + bytes((length & 0xFF, length >> 8, command & 0xFF, command >> 8))
-            + payload
-            + _COMMAND_FOOTER
-        )
-
     async def _await_ack(self, command: int) -> None:
         """Wait for a success ACK to ``command``.
 
@@ -130,7 +124,7 @@ class LD2420(ReportStream):
         started_ms = utime.ticks_ms()
         while True:
             self._drain_ack()
-            status = self._take_ack_status(command)
+            status = self._ack_status(command)
             if status == _ACK_OK:
                 return
             if status is not None:
@@ -149,8 +143,8 @@ class LD2420(ReportStream):
         if overflow > 0:
             self._ack_buffer = self._ack_buffer[overflow:]
 
-    def _take_ack_status(self, command: int) -> int | None:
-        """Return and consume the status word of a complete ACK for ``command``.
+    def _ack_status(self, command: int) -> int | None:
+        """Return the status word of a complete ACK for ``command``.
 
         Args:
             command: Command word whose echo identifies the expected ACK.
@@ -167,9 +161,7 @@ class LD2420(ReportStream):
             if frame_end is None:
                 return None
             if u16(buffer, start + _ACK_ECHO_AT) == echo:
-                status = u16(buffer, start + _ACK_STATUS_AT)
-                self._ack_buffer = buffer[frame_end:]
-                return status
+                return u16(buffer, start + _ACK_STATUS_AT)
             start = buffer.find(_COMMAND_HEADER, frame_end)
         return None
 

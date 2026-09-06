@@ -2,26 +2,15 @@
 
 import ujson
 
-# Extra destinations for the same lines stdout gets. A list rather than a single
-# slot so a caller can add one without knowing whether another already exists,
-# and module-level so every emit() in the package feeds them without threading a
-# writer object through Node and Endpoint.
 _sinks = []
 
 
 def add_sink(sink: object) -> None:
-    """Deliver every emitted line to ``sink`` as well as to stdout.
-
-    The serial console is not the only place this stream can usefully go — a
-    project may also be publishing it over the network. Registering a sink keeps
-    one writer building the JSON instead of a second ``print`` elsewhere drifting
-    out of step with this one.
+    """Deliver each stdout JSON line to an additional destination.
 
     Args:
-        sink: Callable taking the encoded line. It must neither raise nor block:
-            emit() can run during cooperative polling as well as on the
-            application's tasks, so a sink that does either stalls event
-            delivery. Buffer and return.
+        sink: Callable accepting the encoded line without a trailing newline.
+            It runs synchronously and must neither raise nor block.
     """
     _sinks.append(sink)
 

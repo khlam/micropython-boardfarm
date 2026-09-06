@@ -131,14 +131,15 @@ class _Application:
                 events = self._node.poll()
             except OSError as exception:
                 first_failure = self._matter_healthy
-                self._set_matter_health(healthy=False)
+                self._matter_healthy = False
                 self._set_occupied()
                 if first_failure:
                     emit({"diag": "matter_poll_err", "err": str(exception)})
             else:
                 if not self._matter_healthy:
                     emit({"diag": "matter_ok"})
-                    self._set_matter_health(healthy=True)
+                    self._matter_healthy = True
+                    self._update_status_pixel()
                 self._handle_matter_events(events)
             await asyncio.sleep_ms(_MATTER_POLL_MS)
 
@@ -278,11 +279,6 @@ class _Application:
         self._radar_healthy = healthy
         self._update_status_pixel()
 
-    def _set_matter_health(self, *, healthy: bool) -> None:
-        """Record Matter synchronization health and update the status pixel."""
-        self._matter_healthy = healthy
-        self._update_status_pixel()
-
     def _handle_matter_events(self, events: tuple) -> None:
         """Apply the commissioning transitions returned by Matter."""
         for event in events:
@@ -381,38 +377,28 @@ class _Application:
     async def _update_dashboard(self) -> int:
         """Check the dashboard once and return the delay before the next check.
 
-        A failure keeps the last reported address, so the next success reports
-        the address again, and is written out only once per failure period.
+        A failure keeps the last reported address and is written out only once
+        per failure period.
 
         Returns:
             Milliseconds to wait before checking again.
         """
+        retry_ms = _ADDRESS_POLL_MS
         try:
             address = self._node.network_address()
-        except OSError as exception:
-            self._report_dashboard_failure(exception)
-            return _ADDRESS_POLL_MS
-        if address is not None:
-            try:
+            if address is not None:
+                retry_ms = _DASHBOARD_RETRY_MS
                 await self._dashboard.start()
-            except OSError as exception:
-                self._report_dashboard_failure(exception)
-                return _DASHBOARD_RETRY_MS
-            if address != self._dashboard_address:
-                emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
+        except OSError as exception:
+            if not self._dashboard_failed:
+                error("dashboard", str(exception))
+            self._dashboard_failed = True
+            return retry_ms
+        if address is not None and address != self._dashboard_address:
+            emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
         self._dashboard_address = address
         self._dashboard_failed = False
         return _ADDRESS_POLL_MS
-
-    def _report_dashboard_failure(self, exception: OSError) -> None:
-        """Write out one dashboard failure per failure period.
-
-        Args:
-            exception: Failure from the address lookup or the server bind.
-        """
-        if not self._dashboard_failed:
-            error("dashboard", str(exception))
-        self._dashboard_failed = True
 
 
 main()

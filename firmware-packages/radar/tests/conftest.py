@@ -105,9 +105,13 @@ def build_ack():
         Returns:
             The encoded ACK frame.
         """
-        body = _u16le(command | ld2420_module._ACK_FLAG) + _u16le(status) + payload
+        body = (command | ld2420_module._ACK_FLAG).to_bytes(2, "little")
+        body += status.to_bytes(2, "little") + payload
         return (
-            ld2420_module._COMMAND_HEADER + _u16le(len(body)) + body + ld2420_module._COMMAND_FOOTER
+            ld2420_module._COMMAND_HEADER
+            + len(body).to_bytes(2, "little")
+            + body
+            + ld2420_module._COMMAND_FOOTER
         )
 
     return _build
@@ -135,10 +139,10 @@ def build_ld2420_report():
             The encoded 45-byte report frame.
         """
         padded = ([*gates] + [0] * _GATE_COUNT)[:_GATE_COUNT]
-        body = bytes((1 if present else 0,)) + _u16le(distance_cm)
+        body = bytes((1 if present else 0,)) + distance_cm.to_bytes(2, "little")
         for energy in padded:
-            body += _u16le(energy)
-        return LD2420.HEADER + _u16le(len(body)) + body + LD2420.FOOTER
+            body += energy.to_bytes(2, "little")
+        return LD2420.HEADER + len(body).to_bytes(2, "little") + body + LD2420.FOOTER
 
     return _build
 
@@ -172,8 +176,3 @@ async def _bring_up(device, report: bytes, acks: list) -> None:
 def _encode(value: int) -> int:
     """Encode a signed value into the LD2450's sign-magnitude raw u16 format."""
     return -value if value < 0 else value | 0x8000
-
-
-def _u16le(value: int) -> bytes:
-    """Encode one two-byte unsigned value with its low byte first."""
-    return bytes((value & 0xFF, value >> 8))

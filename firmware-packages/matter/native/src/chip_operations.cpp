@@ -110,7 +110,6 @@ int publish_occupancy(uint16_t endpoint_id, uint32_t value)
 // runs and the echo is dropped there.
 int publish_attributes(Request *request)
 {
-    attribute_t *handles[MATTER_MAX_ATTRIBUTE_BATCH]{};
     esp_matter_attr_val_t values[MATTER_MAX_ATTRIBUTE_BATCH]{};
 
     // Resolve and convert the whole batch before the first mutation. That makes
@@ -127,13 +126,13 @@ int publish_attributes(Request *request)
             }
             continue;
         }
-        handles[index] = esp_matter::attribute::get(request->endpoint_id, update.cluster_id,
-                                                    update.attribute_id);
-        if (handles[index] == nullptr) {
+        attribute_t *handle = esp_matter::attribute::get(request->endpoint_id, update.cluster_id,
+                                                         update.attribute_id);
+        if (handle == nullptr) {
             return ENOENT;
         }
         esp_matter_attr_val_t stored{};
-        if (esp_matter::attribute::get_val(handles[index], &stored) != ESP_OK) {
+        if (esp_matter::attribute::get_val(handle, &stored) != ESP_OK) {
             return EIO;
         }
         const AttributeValue decoded =

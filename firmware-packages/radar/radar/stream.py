@@ -161,7 +161,8 @@ class ReportStream:
         try:
             if not await self._wait_for_report(self.REPORT_TIMEOUT_MS):
                 return None
-            return self._take_latest_targets()
+            self._has_latest_report = False
+            return self._decode(self._latest_report)
         finally:
             self._reading = False
 
@@ -218,7 +219,7 @@ class ReportStream:
             timeout_ms: Budget for a complete report to arrive.
 
         Returns:
-            Whether a valid report is now waiting in :meth:`_take_latest_targets`.
+            Whether a valid report is now waiting to be decoded.
         """
         started_ms = utime.ticks_ms()
         while True:
@@ -306,13 +307,6 @@ class ReportStream:
         for index in range(retained):
             self._candidate[index] = self._candidate[header_at + index]
         self._candidate_len = retained
-
-    def _take_latest_targets(self) -> tuple | None:
-        """Decode and clear the newest valid raw report, if one is available."""
-        if not self._has_latest_report:
-            return None
-        self._has_latest_report = False
-        return self._decode(self._latest_report)
 
 
 def u16(data: bytes | bytearray, offset: int) -> int:
