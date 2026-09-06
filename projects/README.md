@@ -27,6 +27,7 @@ Run project commands from inside a project directory.
 | [gyro-stream](gyro-stream/) | MPU6050 IMU (accel + gyro + temp) | ~100 Hz | Plotly multi-trace + 3D orientation view |
 | [ld2450](ld2450/) | HLK-LD2450 radar sensor | 10 Hz | Live X/Y tracks + 60 s analytics |
 | [matter](matter/) | MicroPython-owned Matter endpoint example | Event driven | Apple Home / Matter controllers |
+| [matter-radar-sensor](matter-radar-sensor/) | HLK-LD2450 or HLK-LD2420 radar as a Matter occupancy sensor | 10 Hz | Apple Home / Matter controllers + live X/Y tracks |
 | [multizone-ranging](multizone-ranging/) | VL53L5CX 8×8 ToF | ~15 Hz | Plotly 8×8 3D point cloud + distance stats |
 
 ## Usage

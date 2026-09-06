@@ -43,6 +43,7 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 - [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython code; the microcontroller's I²C bus, status LED, sensor drivers etc. Stubs enable tests to run with CPython.
 - [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
 - [MicroPython Matter Node](projects/matter/) uses MicroPython for product behavior over a native ESP-Matter ESP32-S3 backend.
+- [Matter Occupancy Sensor](projects/matter-radar-sensor/) builds on that backend to publish an HLK-LD2450 or HLK-LD2420 radar as a Matter occupancy sensor, and serves its own dashboard from the board.
 
 **Makefile**
 - Quality-gate helpers; see [CI.md](CI.md) for the full CI and pre-commit details.
