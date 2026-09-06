@@ -22,6 +22,20 @@ Optimize for, in order:
 
 Do not optimize for line count at the expense of readability, correctness, type safety, useful tests, or clear error handling.
 
+### Scope discipline
+
+The target is the delta from `main`, not a general repository cleanup.
+
+You may simplify nearby existing code only when doing so directly eliminates complexity introduced or exposed by the branch and keeps the patch easier to understand.
+
+Do not opportunistically refactor unrelated modules.
+
+Do not modify generated files unless the source-of-truth change requires regeneration.
+
+Do not remove compatibility, migration, security, validation, or error-handling code unless you have verified it is redundant under the repository's actual invariants.
+
+Use reduced lines as a signal, not a score. A smaller diff is desirable only when the implementation is readable and correct.
+
 ## Core workflow
 
 ### 1. Establish the baseline
@@ -83,6 +97,25 @@ git diff main...HEAD -- <affected paths>
 ```
 
 When uncommitted edits are being evaluated, also inspect plain `git diff` so the current simplification is visible independently of the committed branch diff.
+
+#### Decision rules
+
+Keep a simplification when it:
+
+- Preserves intended behavior.
+- Reduces cognitive load.
+- Removes duplication or indirection.
+- Reduces the amount of code that must be maintained.
+- Aligns the change more closely with existing repository patterns.
+- Makes the diff easier to review.
+
+Reject or revert a simplification when it:
+
+- Makes behavior less explicit in a risky area.
+- Introduces cleverness for the sake of fewer lines.
+- Weakens tests or types materially.
+- Changes public behavior that the branch did not intend to change.
+- Replaces readable code with dense expressions merely to reduce line count.
 
 ### 4. Simplification heuristics
 
@@ -213,40 +246,7 @@ Ask:
 
 Repeat the simplify → validate → review loop until another pass finds no clearly beneficial reduction.
 
-## Decision rules
-
-Keep a simplification when it:
-
-- Preserves intended behavior.
-- Reduces cognitive load.
-- Removes duplication or indirection.
-- Reduces the amount of code that must be maintained.
-- Aligns the change more closely with existing repository patterns.
-- Makes the diff easier to review.
-
-Reject or revert a simplification when it:
-
-- Makes behavior less explicit in a risky area.
-- Introduces cleverness for the sake of fewer lines.
-- Weakens tests or types materially.
-- Changes public behavior that the branch did not intend to change.
-- Replaces readable code with dense expressions merely to reduce line count.
-
-## Scope discipline
-
-The target is the delta from `main`, not a general repository cleanup.
-
-You may simplify nearby existing code only when doing so directly eliminates complexity introduced or exposed by the branch and keeps the patch easier to understand.
-
-Do not opportunistically refactor unrelated modules.
-
-Do not modify generated files unless the source-of-truth change requires regeneration.
-
-Do not remove compatibility, migration, security, validation, or error-handling code unless you have verified it is redundant under the repository's actual invariants.
-
-Use reduced lines as a signal, not a score. A smaller diff is desirable only when the implementation is readable and correct.
-
-## Final review
+### 7. Final review
 
 Before finishing:
 
@@ -256,7 +256,7 @@ Before finishing:
 4. Remove newly-unused imports, helpers, variables, comments, tests, files, and dependencies.
 5. Confirm the resulting patch still fully implements the branch's intended behavior.
 
-## Final response format
+#### Final response format
 
 Report:
 
