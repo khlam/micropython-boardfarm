@@ -43,7 +43,6 @@ def test_bind_failure_retries_once_per_period_without_changing_product_state(
 ):
     boot = load_application(commissioned=True)
     application = boot.application
-    application._set_radar_health(healthy=True)
     _matter.set_network_address("192.0.2.10")
     boot.server.start_errors.extend([OSError("address in use"), OSError("address in use")])
     before = (

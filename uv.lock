@@ -664,7 +664,7 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.19.0"
+version = "0.19.1"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
@@ -1497,20 +1497,20 @@ wheels = [
 
 [[package]]
 name = "vl53l0x"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l0x-0.2.0.tar.gz" }
+sdist = { path = "/wheels/vl53l0x-0.2.1.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l0x-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/vl53l0x-0.2.1-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "vl53l5cx"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l5cx-0.2.0.tar.gz" }
+sdist = { path = "/wheels/vl53l5cx-0.2.1.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l5cx-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/vl53l5cx-0.2.1-py3-none-any.whl" },
 ]
 
 [[package]]

@@ -59,7 +59,7 @@ def test_commissioned_boot_restores_product_status(load_application):
 )
 def test_active_commissioning_states_have_priority(load_application, state, expected):
     boot = load_application(commissioned=True)
-    boot.application._set_radar_health(healthy=False)
+    boot.application._radar_healthy = False
     boot.application._on_commissioning(SimpleNamespace(state=state))
 
     assert boot.application._pixel.writes[-1] == getattr(boot.module, expected)
@@ -95,9 +95,11 @@ def test_product_status_prioritizes_radar_then_occupancy(load_application):
     application = boot.application
     application._pixel.writes.clear()
 
-    application._set_radar_health(healthy=False)
-    application._set_radar_health(healthy=False)
-    application._set_radar_health(healthy=True)
+    application._radar_healthy = False
+    application._update_status_pixel()
+    application._update_status_pixel()
+    application._radar_healthy = True
+    application._update_status_pixel()
     application._occupancy_state = boot.module._VACANT
     application._update_status_pixel()
 

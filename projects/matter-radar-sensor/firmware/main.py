@@ -177,8 +177,8 @@ class _Application:
                     await asyncio.sleep_ms(_RADAR_RETRY_MS)
                     continue
 
+                self._radar_healthy = True
                 self._set_occupied()
-                self._set_radar_health(healthy=True)
                 emit({"diag": "radar_ok", "model": model})
 
             try:
@@ -274,11 +274,6 @@ class _Application:
         self._commissioning_state = state
         self._update_status_pixel()
 
-    def _set_radar_health(self, *, healthy: bool) -> None:
-        """Record radar health and update the status pixel."""
-        self._radar_healthy = healthy
-        self._update_status_pixel()
-
     def _handle_matter_events(self, events: tuple) -> None:
         """Apply the commissioning transitions returned by Matter."""
         for event in events:
@@ -358,8 +353,8 @@ class _Application:
             report: JSON diagnostic describing this failure.
         """
         first_failure = self._radar_healthy
+        self._radar_healthy = False
         self._set_occupied()
-        self._set_radar_health(healthy=False)
         if first_failure:
             emit(report)
         if radar is not None:
