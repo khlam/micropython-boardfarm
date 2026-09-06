@@ -5,7 +5,7 @@ description: Review the current branch against main, understand every change, th
 
 # Simplify Diff to Main
 
-Use this skill when a branch is functionally complete or mostly complete and needs a disciplined simplification pass before merge.
+Use this skill when a branch is functionally complete and just needs to be simplified before merge to main.
 
 ## Objective
 
@@ -28,25 +28,9 @@ Do not optimize for line count at the expense of readability, correctness, type 
 
 Start by understanding the repository and the branch before editing anything.
 
-Run the equivalent of:
+If `main` branch is unavailable locally, use the repository's actual default branch or the appropriate remote tracking branch.
 
-```bash
-git status --short
-git branch --show-current
-git merge-base HEAD main
-git diff --stat main...HEAD
-git diff --name-status main...HEAD
-git diff main...HEAD
-```
-
-If `main` is unavailable locally, use the repository's actual default branch or the appropriate remote tracking branch.
-
-Also inspect any uncommitted changes separately:
-
-```bash
-git diff
-git diff --cached
-```
+Inspect any uncommitted changes separately.
 
 Do not accidentally mix unrelated pre-existing working-tree changes into the simplification work.
 
@@ -245,8 +229,6 @@ Reject or revert a simplification when it:
 - Makes behavior less explicit in a risky area.
 - Introduces cleverness for the sake of fewer lines.
 - Weakens tests or types materially.
-- Broadens the scope of the change.
-- Mixes unrelated refactoring into the branch.
 - Changes public behavior that the branch did not intend to change.
 - Replaces readable code with dense expressions merely to reduce line count.
 
@@ -262,36 +244,7 @@ Do not modify generated files unless the source-of-truth change requires regener
 
 Do not remove compatibility, migration, security, validation, or error-handling code unless you have verified it is redundant under the repository's actual invariants.
 
-## Useful commands
-
-Use commands appropriate to the repository, including:
-
-```bash
-# Full branch diff
-git diff main...HEAD
-
-# Summary
-git diff --stat main...HEAD
-git diff --numstat main...HEAD
-
-# Changed files
-git diff --name-only main...HEAD
-
-# A single file
-git diff main...HEAD -- path/to/file
-
-# Word-level inspection
-git diff --word-diff main...HEAD -- path/to/file
-
-# Find references before deleting an abstraction
-rg "SymbolName"
-
-# Inspect history when intent is unclear
-git log --oneline --decorate main..HEAD
-git show <commit>
-```
-
-Use `git diff --numstat main...HEAD` as a signal, not a score. A smaller diff is desirable only when the implementation is also at least as clear and correct.
+Use reduced lines as a signal, not a score. A smaller diff is desirable only when the implementation is readable and correct.
 
 ## Final review
 
@@ -313,4 +266,4 @@ Report:
 - **Diff impact:** before/after line counts from `git diff --numstat` or equivalent when available.
 - **Remaining complexity:** anything that looked removable but was intentionally kept, with a short reason.
 
-Keep the report concise. The code and diff should carry most of the explanation.
+Keep the report concise.
