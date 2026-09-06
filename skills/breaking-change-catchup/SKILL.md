@@ -1,6 +1,6 @@
 ---
 name: breaking-change-catchup
-description: Check whether the current branch would break other active branches if merged into main now. If impacted branches exist, ask the user to select one, create catchup/<selected-branch> from main, and write an uncommitted catch-up plan only. Never implement, commit, or push. Abort immediately if the working tree is dirty.
+description: Check whether the current branch would break other active branches if merged into main now. If impacted branches exist, ask the user to select one, then update its existing catch-up notes or create a catchup branch from main with a new plan. Leave the plan uncommitted. Never implement, commit, or push. Abort immediately if the working tree is dirty.
 ---
 
 # Breaking Change Catch-up Planner
@@ -8,6 +8,15 @@ description: Check whether the current branch would break other active branches 
 Use this skill when the user wants to know whether the **current branch** contains changes that would make other in-progress branches fail or require adaptation if the current branch were merged into `main` now.
 
 This skill is **planning-only**. It may inspect Git history, diffs, repository instructions, CI/test commands, and branch contents. It may create one catch-up branch and one plan file after the user selects an impacted branch. It must not implement the fix.
+
+## Updating existing catch-up notes
+
+After the user selects a branch, check for committed catch-up notes on that branch. If present, switch to it, read the existing file, and update it in place. This is an exception to the branch-creation and final-checkout requirements below: keep that branch's ancestry and use its actual name and plan path in final verification and handoff. If reusing a matching catch-up branch under Phase 9, update its existing notes in the same way.
+
+- **Add-only:** Preserve existing content and append new evidence, steps, and decisions, identifying any superseded guidance.
+- **Full rewrite:** Rewrite the same file into a current, coherent plan while preserving relevant user decisions, constraints, and decision IDs.
+
+Honor the user's preferred mode; otherwise choose the clearest approach without another confirmation. Keep the clean-tree gates and planning-only restrictions. Leave only the existing plan file modified and uncommitted, then stop.
 
 ## Non-negotiable rules
 
