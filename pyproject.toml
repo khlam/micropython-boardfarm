@@ -263,7 +263,7 @@ select = [
   "TID",      # tidy-imports
   "ARG",      # unused-arguments
   "PTH",      # use-pathlib
-  "ERA",      # eradicate commented-out code — see AGENTS.md "Don't preserve the past"
+  "ERA",      # eradicate commented-out code — see skills/coding-conventions "Don't preserve the past"
   "PL",       # pylint
   "TRY",      # tryceratops (exception-handling hygiene)
   "FURB",     # refurb modernization
