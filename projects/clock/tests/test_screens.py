@@ -10,7 +10,7 @@ glyphs come closest to overflowing the matrix.
 from __future__ import annotations
 
 import pytest
-from fake_clock import FakeRTC, lit_bounds, lit_count, lit_row, same_frame
+from fake_clock import FakeRandom, FakeRTC, lit_bounds, lit_count, lit_row, same_frame
 
 import clock_screens
 from pixel_frame import Frame, Text
@@ -18,45 +18,64 @@ from pixel_frame import Frame, Text
 _RTC_VALUE = (2026, 5, 31, 6, 23, 59, 58, 0)
 
 _ALL_SCREENS = tuple(spec.id for spec in clock_screens.SCREEN_SPECS)
-_WAIT_SCREENS = (clock_screens.WAIT_OFF, clock_screens.WAIT_ON)
 _PARTS = (2026, 5, 31, 6, 23, 59, 58)
 
 
-def test_screen_ids_are_unique_and_kinds_partition_the_table() -> None:
-    assert len(_ALL_SCREENS) == len(set(_ALL_SCREENS))
-    assert set(clock_screens.REGULAR_SCREENS) == {
-        clock_screens.SCREEN_MAIN,
-        clock_screens.SCREEN_CLOCK_MERIDIEM,
-        clock_screens.SCREEN_TIME_SECONDS,
-    }
-    assert set(clock_screens.INTERSTITIAL_SCREENS) == {
-        clock_screens.SCREEN_SEASON,
-        clock_screens.SCREEN_FULL_DATE,
-        clock_screens.SCREEN_UPTIME,
-    }
-    assert {clock_screens.screen_spec(s).kind for s in _WAIT_SCREENS} == {clock_screens.KIND_WAIT}
-
-
 @pytest.mark.parametrize("screen", _ALL_SCREENS)
-def test_every_screen_renders_the_exact_matrix_geometry(screen: int) -> None:
+def test_every_screen_renders_content_in_the_matrix_geometry(screen: int) -> None:
     frame = clock_screens.render_screen(screen, _parts_for(screen))
 
     assert isinstance(frame, Frame)
     assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
+    assert (lit_count(frame) > 0) is (screen != clock_screens.WAIT_OFF)
 
 
-@pytest.mark.parametrize(
-    "screen",
-    [s for s in _ALL_SCREENS if s != clock_screens.WAIT_OFF],
-)
-def test_every_screen_except_the_blank_wait_endpoint_draws_something(screen: int) -> None:
-    assert lit_count(clock_screens.render_screen(screen, _parts_for(screen))) > 0
+@pytest.mark.parametrize("screen", _ALL_SCREENS)
+def test_every_screen_survives_a_display_too_short_for_two_rows(screen: int) -> None:
+    """A one-pixel-high panel must render blank, not raise or draw out of bounds.
+
+    Geometry comes from the display object, so a mis-wired or differently sized
+    panel reaches the renderers directly. Every row split, seconds bar and
+    marquee has a degenerate branch for it and none of them is otherwise taken.
+    """
+    frame = clock_screens.render_screen(screen, _parts_for(screen), 32, 1)
+
+    assert (frame.width, frame.height) == (32, 1)
+    # Nothing fits in one row: the glyphs are seven tall, so every screen but
+    # the diagnostic trace (which draws raw pixels) comes out dark.
+    if screen != clock_screens.SCREEN_FRAME_RATE:
+        assert lit_count(frame) == 0
 
 
-def test_the_blank_wait_endpoint_renders_dark() -> None:
-    frame = clock_screens.render_screen(clock_screens.WAIT_OFF, None)
+def test_time_only_face_falls_back_to_one_row_when_the_badge_crowds_it_out() -> None:
+    """Below ~6px wide there is no room beside the meridiem badge for any time."""
+    frame = clock_screens.render_screen(clock_screens.SCREEN_CLOCK_MERIDIEM, _PARTS, 5, 16)
+
+    assert (frame.width, frame.height) == (5, 16)
+    assert lit_count(frame) == 0
+
+
+def test_meridiem_badge_refuses_a_box_it_cannot_fit() -> None:
+    """The badge draws nothing rather than spilling outside its assigned box."""
+    badge = clock_screens._MeridiemBadge("AM")
+    width, height = badge.measure()
+    frame = Frame(32, 16)
+
+    badge.draw(frame, 0, 0, width - 1, height)
+    badge.draw(frame, 0, 0, width, height - 1)
 
     assert lit_count(frame) == 0
+
+
+def test_meridiem_badge_skips_letters_it_has_no_glyph_for() -> None:
+    """Only A, M and P are drawn; anything else is silently omitted."""
+    frame = Frame(32, 16)
+
+    clock_screens._MeridiemBadge("AZ").draw(frame, 0, 0, 32, 16)
+
+    only_a = Frame(32, 16)
+    clock_screens._MeridiemBadge("A").draw(only_a, 0, 0, 32, 16)
+    assert lit_count(frame) == lit_count(only_a)
 
 
 def test_rtc_parts_drops_the_subsecond_field() -> None:
@@ -64,9 +83,12 @@ def test_rtc_parts_drops_the_subsecond_field() -> None:
     assert clock_screens.rtc_parts(FakeRTC(_RTC_VALUE)) == _RTC_VALUE[:7]
 
 
-def test_is_wait_identifies_only_the_wait_endpoints() -> None:
-    for screen in _ALL_SCREENS:
-        assert clock_screens.is_wait(screen) is (screen in _WAIT_SCREENS)
+@pytest.mark.parametrize("screen", _ALL_SCREENS)
+def test_only_the_gps_endpoints_are_wait_screens(screen: int) -> None:
+    """`is_wait` drives both the engine's step budget and its parts lookup."""
+    expected = screen in (clock_screens.WAIT_ON, clock_screens.WAIT_OFF)
+
+    assert clock_screens.is_wait(screen) is expected
 
 
 def test_screen_spec_rejects_an_unknown_screen() -> None:
@@ -117,24 +139,108 @@ def test_month_abbreviations_fit_beside_the_widest_day() -> None:
         assert Text(f"{label} 31").measure()[0] <= clock_screens.WIDTH_PIXELS
 
 
-def test_full_date_falls_back_to_the_abbreviation_when_the_name_overflows() -> None:
-    # "MAY 31" fits as a full name; "SEPTEMBER 23" does not and must shorten.
-    assert clock_screens._month_day_label(5, 31, 32, 16) == "MAY 31"
-    assert clock_screens._month_day_label(9, 23, 32, 16) == "SEPT 23"
+@pytest.mark.parametrize("day", [1, 9, 31], ids=["one-digit", "nine", "widest"])
+@pytest.mark.parametrize("month", range(1, 13))
+def test_full_date_always_draws_a_month_label_that_fits(month: int, day: int) -> None:
+    """No month/day pair may pick a label too wide to draw.
 
-
-def test_time_seconds_screen_changes_every_second() -> None:
-    first = clock_screens.render_screen(
-        clock_screens.SCREEN_TIME_SECONDS, (2026, 6, 23, 1, 15, 59, 58)
+    `Text` refuses to render content wider than its box and draws *nothing*, so
+    an overlong label does not overflow — it blanks the row. Only MAY and SEPT
+    are covered elsewhere, which leaves the long names (SEPTEMBER, NOVEMBER)
+    untested against the widest day.
+    """
+    frame = clock_screens.render_screen(
+        clock_screens.SCREEN_FULL_DATE, (2026, month, day, 0, 0, 0, 0)
     )
-    second = clock_screens.render_screen(
-        clock_screens.SCREEN_TIME_SECONDS, (2026, 6, 23, 1, 15, 59, 59)
-    )
 
-    assert not same_frame(first, second)
-    assert clock_screens.screen_key(
-        clock_screens.SCREEN_TIME_SECONDS, (2026, 6, 23, 1, 15, 59, 59)
-    ) == (clock_screens.SCREEN_TIME_SECONDS, 15, 59, 59)
+    assert _band(frame, 0, 8), (month, day)
+
+
+@pytest.mark.parametrize(
+    "day,expected",
+    [(1, "AUGUST 1"), (31, "AUG 31")],
+    ids=["full-name-fits", "abbreviated"],
+)
+def test_full_date_prefers_the_whole_month_name_while_it_still_fits(
+    day: int, expected: str
+) -> None:
+    """August is the month that changes its mind: the full name fits day 1, not 31."""
+    frame = clock_screens.render_screen(clock_screens.SCREEN_FULL_DATE, (2026, 8, day, 0, 0, 0, 0))
+    labelled = Frame(32, 16)
+    labelled[0:8, 0:32] = Text(expected)
+
+    assert _band(frame, 0, 8) == _band(labelled, 0, 8)
+
+
+@pytest.mark.parametrize("weekday", range(7))
+def test_compact_face_names_every_day_of_the_week(weekday: int) -> None:
+    """`DAYS[weekday]` is indexed straight off the RTC; only SUN is covered above."""
+    parts = (2026, 5, 31, weekday, 23, 59, 0)
+    frame = clock_screens.render_screen(clock_screens.SCREEN_MAIN, parts)
+    named = Frame(32, 16)
+    named[8:16, 0:32] = Text(f"{clock_screens.DAYS[weekday]} 31", valign="bottom")
+
+    assert _band(frame, 8, 16) == _band(named, 8, 16)
+
+
+@pytest.mark.parametrize(
+    "screen,month,day,top,bottom",
+    [
+        (clock_screens.SCREEN_MAIN, 5, 31, "11:59 PM", "SUN 31"),
+        (clock_screens.SCREEN_SEASON, 5, 31, "SPRING", "2026"),
+        (clock_screens.SCREEN_TIME_SECONDS, 5, 31, "11:59:00", "PM"),
+        (clock_screens.SCREEN_FULL_DATE, 5, 31, "MAY 31", "2026"),
+        (clock_screens.SCREEN_FULL_DATE, 9, 23, "SEPT 23", "2026"),
+        (clock_screens.SCREEN_BRAND, 5, 31, "KINHOLA", "M.COM"),
+        (clock_screens.WAIT_ON, 5, 31, "GPS", "WAIT"),
+    ],
+)
+def test_two_row_screens_show_the_expected_labels(
+    screen: int, month: int, day: int, top: str, bottom: str
+) -> None:
+    frame = clock_screens.render_screen(screen, (2026, month, day, 6, 23, 59, 0))
+    expected = Frame(32, 16)
+    expected[0:8, 0:32] = Text(top)
+    expected[8:16, 0:32] = Text(bottom, valign="bottom")
+
+    assert same_frame(frame, expected)
+
+
+@pytest.mark.parametrize(
+    "screen,visible_fields",
+    [
+        (clock_screens.SCREEN_MAIN, {2, 3, 4, 5, 6}),
+        (clock_screens.SCREEN_SEASON, {0, 1}),
+        (clock_screens.SCREEN_TIME_SECONDS, {4, 5, 6}),
+        (clock_screens.SCREEN_FULL_DATE, {0, 1, 2}),
+        (clock_screens.SCREEN_CLOCK_MERIDIEM, {4, 5, 6}),
+    ],
+)
+def test_content_keys_track_visible_rtc_fields_only(screen: int, visible_fields: set) -> None:
+    original = clock_screens.render_screen(screen, _PARTS)
+    original_key = clock_screens.screen_key(screen, _PARTS)
+    replacements = (2027, 6, 30, 5, 11, 58, 59)
+
+    for field, replacement in enumerate(replacements):
+        parts = list(_PARTS)
+        parts[field] = replacement
+        frame = clock_screens.render_screen(screen, tuple(parts))
+        changed = field in visible_fields
+        assert (clock_screens.screen_key(screen, tuple(parts)) != original_key) is changed, field
+        assert (not same_frame(frame, original)) is changed, field
+
+
+def test_season_content_stays_cached_until_the_season_or_year_changes() -> None:
+    march = (2026, 3, 1, 6, 0, 0, 0)
+    may = (2026, 5, 31, 6, 23, 59, 59)
+
+    assert clock_screens.screen_key(clock_screens.SCREEN_SEASON, march) == clock_screens.screen_key(
+        clock_screens.SCREEN_SEASON, may
+    )
+    assert same_frame(
+        clock_screens.render_screen(clock_screens.SCREEN_SEASON, march),
+        clock_screens.render_screen(clock_screens.SCREEN_SEASON, may),
+    )
 
 
 def test_clock_meridiem_screen_fills_the_frame() -> None:
@@ -176,10 +282,7 @@ def test_seconds_free_faces_blink_the_colon_each_second(screen: int) -> None:
 
     assert not same_frame(colon_on, colon_off)
     assert lit_count(colon_on) > lit_count(colon_off)
-    # The per-second key is what lets the engine re-render the blink mid-hold.
-    assert clock_screens.screen_key(screen, (2026, 6, 23, 1, 9, 5, 1)) != clock_screens.screen_key(
-        screen, (2026, 6, 23, 1, 9, 5, 0)
-    )
+    assert _band(colon_off, 0, 15) < _band(colon_on, 0, 15)
 
 
 @pytest.mark.parametrize(
@@ -199,43 +302,16 @@ def test_seconds_progress_bar_fills_across_the_minute(screen: int, row: int) -> 
     assert counts == sorted(counts)
 
 
-def test_seconds_bar_skips_rows_outside_the_frame() -> None:
-    frame = Frame(32, 16)
-    clock_screens._draw_seconds_bar(frame, 30, 99, 32)
-
-    assert lit_count(frame) == 0
-
-
-def test_two_row_frame_centers_the_lower_band() -> None:
-    frame = clock_screens._two_row_frame("12:05 AM", "June 23", 32, 16)
-    month_width = Text("June 23").measure()[0]
-    left, right, top, bottom = lit_bounds(frame, 8, 16)
-
-    assert left == (frame.width - month_width) // 2
-    assert right == left + month_width - 1
-    assert (top, bottom) == (9, 15)
-    assert lit_row(frame, 7) == 0
-    assert lit_row(frame, 8) == 0
-
-
-def test_two_row_frame_collapses_to_one_row_on_a_single_band_display() -> None:
-    frame = clock_screens._two_row_frame("12:05", "June", 32, 1)
-
-    assert (frame.width, frame.height) == (32, 1)
-
-
 def test_frame_rate_screen_reports_the_measured_rate() -> None:
     frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (7, 400, 175))
     label_only = Frame(32, 16)
     label_only[8:16, 0:32] = Text("FPS 17.5", valign="bottom")
 
     # The label band must contain exactly the rendered "FPS 17.5" glyphs.
-    assert {(x, y) for x, y in _band(frame, 8, 16)} >= {(x, y) for x, y in _band(label_only, 8, 16)}
-    assert clock_screens.screen_key(clock_screens.SCREEN_FRAME_RATE, (7, 400, 175)) == (
-        clock_screens.SCREEN_FRAME_RATE,
-        7,
-        175,
-    )
+    assert _band(frame, 8, 16) == _band(label_only, 8, 16)
+    next_frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (8, 450, 175))
+    assert _band(frame, 0, 8) != _band(next_frame, 0, 8)
+    assert _band(frame, 8, 16) == _band(next_frame, 8, 16)
 
 
 @pytest.mark.parametrize(
@@ -254,7 +330,10 @@ def test_frame_rate_label_is_clamped(fps_x10: int, expected: str) -> None:
 
 @pytest.mark.parametrize("parts", [None, (1, 2), (1, 2, 3, 4)])
 def test_frame_rate_parts_rejects_malformed_input(parts: object) -> None:
-    assert clock_screens._frame_rate_parts(parts) == (0, 0, 0)
+    assert same_frame(
+        clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, parts),
+        clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (0, 0, 0)),
+    )
 
 
 def test_uptime_screen_shows_dashes_before_the_first_fix() -> None:
@@ -279,11 +358,18 @@ def test_format_uptime_widens_hours_past_a_day(seconds: int, expected: str) -> N
     assert clock_screens._format_uptime(seconds) == expected
 
 
-def test_uptime_seconds_spans_a_month_boundary() -> None:
-    boot = (2026, 1, 31, 5, 23, 59, 30)
-    now = (2026, 2, 1, 6, 0, 0, 30)
-
-    assert clock_screens._uptime_seconds(boot, now) == 60
+@pytest.mark.parametrize(
+    "boot,now,expected",
+    [
+        ((2026, 1, 31, 5, 23, 59, 30), (2026, 2, 1, 6, 0, 0, 30), 60),
+        ((2025, 12, 31, 2, 23, 59, 30), (2026, 1, 1, 3, 0, 0, 30), 60),
+        ((2024, 2, 28, 2, 0, 0, 0), (2024, 3, 1, 4, 0, 0, 0), 172_800),
+        ((2000, 2, 28, 0, 0, 0, 0), (2000, 3, 1, 2, 0, 0, 0), 172_800),
+        ((2100, 2, 28, 6, 0, 0, 0), (2100, 3, 1, 0, 0, 0, 0), 86_400),
+    ],
+)
+def test_uptime_spans_calendar_boundaries(boot: tuple, now: tuple, expected: int) -> None:
+    assert clock_screens._uptime_seconds(boot, now) == expected
 
 
 def test_uptime_seconds_never_goes_negative() -> None:
@@ -299,23 +385,6 @@ def test_uptime_seconds_never_goes_negative() -> None:
 )
 def test_uptime_seconds_is_zero_without_both_endpoints(parts: tuple) -> None:
     assert clock_screens._uptime_seconds(*parts) == 0
-
-
-@pytest.mark.parametrize(
-    "year,month,day,expected",
-    [
-        (1970, 1, 1, 0),  # epoch
-        (1970, 1, 2, 1),
-        (2000, 3, 1, 11_017),  # 2000 is a leap year despite being a century
-        (1900, 3, 1, -25_508),  # 1900 is not
-        (2024, 2, 29, 19_782),  # leap day exists
-        (2026, 1, 1, 20_454),
-    ],
-)
-def test_days_from_civil_matches_known_dates(
-    year: int, month: int, day: int, expected: int
-) -> None:
-    assert clock_screens._days_from_civil(year, month, day) == expected
 
 
 def test_scroll_offset_holds_still_when_the_row_fits() -> None:
@@ -337,18 +406,90 @@ def test_scroll_offset_sweeps_out_and_back_as_a_triangle_wave() -> None:
     assert clock_screens._scroll_offset(text_width, 32, span_ms) == 0
 
 
-def test_marquee_row_scrolls_content_wider_than_the_matrix() -> None:
-    """An overflowing row shows different pixels at different scroll phases."""
-    early = Frame(32, 8)
-    late = Frame(32, 8)
-    text = "BOOT: 23.06.26 EXTRA"
-    clock_screens._draw_marquee_row(early, text, 0, 8, 32, 0, "bottom")
-    clock_screens._draw_marquee_row(
-        late, text, 0, 8, 32, 3 * clock_screens.SCROLL_MS_PER_PX, "bottom"
-    )
+@pytest.mark.parametrize("scroll_ms,offset", [(0, 0), (99, 0), (100, 1), (300, 3)])
+def test_uptime_scrolls_the_elapsed_time_and_latched_boot_date(scroll_ms: int, offset: int) -> None:
+    boot = (2026, 1, 31, 5, 23, 59, 30)
+    now = (2026, 2, 1, 6, 0, 0, 30)
+    frame = clock_screens.render_screen(clock_screens.SCREEN_UPTIME, (boot, now, scroll_ms))
 
-    assert Text(text).measure()[0] > 32  # precondition: it really does overflow
-    assert not same_frame(early, late)
+    for y0, label, valign in [(0, "UP 00:01:00", "middle"), (8, "BOOT: 31.01.26", "bottom")]:
+        width = Text(label).measure()[0]
+        strip = Frame(width, 8)
+        strip[0:8, 0:width] = Text(label, align="left", valign=valign)
+        expected = {
+            (x, y + y0) for y in range(8) for x in range(32) if strip.value_at(x + offset, y)
+        }
+        assert _band(frame, y0, y0 + 8) == expected
+
+
+def test_uptime_centers_both_rows_when_the_display_is_wide_enough() -> None:
+    parts = (_PARTS, _PARTS, 5_000)
+    frame = clock_screens.render_screen(clock_screens.SCREEN_UPTIME, parts, 64, 16)
+    expected = Frame(64, 16)
+    expected[0:8, 0:64] = Text("UP 00:00:00")
+    expected[8:16, 0:64] = Text("BOOT: 31.05.26", valign="bottom")
+
+    assert same_frame(frame, expected)
+
+
+def test_uptime_key_updates_at_a_second_or_a_whole_pixel_of_scroll() -> None:
+    screen = clock_screens.SCREEN_UPTIME
+    key = clock_screens.screen_key(screen, (_PARTS, _PARTS, 0))
+
+    assert clock_screens.screen_key(screen, (_PARTS, _PARTS, 99)) == key
+    assert clock_screens.screen_key(screen, (_PARTS, _PARTS, 100)) != key
+    assert clock_screens.screen_key(screen, (_PARTS, (*_PARTS[:6], 59), 0)) != key
+
+
+@pytest.mark.parametrize("current", clock_screens.REGULAR_SCREENS)
+def test_next_regular_can_choose_every_other_face_but_never_repeat(current: int) -> None:
+    chosen = {clock_screens.choose_next_regular(current, FakeRandom([n])) for n in range(256)}
+
+    assert chosen == set(clock_screens.REGULAR_SCREENS) - {current}
+
+
+def test_next_regular_from_a_screen_outside_the_rotation_can_still_reach_them_all() -> None:
+    """The cycle enters from an interstitial or the brand screen, not just a regular.
+
+    `choose_next_regular` scans for its argument and silently keeps index 0 when
+    it is absent, which would make the first regular screen unreachable. Nothing
+    passes a non-regular today, so only this pins that the whole rotation stays
+    available.
+    """
+    chosen = {
+        clock_screens.choose_next_regular(clock_screens.SCREEN_BRAND, FakeRandom([n]))
+        for n in range(256)
+    }
+
+    assert chosen == set(clock_screens.REGULAR_SCREENS)
+
+
+def test_screen_choices_fall_back_to_the_module_random_source() -> None:
+    """Every chooser defaults `rng=None` to `random`; the firmware relies on it.
+
+    `clock_program` passes an rng explicitly, but the defaults are part of the
+    published signature and nothing else executes that fallback.
+    """
+    for _ in range(32):
+        assert clock_screens.choose_regular() in clock_screens.REGULAR_SCREENS
+        assert clock_screens.choose_interstitial() in clock_screens.INTERSTITIAL_SCREENS
+        current = clock_screens.REGULAR_SCREENS[0]
+        assert clock_screens.choose_next_regular(current) in set(clock_screens.REGULAR_SCREENS) - {
+            current
+        }
+
+
+def test_random_screen_selection_stays_within_each_kind_and_reaches_every_screen() -> None:
+    assert {clock_screens.choose_regular(FakeRandom([n])) for n in range(256)} == {
+        clock_screens.SCREEN_MAIN,
+        clock_screens.SCREEN_CLOCK_MERIDIEM,
+        clock_screens.SCREEN_TIME_SECONDS,
+    }
+    assert {clock_screens.choose_interstitial(FakeRandom([n])) for n in range(256)} == {
+        clock_screens.SCREEN_SEASON,
+        clock_screens.SCREEN_FULL_DATE,
+        clock_screens.SCREEN_UPTIME,
+    }
 
 
 def _band(frame: object, y0: int, y1: int) -> set:

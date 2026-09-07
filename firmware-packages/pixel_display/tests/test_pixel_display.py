@@ -40,11 +40,14 @@ def test_flip_is_a_no_op_for_backends_without_it() -> None:
     Display(backend, width_pixels=4, height_pixels=4).flip()
 
 
-def test_exact_size_packed_frames_reach_the_backend_unchanged() -> None:
+@pytest.mark.parametrize("packed", [False, True])
+def test_exact_size_frames_reach_the_backend_unchanged(*, packed: bool) -> None:
     backend = _Backend()
     display = Display(backend, width_pixels=4, height_pixels=2)
     source = Frame(4, 2, intensity=255)
     source.pixel(0, 0)
+    if not packed:
+        source = source.unpack()
 
     display.show(source)
 
@@ -65,6 +68,8 @@ def test_brightness_rescales_packed_intensity_without_touching_bits() -> None:
     assert frame.intensity == 128
     assert frame.value_at(0, 0) == 128
     assert frame.value_at(1, 0) == 0
+    assert frame.data is source.data
+    assert source.intensity == 255
 
 
 def test_undersized_packed_frames_unpack_and_scale_by_integer_blocks() -> None:
@@ -104,7 +109,7 @@ def test_aspect_mismatched_frames_are_centered() -> None:
     backend = _Backend()
     display = Display(backend, width_pixels=5, height_pixels=5)
 
-    # A 2x1 source scales x2 to 4x2, leaving a 1px left margin and 1px top margin.
+    # Odd spare space goes to the right/bottom: 0px left margin and 1px top margin.
     display.show(_matrix([[1.0, 1.0]]))
 
     frame, _allow_lossy = backend.writes[-1]
@@ -114,14 +119,17 @@ def test_aspect_mismatched_frames_are_centered() -> None:
     assert frame.value_at(4, 2) == 0
 
 
-def test_brightness_scales_matrix_bytes() -> None:
+def test_rgb_fitting_and_brightness_preserve_channels_and_source_data() -> None:
     backend = _Backend()
-    display = Display(backend, width_pixels=2, height_pixels=1, brightness=0.5)
+    display = Display(backend, width_pixels=5, height_pixels=2, brightness=0.5)
+    source = MatrixFrame(2, 1, 3, bytearray((0, 1, 255, 32, 64, 128)))
 
-    display.show(_matrix([[0.0, 1.0]]))
+    display.show(source)
 
     frame, _allow_lossy = backend.writes[-1]
-    assert list(frame.data) == [0, 128]
+    assert frame.channels == 3
+    assert list(frame.data) == [0, 1, 128, 0, 1, 128, 16, 32, 64, 16, 32, 64, 0, 0, 0] * 2
+    assert source.data == bytearray((0, 1, 255, 32, 64, 128))
 
 
 def test_show_rejects_content_that_is_not_a_frame() -> None:
@@ -164,9 +172,12 @@ def test_blank_failure_mode_clears_instead_of_drawing_a_marker() -> None:
     assert backend.clears == 1
 
 
-def test_backend_rejection_falls_back_to_the_failure_marker() -> None:
-    backend = _Backend(result=False)
-    display = Display(backend, width_pixels=6, height_pixels=7)
+@pytest.mark.parametrize("failure_accepted", [True, False])
+def test_backend_rejection_tries_the_marker_then_clears_if_rejected(
+    *, failure_accepted: bool
+) -> None:
+    backend = _Backend(results=(False, failure_accepted))
+    display = Display(backend, width_pixels=6, height_pixels=7, brightness=0.25)
 
     display.show(_matrix([[1.0]]))
 
@@ -174,49 +185,62 @@ def test_backend_rejection_falls_back_to_the_failure_marker() -> None:
     failure, allow_lossy = backend.writes[-1]
     assert allow_lossy is True
     assert _lit_pixels(failure) == {(0, 0), (5, 0), (0, 6), (5, 6)}
+    assert failure.intensity == 64
+    assert backend.clears == int(not failure_accepted)
 
 
-def test_backend_rejecting_the_failure_frame_clears_the_display() -> None:
-    backend = _Backend(result=False)
-    display = Display(backend, width_pixels=6, height_pixels=7)
-
-    display.show(_matrix([[1.0]]))
-
-    assert backend.clears == 1
-
-
-def test_failure_clears_when_geometry_is_too_small_for_a_marker() -> None:
-    backend = _Backend(result=False)
-    display = Display(backend, width_pixels=1, height_pixels=1)
+@pytest.mark.parametrize("width,height", [(1, 4), (4, 1)])
+def test_failure_clears_when_either_axis_is_too_small_for_a_marker(width: int, height: int) -> None:
+    backend = _Backend(results=(False,))
+    display = Display(backend, width_pixels=width, height_pixels=height)
 
     display.show(_matrix([[1.0]]))
 
-    # A 1x1 display cannot show four distinct corners, so it blanks instead.
+    assert len(backend.writes) == 1
     assert backend.clears == 1
 
 
-def test_allow_lossy_downscales_oversized_frames_preserving_aspect() -> None:
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize(
+    "width,height,expected",
+    [
+        (8, 4, {(0, 1), (1, 2)}),
+        (4, 8, {(1, 0), (2, 1)}),
+        # Aspect ratios match exactly, so neither axis dominates and the frame
+        # fills the display edge to edge with no centering margin.
+        (8, 8, {(0, 0), (1, 1)}),
+    ],
+)
+def test_lossy_downscale_samples_pixels_and_centers_with_preserved_aspect(
+    *, packed: bool, width: int, height: int, expected: set[tuple[int, int]]
+) -> None:
     backend = _Backend()
     display = Display(backend, width_pixels=4, height_pixels=4, allow_lossy=True)
+    source = Frame(width, height, intensity=128)
+    for x, y in ((0, 0), (2, 2), (1, 0)):
+        source.pixel(x, y)
 
-    # 8 wide x 4 tall is wider than the target's aspect, so width binds: 4x2.
-    display.show(_matrix([[1.0] * 8] * 4))
+    display.show(source if packed else source.unpack())
 
     frame, allow_lossy = backend.writes[-1]
     assert allow_lossy is True
     assert (frame.width, frame.height) == (4, 4)
-    assert _lit_rows(frame) == {1, 2}
+    assert _lit_pixels(frame) == expected
+    assert {value for value in frame.data if value} == {128}
 
 
-def test_allow_lossy_downscale_binds_on_height_for_tall_frames() -> None:
+@pytest.mark.parametrize("width,height", [(100, 1), (1, 100)])
+def test_lossy_downscale_retains_one_pixel_for_extreme_aspect_ratios(
+    width: int, height: int
+) -> None:
     backend = _Backend()
     display = Display(backend, width_pixels=4, height_pixels=4, allow_lossy=True)
 
-    # 4 wide x 8 tall is taller than the target's aspect, so height binds: 2x4.
-    display.show(_matrix([[1.0] * 4] * 8))
+    display.show(MatrixFrame(width, height, 1, bytearray([255]) * width * height))
 
     frame, _allow_lossy = backend.writes[-1]
-    assert _lit_columns(frame) == {1, 2}
+    expected = {(x, 1) for x in range(4)} if width > height else {(1, y) for y in range(4)}
+    assert _lit_pixels(frame) == expected
 
 
 @pytest.mark.parametrize(
@@ -225,6 +249,7 @@ def test_allow_lossy_downscale_binds_on_height_for_tall_frames() -> None:
         (-0.5, 0),  # below range clamps to fully off
         (0.0, 0),
         (0.5, 128),
+        (0.0001, 1),  # positive brightness must preserve lit pixels
         (1.5, 255),  # above range clamps to full brightness
     ],
 )
@@ -259,22 +284,12 @@ def _lit_pixels(frame: object) -> set:
     }
 
 
-def _lit_rows(frame: object) -> set:
-    """Return the row indexes containing at least one lit pixel."""
-    return {y for _x, y in _lit_pixels(frame)}
-
-
-def _lit_columns(frame: object) -> set:
-    """Return the column indexes containing at least one lit pixel."""
-    return {x for x, _y in _lit_pixels(frame)}
-
-
 class _Backend:
     """Display backend fake recording frames, clears, and flips."""
 
-    def __init__(self, *, result: bool = True) -> None:
+    def __init__(self, *, results: tuple[bool, ...] = (True,)) -> None:
         """Initialise the call log."""
-        self.result = result
+        self.results = results
         self.writes: list[tuple[object, bool]] = []
         self.clears = 0
         self.flips = 0
@@ -282,7 +297,7 @@ class _Backend:
     def write_frame(self, frame: object, *, allow_lossy: bool) -> bool:
         """Record one frame write and return the configured result."""
         self.writes.append((frame, allow_lossy))
-        return self.result
+        return self.results[min(len(self.writes) - 1, len(self.results) - 1)]
 
     def clear(self) -> None:
         """Record a clear request."""

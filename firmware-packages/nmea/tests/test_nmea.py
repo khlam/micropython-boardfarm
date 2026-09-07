@@ -1,297 +1,206 @@
-"""Host CPython tests for pure NMEA parsing logic in nmea.py.
-
-All tests import nmea directly — no AST loading, no fake hardware.
-"""
-
-from __future__ import annotations
+"""Sentence decoding, malformed receiver data, and cached UTC state."""
 
 import pytest
 
 import nmea
 
-# ---------------------------------------------------------------------------
-# Shared sentence fixtures
-# ---------------------------------------------------------------------------
-
 _GPGGA = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"
-_GNGGA = "$GNGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*59"
-_GPGGA_NO_FIX = "$GPGGA,123519,4807.038,N,01131.000,E,0,08,0.9,545.4,M,46.9,M,,*46"
-_GPGGA_SOUTH_WEST = "$GPGGA,123519,3351.960,S,07036.600,W,1,08,0.9,545.4,M,46.9,M,,*45"
 _GPGSA = "$GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,2.0,1.0,1.8*3B"
-_GPGSA_SHORT = "$GPGSA,A,3,01,02,,,,,,,,,,,*1F"
 _GPGSV = "$GPGSV,3,1,09,01,40,083,46,02,17,308,41,12,07,344,39,14,22,228,45*75"
 _GPZDA = "$GPZDA,131415,01,06,2025,00,00*49"
-_GPRMC_VALID = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"
-_GPRMC_VOID = "$GPRMC,123519,V,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*7D"
-_GPVTG = "$GPVTG,054.7,T,034.4,M,005.5,N,010.2,K*48"
+_GPRMC = "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"
+_EMPTY = ({}, set(), {}, {}, {}, {})
 
 
-def _parts(sentence: str) -> list:
-    """Split a raw NMEA sentence into comma-separated fields, checksum stripped."""
-    return sentence.split("*", 1)[0].split(",")
-
-
-# ---------------------------------------------------------------------------
-# nmea_checksum_valid
-# ---------------------------------------------------------------------------
-
-
-def test_checksum_valid_passes_good_sentence() -> None:
-    assert nmea.nmea_checksum_valid(_GPGGA)
+@pytest.mark.parametrize(
+    "line", [_GPRMC, _GPRMC[:-2] + "6a\r\n"], ids=["uppercase", "lowercase-crlf"]
+)
+def test_checksum_accepts_valid_hex_and_line_endings(line):
+    assert nmea.nmea_checksum_valid(line)
 
 
 @pytest.mark.parametrize(
     "line",
-    [
-        _GPGGA[:-2] + "00",  # wrong checksum
-        "$GPGGA,123519,4807.038",  # missing star
-        "$GPGGA,123519*4",  # truncated checksum
-    ],
-    ids=["wrong_checksum", "missing_star", "truncated"],
+    [_GPGGA[:-2] + "00", "$GPGGA,123519", "$GPGGA,123519*4", "$GPGGA,123519*GG"],
+    ids=["mismatch", "missing", "truncated", "non_hex"],
 )
-def test_checksum_valid_rejects_invalid(line: str) -> None:
+def test_checksum_rejects_invalid(line):
     assert not nmea.nmea_checksum_valid(line)
 
 
-# ---------------------------------------------------------------------------
-# parse_gga
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
-    "sentence,lat,lon",
+    "line,expected",
     [
-        (_GPGGA, pytest.approx(48.1173, abs=1e-4), pytest.approx(11.5167, abs=1e-4)),
-        (_GPGGA_SOUTH_WEST, pytest.approx(-33.866, abs=1e-4), pytest.approx(-70.61, abs=1e-4)),
-    ],
-    ids=["north_east", "south_west"],
-)
-def test_parse_gga_position(sentence: str, lat: float, lon: float) -> None:
-    result = nmea.parse_gga(_parts(sentence))
-    assert result["lat"] == lat
-    assert result["lon"] == lon
-
-
-@pytest.mark.parametrize(
-    "parts",
-    [
-        _parts(_GPGGA_NO_FIX),
-        ["$GPGGA", "123519"],
-    ],
-    ids=["no_fix", "too_short"],
-)
-def test_parse_gga_returns_empty(parts: list) -> None:
-    assert nmea.parse_gga(parts) == {}
-
-
-# ---------------------------------------------------------------------------
-# parse_gsa
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "sentence,expected_count,expected_dop",
-    [
+        (_GPGGA, ({}, set(), {}, {}, {"lat": 48.1173, "lon": 11.516667}, {})),
+        (
+            "$GNGGA,123519,3351.960,S,07036.600,W,1,08,0.9,545.4,M,46.9,M,,*5B",
+            ({}, set(), {}, {}, {"lat": -33.866, "lon": -70.61}, {}),
+        ),
         (
             _GPGSA,
-            12,
-            {"pdop": pytest.approx(2.0), "hdop": pytest.approx(1.0), "vdop": pytest.approx(1.8)},
+            (
+                {},
+                {"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"},
+                {},
+                {"pdop": 2.0, "hdop": 1.0, "vdop": 1.8},
+                {},
+                {},
+            ),
         ),
-        (_GPGSA_SHORT, 2, {}),
+        (
+            _GPGSV,
+            (
+                {
+                    1: {"prn": 1, "snr": 46, "sys": "GP"},
+                    2: {"prn": 2, "snr": 41, "sys": "GP"},
+                    12: {"prn": 12, "snr": 39, "sys": "GP"},
+                    14: {"prn": 14, "snr": 45, "sys": "GP"},
+                },
+                set(),
+                {"GP": 9},
+                {},
+                {},
+                {},
+            ),
+        ),
+        (_GPZDA, ({}, set(), {}, {}, {}, {"date": "2025-06-01", "utc": "13:14:15Z"})),
+        (
+            _GPRMC,
+            (
+                {},
+                set(),
+                {},
+                {},
+                {},
+                {"utc": "12:35:19Z", "date": "2094-03-23", "lat": 48.1173, "lon": 11.516667},
+            ),
+        ),
+        ("$GPVTG,054.7,T,034.4,M,005.5,N,010.2,K*48", _EMPTY),
     ],
-    ids=["full", "short"],
+    ids=["gga_gps", "gga_multi_gnss", "gsa", "gsv", "zda", "rmc", "unsupported"],
 )
-def test_parse_gsa(sentence: str, expected_count: int, expected_dop: dict) -> None:
-    in_use, dop = nmea.parse_gsa(_parts(sentence))
-    assert "" not in in_use
-    assert len(in_use) == expected_count
-    assert dop == expected_dop
-
-
-# ---------------------------------------------------------------------------
-# parse_gsv
-# ---------------------------------------------------------------------------
-
-
-def test_parse_gsv_full_sentence() -> None:
-    signals, total_in_view = nmea.parse_gsv(_parts(_GPGSV))
-    assert len(signals) == 4
-    assert total_in_view["GP"] == 9
-    for sat in signals.values():
-        assert "prn" in sat and "snr" in sat and "sys" in sat
-        assert sat["sys"] == "GP"
-
-
-def test_parse_gsv_repeated_epoch_overwrites_not_appends() -> None:
-    parts = _parts(_GPGSV)
-    accumulated: dict = {}
-    for _ in range(3):
-        signals, _ = nmea.parse_gsv(parts)
-        accumulated.update(signals)
-    assert len(accumulated) == 4
-
-
-def test_parse_gsv_short_sentence_returns_empty() -> None:
-    signals, total = nmea.parse_gsv(["$GPGSV", "3"])
-    assert signals == {} and total == {}
-
-
-# ---------------------------------------------------------------------------
-# parse_zda
-# ---------------------------------------------------------------------------
-
-
-def test_parse_zda_returns_date_and_utc() -> None:
-    assert nmea.parse_zda(_parts(_GPZDA)) == {"date": "2025-06-01", "utc": "13:14:15Z"}
+def test_sentence_dispatch_returns_all_fields_in_their_slots(line, expected):
+    assert nmea.parse_sentence(line) == expected
 
 
 @pytest.mark.parametrize(
-    "parts",
+    "sentence,field,value",
     [
-        ["$GPZDA", "250000", "01", "06", "2025", "00", "00"],  # invalid hour
-        ["$GPZDA", "120000", "01", "13", "2025", "00", "00"],  # invalid month
-        ["$GPZDA", "131415"],  # too short
+        (_GPGGA, 6, "0"),
+        (_GPGGA, 2, ""),
+        (_GPGGA, 4, ""),
+        (_GPGGA, 2, "invalid"),
+        (_GPRMC, 2, "V"),
+        (_GPRMC, 1, ""),
+        (_GPRMC, 1, "invalid"),
+        (_GPRMC, 1, "240000"),
+        (_GPRMC, 1, "126000"),
+        (_GPRMC, 1, "123560"),
+        (_GPRMC, 3, ""),
+        (_GPRMC, 5, "invalid"),
+        (_GPZDA, 1, ""),
+        (_GPZDA, 1, "invalid"),
+        (_GPZDA, 1, "240000"),
+        (_GPZDA, 1, "136000"),
+        (_GPZDA, 1, "131460"),
+        (_GPZDA, 2, "00"),
+        (_GPZDA, 2, "32"),
+        (_GPZDA, 3, "00"),
+        (_GPZDA, 3, "13"),
+        (_GPZDA, 4, "invalid"),
     ],
-    ids=["invalid_hour", "invalid_month", "too_short"],
 )
-def test_parse_zda_returns_empty(parts: list) -> None:
-    assert nmea.parse_zda(parts) == {}
+def test_sentence_rejects_unusable_fix_or_time(sentence, field, value):
+    parts = _parts(sentence)
+    parts[field] = value
+    assert nmea.parse_sentence(",".join(parts)) == _EMPTY
 
 
-# ---------------------------------------------------------------------------
-# parse_rmc
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("tag", ["GPGGA", "GPRMC", "GPZDA", "GPGSV", "GPGSA"])
+def test_truncated_sentence_has_no_usable_fields(tag):
+    assert nmea.parse_sentence("$" + tag + ",123519") == _EMPTY
 
 
-def test_parse_rmc_valid() -> None:
-    result = nmea.parse_rmc(_parts(_GPRMC_VALID))
-    assert result["utc"] == "12:35:19Z"
-    assert result["lat"] == pytest.approx(48.1173, abs=1e-4)
-    assert result["lon"] == pytest.approx(11.5167, abs=1e-4)
-    assert result["date"] == "2094-03-23"
+@pytest.mark.parametrize("date", ["", "000626", "321226", "011326", "bad", "0101"])
+def test_rmc_missing_or_invalid_date_preserves_time_and_position(date):
+    parts = _parts(_GPRMC)
+    parts[1] = "235959.900"
+    parts[4], parts[6], parts[9] = "S", "W", date
+    assert nmea.parse_rmc(parts) == {
+        "utc": "23:59:59Z",
+        "lat": -48.1173,
+        "lon": -11.516667,
+    }
 
 
-@pytest.mark.parametrize(
-    "parts",
-    [
-        _parts(_GPRMC_VOID),
-        ["$GPRMC", "123519"],
-    ],
-    ids=["void", "too_short"],
-)
-def test_parse_rmc_returns_empty(parts: list) -> None:
-    assert nmea.parse_rmc(parts) == {}
+def test_zda_ignores_fractional_seconds_and_local_zone_fields():
+    assert nmea.parse_zda(["$GNZDA", "000000.25", "1", "1", "2000", "-05", "30"]) == {
+        "date": "2000-01-01",
+        "utc": "00:00:00Z",
+    }
 
 
-# ---------------------------------------------------------------------------
-# parse_sentence dispatch
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("total,expected_total", [("6", {"BD": 6}), ("bad", {})])
+def test_gsv_skips_bad_satellites_without_losing_remaining_signals(total, expected_total):
+    parts = ["$BDGSV", "2", "1", total]
+    parts += ["01", "40", "083", ""]
+    parts += ["bad", "17", "308", "41"]
+    parts += ["03", "07", "344", "bad"]
+    parts += ["04", "22", "228", "0"]
+    parts += ["05", "22", "228", "45*75"]
+    parts += ["06", "22"]
+    assert nmea.parse_gsv(parts) == (
+        {4: {"prn": 4, "snr": 0, "sys": "BD"}, 5: {"prn": 5, "snr": 45, "sys": "BD"}},
+        expected_total,
+    )
 
 
-def test_parse_sentence_gga_fills_position_slot() -> None:
-    _, _, _, _, position, parsed = nmea.parse_sentence(_GPGGA)
-    assert position["lat"] == pytest.approx(48.1173, abs=1e-4)
-    assert position["lon"] == pytest.approx(11.5167, abs=1e-4)
-    assert parsed == {}
-
-
-def test_parse_sentence_dispatches_multi_constellation_gga() -> None:
-    """A multi-GNSS receiver emits $GNGGA, not $GPGGA — both must yield position.
-
-    Unlike the other sentence types, GGA is matched by exact tag rather than
-    suffix, so each accepted talker id needs its own coverage.
-    """
-    _, _, _, _, position, _parsed = nmea.parse_sentence(_GNGGA)
-    assert position["lat"] == pytest.approx(48.1173, abs=1e-4)
-    assert position["lon"] == pytest.approx(11.5167, abs=1e-4)
-
-
-def test_parse_sentence_gsa_fills_in_use_and_dop_slots() -> None:
-    _, in_use, _, dop, position, parsed = nmea.parse_sentence(_GPGSA)
-    assert len(in_use) == 12
-    assert dop["hdop"] == pytest.approx(1.0)
-    assert position == {} and parsed == {}
-
-
-def test_parse_sentence_gsv_fills_signals_slot() -> None:
-    signals, _, total_in_view, dop, position, parsed = nmea.parse_sentence(_GPGSV)
-    assert len(signals) == 4
-    assert total_in_view["GP"] == 9
-    assert dop == {} and position == {} and parsed == {}
-
-
-def test_parse_sentence_zda_fills_parsed_slot() -> None:
-    signals, in_use, _total, _dop, position, parsed = nmea.parse_sentence(_GPZDA)
-    assert parsed == {"date": "2025-06-01", "utc": "13:14:15Z"}
-    assert signals == {} and in_use == set() and position == {}
-
-
-def test_parse_sentence_rmc_fills_parsed_slot() -> None:
-    signals, in_use, _total, _dop, position, parsed = nmea.parse_sentence(_GPRMC_VALID)
-    assert parsed["utc"] == "12:35:19Z"
-    assert parsed["date"] == "2094-03-23"
-    assert signals == {} and in_use == set() and position == {}
-
-
-def test_parse_sentence_unknown_tag_returns_all_empty() -> None:
-    signals, in_use, total_in_view, dop, position, parsed = nmea.parse_sentence(_GPVTG)
-    assert signals == {}
-    assert in_use == set()
-    assert total_in_view == {}
-    assert dop == {}
-    assert position == {}
-    assert parsed == {}
-
-
-# ---------------------------------------------------------------------------
-# apply_parsed
-# ---------------------------------------------------------------------------
-
-
-def test_apply_parsed_captures_utc() -> None:
-    utc_time, cached_date = nmea.apply_parsed({"utc": "12:00:00Z"}, None, None)
-    assert utc_time == "12:00:00Z"
-    assert cached_date is None
+@pytest.mark.parametrize("dop_fields", [[], ["bad", "1.0", "1.8"]])
+def test_gsa_keeps_used_satellites_without_usable_dop(dop_fields):
+    parts = ["$GNGSA", "A", "3", "01", "02"] + [""] * 10 + dop_fields
+    assert nmea.parse_gsa(parts) == ({"01", "02"}, {})
 
 
 @pytest.mark.parametrize(
     "new_date,cached,expected",
     [
-        ("2025-06-01", None, "2025-06-01"),  # new date when none cached
-        ("2025-06-01", "2025-06-01", "2025-06-01"),  # same date unchanged
-        ("2025-06-02", "2025-06-01", "2025-06-02"),  # newer replaces older
-        ("2025-06-01", "2025-06-02", "2025-06-02"),  # older does not replace newer
+        ("2025-06-01", None, "2025-06-01"),
+        ("2026-01-01", "2025-12-31", "2026-01-01"),
+        ("2025-12-31", "2026-01-01", "2026-01-01"),
     ],
-    ids=["from_none", "same_unchanged", "newer_replaces", "older_rejected"],
+    ids=["initial", "newer", "older"],
 )
-def test_apply_parsed_date_caching(new_date: str, cached: str | None, expected: str) -> None:
-    _, result = nmea.apply_parsed({"date": new_date}, None, cached)
-    assert result == expected
-
-
-def test_apply_parsed_empty_dict_changes_nothing() -> None:
-    utc_time, cached_date = nmea.apply_parsed({}, "10:00:00Z", "2025-06-01")
-    assert utc_time == "10:00:00Z"
-    assert cached_date == "2025-06-01"
-
-
-# ---------------------------------------------------------------------------
-# build_utc_full
-# ---------------------------------------------------------------------------
-
-
-def test_build_utc_full_combines_date_and_time() -> None:
-    assert nmea.build_utc_full("13:14:15Z", "2025-06-01") == "2025-06-01T13:14:15Z"
+def test_apply_parsed_updates_time_and_retains_newest_date(new_date, cached, expected):
+    assert nmea.apply_parsed({"date": new_date, "utc": "00:00:01Z"}, "23:59:59Z", cached) == (
+        "00:00:01Z",
+        expected,
+    )
 
 
 @pytest.mark.parametrize(
-    "utc_time,cached_date",
+    "parsed,expected",
     [
-        (None, "2025-06-01"),
-        ("13:14:15Z", None),
-        (None, None),
+        ({}, ("10:00:00Z", "2025-06-01")),
+        ({"utc": "10:00:01Z"}, ("10:00:01Z", "2025-06-01")),
+        ({"date": "2025-06-02"}, ("10:00:00Z", "2025-06-02")),
     ],
-    ids=["time_missing", "date_missing", "both_missing"],
 )
-def test_build_utc_full_returns_none(utc_time: str | None, cached_date: str | None) -> None:
-    assert nmea.build_utc_full(utc_time, cached_date) is None
+def test_apply_parsed_preserves_absent_fields(parsed, expected):
+    assert nmea.apply_parsed(parsed, "10:00:00Z", "2025-06-01") == expected
+
+
+@pytest.mark.parametrize(
+    "utc_time,cached_date,expected",
+    [
+        ("13:14:15Z", "2025-06-01", "2025-06-01T13:14:15Z"),
+        (None, "2025-06-01", None),
+        ("13:14:15Z", None, None),
+        (None, None, None),
+    ],
+)
+def test_build_utc_full_requires_date_and_time(utc_time, cached_date, expected):
+    assert nmea.build_utc_full(utc_time, cached_date) == expected
+
+
+def _parts(sentence):
+    return sentence.split("*", 1)[0].split(",")

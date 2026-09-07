@@ -199,7 +199,7 @@ def _parse_rmc_time_and_pos(parts: list) -> dict:
     if lon_dir == "W":
         lon = -lon
     result: dict = {"utc": utc_str, "lat": round(lat, 6), "lon": round(lon, 6)}
-    date_str = parts[9] if len(parts) > 9 else ""
+    date_str = parts[9]  # parse_rmc has already rejected anything shorter
     if date_str:
         date = _parse_rmc_date(date_str)
         if date is not None:

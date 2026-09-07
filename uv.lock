@@ -50,11 +50,11 @@ wheels = [
 
 [[package]]
 name = "atgm336h"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.2.0.tar.gz" }
+sdist = { path = "/wheels/atgm336h-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/atgm336h-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/atgm336h-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -203,7 +203,7 @@ wheels = [
 
 [[package]]
 name = "compass"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/compass" }
 dependencies = [
     { name = "boot-status-led" },
@@ -365,7 +365,7 @@ wheels = [
 
 [[package]]
 name = "distance-stream"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -454,7 +454,7 @@ wheels = [
 
 [[package]]
 name = "gps-stream"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/gps" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -465,7 +465,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -858,7 +858,7 @@ wheels = [
 
 [[package]]
 name = "multizone-ranging"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
     { name = "micropython-boardfarm" },

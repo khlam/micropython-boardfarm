@@ -15,14 +15,13 @@ context, so callers see a single clean press notification either way.
 
 import os
 
-# Pick the chip-specific backend at import time.
+# Pick the chip-specific backend at import time. Both RP chips read BOOTSEL the
+# same way, so they share one backend rather than each getting a named module.
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
     from boot_button.esp32s3 import on_press as _on_press
-elif "RP2350" in _machine:
-    from boot_button.rp2350 import on_press as _on_press
 else:
-    from boot_button.rp2040 import on_press as _on_press
+    from boot_button.bootsel import on_press as _on_press
 
 
 def on_press(callback: object) -> None:

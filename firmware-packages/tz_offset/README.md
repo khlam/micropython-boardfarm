@@ -12,10 +12,9 @@ MCU and under host CPython pytest, and the package has no per-chip backends.
 - `offset_hours_from_longitude(lon)` — `round(lon/15)`, clamped to `[-12, 14]`.
 - `weekday(year, month, day)` — Sakamoto's algorithm, `0`=Monday … `6`=Sunday
   (matches `machine.RTC().datetime()` weekday on the rp2 port).
-- `utc_to_local(year, month, day, hour, minute, second, offset_hours)` — apply the
-  offset with full hour/day/month/year rollover (correct month lengths + leap years).
 - `utc_to_local_seconds(year, month, day, hour, minute, second, offset_seconds)` —
-  the same rollover for an arbitrary signed second offset.
+  apply an arbitrary signed second offset with full hour/day/month/year rollover
+  (correct month lengths + leap years).
 
 ## Caveats
 

@@ -73,12 +73,7 @@ class Display:
         if self._exceeds_geometry(frame):
             self._show_failure()
             return
-        fitted = _fit_matrix_frame(
-            frame,
-            self.width_pixels,
-            self.height_pixels,
-            allow_downscale=self._allow_lossy,
-        )
+        fitted = _fit_matrix_frame(frame, self.width_pixels, self.height_pixels)
         self._write_or_fail(self._scale_matrix_intensity(fitted))
 
     def _exceeds_geometry(self, frame: object) -> bool:
@@ -122,21 +117,17 @@ class Display:
         return Frame.from_packed(frame.width, frame.height, frame.stride, frame.data, intensity)
 
 
-def _fit_matrix_frame(
-    frame: MatrixFrame,
-    width: int,
-    height: int,
-    *,
-    allow_downscale: bool,
-) -> MatrixFrame:
-    """Scale a matrix frame to fit inside target geometry and center it."""
+def _fit_matrix_frame(frame: MatrixFrame, width: int, height: int) -> MatrixFrame:
+    """Scale a matrix frame to fit inside target geometry and center it.
+
+    Only reached once ``_exceeds_geometry`` has passed, so an oversized frame
+    here is always allowed to downscale and an undersized one always admits an
+    integer block scale of at least one.
+    """
     if frame.width > width or frame.height > height:
-        if not allow_downscale:
-            return MatrixFrame.blank(width, height, frame.channels)
         out_width, out_height = _downscaled_size(frame.width, frame.height, width, height)
     else:
         scale = min(width // frame.width, height // frame.height)
-        scale = max(scale, 1)
         out_width = frame.width * scale
         out_height = frame.height * scale
     x0 = (width - out_width) // 2

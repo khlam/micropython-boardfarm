@@ -450,11 +450,11 @@ def _draw_marquee_row(
         return
     strip = Frame(text_width, band_height)
     strip[0:band_height, 0:text_width] = Text(text, align="left", valign=valign)
+    # The offset never exceeds the overflow, so the window always lands inside
+    # the strip and needs no per-column bounds check.
     offset = _scroll_offset(text_width, width_pixels, scroll_ms)
     for x in range(width_pixels):
         src_x = x + offset
-        if src_x >= text_width:
-            break
         for y in range(band_height):
             if strip.value_at(src_x, y):
                 frame.pixel(x, y0 + y)
@@ -706,14 +706,13 @@ def is_wait(screen: int) -> bool:
 
 
 def choose_next_regular(current: int, rng: object | None = None) -> int:
-    """Choose any regular screen except ``current``."""
-    cur_idx = 0
-    for i, screen in enumerate(REGULAR_SCREENS):
-        if screen == current:
-            cur_idx = i
-            break
-    offset = randbelow(len(REGULAR_SCREENS) - 1, rng) + 1
-    return REGULAR_SCREENS[(cur_idx + offset) % len(REGULAR_SCREENS)]
+    """Choose any regular screen except ``current``.
+
+    A ``current`` that is not itself a regular screen — the brand screen on the
+    way out of startup, say — simply excludes nothing.
+    """
+    options = tuple(screen for screen in REGULAR_SCREENS if screen != current)
+    return options[randbelow(len(options), rng)]
 
 
 def choose_regular(rng: object | None = None) -> int:

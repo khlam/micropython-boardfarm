@@ -1,7 +1,10 @@
-"""MCU-micropython backend emulating an event-driven BOOT button on the RP2350.
+"""MCU-micropython backend emulating an event-driven BOOT button on the RP chips.
 
 BOOTSEL doubles as the QSPI flash CS line and has no GPIO interrupt, so a periodic
 soft Timer polls rp2.bootsel_button() and fires the callback on the press edge.
+
+RP2040 and RP2350 share this one module: BOOTSEL is wired and read identically on
+both, so there is no per-chip half to split out.
 """
 
 import micropython

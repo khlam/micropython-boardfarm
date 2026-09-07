@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
+_pin_instances: list[object] = []
 uart_constructions: list[UART] = []
 _devices: dict[int, object] = {}
 _uart_rx = bytearray()
@@ -92,6 +93,7 @@ def reset() -> None:
     """Clear recorded constructions, the device registry, and UART/SPI/Timer/RTC state."""
     global _uart_read_exc, _uart_write_exc, _rtc_datetime  # noqa: PLW0603
     pin_constructions.clear()
+    _pin_instances.clear()
     uart_constructions.clear()
     _devices.clear()
     _uart_rx.clear()
@@ -128,7 +130,9 @@ class RTC:
 
 
 class Pin:
-    """Fake `machine.Pin`. Records id + mode, supports value() get/set and irq()."""
+    """Fake `machine.Pin`. Records id, mode and pull, supports value() and irq()."""
+
+    instances = _pin_instances
 
     OUT = "OUT"
     IN = "IN"
@@ -141,16 +145,27 @@ class Pin:
         self,
         id: int | str,  # noqa: A002
         mode: str | None = None,
+        pull: str | None = None,
         *_args: object,
+        value: int | None = None,
         **_kwargs: object,
     ) -> None:
-        """Record the pin id and mode for later inspection."""
+        """Record the pin id, mode and pull, honouring an initial `value=`.
+
+        `pull` and `value` are recorded on the instance rather than appended to
+        `pin_constructions`, which stays a list of `(id, mode)` pairs that
+        existing suites compare against exactly. The real Pin drives `value=` on
+        the line at construction — chip-selects rely on idling high — so the stub
+        seeds `_value` from it instead of always starting low.
+        """
         self.id = id
         self.mode = mode
-        self._value = 0
+        self.pull = pull
+        self._value = 0 if value is None else int(bool(value))
         self._irq_handler = None
         self._irq_trigger = None
         pin_constructions.append((id, mode))
+        _pin_instances.append(self)
 
     def value(self, v: int | None = None) -> int | None:
         """Get or set the pin value (0/1)."""

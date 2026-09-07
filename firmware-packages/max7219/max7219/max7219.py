@@ -47,16 +47,6 @@ class _MAX7219Backend:
         self._last_allow_lossy = False
         self._init_display()
 
-    @property
-    def width(self) -> int:
-        """Return the backend's fixed visual width."""
-        return _WIDTH
-
-    @property
-    def height(self) -> int:
-        """Return the backend's fixed visual height."""
-        return _HEIGHT
-
     def write_frame(self, frame: object, *, allow_lossy: bool) -> bool:
         """Convert a fitted frame into the binary matrix and refresh.
 

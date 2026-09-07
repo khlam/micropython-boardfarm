@@ -1,113 +1,72 @@
-"""Host CPython tests for the longitude-derived timezone offset logic.
+"""Longitude-derived offsets and RTC weekday numbering."""
 
-All functions are pure, so tests import tz_offset directly — no fake hardware.
-"""
-
-from __future__ import annotations
+from datetime import date, timedelta
 
 import pytest
 
 import tz_offset
 
-# ---------------------------------------------------------------------------
-# offset_hours_from_longitude
-# ---------------------------------------------------------------------------
 
-
-# Half-boundary longitudes (lon/15 == n.5) are avoided: round() rounds halves
-# to even, which is confusing and varies by implementation.
 @pytest.mark.parametrize(
     "lon,expected",
     [
-        (0.0, 0),  # Greenwich
-        (15.0, 1),
-        (-15.0, -1),
-        (120.0, 8),  # Beijing-ish
-        (-75.0, -5),  # US Eastern-ish
-        (8.0, 1),  # 0.53 rounds up
-        (-7.0, 0),  # -0.47 rounds toward zero
-        (180.0, 12),  # eastern edge of valid longitude
-        (-180.0, -12),  # western edge
-        (220.0, 14),  # out-of-range: 14.67 -> clamp ceiling +14
-        (-190.0, -12),  # out-of-range: -12.67 -> clamp floor -12
+        (0.0, 0),
+        (120.0, 8),
+        (-75.0, -5),
+        (7.49, 0),
+        (7.51, 1),
+        (-7.49, 0),
+        (-7.51, -1),
+        (180.0, 12),
+        (-180.0, -12),
     ],
 )
-def test_offset_hours_from_longitude(lon: float, expected: int) -> None:
+def test_longitude_rounds_to_the_nearest_15_degree_meridian(lon, expected):
     assert tz_offset.offset_hours_from_longitude(lon) == expected
 
 
-# ---------------------------------------------------------------------------
-# weekday  (0=Monday .. 6=Sunday)
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "lon,expected",
+    [
+        (195.0, 13),  # inside the range: 13 is a real offset, not clamped
+        (210.0, 14),  # exactly the maximum, still unclamped
+        (218.0, 14),  # round() gives 15; clamped down to the real UTC maximum
+        (-180.0, -12),  # exactly the minimum, still unclamped
+        (-195.0, -12),  # round() gives -13; clamped up to the real UTC minimum
+    ],
+)
+def test_longitude_saturates_at_the_real_utc_offset_range(lon, expected):
+    assert tz_offset.offset_hours_from_longitude(lon) == expected
+
+
+@pytest.mark.parametrize("lon,expected", [(112.5, 8), (97.5, 6)], ids=["up", "down"])
+def test_longitude_exactly_on_a_half_meridian_rounds_to_even(lon, expected):
+    """A receiver sitting on a 7.5-degree boundary rounds to the *even* hour.
+
+    ``round()`` is banker's rounding, so 112.5 goes up to 8 while 97.5 goes down
+    to 6 — the tie does not consistently round away from zero. Pinned because the
+    clock latches this offset for the whole run, and because MicroPython's
+    ``round`` is not contractually required to break ties the same way CPython
+    does; if the two ever diverge, this fails on the host first.
+    """
+    assert tz_offset.offset_hours_from_longitude(lon) == expected
 
 
 @pytest.mark.parametrize(
-    "year,month,day,expected",
-    [
-        (2024, 1, 1, 0),  # Monday
-        (2025, 6, 18, 2),  # Wednesday
-        (2000, 1, 1, 5),  # Saturday
-        (2025, 1, 1, 2),  # Wednesday
-        (2024, 2, 29, 3),  # leap day, Thursday
-        (1999, 12, 31, 4),  # Friday
-        (2025, 6, 22, 6),  # Sunday
-    ],
+    "day_offset", range(7), ids=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 )
-def test_weekday(year: int, month: int, day: int, expected: int) -> None:
-    assert tz_offset.weekday(year, month, day) == expected
+def test_weekday_numbers_every_day_from_monday_zero(day_offset):
+    """Every weekday value the RTC can hold, against CPython's calendar."""
+    day = date(2026, 6, 22) + timedelta(days=day_offset)
+
+    assert tz_offset.weekday(day.year, day.month, day.day) == day_offset
+    assert tz_offset.weekday(day.year, day.month, day.day) == day.weekday()
 
 
-# ---------------------------------------------------------------------------
-# utc_to_local  — offset application + rollover
-# ---------------------------------------------------------------------------
-
-
-def test_utc_to_local_no_rollover() -> None:
-    assert tz_offset.utc_to_local(2025, 6, 18, 10, 30, 15, 2) == (2025, 6, 18, 12, 30, 15)
-
-
-def test_utc_to_local_negative_no_rollover() -> None:
-    assert tz_offset.utc_to_local(2025, 6, 18, 12, 0, 0, -5) == (2025, 6, 18, 7, 0, 0)
-
-
-def test_utc_to_local_forward_across_midnight() -> None:
-    # 23:00 UTC + 3h -> 02:00 next day.
-    assert tz_offset.utc_to_local(2025, 6, 18, 23, 0, 0, 3) == (2025, 6, 19, 2, 0, 0)
-
-
-def test_utc_to_local_backward_across_midnight() -> None:
-    # 01:00 UTC - 5h -> 20:00 previous day.
-    assert tz_offset.utc_to_local(2025, 6, 18, 1, 0, 0, -5) == (2025, 6, 17, 20, 0, 0)
-
-
-def test_utc_to_local_month_rollover_forward() -> None:
-    # 30 June 23:00 + 2h -> 1 July.
-    assert tz_offset.utc_to_local(2025, 6, 30, 23, 0, 0, 2) == (2025, 7, 1, 1, 0, 0)
-
-
-def test_utc_to_local_month_borrow_backward() -> None:
-    # 1 July 00:00 - 1h -> 30 June 23:00.
-    assert tz_offset.utc_to_local(2025, 7, 1, 0, 0, 0, -1) == (2025, 6, 30, 23, 0, 0)
-
-
-def test_utc_to_local_year_rollover_forward() -> None:
-    assert tz_offset.utc_to_local(2025, 12, 31, 23, 0, 0, 5) == (2026, 1, 1, 4, 0, 0)
-
-
-def test_utc_to_local_year_borrow_backward() -> None:
-    assert tz_offset.utc_to_local(2025, 1, 1, 0, 0, 0, -2) == (2024, 12, 31, 22, 0, 0)
-
-
-def test_utc_to_local_leap_day_forward() -> None:
-    # 28 Feb 23:00 2024 + 2h -> 29 Feb (2024 is a leap year).
-    assert tz_offset.utc_to_local(2024, 2, 28, 23, 0, 0, 2) == (2024, 2, 29, 1, 0, 0)
-
-
-def test_utc_to_local_non_leap_skips_feb29() -> None:
-    # 28 Feb 23:00 2025 + 2h -> 1 Mar (2025 is not a leap year).
-    assert tz_offset.utc_to_local(2025, 2, 28, 23, 0, 0, 2) == (2025, 3, 1, 1, 0, 0)
-
-
-def test_utc_to_local_leap_day_borrow() -> None:
-    # 1 Mar 00:00 2024 - 1h -> 29 Feb 2024.
-    assert tz_offset.utc_to_local(2024, 3, 1, 0, 0, 0, -1) == (2024, 2, 29, 23, 0, 0)
+@pytest.mark.parametrize(
+    "year,month,day",
+    [(2024, 1, 1), (2024, 2, 29), (2000, 3, 1), (2100, 3, 1), (1970, 1, 1)],
+    ids=["leap-year", "leap-day", "leap-century", "non-leap-century", "epoch"],
+)
+def test_weekday_spans_gregorian_century_rules(year, month, day):
+    assert tz_offset.weekday(year, month, day) == date(year, month, day).weekday()

@@ -342,7 +342,11 @@ class DisplayEngine:
         self._show_frame(frame, key, now)
 
     def _show_current_or_reassert(self, now: int) -> None:
-        """Refresh live content changes or periodically heal display state."""
+        """Refresh live content changes or periodically heal display state.
+
+        Every path that sets ``current_screen`` also stamps ``last_reassert_ms``,
+        so the heal deadline below is always comparable once a screen is up.
+        """
         if self.current_screen is None:
             return
         parts = self._parts_for_screen(self.current_screen)
@@ -350,9 +354,6 @@ class DisplayEngine:
         if self.shown_key != key:
             frame, key = self._frame_and_key(self.current_screen, parts)
             self._show_frame(frame, key, now)
-            return
-        if self.last_reassert_ms is None:
-            self.last_reassert_ms = now
             return
         if self._clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS:
             frame, key = self._frame_and_key(self.current_screen, parts)

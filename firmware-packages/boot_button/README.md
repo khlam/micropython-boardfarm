@@ -11,8 +11,7 @@ boot_button/
     __init__.py     re-exports nothing; import the `button` module
     button.py       chip dispatch + public on_press()
     esp32s3.py      GPIO0 hardware IRQ (ESP32-S3-Zero)
-    rp2040.py       soft-Timer poll of rp2.bootsel_button() (RP2040-Zero)
-    rp2350.py       soft-Timer poll of rp2.bootsel_button() (RP2350)
+    bootsel.py      soft-Timer poll of rp2.bootsel_button() (RP2040 + RP2350)
   tests/            host pytest (CPython + stubbed machine/rp2/micropython)
 ```
 
@@ -30,15 +29,16 @@ interrupt/timer handler, so it may allocate and do non-trivial work.
 
 ### Per-chip mechanism
 
-| Board          | Mechanism                                                            |
-|----------------|---------------------------------------------------------------------|
-| ESP32-S3-Zero  | True hardware interrupt: `Pin(0, IN, PULL_UP).irq(IRQ_FALLING, …)`   |
-| RP2040-Zero    | Periodic soft `Timer` polling `rp2.bootsel_button()` for a press edge |
-| RP2350         | Periodic soft `Timer` polling `rp2.bootsel_button()` for a press edge |
+| Board                | Mechanism                                                            |
+|----------------------|----------------------------------------------------------------------|
+| ESP32-S3-Zero        | True hardware interrupt: `Pin(0, IN, PULL_UP).irq(IRQ_FALLING, …)`   |
+| RP2040-Zero, RP2350  | Periodic soft `Timer` polling `rp2.bootsel_button()` for a press edge |
 
 BOOTSEL on the RP chips doubles as the QSPI flash CS line and has no GPIO
-interrupt, so the timer-poll backends emulate the same event API. All backends
-debounce (~150 ms) and defer the callback off interrupt context.
+interrupt, so `bootsel.py` emulates the same event API. Both RP chips read
+BOOTSEL identically, so they share that one backend instead of each having a
+named module. All backends debounce (~150 ms) and defer the callback off
+interrupt context.
 
 ## Tests
 From the repo root:

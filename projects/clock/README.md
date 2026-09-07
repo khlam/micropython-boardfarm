@@ -16,13 +16,24 @@ screens, holding each completed regular screen for three minutes:
 - **Clock with meridiem** — large centered `HH:MM` with stacked `AM` / `PM`.
 - **Time with seconds** — large centered `HH:MM:SS` plus `AM/PM`.
 
-Between regular screens, the display briefly shows one interstitial screen:
-either the current meteorological season with the year, or the full month name
-and day with the year.
+Between regular screens, the display briefly shows one interstitial screen,
+picked at random from:
+
+- **Season** — the current meteorological season with the year (3 s).
+- **Full date** — the longest month name that fits, with the day and year (3 s).
+- **Uptime** — `UP HH:MM:SS` since the first GPS fix over `BOOT: DD.MM.YY`, each
+  row scrolling as a ping-pong marquee when it overflows the matrix (7 s).
+
+At power-on, before any of that, the display runs a frame-rate diagnostic for
+15 s — a moving trace over a measured `FPS` readout — then scrolls it away for a
+brief brand screen and dissolves into the clock. Pressing the onboard BOOT
+button rotates the whole 16×32 surface 180° at any time, so the panel can hang
+either way up.
 
 Screen changes use one randomly selected transition per hop — instant, wipe,
 scroll, or a random-pixel dissolve — while the main loop keeps reading GPS
-sentences.
+sentences. The startup handoff and the GPS-wait animation are the exceptions:
+both force a fixed scroll so the sequence looks deliberate rather than random.
 
 Board-specific pin maps live in `firmware/main.py`'s `BOARD` wiring table, so the
 packages remain board-agnostic and the firmware builds for RP2040, RP2350, and ESP32-S3.
@@ -35,7 +46,7 @@ clock/
   firmware/clock_runtime.py   pump_gps task that keeps the RTC synced
   firmware/clock_cycle.py     DisplayEngine + transition/hold step coroutines
   firmware/clock_*.py         GPS sync, screen specs, text drawing, transitions
-  tests/                      host pytest for the run() behaviour
+  tests/                      host pytest over the whole firmware, fake hardware
   outputs/                    build artifacts (UF2 + ESP32 bin)
   docker-compose.yaml         pi-compile / esp32-compile / esp32-flash services
 ```

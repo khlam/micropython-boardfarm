@@ -1,7 +1,7 @@
 [project]
 name = "clock"
 version = "0.2.0"
-description = "ATGM336H GPS → longitude-derived local time → 8x32 MAX7219 LED matrix clock (time + day-of-week)."
+description = "ATGM336H GPS → longitude-derived local time → 16x32 MAX7219 LED matrix clock cycling three clock faces and three interstitials."
 readme = "README.md"
 requires-python = ">=3.12"
 

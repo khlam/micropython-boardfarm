@@ -28,16 +28,6 @@ class MatrixFrame:
         self.channels = channels
         self.data = data
 
-    @classmethod
-    def blank(
-        cls,
-        width: int,
-        height: int,
-        channels: int = _CHANNELS_INTENSITY,
-    ) -> "MatrixFrame":
-        """Create an all-off matrix frame."""
-        return cls(width, height, channels, bytearray(width * height * channels))
-
     def value_at(self, x: int, y: int, channel: int = 0) -> int:
         """Return one byte value from the frame."""
         return self.data[(y * self.width + x) * self.channels + channel]

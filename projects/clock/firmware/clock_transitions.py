@@ -125,20 +125,19 @@ def build_direction_masks(
     masks = []
     for visible_steps in range(total_steps + 1):
         data = bytearray(height * stride)
-        if visible_steps > 0:
-            for y in range(height):
-                row_base = y * stride
-                for x in range(width):
-                    if direction_visible(
-                        direction,
-                        width,
-                        height,
-                        x,
-                        y,
-                        visible_steps,
-                        total_steps,
-                    ):
-                        data[row_base + (x >> 3)] |= 1 << (x & 7)
+        for y in range(height):
+            row_base = y * stride
+            for x in range(width):
+                if direction_visible(
+                    direction,
+                    width,
+                    height,
+                    x,
+                    y,
+                    visible_steps,
+                    total_steps,
+                ):
+                    data[row_base + (x >> 3)] |= 1 << (x & 7)
         masks.append(data)
     return tuple(masks)
 
