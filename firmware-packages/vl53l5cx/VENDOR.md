@@ -24,14 +24,14 @@ The local copies are **not byte-for-byte verbatim**. Observed differences:
   `vl_fw_config.bin` at runtime) to `_config_bytes.py` (firmware frozen into
   device flash as Python bytes). This makes the package self-contained on
   MicroPython without filesystem access.
-- Google-style docstrings added to all methods per `AGENTS.md`.
+- Google-style docstrings added to all methods per [skills/cpython-syntax](../../skills/cpython-syntax/SKILL.md).
 - Three convenience methods added for project firmware use: `start(freq)`,
   `read()`, and `stop()`.
 - `_config_bytes.py` retains the upstream MIT copyright notice and byte
   payloads verbatim, but its `fw_data()` generator was rewritten to slice the
   frozen `bytes` directly instead of wrapping them in `io.BytesIO` (the stream
   object and its context-manager protocol are not present on every MicroPython
-  port). Module/class/method docstrings were added per `AGENTS.md`. The byte
+  port). Module/class/method docstrings were added per [skills/cpython-syntax](../../skills/cpython-syntax/SKILL.md). The byte
   literals were normalized to double-quote style by `ruff format` (`b"\x.."`
   rather than `b'\x..'`); the payload bytes themselves are unchanged.
 - `cp.py` and `_config_file.py` are not included (CircuitPython adapter and

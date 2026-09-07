@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HLK-LD2450 — Live Targets</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --panel: #131722;
+      --border: #263041;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    h1 { margin: 0 0 4px; font-size: 21px; font-weight: 550; }
+    .subtitle { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+    .status {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill.ok { color: #86efac; background: #14532d; }
+    .pill.err { color: #fca5a5; background: #7f1d1d; }
+    .stat { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .stat b { color: var(--text); font-weight: 550; }
+    .diag { color: #fbbf24; font-size: 12px; }
+    .occupancy-box {
+      display: flex;
+      margin-bottom: 14px;
+      padding: 14px 18px;
+      align-items: center;
+      justify-content: space-between;
+      color: #94a3b8;
+      border: 1px solid currentColor;
+      border-radius: 8px;
+      background: rgba(148, 163, 184, 0.08);
+    }
+    .occupancy-box.occupied { color: #22c55e; background: rgba(34, 197, 94, 0.13); }
+    .occupancy-box.clear { color: #38bdf8; background: rgba(56, 189, 248, 0.08); }
+    .occupancy-label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .occupancy-state {
+      font-size: clamp(24px, 5vw, 44px);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .occupancy-box.flash { animation: occupancy-flash 650ms ease-out; }
+    @keyframes occupancy-flash { 50% { transform: scale(1.012); box-shadow: 0 0 24px currentColor; } }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 14px; }
+    .analytics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .panel {
+      min-width: 0;
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .panel h2 {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .target-cards { display: grid; gap: 10px; }
+    .target-card {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--slot-color);
+      border-radius: 6px;
+      background: #0e131d;
+      font-variant-numeric: tabular-nums;
+    }
+    .target-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .target-head strong { color: var(--slot-color); font-size: 14px; }
+    .target-head span { color: var(--dim); font-size: 11px; }
+    .target-values { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px 12px; }
+    .target-values div { color: var(--muted); font-size: 12px; }
+    .target-values b { float: right; color: var(--text); font-weight: 500; }
+    .empty { padding: 24px 8px; color: var(--dim); text-align: center; font-size: 13px; }
+    .note { margin: 8px 2px 0; color: var(--dim); font-size: 11px; line-height: 1.4; }
+    @media (max-width: 980px) {
+      .grid, .analytics { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <h1>HLK-LD2450 — Live Targets</h1>
+  <p class="subtitle">Current radar slots, short motion trails, and the last 60 seconds of activity</p>
+
+  <div class="status">
+    <span id="conn" class="pill err">Disconnected</span>
+    <span class="stat">Port: <b id="port">—</b></span>
+    <span class="stat">Freshness: <b id="freshness">—</b></span>
+    <span class="stat">Report rate: <b id="rate">—</b></span>
+    <span class="stat">Reports: <b id="reports">0</b></span>
+    <span id="diag" class="diag"></span>
+  </div>
+
+  <section id="occupancy" class="occupancy-box waiting" aria-live="polite" aria-atomic="true">
+    <span class="occupancy-label">Occupancy state</span>
+    <strong id="occupancy-state" class="occupancy-state">WAITING</strong>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Radar plane · meters</h2>
+      <div id="radar" style="height: 570px;"></div>
+      <p class="note">The guide shows the documented 6 m, ±60° field of view. Trails retain 5 seconds.</p>
+    </section>
+    <section class="panel">
+      <h2>Current radar slots</h2>
+      <div id="target-cards" class="target-cards"><div class="empty">No active targets</div></div>
+      <p class="note">Slot numbers come from each radar report and are not persistent person identities.</p>
+    </section>
+  </div>
+
+  <div class="analytics">
+    <section class="panel"><h2>Active targets · 60 s</h2><div id="target-count" style="height: 260px;"></div></section>
+    <section class="panel"><h2>Distance by slot · meters</h2><div id="distance" style="height: 260px;"></div></section>
+    <section class="panel"><h2>Signed speed by slot · cm/s</h2><div id="speed" style="height: 260px;"></div></section>
+  </div>
+
+  <script>
+  (function () {
+    const RECONNECT_MS = 250;
+    const HISTORY_MS = 60_000;
+    const TRAIL_MS = 5_000;
+    const STALE_MS = 1_000;
+    const ANALYTICS_REFRESH_MS = 1_000;
+    const COLORS = ["#22c55e", "#38bdf8", "#f97316"];
+    const PANEL = "#131722";
+    const GRID = "#263041";
+    const TEXT = "#9ca3af";
+    const config = { displayModeBar: false, responsive: true };
+    const $ = (id) => document.getElementById(id);
+
+    let connected = false;
+    let occupied = null;
+    let reportCount = 0;
+    let lastReportAt = null;
+    let currentTargets = [];
+    let history = [];
+    let reportTimes = [];
+    let gapOpen = false;
+    let liveRenderPending = false;
+
+    function buildCoverageTrace() {
+      const x = [0];
+      const y = [0];
+      for (let degree = -60; degree <= 60; degree += 3) {
+        const radians = degree * Math.PI / 180;
+        x.push(6 * Math.sin(radians));
+        y.push(6 * Math.cos(radians));
+      }
+      x.push(0);
+      y.push(0);
+      return {
+        x, y,
+        type: "scatter",
+        mode: "lines",
+        fill: "toself",
+        fillcolor: "rgba(56,189,248,0.05)",
+        line: { color: "rgba(148,163,184,0.45)", width: 1, dash: "dot" },
+        hoverinfo: "skip",
+        showlegend: false,
+      };
+    }
+
+    const COVERAGE_TRACE = buildCoverageTrace();
+
+    const radarLayout = {
+      paper_bgcolor: PANEL,
+      plot_bgcolor: PANEL,
+      font: { color: TEXT, size: 11 },
+      margin: { l: 52, r: 20, t: 8, b: 48 },
+      hovermode: "closest",
+      showlegend: true,
+      legend: { orientation: "h", y: -0.12 },
+      xaxis: {
+        title: "X · left / right (m)", range: [-5.5, 5.5],
+        gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT,
+        scaleanchor: "y", scaleratio: 1,
+      },
+      yaxis: {
+        title: "Y · distance ahead (m)", range: [-0.35, 6.25],
+        gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT,
+      },
+      annotations: [{
+        x: 0, y: 0, text: "RADAR", showarrow: false, yshift: -14,
+        font: { color: "#e5e7eb", size: 10 },
+      }],
+    };
+
+    function axisLayout(yTitle) {
+      return {
+        paper_bgcolor: PANEL,
+        plot_bgcolor: PANEL,
+        font: { color: TEXT, size: 10 },
+        margin: { l: 48, r: 12, t: 8, b: 38 },
+        hovermode: "x unified",
+        legend: { orientation: "h", y: -0.2 },
+        xaxis: { title: "Seconds ago", range: [-60, 0], gridcolor: GRID, color: TEXT },
+        yaxis: { title: yTitle, gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT },
+      };
+    }
+
+    Plotly.newPlot("radar", [COVERAGE_TRACE], radarLayout, config);
+    Plotly.newPlot("target-count", [], axisLayout("Targets"), config);
+    Plotly.newPlot("distance", [], axisLayout("m"), config);
+    Plotly.newPlot("speed", [], axisLayout("cm/s"), config);
+
+    function targetBySlot(targets) {
+      const slots = {};
+      targets.forEach((target) => { slots[target.slot] = target; });
+      return slots;
+    }
+
+    function setOccupancy(nextOccupied) {
+      if (occupied === nextOccupied) return;
+      const shouldFlash = occupied !== null && nextOccupied !== null;
+      occupied = nextOccupied;
+      const box = $("occupancy");
+      const state = $("occupancy-state");
+      const className = nextOccupied === null ? "waiting" : (nextOccupied ? "occupied" : "clear");
+      state.textContent = nextOccupied === null ? "WAITING" : (nextOccupied ? "OCCUPIED" : "CLEAR");
+      box.className = "occupancy-box " + className;
+      if (!shouldFlash) return;
+      void box.offsetWidth;
+      box.classList.add("flash");
+    }
+
+    function addGeometry(targets) {
+      for (const target of targets) {
+        target.distance_mm = Math.round(Math.hypot(target.x_mm, target.y_mm));
+        target.angle_deg = Math.round(Math.atan2(target.x_mm, target.y_mm) * 180 / Math.PI);
+      }
+      return targets;
+    }
+
+    function appendHistory(targets, wallTime) {
+      history.push({ at: wallTime, targets: targetBySlot(targets) });
+      const cutoff = wallTime - HISTORY_MS;
+      while (history.length && history[0].at < cutoff) history.shift();
+    }
+
+    function slotTrace(slot, field, scale, unit) {
+      const now = Date.now();
+      return {
+        name: "Slot " + slot,
+        type: "scatter",
+        mode: "lines",
+        connectgaps: false,
+        x: history.map((sample) => (sample.at - now) / 1000),
+        y: history.map((sample) => {
+          const target = sample.targets[slot];
+          return target ? target[field] * scale : null;
+        }),
+        line: { color: COLORS[slot - 1], width: 2 },
+        hovertemplate: "Slot " + slot + ": %{y:.2f} " + unit + "<extra></extra>",
+      };
+    }
+
+    function renderRadar() {
+      const now = Date.now();
+      const traces = [COVERAGE_TRACE];
+      for (let slot = 1; slot <= 3; slot++) {
+        const points = [];
+        history.forEach((sample) => {
+          const target = sample.targets[slot];
+          if (sample.at >= now - TRAIL_MS && target) points.push(target);
+        });
+        traces.push({
+          name: "Slot " + slot,
+          type: "scatter",
+          mode: "lines",
+          x: points.map((target) => target.x_mm / 1000),
+          y: points.map((target) => target.y_mm / 1000),
+          line: { color: COLORS[slot - 1], width: 2 },
+          opacity: 0.45,
+          hoverinfo: "skip",
+          showlegend: false,
+        });
+        const current = currentTargets.find((target) => target.slot === slot);
+        traces.push({
+          name: "Slot " + slot,
+          type: "scatter",
+          mode: "markers+text",
+          x: current ? [current.x_mm / 1000] : [],
+          y: current ? [current.y_mm / 1000] : [],
+          text: current ? [String(slot)] : [],
+          textposition: "middle center",
+          textfont: { color: "#071018", size: 11 },
+          marker: { color: COLORS[slot - 1], size: 22, line: { color: "#e5e7eb", width: 1 } },
+          hovertemplate: "Slot " + slot + "<br>X %{x:.2f} m<br>Y %{y:.2f} m<extra></extra>",
+        });
+      }
+      Plotly.react("radar", traces, radarLayout, config);
+    }
+
+    function renderCards() {
+      const container = $("target-cards");
+      if (!currentTargets.length) {
+        container.innerHTML = '<div class="empty">No active targets</div>';
+        return;
+      }
+      container.innerHTML = currentTargets.map((target) => {
+        const color = COLORS[target.slot - 1];
+        return `<article class="target-card" style="--slot-color:${color}">
+          <div class="target-head"><strong>Slot ${target.slot}</strong><span>current report slot</span></div>
+          <div class="target-values">
+            <div>X <b>${(target.x_mm / 1000).toFixed(2)} m</b></div>
+            <div>Y <b>${(target.y_mm / 1000).toFixed(2)} m</b></div>
+            <div>Distance <b>${(target.distance_mm / 1000).toFixed(2)} m</b></div>
+            <div>Angle <b>${target.angle_deg}°</b></div>
+            <div>Speed <b>${target.speed_cm_s} cm/s</b></div>
+            <div>Resolution <b>${target.resolution_mm} mm</b></div>
+          </div>
+        </article>`;
+      }).join("");
+    }
+
+    function renderAnalytics() {
+      const now = Date.now();
+      const age = history.map((sample) => (sample.at - now) / 1000);
+      Plotly.react("target-count", [{
+        name: "Active",
+        type: "scatter",
+        mode: "lines",
+        x: age,
+        y: history.map((sample) => Object.keys(sample.targets).length),
+        line: { color: "#a78bfa", width: 2, shape: "hv" },
+        hovertemplate: "%{y} active<extra></extra>",
+      }], axisLayout("Targets"), config);
+      Plotly.react("distance", [1, 2, 3].map((slot) => slotTrace(slot, "distance_mm", 0.001, "m")), axisLayout("m"), config);
+      Plotly.react("speed", [1, 2, 3].map((slot) => slotTrace(slot, "speed_cm_s", 1, "cm/s")), axisLayout("cm/s"), config);
+    }
+
+    function scheduleLiveRender() {
+      if (liveRenderPending) return;
+      liveRenderPending = true;
+      requestAnimationFrame(() => {
+        liveRenderPending = false;
+        renderRadar();
+        renderCards();
+      });
+    }
+
+    function updateRate(now) {
+      reportTimes.push(now);
+      while (reportTimes.length && reportTimes[0] < now - 5_000) reportTimes.shift();
+      if (reportTimes.length < 2) {
+        $("rate").textContent = "—";
+        return;
+      }
+      const seconds = (reportTimes[reportTimes.length - 1] - reportTimes[0]) / 1000;
+      if (seconds <= 0) return;
+      $("rate").textContent = ((reportTimes.length - 1) / seconds).toFixed(1) + " Hz";
+    }
+
+    function onReport(obj) {
+      if (!Array.isArray(obj.targets) || typeof obj.t !== "number") return;
+      const now = Date.now();
+      currentTargets = addGeometry(obj.targets);
+      gapOpen = false;
+      setOccupancy(currentTargets.length !== 0);
+      appendHistory(currentTargets, now);
+      lastReportAt = now;
+      reportCount++;
+      $("reports").textContent = reportCount;
+      $("diag").textContent = "";
+      updateRate(now);
+      scheduleLiveRender();
+    }
+
+    function markGap(message) {
+      if (gapOpen) {
+        if (message) $("diag").textContent = message;
+        return;
+      }
+      const now = Date.now();
+      gapOpen = true;
+      currentTargets = [];
+      setOccupancy(null);
+      appendHistory([], now);
+      $("diag").textContent = message || "";
+      renderRadar();
+      renderCards();
+      renderAnalytics();
+    }
+
+    function setConnection(isConnected, error) {
+      connected = isConnected;
+      const pill = $("conn");
+      pill.textContent = isConnected ? "Connected" : "Disconnected";
+      pill.className = "pill " + (isConnected ? "ok" : "err");
+      if (!isConnected) markGap(error);
+    }
+
+    function onMessage(obj) {
+      if (obj.event === "connected") {
+        $("port").textContent = obj.port;
+        setConnection(true);
+        return;
+      }
+      if (obj.diag !== undefined) {
+        const labels = {
+          radar_ok: "Radar stream detected",
+          no_device: "No valid radar reports",
+          init_err: "Radar UART initialization failed",
+          read_err: "Radar UART read failed",
+          report_timeout: "Radar report timeout",
+        };
+        $("diag").textContent = labels[obj.diag] || obj.diag;
+        // The greeting cannot name the radar, so swap its placeholder model
+        // word once detection reports which one answered.
+        if (obj.model) $("port").textContent = $("port").textContent.replace(/^\S+/, obj.model);
+        if (obj.diag === "report_timeout" || obj.diag === "read_err") markGap($("diag").textContent);
+        return;
+      }
+      onReport(obj);
+    }
+
+    function refreshFreshness() {
+      if (!connected || lastReportAt === null) {
+        $("freshness").textContent = "—";
+        return;
+      }
+      const age = Date.now() - lastReportAt;
+      $("freshness").textContent = age < STALE_MS ? age + " ms" : (age / 1000).toFixed(1) + " s stale";
+    }
+
+    function connect() {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(protocol + "//" + location.host + "/ws");
+      ws.onmessage = (event) => {
+        try { onMessage(JSON.parse(event.data)); } catch { /* Ignore malformed host data. */ }
+      };
+      ws.onclose = () => {
+        setConnection(false, "WebSocket closed; reconnecting");
+        setTimeout(connect, RECONNECT_MS);
+      };
+    }
+
+    setInterval(refreshFreshness, 250);
+    setInterval(renderAnalytics, ANALYTICS_REFRESH_MS);
+    connect();
+  })();
+  </script>
+</body>
+</html>

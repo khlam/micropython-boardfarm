@@ -12,7 +12,7 @@
 //   docker buildx bake ruff     # a single image, by target name
 
 group "lint" {
-  targets = ["ruff", "pydoclint", "vulture", "hadolint", "yamllint", "typecheck"]
+  targets = ["ruff", "pydoclint", "vulture", "vulture-source", "hadolint", "yamllint", "typecheck"]
 }
 
 group "scan" {
@@ -47,6 +47,14 @@ target "vulture" {
   dockerfile = "Dockerfile.linters"
   target     = "vulture-lint"
   tags       = ["local/vulture:latest"]
+}
+
+// The same tool with the tests held out. A separate image because the pass
+// needs its own confidence floor, exclusions, and pass/fail decision.
+target "vulture-source" {
+  dockerfile = "Dockerfile.linters"
+  target     = "vulture-source-lint"
+  tags       = ["local/vulture-source:latest"]
 }
 
 target "hadolint" {

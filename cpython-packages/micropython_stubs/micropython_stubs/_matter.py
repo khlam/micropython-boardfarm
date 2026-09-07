@@ -6,8 +6,6 @@ import errno
 
 _EVENT_ATTRIBUTE = 0
 _EVENT_COMMISSIONING = 1
-_ORIGIN_REMOTE = 0
-_EVENT_QUEUE_DEPTH = 32
 _IDENTIFY_CLUSTER = 0x0003
 _IDENTIFY_TIME_ATTRIBUTE = 0x0000
 _ON_OFF_CLUSTER = 0x0006
@@ -22,6 +20,8 @@ _CURRENT_Y_ATTRIBUTE = 0x0004
 _COLOR_TEMPERATURE_ATTRIBUTE = 0x0007
 _COLOR_MODE_ATTRIBUTE = 0x0008
 _ENHANCED_COLOR_MODE_ATTRIBUTE = 0x4001
+_OCCUPANCY_SENSING_CLUSTER = 0x0406
+_OCCUPANCY_ATTRIBUTE = 0x0000
 
 _BASE_DEFAULTS = (
     ((_IDENTIFY_CLUSTER, _IDENTIFY_TIME_ATTRIBUTE), 0),
@@ -41,10 +41,16 @@ _EXTENDED_COLOR_DEFAULTS = (
     ((_COLOR_CONTROL_CLUSTER, _COLOR_MODE_ATTRIBUTE), 2),
     ((_COLOR_CONTROL_CLUSTER, _ENHANCED_COLOR_MODE_ATTRIBUTE), 2),
 )
+_OCCUPANCY_DEFAULTS = (
+    ((_IDENTIFY_CLUSTER, _IDENTIFY_TIME_ATTRIBUTE), 0),
+    ((_OCCUPANCY_SENSING_CLUSTER, _OCCUPANCY_ATTRIBUTE), 0),
+)
+# Indexed by endpoint type code, so order must match matter.EndpointType.
 _ENDPOINT_DEFAULTS = (
     _BASE_DEFAULTS,
     _DIMMABLE_DEFAULTS,
     _EXTENDED_COLOR_DEFAULTS,
+    _OCCUPANCY_DEFAULTS,
 )
 
 
@@ -53,21 +59,21 @@ class _State:
 
     def __init__(self) -> None:
         """Allocate reusable containers before the first reset."""
-        self.callback: object = None
         self.node_created = False
         self.started = False
         self.next_endpoint_id = 1
         self.endpoints: dict[int, int] = {}
         self.attributes: dict[tuple[int, int, int], object] = {}
         self.persisted: dict[tuple[int, int, int], object] = {}
-        self.attribute_events: list[tuple] = []
-        self.commissioning_events: list[tuple] = []
-        self.overflow_generation = 0
-        self.next_event_sequence = 0
+        self.snapshot_records: dict[tuple[int, int, int], tuple[int, object]] = {}
+        self.commissioning_session: tuple[int, int] | None = None
+        self.commissioning_window: tuple[int, int] | None = None
+        self.generation = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
         self.commissioning_windows: list[int] = []
         self.factory_reset_requested = False
+        self.network_address: str | None = None
 
 
 _state = _State()
@@ -76,7 +82,6 @@ commissioning_windows = _state.commissioning_windows
 
 def reset(*, persisted: dict | None = None) -> None:
     """Reset runtime state and optionally seed the persisted attribute mirror."""
-    _state.callback = None
     _state.node_created = False
     _state.started = False
     _state.next_endpoint_id = 1
@@ -85,14 +90,15 @@ def reset(*, persisted: dict | None = None) -> None:
     _state.persisted.clear()
     if persisted is not None:
         _state.persisted.update(persisted)
-    _state.attribute_events.clear()
-    _state.commissioning_events.clear()
-    _state.overflow_generation = 0
-    _state.next_event_sequence = 0
+    _state.snapshot_records.clear()
+    _state.commissioning_session = None
+    _state.commissioning_window = None
+    _state.generation = 0
     _state.failures.clear()
     _state.fabrics.clear()
     _state.commissioning_windows.clear()
     _state.factory_reset_requested = False
+    _state.network_address = None
 
 
 def fail_next(operation: str, error: int = errno.EIO) -> None:
@@ -131,6 +137,9 @@ def attribute_set_initial(
     _require_endpoint(endpoint_id)
     if _state.started:
         raise OSError(errno.EINVAL, "initial attributes are locked")
+    # The serving Occupancy cluster does not exist before start().
+    if (cluster_id, attribute_id) == (_OCCUPANCY_SENSING_CLUSTER, _OCCUPANCY_ATTRIBUTE):
+        raise OSError(errno.ENOTSUP, "occupancy cannot be seeded before start")
     path = (endpoint_id, cluster_id, attribute_id)
     _state.attributes[path] = value
     _state.persisted[path] = value
@@ -157,53 +166,68 @@ def attribute_get(endpoint_id: int, cluster_id: int, attribute_id: int) -> objec
     return _state.attributes[path]
 
 
-def attribute_publish(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
-    """Publish a Python-originated value without queuing its suppressed echo."""
-    _raise_failure("attribute_publish")
-    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
+def attributes_publish(endpoint_id: int, updates: tuple) -> None:
+    """Publish one preflighted batch and invalidate older remote writes."""
+    _raise_failure("attributes_publish")
+    _require_started()
+    if not 1 <= len(updates) <= 10:
+        raise OSError(errno.EINVAL, "attribute batch size is out of range")
+    for cluster_id, attribute_id, _value in updates:
+        path = (endpoint_id, cluster_id, attribute_id)
+        if path not in _state.attributes:
+            raise OSError(errno.ENOENT, "attribute does not exist")
+    for cluster_id, attribute_id, value in updates:
+        path = (endpoint_id, cluster_id, attribute_id)
+        _state.attributes[path] = value
+        _state.persisted[path] = value
+        if path in _state.snapshot_records:
+            del _state.snapshot_records[path]
+            _next_revision()
 
 
 def inject_remote_write(
     endpoint_id: int, cluster_id: int, attribute_id: int, value: object
 ) -> None:
     """Inject a controller write for host tests."""
-    _store_attribute(endpoint_id, cluster_id, attribute_id, value)
-    event = (_EVENT_ATTRIBUTE, endpoint_id, cluster_id, attribute_id, value, _ORIGIN_REMOTE)
-    _queue_event(_state.attribute_events, event, attribute=True)
+    path = (endpoint_id, cluster_id, attribute_id)
+    _require_started()
+    if path not in _state.attributes:
+        raise OSError(errno.ENOENT, "attribute does not exist")
+    _state.attributes[path] = value
+    _state.persisted[path] = value
+    _state.snapshot_records[path] = (_next_revision(), value)
 
 
 def inject_commissioning_event(state_code: int) -> None:
     """Inject one native commissioning transition for host tests."""
     _require_started()
-    event = (_EVENT_COMMISSIONING, 0, 0, 0, state_code, 0)
-    _queue_event(_state.commissioning_events, event, attribute=False)
+    record = (_next_revision(), state_code)
+    if 0 <= state_code <= 2:
+        _state.commissioning_session = record
+    elif 3 <= state_code <= 4:
+        _state.commissioning_window = record
 
 
-def next_event() -> tuple | None:
-    """Pop the oldest event across the two protected native queues."""
-    attributes = _state.attribute_events
-    commissioning = _state.commissioning_events
-    if attributes and commissioning:
-        queue = (
-            commissioning
-            if _sequence_precedes(commissioning[0][0], attributes[0][0])
-            else attributes
+def generation() -> int:
+    """Return the current coalesced-state generation."""
+    return _state.generation
+
+
+def snapshot() -> tuple[int, tuple]:
+    """Return one coherent fake-native state snapshot."""
+    _raise_failure("snapshot")
+    _require_started()
+    records = [
+        (revision, _EVENT_ATTRIBUTE, endpoint_id, cluster_id, attribute_id, value)
+        for (endpoint_id, cluster_id, attribute_id), (revision, value) in (
+            _state.snapshot_records.items()
         )
-    else:
-        queue = commissioning or attributes
-    return queue.pop(0)[1] if queue else None
-
-
-def overflow_generation() -> int:
-    """Return the non-consuming attribute-queue overflow generation."""
-    return _state.overflow_generation
-
-
-def on_event(callback: object) -> None:
-    """Record the callback representing a MicroPython scheduler wakeup."""
-    if callback is not None and not callable(callback):
-        raise TypeError("callback must be callable or None")
-    _state.callback = callback
+    ]
+    for commissioning in (_state.commissioning_session, _state.commissioning_window):
+        if commissioning is not None:
+            revision, state_code = commissioning
+            records.append((revision, _EVENT_COMMISSIONING, 0, 0, 0, state_code))
+    return (_state.generation, tuple(records))
 
 
 def open_commissioning_window(timeout_s: int) -> None:
@@ -238,6 +262,17 @@ def remove_fabric(index: int) -> None:
     raise OSError(errno.ENOENT, "fabric does not exist")
 
 
+def network_address() -> str | None:
+    """Return the fake station address, or ``None`` while off the network."""
+    _raise_failure("network_address")
+    return _state.network_address
+
+
+def set_network_address(address: str | None) -> None:
+    """Put the fake device on or off the network for host tests."""
+    _state.network_address = address
+
+
 def factory_reset() -> None:
     """Record that the platform accepted a factory-reset request."""
     _raise_failure("factory_reset")
@@ -250,33 +285,10 @@ def factory_reset_was_requested() -> bool:
     return _state.factory_reset_requested
 
 
-def _store_attribute(endpoint_id: int, cluster_id: int, attribute_id: int, value: object) -> None:
-    """Update the fake native and persistent attribute mirrors."""
-    _require_started()
-    path = (endpoint_id, cluster_id, attribute_id)
-    if path not in _state.attributes:
-        raise OSError(errno.ENOENT, "attribute does not exist")
-    _state.attributes[path] = value
-    _state.persisted[path] = value
-
-
-def _queue_event(queue: list[tuple], event: tuple, *, attribute: bool) -> None:
-    """Append to one bounded queue, dropping its oldest event when full."""
-    sequence = _state.next_event_sequence
-    _state.next_event_sequence = (sequence + 1) & 0xFFFFFFFF
-    if len(queue) >= _EVENT_QUEUE_DEPTH:
-        queue.pop(0)
-        if attribute:
-            _state.overflow_generation = (_state.overflow_generation + 1) & 0xFFFFFFFF
-    queue.append((sequence, event))
-    callback = _state.callback
-    if callback is not None:
-        callback()  # ty: ignore[call-non-callable]
-
-
-def _sequence_precedes(left: int, right: int) -> bool:
-    """Compare uint32 sequence values whose distance is less than half-range."""
-    return (right - left) & 0xFFFFFFFF < 0x80000000
+def _next_revision() -> int:
+    """Advance and return the wrapping fake-native revision."""
+    _state.generation = (_state.generation + 1) & 0xFFFFFFFF
+    return _state.generation
 
 
 def _raise_failure(operation: str) -> None:

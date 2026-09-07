@@ -8,6 +8,7 @@ container runtime from `repo_root/firmware-packages` and
 `projects/<project>/firmware`.
 """
 
+import os
 import re
 from contextlib import suppress
 from pathlib import Path
@@ -69,3 +70,10 @@ for _name in sorted(_needed):
 # Project-level firmware: every .py at /firmware becomes a top-level
 # frozen module. main.py is the boot entry point.
 freeze("/firmware")
+
+# Modules the build generated rather than a person writing them — the caller
+# stages them into a writable directory and names it here, because /firmware is
+# bind-mounted read-only. Unset for builds that generate nothing.
+_staged = os.environ.get("FROZEN_STAGING_DIR")
+if _staged:
+    freeze(_staged)

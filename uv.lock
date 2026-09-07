@@ -11,6 +11,7 @@ members = [
     "ld2450-demo",
     "led-effects",
     "matter-example",
+    "matter-radar-sensor",
     "micropython-boardfarm",
     "multizone-ranging",
 ]
@@ -475,6 +476,15 @@ wheels = [
 ]
 
 [[package]]
+name = "httpd"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/httpd-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/httpd-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "httptools"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -575,27 +585,18 @@ wheels = [
 ]
 
 [[package]]
-name = "ld2450"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/ld2450-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/ld2450-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "ld2450-demo"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/ld2450" }
 dependencies = [
     { name = "boot-status-led" },
-    { name = "ld2450" },
+    { name = "radar" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "ld2450", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "radar", specifier = ">=0.1.0", index = "file:///wheels" },
 ]
 
 [[package]]
@@ -623,17 +624,28 @@ wheels = [
 
 [[package]]
 name = "matter"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter-0.1.0.tar.gz" }
+sdist = { path = "/wheels/matter-0.2.0.tar.gz" }
 wheels = [
-    { path = "/wheels/matter-0.1.0-py3-none-any.whl" },
+    { path = "/wheels/matter-0.2.0-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "matter-example"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "projects/matter" }
+dependencies = [
+    { name = "micropython-boardfarm" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "matter-radar-sensor"
+version = "0.3.0"
+source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
     { name = "micropython-boardfarm" },
 ]
@@ -652,17 +664,18 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.14.0"
+version = "0.19.1"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
+    { name = "httpd" },
     { name = "i2c-bus" },
-    { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "qmc5883p" },
+    { name = "radar" },
     { name = "serial-over-web" },
     { name = "smoothing" },
     { name = "vl53l0x" },
@@ -683,9 +696,9 @@ test = [
     { name = "boot-status-led" },
     { name = "cryptography" },
     { name = "esp-idf-nvs-partition-gen" },
+    { name = "httpd" },
     { name = "httpx" },
     { name = "i2c-bus" },
-    { name = "ld2450" },
     { name = "matter" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
@@ -693,6 +706,7 @@ test = [
     { name = "pytest-cov" },
     { name = "qmc5883p" },
     { name = "qrcode", extra = ["pil"] },
+    { name = "radar" },
     { name = "serial-over-web" },
     { name = "smoothing" },
     { name = "ty" },
@@ -710,12 +724,13 @@ viz = [
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "ld2450", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "matter", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.5.0", index = "file:///wheels" },
+    { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "radar", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -736,9 +751,9 @@ test = [
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
+    { name = "httpd", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
-    { name = "ld2450", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
@@ -746,6 +761,7 @@ test = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
     { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
+    { name = "radar", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
@@ -757,11 +773,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.5.0"
+version = "0.8.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.5.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.8.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.5.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.8.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -1191,6 +1207,15 @@ pil = [
 ]
 
 [[package]]
+name = "radar"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/radar-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/radar-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1472,20 +1497,20 @@ wheels = [
 
 [[package]]
 name = "vl53l0x"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l0x-0.2.0.tar.gz" }
+sdist = { path = "/wheels/vl53l0x-0.2.1.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l0x-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/vl53l0x-0.2.1-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "vl53l5cx"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/vl53l5cx-0.2.0.tar.gz" }
+sdist = { path = "/wheels/vl53l5cx-0.2.1.tar.gz" }
 wheels = [
-    { path = "/wheels/vl53l5cx-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/vl53l5cx-0.2.1-py3-none-any.whl" },
 ]
 
 [[package]]

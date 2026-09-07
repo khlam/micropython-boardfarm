@@ -80,11 +80,8 @@ def matter_to_triple(endpoint: object) -> tuple:
 def publish_triple(endpoint: object, color: tuple) -> None:
     """Publish an RGB byte triple to an endpoint as hue, saturation, and level.
 
-    Hue and saturation lead the colour mode so the endpoint never advertises
-    hue/saturation rendering while its coordinates still hold the previous
-    colour. Each comparison spares a blocking round trip to the CHIP task for an
-    attribute already holding its target. Power is left alone, so publishing a
-    colour never turns a light on.
+    Hue, saturation, modes, and level cross into ESP-Matter in one explicit
+    batch. Power is left alone, so publishing a colour never turns a light on.
 
     Args:
         endpoint: Any object exposing the Extended Color Light attributes by
@@ -92,16 +89,13 @@ def publish_triple(endpoint: object, color: tuple) -> None:
         color: Red, green, and blue channel values in the range 0-255.
     """
     hue, saturation, level = rgb_to_attributes(color)
-    if endpoint.hue != hue:
-        endpoint.hue = hue
-    if endpoint.saturation != saturation:
-        endpoint.saturation = saturation
-    if endpoint.color_mode != ColorMode.HUE_SATURATION:
-        endpoint.color_mode = ColorMode.HUE_SATURATION
-    if endpoint.enhanced_color_mode != ColorMode.HUE_SATURATION:
-        endpoint.enhanced_color_mode = ColorMode.HUE_SATURATION
-    if endpoint.level != level:
-        endpoint.level = level
+    endpoint.set(
+        hue=hue,
+        saturation=saturation,
+        color_mode=ColorMode.HUE_SATURATION,
+        enhanced_color_mode=ColorMode.HUE_SATURATION,
+        level=level,
+    )
 
 
 def rgb_to_attributes(color: tuple) -> tuple:

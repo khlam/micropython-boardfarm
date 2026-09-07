@@ -1,19 +1,10 @@
-"""Integration tests for endpoint mirrors and the host native fake."""
-
-import json
+"""Integration tests for explicit endpoint state and publication."""
 
 import _matter
 import pytest
 
-from matter import (
-    Attributes,
-    Clusters,
-    ColorMode,
-    EndpointType,
-    Node,
-    Origin,
-    WriteEvent,
-)
+from matter import Attributes, Clusters, ColorMode, EndpointType, Node, WriteEvent
+from micropython_stubs.testing import json_lines
 
 
 def test_named_properties_expose_each_extended_color_default():
@@ -31,17 +22,19 @@ def test_named_properties_expose_each_extended_color_default():
     assert endpoint.enhanced_color_mode == ColorMode.COLOR_TEMPERATURE
 
 
-def test_generic_get_and_named_property_reject_unsupported_attribute(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
+def test_named_properties_are_read_only():
+    _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
+
+    with pytest.raises(AttributeError):
+        endpoint.on = True
+
+
+def test_generic_get_and_named_property_reject_unsupported_attribute():
+    _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
     assert endpoint.get(Clusters.ON_OFF, Attributes.ON_OFF) is False
     with pytest.raises(ValueError, match="not supported"):
         _ = endpoint.hue
-
-    node.start()
-    capsys.readouterr()
-    with pytest.raises(ValueError, match="not supported"):
-        endpoint.hue = 1
     with pytest.raises(ValueError, match="not supported"):
         endpoint.get(Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL)
 
@@ -55,140 +48,117 @@ def test_generic_get_rejects_non_integer_path_component():
         endpoint.get(Clusters.ON_OFF, False)
 
 
-def test_publish_before_start_fails_without_changing_python_state():
+def test_set_before_start_fails_without_changing_python_state():
     _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
     with pytest.raises(OSError, match="not started"):
-        endpoint.on = True
+        endpoint.set(on=True)
 
     assert endpoint.on is False
 
 
-def test_local_publish_updates_both_mirrors_without_callback(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
+def test_set_publishes_one_named_batch(publishes):
+    node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    capsys.readouterr()
 
-    endpoint.on = True
+    endpoint.set(on=True, hue=42, saturation=200)
 
-    assert endpoint.on is True
-    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
-    assert received == []
-    assert _matter.next_event() is None
-
-
-def test_failed_native_publish_retains_python_decision(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    node.start()
-    capsys.readouterr()
-    _matter.fail_next("attribute_publish")
-
-    with pytest.raises(OSError, match="injected attribute_publish failure"):
-        endpoint.on = True
-
-    assert endpoint.on is True
-    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is False
-
-
-@pytest.mark.parametrize("value", [1, "true", None])
-def test_publish_validates_attribute_value(value, capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    node.start()
-    capsys.readouterr()
-
-    with pytest.raises(TypeError, match="requires bool"):
-        endpoint.on = value
-
-
-def test_remote_write_updates_mirror_and_delivers_immutable_event(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    node.start()
-    capsys.readouterr()
-
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
-
-    assert endpoint.on is True
-    assert received == [
-        WriteEvent(
+    assert publishes == [
+        (
             endpoint.id,
-            Clusters.ON_OFF,
-            Attributes.ON_OFF,
-            True,
-            Origin.REMOTE,
+            (
+                (Clusters.ON_OFF, Attributes.ON_OFF, True),
+                (Clusters.COLOR_CONTROL, Attributes.CURRENT_HUE, 42),
+                (Clusters.COLOR_CONTROL, Attributes.CURRENT_SATURATION, 200),
+            ),
         )
     ]
-    with pytest.raises(AttributeError):
-        received[0].value = False
+    assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
 
 
-def test_remote_subscription_can_be_cleared(capsys):
+def test_set_republishes_explicit_values_that_already_match(publishes):
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    endpoint.on_write(None)
     node.start()
-    capsys.readouterr()
 
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
+    endpoint.set(on=False)
+    endpoint.set(on=False)
 
-    assert endpoint.on is True
-    assert received == []
+    batch = (endpoint.id, ((Clusters.ON_OFF, Attributes.ON_OFF, False),))
+    assert publishes == [batch, batch]
 
 
-def test_remote_subscription_rejects_non_callable():
+def test_set_validates_whole_batch_before_changing_state(publishes):
+    node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
+    node.start()
+
+    with pytest.raises(ValueError, match="between 0 and 254"):
+        endpoint.set(on=True, hue=255)
+
+    assert endpoint.on is False
+    assert endpoint.hue == 0
+    assert publishes == []
+
+
+@pytest.mark.parametrize(
+    ("attributes", "exception", "message"),
+    [
+        ({}, ValueError, "at least one"),
+        ({"missing": 1}, TypeError, "unknown attribute"),
+        ({"hue": 1}, ValueError, "not supported"),
+        ({"on": 1}, TypeError, "requires bool"),
+    ],
+)
+def test_set_rejects_invalid_named_batches(attributes, exception, message):
     _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
-    with pytest.raises(TypeError, match="callable or None"):
-        endpoint.on_write(42)
+    with pytest.raises(exception, match=message):
+        endpoint.set(**attributes)
 
 
-def test_remote_callback_exception_is_json_and_delivery_continues(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    calls = []
-
-    def callback(event):
-        calls.append(event.value)
-        raise RuntimeError("application bug")
-
-    endpoint.on_write(callback)
+def test_failed_batch_keeps_requested_state_and_full_retry(publishes):
+    node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
-    capsys.readouterr()
+    requested = {"on": True, "hue": 42, "saturation": 200}
+    _matter.fail_next("attributes_publish")
+
+    with pytest.raises(OSError, match="injected attributes_publish failure"):
+        endpoint.set(**requested)
+
+    assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
+    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is False
+
+    endpoint.set(**requested)
+
+    # The retry re-sends the identical full batch the failed attempt carried.
+    assert len(publishes) == 2
+    assert publishes[1] == publishes[0]
+    assert len(publishes[0][1]) == 3
+    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
+
+
+def test_remote_write_updates_mirror_and_poll_returns_immutable_event():
+    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
+    node.start()
 
     _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, False)
+    events = node.poll()
 
-    assert calls == [True, False]
-    assert endpoint.on is False
-    assert _output(capsys) == [
-        {
-            "event": "error",
-            "component": "python_callback",
-            "message": "callback raised an exception",
-        },
-        {
-            "event": "error",
-            "component": "python_callback",
-            "message": "callback raised an exception",
-        },
-    ]
+    assert endpoint.on is True
+    assert events == (WriteEvent(endpoint, Clusters.ON_OFF, Attributes.ON_OFF, True),)
+    with pytest.raises(AttributeError):
+        events[0].value = False
 
 
-def test_remote_write_outside_schema_is_reported_and_dropped(capsys):
+def test_remote_write_outside_schema_is_reported_and_omitted(capsys):
     node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
     node.start()
     capsys.readouterr()
 
     _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 255)
 
+    assert node.poll() == ()
     assert endpoint.level == 254
-    assert received == []
-    assert _output(capsys) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "error",
             "component": "python_validation",
@@ -196,70 +166,35 @@ def test_remote_write_outside_schema_is_reported_and_dropped(capsys):
         }
     ]
 
-    # The rejected value did not corrupt drain state; a later, valid write
-    # is still delivered normally.
-    _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 10)
 
-    assert endpoint.level == 10
-    assert [event.value for event in received] == [10]
+def test_unknown_paths_are_ignored_during_remote_accept():
+    _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
+    event = endpoint._accept_remote(Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 7)
 
-def test_unknown_paths_are_ignored_during_remote_accept(capsys):
-    node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    node.start()
-    capsys.readouterr()
-
-    endpoint._accept_remote(Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 7)
-
+    assert event is None
     assert endpoint.on is False
-    assert received == []
 
 
-def test_resynchronize_dispatches_only_attributes_that_drifted(capsys):
-    node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
-    node.start()
-    capsys.readouterr()
-    _matter.on_event(None)
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
-
-    endpoint._resynchronize()
-    endpoint._resynchronize()
-
-    assert endpoint.on is True
-    assert [(event.cluster, event.attribute) for event in received] == [
-        (Clusters.ON_OFF, Attributes.ON_OFF)
-    ]
-
-
-def test_restore_hydrates_state_without_remote_callback(capsys):
-    _matter.reset(
-        persisted={(1, Clusters.ON_OFF, Attributes.ON_OFF): True},
-    )
+def test_restore_hydrates_state_without_an_event(capsys):
+    _matter.reset(persisted={(1, Clusters.ON_OFF, Attributes.ON_OFF): True})
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
-    received = []
-    endpoint.on_write(received.append)
 
     node.start()
 
     assert endpoint.on is True
-    assert received == []
-    assert _output(capsys) == [{"event": "matter", "state": "ready"}]
+    assert node.poll() == ()
+    assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
 def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
-    _matter.reset(
-        persisted={(1, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL): 255},
-    )
+    _matter.reset(persisted={(1, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL): 255})
     node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
 
     node.start()
 
     assert endpoint.level == 254
-    assert _output(capsys) == [
+    assert json_lines(capsys.readouterr().out) == [
         {
             "event": "error",
             "component": "python_validation",
@@ -269,12 +204,21 @@ def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
     ]
 
 
+@pytest.fixture
+def publishes(monkeypatch):
+    """Record every (endpoint_id, updates) batch while still applying it natively."""
+    batches = []
+    native_publish = _matter.attributes_publish
+
+    def record(endpoint_id, updates):
+        batches.append((endpoint_id, updates))
+        native_publish(endpoint_id, updates)
+
+    monkeypatch.setattr(_matter, "attributes_publish", record)
+    return batches
+
+
 def _endpoint(endpoint_type):
     """Create one endpoint on a fresh, unstarted node."""
     node = Node()
     return node, node.create_endpoint(endpoint_type)
-
-
-def _output(capsys):
-    """Parse every non-empty stdout line as JSON."""
-    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]

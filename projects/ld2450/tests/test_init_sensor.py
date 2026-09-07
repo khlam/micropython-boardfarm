@@ -12,8 +12,8 @@ import pathlib
 from collections import namedtuple
 from typing import ClassVar
 
-from ld2450 import DeviceNotFoundError
 from micropython_stubs.testing import firmware_namespace
+from radar import DeviceNotFoundError
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _KEEP_FUNCS = {"emit", "init_sensor"}
