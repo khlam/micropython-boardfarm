@@ -1,0 +1,15 @@
+[project]
+name = "matter-radar-sensor"
+version = "0.3.0"
+description = "MicroPython Matter occupancy-sensor firmware for an HLK-LD2450 or HLK-LD2420 radar."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "micropython-boardfarm>=0.17.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+micropython-boardfarm = { workspace = true }

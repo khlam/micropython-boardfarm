@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "radar"
+version = "0.1.0"
+description = "MicroPython UART drivers for the Hi-Link HLK-LD2450 and HLK-LD2420 radars, selected by model."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["radar"]

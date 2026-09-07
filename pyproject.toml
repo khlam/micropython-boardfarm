@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.9.0"
+version = "0.20.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,22 +15,29 @@ dependencies = [
     "pixel_frame>=0.1.0",
     "pixel_display>=0.1.0",
     "max7219>=0.1.0",
+    "httpd>=0.1.0",
     "i2c_bus>=0.2.0",
+    "radar>=0.1.0",
     "mpu6050>=0.1.0",
     "qmc5883p>=0.1.0",
     "smoothing>=0.1.0",
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
-    "micropython_stubs>=0.2.0",
+    "micropython_stubs>=0.9.0",
+    "matter>=0.2.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
+# tools/matter-build is there for the opposite reason: build.py is a bind-mounted
+# script rather than an installed package, so its tests need the directory itself.
 [tool.pytest.ini_options]
 pythonpath = [
+    "/tools/matter-build",
     "/firmware-packages/atgm336h/tests",
     "/firmware-packages/pixel_display/tests",
     "/firmware-packages/max7219/tests",
+    "/firmware-packages/radar/tests",
     "/firmware-packages/mpu6050/tests",
     "/firmware-packages/nmea/tests",
     "/firmware-packages/qmc5883p/tests",
@@ -67,12 +74,15 @@ tz_offset = { index = "internal" }
 pixel_frame = { index = "internal" }
 pixel_display = { index = "internal" }
 max7219 = { index = "internal" }
+httpd = { index = "internal" }
 i2c_bus = { index = "internal" }
+radar = { index = "internal" }
 mpu6050 = { index = "internal" }
 qmc5883p = { index = "internal" }
 smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
+matter = { index = "internal" }
 
 [dependency-groups]
 viz = [
@@ -100,15 +110,21 @@ test = [
     "pixel_frame",
     "pixel_display",
     "max7219",
+    "httpd",
     "i2c_bus",
+    "radar",
     "mpu6050",
     "qmc5883p",
     "smoothing",
     "vl53l0x",
     "vl53l5cx",
+    "matter",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
+    "cryptography>=50.0.0",
+    "qrcode[pil]>=8.2",
+    "esp-idf-nvs-partition-gen>=0.3.0",
 ]
 
 # Packages install from wheels into site-packages, so measure them by import
@@ -122,7 +138,11 @@ source = [
   "/projects/distance-stream/firmware",
   "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
+  "/projects/ld2450/firmware",
   "/projects/multizone-ranging/firmware",
+  "/projects/matter/firmware",
+  "/projects/matter-radar-sensor/firmware",
+  "/tools/matter-build",
 ]
 source_pkgs = [
   "boot_status_led",
@@ -132,12 +152,15 @@ source_pkgs = [
   "pixel_frame",
   "pixel_display",
   "max7219",
+  "httpd",
   "i2c_bus",
+  "radar",
   "mpu6050",
   "qmc5883p",
   "smoothing",
   "vl53l0x",
   "vl53l5cx",
+  "matter",
   "serial_over_web",
 ]
 omit = [
@@ -174,11 +197,18 @@ exclude = [
   "manifest.py",
 ]
 
+# tools/matter-build runs as scripts from a bind mount, so build.py imports its
+# siblings by bare name off sys.path[0]. Nothing installs them, so ty needs the
+# directory named explicitly to resolve those imports.
+[tool.ty.environment]
+extra-paths = ["tools/matter-build"]
+
 [tool.ty.src]
 include = [
   "firmware-packages",
   "cpython-packages",
   "projects",
+  "tools",
 ]
 exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
@@ -240,6 +270,7 @@ extend-exclude = [
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
   "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   ".vulture_allowlist.py",
+  ".vulture_source_only_allowlist.py",
   "manifest.py",
 ]
 
@@ -278,7 +309,7 @@ select = [
   "TID",      # tidy-imports
   "ARG",      # unused-arguments
   "PTH",      # use-pathlib
-  "ERA",      # eradicate commented-out code — see AGENTS.md "Don't preserve the past"
+  "ERA",      # eradicate commented-out code — see skills/coding-conventions "Don't preserve the past"
   "PL",       # pylint
   "TRY",      # tryceratops (exception-handling hygiene)
   "FURB",     # refurb modernization
@@ -302,6 +333,9 @@ unfixable = ["T201", "T203", "ERA001"]
 [tool.ruff.lint.per-file-ignores]
 # Firmware is flat-frozen; emit() owns print output.
 "projects/*/firmware/*" = ["T201", "INP001"]
+# Docker-only helpers, executed by path from a bind mount rather than imported,
+# so they are deliberately loose scripts instead of an installable package.
+"tools/*/*" = ["INP001"]
 "**/{tests}/*" = [
   "PLR2004", "S101", "TID252",
   "PLC2701", "D100", "D103", "ANN201", "ANN202",
@@ -332,7 +366,9 @@ known-first-party = [
   "pixel_frame",
   "pixel_display",
   "max7219",
+  "httpd",
   "i2c_bus",
+  "radar",
   "mpu6050",
   "qmc5883p",
   "smoothing",
@@ -340,6 +376,7 @@ known-first-party = [
   "vl53l5cx",
   "serial_over_web",
   "micropython_stubs",
+  "matter",
 ]
 
 [tool.ruff.lint.mccabe]

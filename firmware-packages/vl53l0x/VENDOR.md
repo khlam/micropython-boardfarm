@@ -35,4 +35,4 @@ upstream `975d212a`:
 Treat the file as a vendored-with-local-modifications snapshot: don't
 re-sync from upstream without re-applying these changes, and don't edit
 it for unrelated reasons (see the no-edit rule in
-[../../AGENTS.md](../../AGENTS.md)).
+[../AGENTS.md](../AGENTS.md)).

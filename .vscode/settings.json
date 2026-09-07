@@ -12,6 +12,7 @@
     "./firmware-packages/pixel_display",
     "./firmware-packages/pixel_frame",
     "./firmware-packages/qmc5883p",
+    "./firmware-packages/radar",
     "./firmware-packages/smoothing",
     "./firmware-packages/tz_offset",
     "./firmware-packages/vl53l0x",

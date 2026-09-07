@@ -1,4 +1,6 @@
-micropython/
+# Root-anchored: a bare "micropython/" also matches
+# firmware-packages/matter/native/micropython/, which is source, not a clone.
+/micropython/
 *.env
 wandb/
 .githooks/.initialized
@@ -10,6 +12,7 @@ wandb/
 *.env
 *.bin
 *.uf2
+projects/*/outputs/
 
 **/.DS_Store
 

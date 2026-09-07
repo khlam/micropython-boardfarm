@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
+uart_constructions: list[UART] = []
 _devices: dict[int, object] = {}
 _uart_rx = bytearray()
+_uart_read_exc: Exception | None = None
+_uart_write_exc: Exception | None = None
+_uart_replies: list[bytes] = []
 _spi_instances: list[object] = []
 _timer_instances: list[object] = []
 
@@ -16,20 +22,81 @@ def register_device(address: int, device: object) -> None:
 
 
 def feed_uart(lines: list[bytes]) -> None:
-    """Append byte chunks to the shared UART RX buffer (FIFO).
+    """Append byte chunks to the shared UART receive buffer (FIFO).
 
     Chunks need not be whole lines: feeding a sentence in fragments models a
     non-blocking UART that returns only the bytes received so far.
+
+    Args:
+        lines: Byte chunks appended, in order, to the receive buffer.
     """
-    for chunk in lines:
-        _uart_rx.extend(chunk)
+    feed_uart_bytes(b"".join(lines))
+
+
+def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
+    """Queue UART data for the any()/read()/readline()/readinto() consumers.
+
+    Args:
+        data: Bytes appended to the shared receive buffer.
+        notify: Whether to run each UART's receive-idle callback afterwards,
+            as hardware does once the line goes quiet. Pass False to leave an
+            IRQ-driven reader waiting on its own timeout instead.
+    """
+    _uart_rx.extend(data)
+    if notify:
+        for uart in uart_constructions:
+            uart.trigger_rx_idle()
+
+
+def fail_uart_reads(exc: Exception | None) -> None:
+    """Make the next `UART.readinto()` call raise `exc` instead of returning data.
+
+    The fault is one-shot: it fires on the next call, then clears itself, so a
+    test can inject a single error and let the following call recover
+    normally. Pass None to cancel a pending fault.
+
+    Args:
+        exc: Exception the next `readinto()` call raises, or None to clear.
+    """
+    global _uart_read_exc  # noqa: PLW0603
+    _uart_read_exc = exc
+
+
+def fail_uart_writes(exc: Exception | None) -> None:
+    """Make the next `UART.write()` call raise `exc` instead of sending data.
+
+    One-shot like `fail_uart_reads()`. Pass None to cancel a pending fault.
+
+    Args:
+        exc: Exception the next `write()` call raises, or None to clear.
+    """
+    global _uart_write_exc  # noqa: PLW0603
+    _uart_write_exc = exc
+
+
+def queue_uart_replies(replies: list[bytes]) -> None:
+    """Queue one receive-buffer reply per `UART.write()` call (FIFO).
+
+    Models a device that answers each command frame, which a driver awaiting an
+    acknowledgement inside its own coroutine cannot otherwise be fed. Writes
+    made after the queue empties send nothing back.
+
+    Args:
+        replies: Byte strings fed back, in order, one per write.
+    """
+    _uart_replies.extend(replies)
 
 
 def reset() -> None:
-    """Clear recorded pin constructions, the device registry, UART/SPI/Timer state."""
+    """Clear recorded constructions, the device registry, and UART/SPI/Timer state."""
+    global _uart_read_exc, _uart_write_exc  # noqa: PLW0603
     pin_constructions.clear()
+    uart_constructions.clear()
     _devices.clear()
-    del _uart_rx[:]
+    _uart_rx.clear()
+    _uart_replies.clear()
+    _uart_read_exc = None
+    _uart_write_exc = None
     _spi_instances.clear()
     _timer_instances.clear()
 
@@ -182,42 +249,83 @@ class SoftI2C(_I2CBase):
 
 
 class UART:
-    """Fake `machine.UART` backed by the shared byte RX buffer."""
+    """Fake `machine.UART` backed by the shared byte receive buffer.
+
+    Construction keeps every keyword in `config`, so port-specific settings
+    such as `bits`, `parity`, `stop`, `rxbuf`, and `timeout_char` stay
+    inspectable without this signature tracking them. `irq()` records a
+    receive-idle callback that `machine.feed_uart_bytes(...)` then fires, which
+    is how an interrupt-driven driver gets woken on the host. Sent frames land
+    in `writes`, and `machine.queue_uart_replies(...)` answers them.
+    """
+
+    # Ports assign their own bit for this trigger, so only its identity
+    # matters: irq() records whatever the caller passed and compares it back.
+    IRQ_RXIDLE = 1 << 4
 
     def __init__(
         self,
         id: int | None = None,  # noqa: A002
         *_args: object,
-        baudrate: int = 9600,
-        tx: object = None,
-        rx: object = None,
-        timeout: int = 0,
-        timeout_char: int = 0,
-        **_kwargs: object,
+        **kwargs: object,
     ) -> None:
-        """Record the positional bus id and UART timing kwargs."""
+        """Record the positional bus id and every keyword the caller passed."""
         self.id = id
-        self.baudrate = baudrate
-        self.tx = tx
-        self.rx = rx
-        self.timeout = timeout
-        self.timeout_char = timeout_char
+        self.config: dict[str, object] = dict(kwargs)
+        self.baudrate = kwargs.get("baudrate", 9600)
+        self.tx = kwargs.get("tx")
+        self.rx = kwargs.get("rx")
+        self.timeout = kwargs.get("timeout", 0)
+        self.irq_handler: Callable[[UART], None] | None = None
+        self.irq_trigger = 0
+        self.irq_hard = False
+        self.deinitialized = False
+        self.writes: list[bytes] = []
+        uart_constructions.append(self)
+
+    def write(self, data: bytes) -> int:
+        """Record one sent frame and feed back its scripted reply, if any.
+
+        Args:
+            data: Bytes the driver sent.
+
+        Returns:
+            How many bytes were sent, as the real UART reports.
+
+        Raises:
+            exc: Whatever `fail_uart_writes()` last armed, raised once instead
+                of sending.
+        """
+        global _uart_write_exc
+        if _uart_write_exc is not None:
+            exc, _uart_write_exc = _uart_write_exc, None
+            raise exc
+        self.writes.append(bytes(data))
+        if _uart_replies:
+            feed_uart_bytes(_uart_replies.pop(0))
+        return len(data)
 
     def any(self) -> int:
-        """Number of bytes available to read from the RX buffer."""
+        """Return how many bytes are waiting in the receive buffer."""
         return len(_uart_rx)
 
     def read(self, nbytes: int | None = None) -> bytes | None:
-        """Return up to nbytes from the RX buffer, or None when empty.
+        """Return up to nbytes from the receive buffer, or None when empty.
 
         Models a non-blocking read: it never waits for more bytes to arrive, so
         a sentence fed in fragments comes back one fragment at a time.
+
+        Args:
+            nbytes: Byte ceiling; defaults to everything buffered.
+
+        Returns:
+            The bytes taken from the buffer, or None when it is empty.
         """
         if not _uart_rx:
             return None
         if nbytes is None or nbytes >= len(_uart_rx):
             data = bytes(_uart_rx)
-            del _uart_rx[:]
+            _uart_rx.clear()
             return data
         data = bytes(_uart_rx[:nbytes])
         del _uart_rx[:nbytes]
@@ -235,6 +343,69 @@ class UART:
         data = bytes(_uart_rx[: nl + 1])
         del _uart_rx[: nl + 1]
         return data
+
+    def readinto(self, buf: bytearray, nbytes: int | None = None) -> int | None:
+        """Move up to ``nbytes`` buffered bytes into ``buf``, or None when empty.
+
+        Args:
+            buf: Caller-owned buffer written in place, as drivers reuse.
+            nbytes: Byte ceiling; defaults to however much ``buf`` holds.
+
+        Returns:
+            The number of bytes written, or None when nothing was buffered.
+
+        Raises:
+            exc: Whatever `fail_uart_reads()` last armed, raised once instead
+                of returning.
+        """
+        global _uart_read_exc
+        if _uart_read_exc is not None:
+            exc, _uart_read_exc = _uart_read_exc, None
+            raise exc
+        limit = len(buf) if nbytes is None else min(nbytes, len(buf))
+        count = min(limit, len(_uart_rx))
+        if not count:
+            return None
+        buf[:count] = _uart_rx[:count]
+        del _uart_rx[:count]
+        return count
+
+    def irq(
+        self,
+        handler: Callable[[UART], None] | None = None,
+        trigger: int = 0,
+        *,
+        hard: bool = False,
+    ) -> UART:
+        """Register or clear the receive callback and return the IRQ handle.
+
+        Args:
+            handler: Callback to run on a matching trigger, or None to clear.
+            trigger: Trigger bitmask; only IRQ_RXIDLE fires under this stub.
+            hard: Recorded for inspection. The stub always calls the handler
+                as a plain function, since there is no interrupt context here.
+
+        Returns:
+            The UART itself, standing in for MicroPython's port-specific IRQ
+            object so callers have something to hold and later discard.
+        """
+        self.irq_handler = handler
+        self.irq_trigger = trigger
+        self.irq_hard = hard
+        return self
+
+    def trigger_rx_idle(self) -> None:
+        """Run the registered IRQ_RXIDLE callback, as an idle RX line does."""
+        if self.deinitialized or self.irq_handler is None:
+            return
+        if self.irq_trigger & UART.IRQ_RXIDLE:
+            self.irq_handler(self)
+
+    def deinit(self) -> None:
+        """Release the UART: drop the callback and mark the instance closed."""
+        self.irq_handler = None
+        self.irq_trigger = 0
+        self.deinitialized = True
 
 
 class Timer:

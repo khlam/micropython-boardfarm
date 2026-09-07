@@ -65,7 +65,7 @@ precommit:
 		echo "[lint] pydoclint"; \
 		docker run --rm -v "$$repo_root":/work -w /work "$$image_pydoclint" --style=google --allow-init-docstring=True . || fail=1; \
 		echo "[lint] ty check"; \
-		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro "$$image_typecheck" || fail=1; \
+		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro -v "$$repo_root/tools":/work/tools:ro "$$image_typecheck" || fail=1; \
 		exit "$$fail"; \
 	fi
 
@@ -86,7 +86,8 @@ remove-ci:
 	rm -rf .github; \
 	rm -f .githooks/pre-commit .githooks/.initialized \
 	      .githooks/run-linters.sh .githooks/check_version_bumps.sh; \
-	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml .vulture_allowlist.py; \
+	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml \
+	      .vulture_allowlist.py .vulture_source_only_allowlist.py; \
 	git config --local --unset core.hooksPath 2>/dev/null || true; \
 	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
 	echo "Done. Removed CI / pre-commit / linting scaffolding."; \
