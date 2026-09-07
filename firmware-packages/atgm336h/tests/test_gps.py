@@ -51,10 +51,19 @@ def test_gps_readline_streams_after_probe():
     assert gps.readline() is None
 
 
-def test_gps_uses_nonblocking_uart():
-    """The UART is opened non-blocking so it never stalls a cooperative loop."""
-    gps = _make_gps([_GPRMC])
-    assert gps._uart.timeout == 0
+def test_gps_probe_discards_a_partial_leading_sentence():
+    """Attaching mid-stream must resync on the first newline, not emit garbage.
+
+    A non-blocking UART usually hands back the tail of whatever sentence was in
+    flight when the port opened. The probe drops through that first newline, so
+    the truncated head never reaches readline() and never fails a checksum.
+    """
+    machine.reset()
+    machine.feed_uart([b"38,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n"])
+    gps = GPS(bus_id=0, tx=0, rx=1)
+
+    machine.feed_uart([_GPGGA])
+    assert gps.readline() == _GPGGA.decode().strip()
 
 
 def test_gps_assembles_sentence_split_across_reads():

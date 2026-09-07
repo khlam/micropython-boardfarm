@@ -1,8 +1,8 @@
 """Clock screen specifications and renderers."""
 
-import random
 from collections import namedtuple
 
+from clock_transitions import randbelow
 from pixel_frame import Frame, Text
 
 ScreenSpec = namedtuple("ScreenSpec", ("id", "name", "kind", "hold_ms", "render", "key"))
@@ -678,8 +678,6 @@ SCREEN_SPECS = (
 SCREEN_BY_ID = {spec.id: spec for spec in SCREEN_SPECS}
 REGULAR_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_REGULAR)
 INTERSTITIAL_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_INTERSTITIAL)
-DIAGNOSTIC_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_DIAGNOSTIC)
-WAIT_SCREENS = (WAIT_OFF, WAIT_ON)
 
 
 def screen_spec(screen: int) -> object:
@@ -702,36 +700,9 @@ def screen_key(screen: int, parts: tuple | None) -> tuple:
     return screen_spec(screen).key(parts)
 
 
-def screen_frame(
-    screen: int,
-    rtc: object,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
-    """Render one display-cycle screen from the current RTC value."""
-    return render_screen(screen, rtc_parts(rtc), width_pixels, height_pixels)
-
-
-def key_from_rtc(screen: int, rtc: object) -> tuple:
-    """Return the visible-content key for one screen from the RTC."""
-    return screen_key(screen, rtc_parts(rtc))
-
-
-def is_interstitial(screen: int) -> bool:
-    """Return whether ``screen`` is a brief interstitial."""
-    return screen_spec(screen).kind == KIND_INTERSTITIAL
-
-
 def is_wait(screen: int) -> bool:
     """Return whether ``screen`` is a GPS wait endpoint."""
     return screen_spec(screen).kind == KIND_WAIT
-
-
-def randbelow(limit: int, rng: object | None = None) -> int:
-    """Return a random integer in ``range(limit)`` using a small MCU API."""
-    if rng is None:
-        rng = random
-    return rng.getrandbits(8) % limit
 
 
 def choose_next_regular(current: int, rng: object | None = None) -> int:

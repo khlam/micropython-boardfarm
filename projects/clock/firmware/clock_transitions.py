@@ -2,7 +2,7 @@
 
 import random
 
-from pixel_frame import Frame, MatrixFrame
+from pixel_frame import Frame
 
 TRANSITION_WIPE = 0
 TRANSITION_DISSOLVE = 1
@@ -37,55 +37,6 @@ DIRECTIONS = (
 _DIRECTION_MASKS = {}
 _RANDOM_DISSOLVE_MASKS = {}
 _DISSOLVE_SEED = 0x9E3779B1
-
-
-def copy_frame(frame: object) -> object:
-    """Return a byte-for-byte copy of ``frame``."""
-    if isinstance(frame, Frame):
-        return frame.copy()
-    return MatrixFrame(frame.width, frame.height, frame.channels, bytearray(frame.data))
-
-
-def frame_value(frame: object, x: int, y: int, channel: int = 0) -> int:
-    """Return one frame byte, clipping out-of-bounds reads to zero."""
-    if x < 0 or y < 0 or x >= frame.width or y >= frame.height:
-        return 0
-    if isinstance(frame, Frame):
-        if channel != 0:
-            return 0
-        return frame.value_at(x, y)
-    return frame.data[(y * frame.width + x) * frame.channels + channel]
-
-
-def max_frame_value(frame: object) -> int:
-    """Return the maximum byte value present in ``frame``."""
-    if isinstance(frame, Frame):
-        if any(frame.data):
-            return frame.intensity
-        return 0
-    value = 0
-    for item in frame.data:
-        value = max(value, item)
-    return value
-
-
-def as_packed_frame(frame: object) -> object:
-    """Return a packed monochrome view of ``frame``."""
-    if isinstance(frame, Frame):
-        return frame
-    stride = (frame.width + 7) // 8
-    data = bytearray(frame.height * stride)
-    intensity = max_frame_value(frame)
-    if intensity <= 0:
-        return Frame.from_packed(frame.width, frame.height, stride, data, 0)
-    for y in range(frame.height):
-        row_base = y * stride
-        for x in range(frame.width):
-            for channel in range(frame.channels):
-                if frame_value(frame, x, y, channel) > 0:
-                    data[row_base + (x >> 3)] |= 1 << (x & 7)
-                    break
-    return Frame.from_packed(frame.width, frame.height, stride, data, intensity)
 
 
 def direction_delta(direction: int) -> tuple:
@@ -293,24 +244,7 @@ def shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
     return bits & mask
 
 
-def wipe_frame(
-    source: object,
-    target: object,
-    step: int,
-    steps: int,
-    direction: int = DIRECTION_LEFT,
-) -> object:
-    """Reveal ``target`` over ``source`` from ``direction``."""
-    return _packed_wipe_frame(
-        as_packed_frame(source),
-        as_packed_frame(target),
-        step,
-        steps,
-        direction,
-    )
-
-
-def _packed_wipe_frame(
+def _wipe_frame(
     source: object,
     target: object,
     step: int,
@@ -319,31 +253,14 @@ def _packed_wipe_frame(
 ) -> object:
     """Reveal a packed ``target`` over a packed ``source`` from ``direction``."""
     if step <= 0:
-        return copy_frame(source)
+        return source.copy()
     if step >= steps:
-        return copy_frame(target)
+        return target.copy()
     mask = directional_mask(source, steps, step, direction)
     return mixed_mask_frame(source, target, mask)
 
 
-def scroll_frame(
-    source: object,
-    target: object,
-    step: int,
-    steps: int,
-    direction: int = DIRECTION_RIGHT,
-) -> object:
-    """Slide ``target`` in from ``direction`` while ``source`` exits opposite."""
-    return _packed_scroll_frame(
-        as_packed_frame(source),
-        as_packed_frame(target),
-        step,
-        steps,
-        direction,
-    )
-
-
-def _packed_scroll_frame(
+def _scroll_frame(
     source: object,
     target: object,
     step: int,
@@ -352,9 +269,9 @@ def _packed_scroll_frame(
 ) -> object:
     """Slide packed ``target`` in from ``direction``."""
     if step <= 0:
-        return copy_frame(source)
+        return source.copy()
     if step >= steps:
-        return copy_frame(target)
+        return target.copy()
     data = bytearray(len(source.data))
     dx, dy = direction_delta(direction)
     offset_x = source.width * step // steps if dx else 0
@@ -388,12 +305,7 @@ def _packed_scroll_frame(
     )
 
 
-def dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
-    """Cross-dissolve ``source`` into ``target`` by random pixel replacement."""
-    return _packed_dissolve_frame(as_packed_frame(source), as_packed_frame(target), step, steps)
-
-
-def _packed_dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
+def _dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
     """Swap packed ``source`` pixels for ``target`` pixels in random order.
 
     Pixels toggle fully on or off as they flip between frames rather than
@@ -403,9 +315,9 @@ def _packed_dissolve_frame(source: object, target: object, step: int, steps: int
     showing ``target`` and leaves the rest on ``source``.
     """
     if step <= 0:
-        return copy_frame(source)
+        return source.copy()
     if step >= steps:
-        return copy_frame(target)
+        return target.copy()
     return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
 
 
@@ -420,16 +332,16 @@ def frame_transition_frame(
 ) -> object:
     """Render one transition frame between two packed frame endpoints."""
     if effect == TRANSITION_INSTANT:
-        return copy_frame(target)
+        return target.copy()
     if effect == TRANSITION_DISSOLVE:
-        return _packed_dissolve_frame(source, target, step, steps)
+        return _dissolve_frame(source, target, step, steps)
     if effect == TRANSITION_SCROLL:
         if direction is None:
             direction = DIRECTION_RIGHT
-        return _packed_scroll_frame(source, target, step, steps, direction)
+        return _scroll_frame(source, target, step, steps, direction)
     if direction is None:
         direction = DIRECTION_LEFT
-    return _packed_wipe_frame(source, target, step, steps, direction)
+    return _wipe_frame(source, target, step, steps, direction)
 
 
 def randbelow(limit: int, rng: object | None = None) -> int:

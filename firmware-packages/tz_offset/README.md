@@ -14,8 +14,8 @@ MCU and under host CPython pytest, and the package has no per-chip backends.
   (matches `machine.RTC().datetime()` weekday on the rp2 port).
 - `utc_to_local(year, month, day, hour, minute, second, offset_hours)` — apply the
   offset with full hour/day/month/year rollover (correct month lengths + leap years).
-- `local_from_gps(date_str, utc_str, lon)` — parse `"YYYY-MM-DD"` + `"HH:MM:SSZ"`
-  and return `(year, month, day, weekday, hour, minute, second)` in local time.
+- `utc_to_local_seconds(year, month, day, hour, minute, second, offset_seconds)` —
+  the same rollover for an arbitrary signed second offset.
 
 ## Caveats
 

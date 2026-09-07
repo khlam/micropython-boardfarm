@@ -64,9 +64,14 @@ clock/
   buses directly. The LED goes white (boot) → cyan (opening buses) → green
   (running); an init failure flashes magenta and retries from white.
 - The display shows `GPS` / `WAIT` until the first checksum-valid RMC sentence
-  carrying UTC time, date, latitude, and longitude arrives. The first complete
-  fix sets the startup timezone offset; later fixes reuse that offset while the
-  RTC keeps local time between GPS updates.
+  carrying UTC time, date, and longitude arrives. The first complete fix sets the
+  startup timezone offset; later fixes reuse that offset while the RTC keeps
+  local time between GPS updates.
+- The offset is `round(lon / 15)` — a whole-hour nautical approximation that
+  ignores political timezone boundaries and daylight saving. It is latched on the
+  first fix so the displayed time never jumps mid-run, and it is wrong by an hour
+  or more wherever a country's legal offset does not follow its solar meridian
+  (China, India, Spain, France, Argentina) or while DST is in effect.
 - The firmware produces no serial output; status is shown entirely on the LED.
   UART/parse faults briefly turn the LED red before returning to green; an init
   failure flashes magenta and retries.
@@ -236,4 +241,5 @@ MCU pins (GP6–GP8 are free for other use).
 
 `atgm336h` (GPS UART), `nmea` (sentence parsing), `tz_offset` (UTC→local),
 `pixel_frame` (frame/text rendering), `pixel_display` (display facade), `max7219`
-(matrix driver), `boot_status_led` (status LED).
+(matrix driver), `boot_button` (BOOT-button display flip), `boot_status_led`
+(status LED).

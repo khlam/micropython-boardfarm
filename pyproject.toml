@@ -24,25 +24,26 @@ dependencies = [
     "vl53l0x>=0.1.0",
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
-    "micropython_stubs>=0.9.0",
+    "micropython_stubs>=0.10.0",
     "matter>=0.2.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
 # tools/matter-build is there for the opposite reason: build.py is a bind-mounted
 # script rather than an installed package, so its tests need the directory itself.
+# projects/clock/firmware is there for the same reason: its clock_* modules are
+# bind-mounted firmware imported directly by the tests, not an installed wheel.
 [tool.pytest.ini_options]
 pythonpath = [
     "/tools/matter-build",
+    "/projects/clock/firmware",
+    "/projects/clock/tests",
     "/firmware-packages/atgm336h/tests",
-    "/firmware-packages/pixel_display/tests",
     "/firmware-packages/max7219/tests",
     "/firmware-packages/radar/tests",
     "/firmware-packages/mpu6050/tests",
-    "/firmware-packages/nmea/tests",
     "/firmware-packages/qmc5883p/tests",
     "/firmware-packages/smoothing/tests",
-    "/firmware-packages/tz_offset/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
@@ -103,6 +104,7 @@ test = [
     {include-group = "viz"},
     {include-group = "typecheck"},
     "micropython_stubs",
+    "boot_button",
     "boot_status_led",
     "atgm336h",
     "nmea",
@@ -145,6 +147,7 @@ source = [
   "/tools/matter-build",
 ]
 source_pkgs = [
+  "boot_button",
   "boot_status_led",
   "atgm336h",
   "nmea",
@@ -167,7 +170,6 @@ omit = [
   "*/vl53l0x/vl53l0x.py",      # vendored upstream driver
   "*/vl53l5cx/vl53l5cx.py",    # vendored upstream driver
   "*/vl53l5cx/_config_bytes.py",  # vendored firmware binary data
-  "*/tz_offset/_tzdata.py",    # generated timezone raster + POSIX table
   "*/tests/*",
   "*/__init__.py",
 ]
@@ -187,13 +189,12 @@ check-class-attributes = false
 # only pydoclint-clean return annotation (Generator/Iterator/Iterable) needs a
 # typing/collections.abc import absent on MicroPython, so it can't be satisfied
 # in frozen firmware — excluded like the vendored vl53l0x.py.
-exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|firmware-packages/tz_offset/tz_offset/_tzdata\.py|manifest\.py'
+exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-packages/vl53l5cx/vl53l5cx/_config_bytes\.py|manifest\.py'
 
 [tool.vulture]
 min_confidence = 70
 exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
-  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   "manifest.py",
 ]
 
@@ -214,15 +215,17 @@ exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
-  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   "manifest.py",
   "**/outputs/**",
 ]
 
 # MicroPython APIs are partially stubbed and many firmware APIs are
 # dynamically generated at runtime by board ports / firmware builds.
+# The package glob needs the trailing /** : "firmware-packages/*/*" names the
+# package directory itself, not the modules inside it, so the overrides below
+# silently applied to nothing.
 [[tool.ty.overrides]]
-include = ["projects/*/firmware/**", "firmware-packages/*/*"]
+include = ["projects/*/firmware/**", "firmware-packages/*/*/**"]
 rules.unresolved-import = "ignore"
 rules.unresolved-attribute = "ignore"
 rules.invalid-argument-type = "ignore"
@@ -252,12 +255,6 @@ rules.invalid-return-type = "ignore"
 # targets) typed as object/None and invoke them, mirroring the firmware override.
 rules.call-non-callable = "ignore"
 
-# tzgen is host-only tooling; shapely/tzdata live solely in its Docker stage, so
-# they are unresolved in the typecheck environment.
-[[tool.ty.overrides]]
-include = ["projects/clock/tzgen/**"]
-rules.unresolved-import = "ignore"
-
 [tool.ruff]
 target-version = "py312"
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
@@ -268,7 +265,6 @@ extend-exclude = [
   "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
   "firmware-packages/vl53l5cx/vl53l5cx/vl53l5cx.py",
   "firmware-packages/vl53l5cx/vl53l5cx/_config_bytes.py",
-  "firmware-packages/tz_offset/tz_offset/_tzdata.py",
   ".vulture_allowlist.py",
   ".vulture_source_only_allowlist.py",
   "manifest.py",
@@ -355,8 +351,11 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
 known-first-party = [
+  "boot_button",
   "boot_status_led",
   "clock_cycle",
+  "clock_hardware",
+  "clock_runtime",
   "clock_screens",
   "clock_sync",
   "clock_transitions",

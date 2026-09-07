@@ -11,13 +11,11 @@ import random
 import time
 from collections import namedtuple
 
-from boot_button import button
-from clock_hardware import ClockHardware
-from clock_runtime import pump_gps
 from machine import RTC
 
 import clock_screens
 from atgm336h import GPS
+from boot_button import button
 from boot_status_led import status
 from clock_cycle import (
     DisplayEngine,
@@ -28,6 +26,8 @@ from clock_cycle import (
     play_wait_transition,
     run_frame_rate_test,
 )
+from clock_hardware import ClockHardware
+from clock_runtime import pump_gps
 from clock_sync import ClockSynchronizer
 from max7219 import MAX7219
 

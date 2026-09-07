@@ -38,20 +38,6 @@ class MatrixFrame:
         """Create an all-off matrix frame."""
         return cls(width, height, channels, bytearray(width * height * channels))
 
-    @classmethod
-    def from_matrix(cls, matrix: list) -> "MatrixFrame":
-        """Create a frame from a 2D intensity or 3D channel matrix.
-
-        Args:
-            matrix: Rows of pixels. A pixel may be a normalized scalar or a
-                sequence of normalized channel values.
-
-        Returns:
-            A frame with values quantized to bytes.
-        """
-        width, height, channels, data = _matrix_geometry_and_data(matrix)
-        return cls(width, height, channels, data)
-
     def value_at(self, x: int, y: int, channel: int = 0) -> int:
         """Return one byte value from the frame."""
         return self.data[(y * self.width + x) * self.channels + channel]
@@ -193,60 +179,6 @@ def _slice_bounds(item: object, limit: int, axis: str) -> tuple:
     if stop > limit:
         raise ValueError(axis + " slice exceeds frame bounds")
     return start, stop
-
-
-def _pixel_channels(pixel: object) -> tuple:
-    """Return a tuple of scalar channel values for one matrix pixel."""
-    if isinstance(pixel, (list, tuple, bytearray)):
-        if len(pixel) <= 0:
-            raise ValueError("matrix channel pixels must not be empty")
-        return tuple(pixel)
-    return (pixel,)
-
-
-def _matrix_geometry_and_data(matrix: list) -> tuple:
-    """Validate a matrix and return its geometry plus quantized data."""
-    height = len(matrix)
-    if height <= 0:
-        raise ValueError("matrix must contain at least one row")
-    width = _row_width(matrix[0])
-    channels = None
-    data = bytearray()
-    for row in matrix:
-        if len(row) != width:
-            raise ValueError("matrix rows must all have the same width")
-        channels = _append_row(data, row, channels)
-    return width, height, channels, data
-
-
-def _row_width(row: list) -> int:
-    """Return a non-zero matrix row width."""
-    width = len(row)
-    if width <= 0:
-        raise ValueError("matrix rows must contain at least one pixel")
-    return width
-
-
-def _append_row(data: bytearray, row: list, channels: int | None) -> int:
-    """Append one matrix row to ``data`` and return the channel count."""
-    for pixel in row:
-        pixel_channels = _pixel_channels(pixel)
-        if channels is None:
-            channels = len(pixel_channels)
-        elif len(pixel_channels) != channels:
-            raise ValueError("matrix pixels must share a channel count")
-        for value in pixel_channels:
-            data.append(_quantize(value))
-    return channels
-
-
-def _quantize(value: object) -> int:
-    """Clamp a normalized scalar and convert it to a byte."""
-    if value <= 0:
-        return 0
-    if value >= 1:
-        return 255
-    return int(value * 255 + 0.5)
 
 
 def _clamp_byte(value: int) -> int:

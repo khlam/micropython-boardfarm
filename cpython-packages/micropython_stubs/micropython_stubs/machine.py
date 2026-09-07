@@ -14,6 +14,7 @@ _uart_write_exc: Exception | None = None
 _uart_replies: list[bytes] = []
 _spi_instances: list[object] = []
 _timer_instances: list[object] = []
+_rtc_datetime: tuple = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
 def register_device(address: int, device: object) -> None:
@@ -88,8 +89,8 @@ def queue_uart_replies(replies: list[bytes]) -> None:
 
 
 def reset() -> None:
-    """Clear recorded constructions, the device registry, and UART/SPI/Timer state."""
-    global _uart_read_exc, _uart_write_exc  # noqa: PLW0603
+    """Clear recorded constructions, the device registry, and UART/SPI/Timer/RTC state."""
+    global _uart_read_exc, _uart_write_exc, _rtc_datetime  # noqa: PLW0603
     pin_constructions.clear()
     uart_constructions.clear()
     _devices.clear()
@@ -99,6 +100,31 @@ def reset() -> None:
     _uart_write_exc = None
     _spi_instances.clear()
     _timer_instances.clear()
+    _rtc_datetime = (2000, 1, 1, 5, 0, 0, 0, 0)
+
+
+class RTC:
+    """Fake `machine.RTC` sharing one module-level datetime across instances.
+
+    The real RTC is a single hardware peripheral, so every construction reads and
+    writes the same clock; `reset()` returns it to the port's power-on default.
+    """
+
+    def datetime(self, value: tuple | None = None) -> tuple | None:
+        """Get the stored datetime tuple, or set it when ``value`` is given.
+
+        Args:
+            value: ``(year, month, day, weekday, hour, minute, second, subsecond)``
+                to store, or ``None`` to read the current value.
+
+        Returns:
+            The stored 8-tuple when reading, otherwise ``None``.
+        """
+        global _rtc_datetime  # noqa: PLW0603
+        if value is None:
+            return _rtc_datetime
+        _rtc_datetime = tuple(value)
+        return None
 
 
 class Pin:

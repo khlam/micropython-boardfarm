@@ -733,6 +733,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h" },
+    { name = "boot-button" },
     { name = "boot-status-led" },
     { name = "cryptography" },
     { name = "esp-idf-nvs-partition-gen" },
@@ -774,7 +775,7 @@ requires-dist = [
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.9.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.10.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "nmea", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "pixel-display", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -799,6 +800,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h", index = "file:///wheels" },
+    { name = "boot-button", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
@@ -829,11 +831,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.9.0"
+version = "0.10.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.9.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.10.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.9.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.10.0-py3-none-any.whl" },
 ]
 
 [[package]]

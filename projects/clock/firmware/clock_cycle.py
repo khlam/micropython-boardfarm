@@ -94,9 +94,9 @@ async def hold_screen(engine: object, clock: object, *, stop: object = None) -> 
         stop: Optional predicate; when it returns true the hold ends early. Used
             by the GPS-wait blink to break out the moment a fix arrives.
     """
-    deadline = clock.ticks_ms()
+    started = clock.ticks_ms()
     hold_ms = clock_screens.screen_spec(engine.current_screen).hold_ms
-    while clock.ticks_diff(clock.ticks_ms(), deadline) < hold_ms:
+    while clock.ticks_diff(clock.ticks_ms(), started) < hold_ms:
         if stop is not None and stop():
             return
         await asyncio.sleep_ms(POLL_SLEEP_MS)
@@ -289,18 +289,16 @@ class DisplayEngine:
         source_parts = self._parts_for_screen(source_screen)
         target_parts = self._parts_for_screen(target_screen)
         if source_screen == self.current_screen and self.screen_frame is not None:
-            source_frame = clock_transitions.as_packed_frame(self.screen_frame)
+            source_frame = self.screen_frame
         else:
-            source_frame = clock_transitions.as_packed_frame(
-                self._frame_and_key(source_screen, source_parts)[0],
-            )
+            source_frame = self._frame_and_key(source_screen, source_parts)[0]
         target_frame, target_key = self._frame_and_key(target_screen, target_parts)
         self.transition = TransitionRun(
             effect,
             direction,
             target_screen,
             source_frame,
-            clock_transitions.as_packed_frame(target_frame),
+            target_frame,
             target_key,
             steps,
         )
@@ -357,7 +355,7 @@ class DisplayEngine:
             self.last_reassert_ms = now
             return
         if self._clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS:
-            frame, _key = self._frame_and_key(self.current_screen, parts)
+            frame, key = self._frame_and_key(self.current_screen, parts)
             self._show_frame(frame, key, now)
 
 

@@ -1,7 +1,7 @@
 """GPS sentence parsing and RTC sync for the clock project."""
 
 from nmea import apply_parsed, nmea_checksum_valid, parse_sentence
-from tz_offset import offset_seconds_from_gps, utc_to_local_seconds, weekday
+from tz_offset import offset_hours_from_longitude, utc_to_local_seconds, weekday
 
 
 class ClockSynchronizer:
@@ -61,18 +61,15 @@ def local_from_offset(date_str: str, utc_str: str, offset_s: int) -> tuple:
     )
 
 
-def gps_offset(date_str: str, utc_str: str, state: dict) -> tuple:
-    """Return the startup timezone offset, computing it from the first fix."""
+def gps_offset(state: dict) -> int:
+    """Return the startup timezone offset in seconds, deriving it from the first fix.
+
+    Latched on the first fix so the displayed time never jumps mid-run: crossing a
+    15-degree meridian would otherwise shift the clock by a whole hour.
+    """
     if state.get("offset_s") is None:
-        offset_s, tz_abbrev = offset_seconds_from_gps(
-            date_str,
-            utc_str,
-            state["lat"],
-            state["lon"],
-        )
-        state["offset_s"] = offset_s
-        state["tz_abbrev"] = tz_abbrev
-    return state["offset_s"], state.get("tz_abbrev")
+        state["offset_s"] = offset_hours_from_longitude(state["lon"]) * 3600
+    return state["offset_s"]
 
 
 def sync_from_line(line: str | None, rtc: object, state: dict) -> None:
@@ -83,20 +80,11 @@ def sync_from_line(line: str | None, rtc: object, state: dict) -> None:
     utc_time, cached_date = apply_parsed(parsed, state.get("utc"), state.get("date"))
     state["utc"] = utc_time
     state["date"] = cached_date
-    lat = parsed.get("lat", position.get("lat"))
-    if lat is not None:
-        state["lat"] = lat
     lon = parsed.get("lon", position.get("lon"))
     if lon is not None:
         state["lon"] = lon
-    if (
-        parsed.get("utc") is None
-        or cached_date is None
-        or state.get("lat") is None
-        or state.get("lon") is None
-    ):
+    if parsed.get("utc") is None or cached_date is None or state.get("lon") is None:
         return
-    offset_s, _tz_abbrev = gps_offset(cached_date, utc_time, state)
-    local = local_from_offset(cached_date, utc_time, offset_s)
+    local = local_from_offset(cached_date, utc_time, gps_offset(state))
     rtc.datetime(rtc_datetime(local))
     state["synced"] = True

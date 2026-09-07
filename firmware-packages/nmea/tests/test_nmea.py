@@ -14,6 +14,7 @@ import nmea
 # ---------------------------------------------------------------------------
 
 _GPGGA = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"
+_GNGGA = "$GNGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*59"
 _GPGGA_NO_FIX = "$GPGGA,123519,4807.038,N,01131.000,E,0,08,0.9,545.4,M,46.9,M,,*46"
 _GPGGA_SOUTH_WEST = "$GPGGA,123519,3351.960,S,07036.600,W,1,08,0.9,545.4,M,46.9,M,,*45"
 _GPGSA = "$GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,2.0,1.0,1.8*3B"
@@ -192,6 +193,17 @@ def test_parse_sentence_gga_fills_position_slot() -> None:
     assert position["lat"] == pytest.approx(48.1173, abs=1e-4)
     assert position["lon"] == pytest.approx(11.5167, abs=1e-4)
     assert parsed == {}
+
+
+def test_parse_sentence_dispatches_multi_constellation_gga() -> None:
+    """A multi-GNSS receiver emits $GNGGA, not $GPGGA — both must yield position.
+
+    Unlike the other sentence types, GGA is matched by exact tag rather than
+    suffix, so each accepted talker id needs its own coverage.
+    """
+    _, _, _, _, position, _parsed = nmea.parse_sentence(_GNGGA)
+    assert position["lat"] == pytest.approx(48.1173, abs=1e-4)
+    assert position["lon"] == pytest.approx(11.5167, abs=1e-4)
 
 
 def test_parse_sentence_gsa_fills_in_use_and_dop_slots() -> None:

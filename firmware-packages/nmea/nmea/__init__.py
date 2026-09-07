@@ -245,8 +245,6 @@ def parse_sentence(line: str) -> tuple:
         no usable data.
     """
     parts = line.split("*", 1)[0].split(",")
-    if not parts:
-        return {}, set(), {}, {}, {}, {}
     tag = parts[0]
     signals, in_use, total_in_view, dop, position, parsed = {}, set(), {}, {}, {}, {}
     if tag.endswith("GSV"):
