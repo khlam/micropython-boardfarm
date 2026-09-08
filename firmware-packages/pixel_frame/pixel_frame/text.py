@@ -68,7 +68,7 @@ class Text:
         for char in self.value:
             cols, glyph_width = glyph(char)
             if char not in self.hidden_chars:
-                _draw_glyph(frame, cols, glyph_width, x, ty, x_scale, y_scale)
+                _draw_glyph(frame, cols, x, ty, x_scale, y_scale)
             x += (glyph_width + SPACING) * x_scale
 
     def _scale_for_box(self, box_width: int | None, box_height: int | None) -> tuple:
@@ -97,35 +97,22 @@ class Text:
 def _draw_glyph(
     frame: object,
     cols: bytes,
-    width: int,
     x0: int,
     y0: int,
     x_scale: int,
     y_scale: int,
 ) -> None:
     """Draw one scaled glyph into a packed frame."""
-    for x in range(width):
-        bits = cols[x]
+    for x, bits in enumerate(cols):
         if bits == 0:
             continue
         dx = x0 + (x * x_scale)
         for y in range(HEIGHT):
             if bits & (1 << y):
                 dy = y0 + (y * y_scale)
-                _draw_scaled_pixel(frame, dx, dy, x_scale, y_scale)
-
-
-def _draw_scaled_pixel(
-    frame: object,
-    x0: int,
-    y0: int,
-    x_scale: int,
-    y_scale: int,
-) -> None:
-    """Draw one scaled source pixel into a packed frame."""
-    for y in range(y0, y0 + y_scale):
-        for x in range(x0, x0 + x_scale):
-            frame.set_pixel_unchecked(x, y)
+                for py in range(dy, dy + y_scale):
+                    for px in range(dx, dx + x_scale):
+                        frame.set_pixel_unchecked(px, py)
 
 
 def _aligned_offset(box_size: int, content_size: int, alignment: str) -> int:

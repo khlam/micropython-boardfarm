@@ -55,7 +55,7 @@ def _direction_masks(
     total_steps: int,
     direction: int,
 ) -> tuple:
-    """Return cached packed directional reveal masks for every transition step."""
+    """Return cached directional masks for the intermediate transition steps."""
     key = (width, height, total_steps, direction)
     cached = _DIRECTION_MASKS.get(key)
     if cached is not None:
@@ -64,9 +64,9 @@ def _direction_masks(
     dx, dy = _DELTAS[direction]
     total_ranks = 1 + (width - 1 if dx else 0) + (height - 1 if dy else 0)
     masks = []
-    for visible_steps in range(total_steps + 1):
+    for visible_steps in range(1, total_steps):
         data = bytearray(height * stride)
-        visible_ranks = max(1, total_ranks * visible_steps // total_steps) if visible_steps else 0
+        visible_ranks = max(1, total_ranks * visible_steps // total_steps)
         for y in range(height):
             row_base = y * stride
             row_rank = _axis_rank(dy, height, y)
@@ -120,10 +120,10 @@ def _shuffled_pixel_order(width: int, height: int, seed: int) -> list:
 
 
 def _dissolve_masks(width: int, height: int, total: int) -> tuple:
-    """Return cached cumulative packed masks revealing pixels in random order.
+    """Return cached cumulative dissolve masks for intermediate transition steps.
 
-    ``masks[k]`` has the first ``k / total`` of all pixels set (in the shuffled
-    order), so ``masks[0]`` is empty and ``masks[total]`` is fully lit.
+    ``masks[k - 1]`` reveals the first ``k / total`` of the shuffled pixels.
+    Endpoints need no masks because the renderer copies their frames directly.
     """
     key = (width, height, total)
     cached = _RANDOM_DISSOLVE_MASKS.get(key)
@@ -133,9 +133,9 @@ def _dissolve_masks(width: int, height: int, total: int) -> tuple:
     order = _shuffled_pixel_order(width, height, _DISSOLVE_SEED)
     pixel_count = width * height
     data = bytearray(height * stride)
-    masks = [bytes(data)]
+    masks = []
     placed = 0
-    for visible_steps in range(1, total + 1):
+    for visible_steps in range(1, total):
         target_count = visible_steps * pixel_count // total
         while placed < target_count:
             index = order[placed]
@@ -230,7 +230,7 @@ def frame_transition_frame(
         masks = _dissolve_masks(source.width, source.height, steps)
     else:
         masks = _direction_masks(source.width, source.height, steps, direction)
-    return _mixed_mask_frame(source, target, masks[step])
+    return _mixed_mask_frame(source, target, masks[step - 1])
 
 
 def randbelow(limit: int, rng: object) -> int:

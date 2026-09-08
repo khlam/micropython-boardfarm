@@ -91,7 +91,4 @@ def _scale_byte(value: int, brightness: float) -> int:
     """Scale one normalized byte by normalized brightness."""
     if value <= 0 or brightness <= 0:
         return 0
-    scaled = int(value * brightness + 0.5)
-    if scaled <= 0:
-        return 1
-    return scaled
+    return max(1, int(value * brightness + 0.5))
