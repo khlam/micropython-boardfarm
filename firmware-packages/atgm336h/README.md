@@ -13,8 +13,9 @@ line = gps.readline()              # "$GPRMC,..." or None when no line is ready
 ```
 
 `readline()` returns one decoded NMEA sentence (starting with `$`), or `None`
-when no complete line is ready, on decode error, or on a non-NMEA line. The constructor raises
-`DeviceNotFoundError` if no NMEA bytes arrive within the probe budget (~2 s).
+when no complete line is ready, on decode error, or on a non-NMEA line. The
+constructor raises `DeviceNotFoundError` if no NMEA bytes arrive within the
+probe budget (~2 s).
 
 ## Pin numbers live in the project
 Pin numbers are not in this package. Each project defines its own `BOARD` table

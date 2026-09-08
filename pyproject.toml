@@ -232,8 +232,9 @@ rules.invalid-assignment = "ignore"
 rules.invalid-return-type = "ignore"
 rules.invalid-base = "ignore"
 rules.unsupported-operator = "ignore"
-# Firmware duck-types callables (e.g. the MAX7219 driver's glyph-lookup function
-# passed as `object`); Callable isn't importable at MicroPython runtime.
+# Firmware duck-types callables it is handed or stores (the injected device
+# classes in clock_hardware, hold_screen's `stop` predicate, boot_button's
+# state-dict handlers); Callable isn't importable at MicroPython runtime.
 rules.call-non-callable = "ignore"
 
 [[tool.ty.overrides]]

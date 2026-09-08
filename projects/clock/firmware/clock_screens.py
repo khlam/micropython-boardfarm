@@ -117,12 +117,6 @@ def format_time_parts(hour: int, minute: int) -> tuple:
     return f"{display_hour}:{minute:02d}", meridiem
 
 
-def format_time_seconds(hour: int, minute: int, second: int) -> str:
-    """Format a 24-hour clock value as 12-hour time with seconds."""
-    clock, _meridiem = format_time_parts(hour, minute)
-    return f"{clock}:{second:02d}"
-
-
 def format_month_abbr(month: int) -> str:
     """Return a month abbreviation short enough to fit the matrix beside a day number."""
     return MONTH_ABBRS[month - 1]
@@ -161,13 +155,8 @@ def season_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> 
 def time_seconds_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render large 12-hour time with seconds and meridiem."""
     _year, _month, _day, _weekday, hour, minute, second = parts
-    _clock, meridiem = format_time_parts(hour, minute)
-    return _two_row_frame(
-        format_time_seconds(hour, minute, second),
-        meridiem,
-        width_pixels,
-        height_pixels,
-    )
+    clock, meridiem = format_time_parts(hour, minute)
+    return _two_row_frame(f"{clock}:{second:02d}", meridiem, width_pixels, height_pixels)
 
 
 def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:

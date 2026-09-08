@@ -110,10 +110,6 @@ def test_format_time_parts_wraps_to_a_12_hour_clock(hour: int, expected: tuple) 
     assert clock_screens.format_time_parts(hour, 5) == expected
 
 
-def test_format_time_seconds_appends_zero_padded_seconds() -> None:
-    assert clock_screens.format_time_seconds(13, 5, 7) == "1:05:07"
-
-
 @pytest.mark.parametrize(
     "month,expected",
     [

@@ -36,19 +36,12 @@ async def play_transition(
         frame_start = clock.ticks_ms()
         if engine.advance_transition(frame_start):
             return
-        await _pace_frame(clock, frame_start)
-
-
-async def _pace_frame(clock: object, frame_start: int) -> None:
-    """Sleep the remainder of this frame's budget, never below the yield floor.
-
-    Pacing from ``frame_start`` (taken before the render) keeps frame spacing
-    even regardless of how long the render took, and collapses to
-    ``MIN_FRAME_YIELD_MS`` when a render overruns so the rate degrades
-    gracefully instead of accumulating lag.
-    """
-    remaining = FRAME_BUDGET_MS - clock.ticks_diff(clock.ticks_ms(), frame_start)
-    await asyncio.sleep_ms(max(MIN_FRAME_YIELD_MS, remaining))
+        # Sleep what is left of this frame's budget, measured from before the
+        # render, so frame spacing stays even however long the render took; an
+        # overrunning render collapses to the yield floor rather than
+        # accumulating lag.
+        remaining = FRAME_BUDGET_MS - clock.ticks_diff(clock.ticks_ms(), frame_start)
+        await asyncio.sleep_ms(max(MIN_FRAME_YIELD_MS, remaining))
 
 
 async def play_dissolve_transition(engine: object, target: int) -> None:
