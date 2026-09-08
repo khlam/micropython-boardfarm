@@ -26,12 +26,16 @@ class Text:
 
         ``scale`` is an explicit ``(x, y)`` integer pair, or ``None`` to grow to
         the largest uniform scale that fits the box the text is assigned into.
+        Every layout option is checked here, so a bad value raises ``ValueError``
+        at construction rather than silently at draw time.
         """
         if align not in (_ALIGN_LEFT, _ALIGN_CENTER, _ALIGN_RIGHT):
             raise ValueError("align must be 'left', 'center', or 'right'")
         if valign not in (_VALIGN_TOP, _VALIGN_MIDDLE, _VALIGN_BOTTOM):
             raise ValueError("valign must be 'top', 'middle', or 'bottom'")
         self.value = str(value)
+        if scale is not None:
+            scale = (_positive_scale(scale[0]), _positive_scale(scale[1]))
         self.scale = scale
         self.align = align
         self.valign = valign
@@ -73,7 +77,7 @@ class Text:
     def _scale_for_box(self, box_width: int | None, box_height: int | None) -> tuple:
         """Return explicit or largest fitting integer scale."""
         if self.scale is not None:
-            return _positive_scale(self.scale[0]), _positive_scale(self.scale[1])
+            return self.scale
         if box_width is None or box_height is None:
             return 1, 1
         base_width, base_height = self._measure_at_scale(1, 1)

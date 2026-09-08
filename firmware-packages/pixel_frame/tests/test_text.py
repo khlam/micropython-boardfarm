@@ -173,9 +173,9 @@ def test_invalid_layout_options_fail_at_construction(option: str) -> None:
 
 
 @pytest.mark.parametrize("scale", [(0, 1), (1, -1)])
-def test_nonpositive_scales_are_rejected_when_layout_is_resolved(scale: object) -> None:
+def test_nonpositive_scales_fail_at_construction(scale: object) -> None:
     with pytest.raises(ValueError, match="scale must be positive"):
-        Text("1", scale=scale).measure()
+        Text("1", scale=scale)
 
 
 def _rendered(value: str, width: int, height: int) -> Frame:

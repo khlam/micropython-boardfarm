@@ -15,6 +15,8 @@ MCU and under host CPython pytest, and the package has no per-chip backends.
 - `utc_to_local_seconds(year, month, day, hour, minute, second, offset_seconds)` —
   apply an arbitrary signed second offset with full hour/day/month/year rollover
   (correct month lengths + leap years).
+- `days_from_epoch(year, month, day)` — days since 1970-01-01, for turning two
+  dates into a comparable elapsed count.
 
 ## Caveats
 

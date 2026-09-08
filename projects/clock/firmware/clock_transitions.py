@@ -190,7 +190,7 @@ def _scroll_frame(
     dx, dy = _direction_delta(direction)
     offset_x = source.width * step // steps if dx else 0
     offset_y = source.height * step // steps if dy else 0
-    target_y = dy * (source.height - offset_y) if dy else 0
+    target_y = dy * (source.height - offset_y)
     for y in range(source.height):
         bits = 0
         source_y = y + dy * offset_y
