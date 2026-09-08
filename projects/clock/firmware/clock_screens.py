@@ -49,6 +49,9 @@ HEIGHT_PIXELS = 16
 _MERIDIEM_GLYPH_WIDTH = 4
 _MERIDIEM_GLYPH_HEIGHT = 7
 _MERIDIEM_GLYPH_GAP = 1
+# AM and PM are both two uniform-width letters stacked, so the badge is a fixed
+# block: one glyph wide, two glyphs plus their gap tall.
+_MERIDIEM_BADGE_HEIGHT = (2 * _MERIDIEM_GLYPH_HEIGHT) + _MERIDIEM_GLYPH_GAP
 _MERIDIEM_GLYPHS = {
     "A": ("0110", "1001", "1001", "1111", "1001", "1001", "1001"),
     "P": ("1110", "1001", "1001", "1110", "1000", "1000", "1000"),
@@ -173,24 +176,25 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
     _year, _month, _day, _weekday, hour, minute, second = parts
     clock, meridiem = format_time_parts(hour, minute)
     frame = Frame(width_pixels, height_pixels)
-    label = _MeridiemBadge(meridiem)
-    label_width, label_height = label.measure()
     base_width, base_height = Text(clock).measure()
-    time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - label_width
+    time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - _MERIDIEM_GLYPH_WIDTH
     x_scale = max(1, time_box_width // base_width)
     y_scale = max(1, height_pixels // base_height)
     time_text = Text(clock, scale=(x_scale, y_scale), hidden_chars=_blink_colon_hidden(second))
     time_width, time_height = time_text.measure()
-    group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + label_width
-    group_height = max(time_height, label_height)
-    if group_width > width_pixels or group_height > height_pixels:
+    group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + _MERIDIEM_GLYPH_WIDTH
+    if group_width > width_pixels or max(time_height, _MERIDIEM_BADGE_HEIGHT) > height_pixels:
         frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
         return frame
     x0 = (width_pixels - group_width) // 2
     time_x1 = x0 + time_width
-    label_x0 = time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS
     frame[0:height_pixels, x0:time_x1] = time_text
-    frame[0:height_pixels, label_x0 : label_x0 + label_width] = label
+    _draw_meridiem_badge(
+        frame,
+        meridiem,
+        time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS,
+        (height_pixels - _MERIDIEM_BADGE_HEIGHT) // 2,
+    )
     _draw_seconds_bar(frame, second, height_pixels - 1)
     return frame
 
@@ -240,14 +244,12 @@ def uptime_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: i
     """
     boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
     frame = Frame(width_pixels, height_pixels)
-    split = height_pixels // 2
+    split = max(1, height_pixels // 2)
     top = "UP " + _format_uptime(_uptime_seconds(boot_parts, now_parts))
-    bottom = "BOOT: " + _format_boot_date(boot_parts)
-    if split <= 0:
-        _draw_marquee_row(frame, top, 0, height_pixels, scroll_ms, "middle")
-        return frame
     _draw_marquee_row(frame, top, 0, split, scroll_ms, "middle")
-    _draw_marquee_row(frame, bottom, split, height_pixels - split, scroll_ms, "bottom")
+    if split < height_pixels:
+        bottom = "BOOT: " + _format_boot_date(boot_parts)
+        _draw_marquee_row(frame, bottom, split, height_pixels - split, scroll_ms, "bottom")
     return frame
 
 
@@ -275,12 +277,10 @@ def _two_row_frame(
     time colon blink without shifting the rest of the row.
     """
     frame = Frame(width_pixels, height_pixels)
-    split = height_pixels // 2
-    if split <= 0:
-        frame[0:height_pixels, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
-        return frame
+    split = max(1, height_pixels // 2)
     frame[0:split, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
-    frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
+    if split < height_pixels:
+        frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
     return frame
 
 
@@ -382,45 +382,19 @@ def _draw_marquee_row(
                 frame.pixel(x, y0 + y)
 
 
-class _MeridiemBadge:
-    """Condensed AM/PM badge drawn from the dedicated meridiem letterforms.
+def _draw_meridiem_badge(frame: object, meridiem: str, x0: int, y0: int) -> None:
+    """Draw the stacked AM/PM letterforms with their top-left corner at ``(x0, y0)``.
 
-    Mirrors the :class:`Text` ``measure``/``draw`` interface so it can be
-    assigned straight into a frame box, but stacks two uniform-width letters
-    instead of reusing the body font's mixed-width glyphs.
+    Uses the condensed uniform-width glyphs rather than the body font, whose
+    mixed-width ``M`` would need a column the scaled-up time wants.
     """
-
-    def __init__(self, meridiem: str) -> None:
-        """Store the two-letter meridiem to stack vertically."""
-        self.letters = meridiem
-
-    def measure(self) -> tuple:
-        """Return the badge's pixel width and height."""
-        count = len(self.letters)
-        height = (count * _MERIDIEM_GLYPH_HEIGHT) + (max(0, count - 1) * _MERIDIEM_GLYPH_GAP)
-        return _MERIDIEM_GLYPH_WIDTH, height
-
-    def draw(self, frame: object, x0: int, y0: int, width: int, height: int) -> None:
-        """Draw the stacked badge centered inside an assigned pixel box."""
-        badge_width, badge_height = self.measure()
-        if badge_width > width or badge_height > height:
-            return
-        x = x0 + ((width - badge_width) // 2)
-        y = y0 + ((height - badge_height) // 2)
-        for letter in self.letters:
-            _draw_meridiem_glyph(frame, letter, x, y)
-            y += _MERIDIEM_GLYPH_HEIGHT + _MERIDIEM_GLYPH_GAP
-
-
-def _draw_meridiem_glyph(frame: object, letter: str, x0: int, y0: int) -> None:
-    """Draw one meridiem letterform with its top-left corner at ``(x0, y0)``."""
-    rows = _MERIDIEM_GLYPHS.get(letter)
-    if rows is None:
-        return
-    for dy, row in enumerate(rows):
-        for dx, bit in enumerate(row):
-            if bit == "1":
-                frame.pixel(x0 + dx, y0 + dy)
+    y = y0
+    for letter in meridiem:
+        for dy, row in enumerate(_MERIDIEM_GLYPHS[letter]):
+            for dx, bit in enumerate(row):
+                if bit == "1":
+                    frame.pixel(x0 + dx, y + dy)
+        y += _MERIDIEM_GLYPH_HEIGHT + _MERIDIEM_GLYPH_GAP
 
 
 def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int) -> str:
@@ -480,8 +454,13 @@ def season_screen_key(parts: tuple) -> tuple:
     return year, season_name(month)
 
 
-def time_seconds_screen_key(parts: tuple) -> tuple:
-    """Return the visible-content key for the seconds screen."""
+def time_screen_key(parts: tuple) -> tuple:
+    """Return the visible-content key shared by both time-of-day faces.
+
+    Includes ``second`` so the seconds readout — and, on the face that hides
+    them, the blinking colon and seconds bar — re-render each second even while
+    the hour and minute hold.
+    """
     _year, _month, _day, _weekday, hour, minute, second = parts
     return hour, minute, second
 
@@ -490,16 +469,6 @@ def full_date_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the full-date interstitial."""
     year, month, day, _weekday, _hour, _minute, _second = parts
     return year, month, day
-
-
-def clock_meridiem_screen_key(parts: tuple) -> tuple:
-    """Return the visible-content key for the time-only screen.
-
-    Includes ``second`` so the blinking colon and seconds bar re-render each
-    second even while the hour and minute hold.
-    """
-    _year, _month, _day, _weekday, hour, minute, second = parts
-    return hour, minute, second
 
 
 def frame_rate_screen_key(parts: tuple | None) -> tuple:
@@ -530,14 +499,14 @@ SCREEN_SPECS = (
         KIND_REGULAR,
         SCREEN_HOLD_MS,
         clock_meridiem_screen_frame,
-        clock_meridiem_screen_key,
+        time_screen_key,
     ),
     ScreenSpec(
         SCREEN_TIME_SECONDS,
         KIND_REGULAR,
         SCREEN_HOLD_MS,
         time_seconds_screen_frame,
-        time_seconds_screen_key,
+        time_screen_key,
     ),
     ScreenSpec(
         SCREEN_SEASON,

@@ -151,18 +151,8 @@ def _dissolve_masks(width: int, height: int, total: int) -> tuple:
 
 def _packed_row_bits(frame: object, y: int) -> int:
     """Return one packed row as a little-endian integer."""
-    bits = 0
-    row_base = y * frame.stride
-    for byte_index in range(frame.stride):
-        bits |= frame.data[row_base + byte_index] << (byte_index * 8)
-    return bits
-
-
-def _write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -> None:
-    """Write a little-endian row integer into packed row bytes."""
-    for byte_index in range(stride):
-        data[base + byte_index] = bits & 0xFF
-        bits >>= 8
+    base = y * frame.stride
+    return int.from_bytes(frame.data[base : base + frame.stride], "little")
 
 
 def _shifted_row_bits(bits: int, width: int, offset: int, dx: int) -> int:
@@ -206,7 +196,8 @@ def _scroll_frame(
                 source.width - offset_x,
                 -dx,
             )
-        _write_packed_row_bits(data, y * source.stride, source.stride, bits)
+        base = y * source.stride
+        data[base : base + source.stride] = bits.to_bytes(source.stride, "little")
     return Frame(
         source.width,
         source.height,

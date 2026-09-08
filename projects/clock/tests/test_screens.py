@@ -55,29 +55,6 @@ def test_time_only_face_falls_back_to_one_row_when_the_badge_crowds_it_out() -> 
     assert lit_count(frame) == 0
 
 
-def test_meridiem_badge_refuses_a_box_it_cannot_fit() -> None:
-    """The badge draws nothing rather than spilling outside its assigned box."""
-    badge = clock_screens._MeridiemBadge("AM")
-    width, height = badge.measure()
-    frame = Frame(32, 16)
-
-    badge.draw(frame, 0, 0, width - 1, height)
-    badge.draw(frame, 0, 0, width, height - 1)
-
-    assert lit_count(frame) == 0
-
-
-def test_meridiem_badge_skips_letters_it_has_no_glyph_for() -> None:
-    """Only A, M and P are drawn; anything else is silently omitted."""
-    frame = Frame(32, 16)
-
-    clock_screens._MeridiemBadge("AZ").draw(frame, 0, 0, 32, 16)
-
-    only_a = Frame(32, 16)
-    clock_screens._MeridiemBadge("A").draw(only_a, 0, 0, 32, 16)
-    assert lit_count(frame) == lit_count(only_a)
-
-
 def test_rtc_parts_drops_the_subsecond_field() -> None:
     """Renderers key off whole seconds, so the RTC's subsecond must not leak in."""
     assert clock_screens.rtc_parts(FakeRTC(_RTC_VALUE)) == _RTC_VALUE[:7]
@@ -244,7 +221,8 @@ def test_clock_meridiem_screen_fills_the_frame() -> None:
     parts = (2026, 6, 23, 1, 9, 5, 0)
     frame = clock_screens.render_screen(clock_screens.SCREEN_CLOCK_MERIDIEM, parts)
     unscaled_clock_width = Text("9:05", scale=(1, 1)).measure()[0]
-    badge_width, badge_height = clock_screens._MeridiemBadge("AM").measure()
+    badge_width = clock_screens._MERIDIEM_GLYPH_WIDTH
+    badge_height = clock_screens._MERIDIEM_BADGE_HEIGHT
     left, right, top, bottom = lit_bounds(frame, 0, frame.height)
 
     assert left == 0
