@@ -142,7 +142,7 @@ def main_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> ob
         height_pixels,
         top_hidden_chars=_blink_colon_hidden(second),
     )
-    _draw_seconds_bar(frame, second, (height_pixels // 2) - 1, width_pixels)
+    _draw_seconds_bar(frame, second, (height_pixels // 2) - 1)
     return frame
 
 
@@ -191,7 +191,7 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
     label_x0 = time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS
     frame[0:height_pixels, x0:time_x1] = time_text
     frame[0:height_pixels, label_x0 : label_x0 + label_width] = label
-    _draw_seconds_bar(frame, second, height_pixels - 1, width_pixels)
+    _draw_seconds_bar(frame, second, height_pixels - 1)
     return frame
 
 
@@ -233,19 +233,21 @@ def uptime_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: i
     reads ``BOOT: DD.MM.YY`` (the first fix's local date). Either row is wider
     than the matrix once labelled, so each scrolls independently as a slow
     left-right marquee when it does not fit.
+
+    No RTC snapshot can express boot time or a scroll phase, so the engine hands
+    this screen a composite ``(boot_parts, now_parts, scroll_ms)`` triple;
+    ``None`` collapses to a no-fix, zero-phase placeholder.
     """
-    boot_parts, now_parts, scroll_ms = _uptime_fields(parts)
+    boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
     frame = Frame(width_pixels, height_pixels)
     split = height_pixels // 2
     top = "UP " + _format_uptime(_uptime_seconds(boot_parts, now_parts))
     bottom = "BOOT: " + _format_boot_date(boot_parts)
     if split <= 0:
-        _draw_marquee_row(frame, top, 0, height_pixels, width_pixels, scroll_ms, "middle")
+        _draw_marquee_row(frame, top, 0, height_pixels, scroll_ms, "middle")
         return frame
-    _draw_marquee_row(frame, top, 0, split, width_pixels, scroll_ms, "middle")
-    _draw_marquee_row(
-        frame, bottom, split, height_pixels - split, width_pixels, scroll_ms, "bottom"
-    )
+    _draw_marquee_row(frame, top, 0, split, scroll_ms, "middle")
+    _draw_marquee_row(frame, bottom, split, height_pixels - split, scroll_ms, "bottom")
     return frame
 
 
@@ -287,7 +289,7 @@ def _blink_colon_hidden(second: int) -> str:
     return ":" if second % 2 else ""
 
 
-def _draw_seconds_bar(frame: object, second: int, y: int, width: int) -> None:
+def _draw_seconds_bar(frame: object, second: int, y: int) -> None:
     """Draw a left-anchored seconds progress bar that fills across the minute.
 
     The bar grows from empty at ``:00`` to the full width by ``:59``, giving a
@@ -296,21 +298,8 @@ def _draw_seconds_bar(frame: object, second: int, y: int, width: int) -> None:
     """
     if y < 0 or y >= frame.height:
         return
-    filled = (second * width) // 59
-    for x in range(filled):
+    for x in range((second * frame.width) // 59):
         frame.pixel(x, y)
-
-
-def _uptime_fields(parts: tuple | None) -> tuple:
-    """Return the ``(boot_parts, now_parts, scroll_ms)`` triple the engine packs.
-
-    The engine cannot express boot time or a scroll phase as an RTC snapshot, so
-    it hands the uptime screen its own composite parts; ``None`` collapses to a
-    no-fix, zero-phase placeholder.
-    """
-    if parts is None:
-        return None, None, 0
-    return parts
 
 
 def _format_uptime(total_seconds: int) -> str:
@@ -325,7 +314,7 @@ def _format_boot_date(boot_parts: tuple | None) -> str:
     """Format the first-fix date as ``DD.MM.YY``, or dashes before any fix."""
     if boot_parts is None:
         return "--.--.--"
-    year, month, day = boot_parts[0], boot_parts[1], boot_parts[2]
+    year, month, day = boot_parts[:3]
     return f"{day:02d}.{month:02d}.{year % 100:02d}"
 
 
@@ -366,27 +355,27 @@ def _draw_marquee_row(
     text: str,
     y0: int,
     band_height: int,
-    width_pixels: int,
     scroll_ms: int,
     valign: str,
 ) -> None:
     """Draw one text row, centering it if it fits or scrolling it if it overflows.
 
-    Overflowing text is rendered once into a full-width strip and a
-    ``width_pixels`` window is blitted at the current scroll offset, since
-    :class:`Text` refuses to draw content wider than its target box.
+    Overflowing text is rendered once into a full-width strip and a frame-wide
+    window is blitted at the current scroll offset, since :class:`Text` refuses
+    to draw content wider than its target box.
     """
+    width = frame.width
     content = Text(text, valign=valign)
     text_width, _height = content.measure()
-    if text_width <= width_pixels:
-        frame[y0 : y0 + band_height, 0:width_pixels] = content
+    if text_width <= width:
+        frame[y0 : y0 + band_height, 0:width] = content
         return
     strip = Frame(text_width, band_height)
     strip[0:band_height, 0:text_width] = content
     # The offset never exceeds the overflow, so the window always lands inside
     # the strip and needs no per-column bounds check.
-    offset = _scroll_offset(text_width, width_pixels, scroll_ms)
-    for x in range(width_pixels):
+    offset = _scroll_offset(text_width, width, scroll_ms)
+    for x in range(width):
         src_x = x + offset
         for y in range(band_height):
             if strip.value_at(src_x, y):
@@ -470,6 +459,11 @@ def _draw_frame_rate_trace(frame: object, frame_index: int, width: int, height: 
             frame.pixel(x, height - 2)
 
 
+# Every key below covers only the screen's own varying content; ``screen_key``
+# prefixes the screen id, so no screen has to restate it and two screens can
+# never collide in the engine's frame cache.
+
+
 def main_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the compact time/date screen.
 
@@ -477,25 +471,25 @@ def main_screen_key(parts: tuple) -> tuple:
     second even while the hour and minute hold.
     """
     _year, _month, day, weekday, hour, minute, second = parts
-    return SCREEN_MAIN, weekday, day, hour, minute, second
+    return weekday, day, hour, minute, second
 
 
 def season_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the season interstitial."""
     year, month, _day, _weekday, _hour, _minute, _second = parts
-    return SCREEN_SEASON, year, season_name(month)
+    return year, season_name(month)
 
 
 def time_seconds_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the seconds screen."""
     _year, _month, _day, _weekday, hour, minute, second = parts
-    return SCREEN_TIME_SECONDS, hour, minute, second
+    return hour, minute, second
 
 
 def full_date_screen_key(parts: tuple) -> tuple:
     """Return the visible-content key for the full-date interstitial."""
     year, month, day, _weekday, _hour, _minute, _second = parts
-    return SCREEN_FULL_DATE, year, month, day
+    return year, month, day
 
 
 def clock_meridiem_screen_key(parts: tuple) -> tuple:
@@ -505,18 +499,13 @@ def clock_meridiem_screen_key(parts: tuple) -> tuple:
     second even while the hour and minute hold.
     """
     _year, _month, _day, _weekday, hour, minute, second = parts
-    return SCREEN_CLOCK_MERIDIEM, hour, minute, second
+    return hour, minute, second
 
 
 def frame_rate_screen_key(parts: tuple | None) -> tuple:
     """Return the visible-content key for one frame-rate diagnostic sample."""
     frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
-    return SCREEN_FRAME_RATE, frame_index, fps_x10
-
-
-def brand_screen_key(_parts: tuple | None) -> tuple:
-    """Return the visible-content key for the startup brand screen."""
-    return (SCREEN_BRAND,)
+    return frame_index, fps_x10
 
 
 def uptime_screen_key(parts: tuple | None) -> tuple:
@@ -525,18 +514,13 @@ def uptime_screen_key(parts: tuple | None) -> tuple:
     Keys on both the whole-second uptime and the integer scroll step so the
     engine re-renders each tick of the clock *and* each pixel of marquee travel.
     """
-    boot_parts, now_parts, scroll_ms = _uptime_fields(parts)
-    return SCREEN_UPTIME, _uptime_seconds(boot_parts, now_parts), scroll_ms // SCROLL_MS_PER_PX
+    boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
+    return _uptime_seconds(boot_parts, now_parts), scroll_ms // SCROLL_MS_PER_PX
 
 
-def wait_on_key(_parts: tuple | None) -> tuple:
-    """Return the visible-content key for the visible wait endpoint."""
-    return (WAIT_ON,)
-
-
-def wait_off_key(_parts: tuple | None) -> tuple:
-    """Return the visible-content key for the blank wait endpoint."""
-    return (WAIT_OFF,)
+def static_key(_parts: tuple | None) -> tuple:
+    """Return the empty content key shared by screens whose pixels never change."""
+    return ()
 
 
 SCREEN_SPECS = (
@@ -579,9 +563,9 @@ SCREEN_SPECS = (
         frame_rate_screen_frame,
         frame_rate_screen_key,
     ),
-    ScreenSpec(SCREEN_BRAND, KIND_DIAGNOSTIC, BRAND_HOLD_MS, brand_screen_frame, brand_screen_key),
-    ScreenSpec(WAIT_OFF, KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, wait_off_key),
-    ScreenSpec(WAIT_ON, KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, wait_on_key),
+    ScreenSpec(SCREEN_BRAND, KIND_DIAGNOSTIC, BRAND_HOLD_MS, brand_screen_frame, static_key),
+    ScreenSpec(WAIT_OFF, KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, static_key),
+    ScreenSpec(WAIT_ON, KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, static_key),
 )
 
 SCREEN_BY_ID = {spec.id: spec for spec in SCREEN_SPECS}
@@ -605,8 +589,10 @@ def render_screen(
 
 
 def screen_key(screen: int, parts: tuple | None) -> tuple:
-    """Return the visible-content key for one screen."""
-    return screen_spec(screen).key(parts)
+    """Return the visible-content key for one screen, prefixed by its id."""
+    # mpy-cross rejects `*`-unpacking in a tuple display ("SyntaxError: *x must
+    # be assignment target"), so this concatenates instead of unpacking.
+    return (screen,) + screen_spec(screen).key(parts)  # noqa: RUF005
 
 
 def is_wait(screen: int) -> bool:
@@ -614,19 +600,14 @@ def is_wait(screen: int) -> bool:
     return screen_spec(screen).kind == KIND_WAIT
 
 
-def choose_next_regular(current: int, rng: object) -> int:
-    """Choose any regular screen except ``current``.
+def choose_regular(rng: object, exclude: int | None = None) -> int:
+    """Choose one regular clock screen at random, skipping ``exclude``.
 
-    A ``current`` that is not itself a regular screen — the brand screen on the
-    way out of startup, say — simply excludes nothing.
+    An ``exclude`` that is not itself a regular screen — ``None`` at the first
+    choice, or the brand screen on the way out of startup — excludes nothing.
     """
-    options = tuple(screen for screen in REGULAR_SCREENS if screen != current)
+    options = tuple(screen for screen in REGULAR_SCREENS if screen != exclude)
     return options[randbelow(len(options), rng)]
-
-
-def choose_regular(rng: object) -> int:
-    """Choose one regular clock screen at random."""
-    return REGULAR_SCREENS[randbelow(len(REGULAR_SCREENS), rng)]
 
 
 def choose_interstitial(rng: object) -> int:

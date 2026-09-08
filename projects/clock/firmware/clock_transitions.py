@@ -32,24 +32,21 @@ DIRECTIONS = (
     DIRECTION_BOTTOM_LEFT,
     DIRECTION_BOTTOM_RIGHT,
 )
+# Entry vector per direction: the axis signs pointing away from the edge the
+# incoming content enters from. A zero component means that axis is stationary.
+_DELTAS = {
+    DIRECTION_LEFT: (-1, 0),
+    DIRECTION_RIGHT: (1, 0),
+    DIRECTION_TOP: (0, -1),
+    DIRECTION_BOTTOM: (0, 1),
+    DIRECTION_TOP_LEFT: (-1, -1),
+    DIRECTION_TOP_RIGHT: (1, -1),
+    DIRECTION_BOTTOM_LEFT: (-1, 1),
+    DIRECTION_BOTTOM_RIGHT: (1, 1),
+}
 _DIRECTION_MASKS = {}
 _RANDOM_DISSOLVE_MASKS = {}
 _DISSOLVE_SEED = 0x9E3779B1
-
-
-def _direction_delta(direction: int) -> tuple:
-    """Return the entry vector for ``direction``."""
-    dx = 0
-    dy = 0
-    if direction in (DIRECTION_LEFT, DIRECTION_TOP_LEFT, DIRECTION_BOTTOM_LEFT):
-        dx = -1
-    elif direction in (DIRECTION_RIGHT, DIRECTION_TOP_RIGHT, DIRECTION_BOTTOM_RIGHT):
-        dx = 1
-    if direction in (DIRECTION_TOP, DIRECTION_TOP_LEFT, DIRECTION_TOP_RIGHT):
-        dy = -1
-    elif direction in (DIRECTION_BOTTOM, DIRECTION_BOTTOM_LEFT, DIRECTION_BOTTOM_RIGHT):
-        dy = 1
-    return dx, dy
 
 
 def _direction_masks(
@@ -64,7 +61,7 @@ def _direction_masks(
     if cached is not None:
         return cached
     stride = (width + 7) // 8
-    dx, dy = _direction_delta(direction)
+    dx, dy = _DELTAS[direction]
     total_ranks = 1 + (width - 1 if dx else 0) + (height - 1 if dy else 0)
     masks = []
     for visible_steps in range(total_steps + 1):
@@ -187,7 +184,7 @@ def _scroll_frame(
 ) -> object:
     """Slide packed ``target`` in from ``direction``."""
     data = bytearray(len(source.data))
-    dx, dy = _direction_delta(direction)
+    dx, dy = _DELTAS[direction]
     offset_x = source.width * step // steps if dx else 0
     offset_y = source.height * step // steps if dy else 0
     target_y = dy * (source.height - offset_y)

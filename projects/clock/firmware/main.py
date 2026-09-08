@@ -77,11 +77,11 @@ async def clock_program(engine: object, sync: object) -> None:
 
     # Wait for the first GPS fix: hold GPS / WAIT, scrolling it back into itself
     # each second until ``sync`` reports a fix, so the screen never goes blank.
+    # A fix landing mid-hold skips the animation and drops straight out.
     while not sync.synced:
         await hold_screen(engine, stop=lambda: sync.synced)
-        if sync.synced:
-            break
-        await play_wait_transition(engine)
+        if not sync.synced:
+            await play_wait_transition(engine)
 
     # Synced: reveal a random clock, then cycle regular faces with interstitials.
     if engine.current_screen != regular:
@@ -90,7 +90,7 @@ async def clock_program(engine: object, sync: object) -> None:
         await hold_screen(engine)  # live clock face (3 min)
         await play_transition(engine, clock_screens.choose_interstitial(engine.rng))
         await hold_screen(engine)  # season / full date (3 s)
-        regular = clock_screens.choose_next_regular(regular, engine.rng)
+        regular = clock_screens.choose_regular(engine.rng, regular)
         await play_transition(engine, regular)
 
 

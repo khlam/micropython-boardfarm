@@ -439,7 +439,7 @@ def test_uptime_key_updates_at_a_second_or_a_whole_pixel_of_scroll() -> None:
 
 @pytest.mark.parametrize("current", clock_screens.REGULAR_SCREENS)
 def test_next_regular_can_choose_every_other_face_but_never_repeat(current: int) -> None:
-    chosen = {clock_screens.choose_next_regular(current, FakeRandom([n])) for n in range(256)}
+    chosen = {clock_screens.choose_regular(FakeRandom([n]), current) for n in range(256)}
 
     assert chosen == set(clock_screens.REGULAR_SCREENS) - {current}
 
@@ -447,13 +447,12 @@ def test_next_regular_can_choose_every_other_face_but_never_repeat(current: int)
 def test_next_regular_from_a_screen_outside_the_rotation_can_still_reach_them_all() -> None:
     """The cycle enters from an interstitial or the brand screen, not just a regular.
 
-    `choose_next_regular` scans for its argument and silently keeps index 0 when
-    it is absent, which would make the first regular screen unreachable. Nothing
-    passes a non-regular today, so only this pins that the whole rotation stays
-    available.
+    `choose_regular` scans for its exclusion and silently keeps index 0 when it is
+    absent, which would make the first regular screen unreachable. Nothing passes
+    a non-regular today, so only this pins that the whole rotation stays available.
     """
     chosen = {
-        clock_screens.choose_next_regular(clock_screens.SCREEN_BRAND, FakeRandom([n]))
+        clock_screens.choose_regular(FakeRandom([n]), clock_screens.SCREEN_BRAND)
         for n in range(256)
     }
 

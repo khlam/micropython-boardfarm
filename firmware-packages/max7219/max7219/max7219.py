@@ -53,14 +53,14 @@ class _MAX7219Backend:
             ``True`` when the frame was represented, ``False`` when the display
             facade should render its failure indicator instead.
         """
-        max_intensity = _convert_packed_frame(frame, self._next_rows, rotate=self._rotated)
-        if max_intensity is None:
+        chip_intensity = _convert_packed_frame(frame, self._next_rows, rotate=self._rotated)
+        if chip_intensity is None:
             return False
         self._last_frame = frame
         rows_changed = self._rows != self._next_rows
-        intensity_changed = max_intensity != self._intensity
+        intensity_changed = chip_intensity != self._intensity
         if intensity_changed:
-            self._intensity = max_intensity
+            self._intensity = chip_intensity
             self._write_intensity()
         if rows_changed:
             self._refresh_dirty()
