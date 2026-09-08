@@ -10,19 +10,18 @@ never address individual chips.
 ## Public API
 
 - `MAX7219(*, spi_id, sck, mosi, cs, width_pixels=32, height_pixels=16,
-  brightness=1.0, allow_lossy=False, failure_mode="corner_xs")` — opens
-  SPI from flat project pins and wraps the
-  hardware backend in `pixel_display.Display`.
+  brightness=1.0)` — opens SPI from flat project pins and wraps the hardware
+  backend in `pixel_display.Display`.
 - `display.show(frame)` — the only public render method. Build frames with
   `pixel_frame.Frame` and text content with `pixel_frame.Text`.
 
-The package backend owns the MAX7219 cascade, monochrome conversion, global
+The package backend owns the MAX7219 cascade, the global
 brightness register, and flush behavior. It writes only changed digit rows for
 ordinary animation frames, writes the brightness register only when the mapped
 intensity changes, and uses unchanged repeated frames to reassert chip config and
 the current matrix state. `pixel_frame` owns frame construction and text
-rendering; `pixel_display` owns display geometry, fitting, brightness scaling,
-and failure rendering.
+rendering; `pixel_display` owns display geometry, brightness scaling, and
+failure rendering.
 
 ## Pins
 

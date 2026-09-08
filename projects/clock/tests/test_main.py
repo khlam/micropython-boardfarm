@@ -26,7 +26,6 @@ from fake_clock import (
 
 import clock_cycle
 import clock_hardware
-import clock_runtime
 import clock_screens
 import clock_transitions as ct
 from clock_sync import ClockSynchronizer
@@ -115,7 +114,9 @@ def test_a_failed_open_clears_the_stale_display_reference(failing: str) -> None:
     hardware.flip_display()  # must not raise
 
 
-def test_pump_gps_recovers_from_read_errors_and_idle_polls(status: object) -> None:
+def test_pump_gps_recovers_from_read_errors_and_idle_polls(
+    main_module: object, status: object
+) -> None:
     rtc = FakeRTC()
     sync = ClockSynchronizer(rtc)
     consumed: list = []
@@ -123,7 +124,7 @@ def test_pump_gps_recovers_from_read_errors_and_idle_polls(status: object) -> No
     gps = FakeGPS([None, OSError("bus"), _RMC_FIX, None])
     clock = CountdownTime(stop_after=4)
 
-    _run_until_stop(clock_runtime.pump_gps(gps, sync_spy), clock)
+    _run_until_stop(main_module.pump_gps(gps, sync_spy), clock)
 
     # The failed read is skipped, but every line either side of it still arrives
     # in order and the loop keeps polling afterwards.
@@ -133,7 +134,9 @@ def test_pump_gps_recovers_from_read_errors_and_idle_polls(status: object) -> No
     assert status.calls == ["read_err"]
 
 
-def test_pump_gps_survives_an_rtc_that_rejects_the_write(status: object) -> None:
+def test_pump_gps_survives_an_rtc_that_rejects_the_write(
+    main_module: object, status: object
+) -> None:
     """A failing RTC raises out of `consume`; the pump must flag it, not die.
 
     `sync.consume` propagates OSError from the RTC, so this failure reaches the
@@ -149,7 +152,7 @@ def test_pump_gps_survives_an_rtc_that_rejects_the_write(status: object) -> None
     gps = FakeGPS([_RMC_FIX, _RMC_FIX])
     clock = CountdownTime(stop_after=3)
 
-    _run_until_stop(clock_runtime.pump_gps(gps, sync), clock)
+    _run_until_stop(main_module.pump_gps(gps, sync), clock)
 
     assert sync.synced is False
     assert status.calls == ["read_err", "read_err"]

@@ -4,6 +4,7 @@ from collections import namedtuple
 
 from clock_transitions import randbelow
 from pixel_frame import Frame, Text
+from tz_offset import days_from_epoch
 
 ScreenSpec = namedtuple("ScreenSpec", ("id", "name", "kind", "hold_ms", "render", "key"))
 
@@ -397,21 +398,7 @@ def _epoch_seconds(parts: tuple) -> int:
     in the difference; the absolute value only needs to be consistent.
     """
     year, month, day, _weekday, hour, minute, second = parts
-    return _days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
-
-
-def _days_from_civil(year: int, month: int, day: int) -> int:
-    """Return days since 1970-01-01 (Hinnant's civil-to-days algorithm).
-
-    Integer-only and branch-light so it runs the same on MicroPython as on the
-    host; valid for any proleptic Gregorian date the RTC can hold.
-    """
-    y = year - (1 if month <= 2 else 0)
-    era = (y if y >= 0 else y - 399) // 400
-    yoe = y - era * 400
-    doy = (153 * (month - 3 if month > 2 else month + 9) + 2) // 5 + (day - 1)
-    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
-    return era * 146_097 + doe - 719_468
+    return days_from_epoch(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
 
 
 def _scroll_offset(text_width: int, width_pixels: int, scroll_ms: int) -> int:

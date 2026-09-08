@@ -12,7 +12,7 @@ _HEIGHT_PIXELS = 16
 class MAX7219:
     """Open a MAX7219 SPI chain from flat pins and expose ``show(frame)``."""
 
-    def __init__(  # noqa: PLR0913 - flat display config mirrors project BOARD tables.
+    def __init__(
         self,
         *,
         spi_id: int,
@@ -22,8 +22,6 @@ class MAX7219:
         width_pixels: int = _WIDTH_PIXELS,
         height_pixels: int = _HEIGHT_PIXELS,
         brightness: float = 1.0,
-        allow_lossy: bool = False,
-        failure_mode: str = "corner_xs",
     ) -> None:
         """Open SPI and bind the hardware backend to ``pixel_display.Display``.
 
@@ -35,8 +33,6 @@ class MAX7219:
             width_pixels: Declared project display width.
             height_pixels: Declared project display height.
             brightness: Normalized output brightness.
-            allow_lossy: Whether backend conversion may discard detail.
-            failure_mode: ``"corner_xs"`` or ``"blank"``.
         """
         from machine import SPI, Pin  # noqa: PLC0415
 
@@ -47,8 +43,6 @@ class MAX7219:
             width_pixels=width_pixels,
             height_pixels=height_pixels,
             brightness=brightness,
-            allow_lossy=allow_lossy,
-            failure_mode=failure_mode,
         )
 
     @property

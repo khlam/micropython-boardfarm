@@ -1,18 +1,18 @@
-"""Host CPython tests for the packed and matrix frame primitives.
+"""Host CPython tests for the packed frame primitive.
 
 ``Frame`` is the packed monochrome buffer every screen renders into: bits are
 row-major with a stride that may carry padding past ``width``, and one shared
 byte intensity stands in for per-pixel brightness. The tests below pin the two
-places that trips people up — padding must never surface through ``unpack`` or
-``value_at``, and slice assignment is ``frame[y_slice, x_slice]`` in matrix
-order, not ``(x, y)``.
+places that trips people up — padding must never surface through ``value_at``,
+and slice assignment is ``frame[y_slice, x_slice]`` in matrix order, not
+``(x, y)``.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from pixel_frame import Frame, MatrixFrame, Text
+from pixel_frame import Frame, Text
 
 
 @pytest.mark.parametrize(
@@ -31,23 +31,7 @@ def test_packed_frame_rejects_invalid_storage(kwargs: dict, message: str) -> Non
         Frame(**config)
 
 
-@pytest.mark.parametrize(
-    "width,height,channels,data,message",
-    [
-        (0, 2, 3, bytearray(), "geometry must be positive"),
-        (2, -1, 3, bytearray(), "geometry must be positive"),
-        (2, 2, 0, bytearray(), "geometry must be positive"),
-        (2, 2, 3, bytearray(11), "data length does not match"),
-    ],
-)
-def test_matrix_frame_rejects_invalid_storage(
-    width: int, height: int, channels: int, data: bytearray, message: str
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        MatrixFrame(width, height, channels, data)
-
-
-def test_packed_storage_uses_row_stride_and_excludes_padding_when_unpacked() -> None:
+def test_packed_storage_uses_row_stride_and_keeps_padding_out_of_reads() -> None:
     data = bytearray((0x81, 0xFF, 0xFF, 0x02, 0xFE, 0xFF))
     frame = Frame.from_packed(9, 2, 3, data, intensity=37)
 
@@ -56,20 +40,17 @@ def test_packed_storage_uses_row_stride_and_excludes_padding_when_unpacked() -> 
 
     assert frame.data is data
     assert data == bytearray((0x01, 0xFF, 0xFF, 0x02, 0xFF, 0xFF))
-    unpacked = frame.unpack()
-    assert (unpacked.width, unpacked.height, unpacked.channels) == (9, 2, 1)
-    assert list(unpacked.data) == [37, 0, 0, 0, 0, 0, 0, 0, 37, 0, 37, 0, 0, 0, 0, 0, 0, 37]
     assert frame.value_at(8, 1) == 37
     assert frame.value_at(7, 0) == 0
+    with pytest.raises(IndexError, match="coordinate out of range"):
+        frame.value_at(9, 0)
 
 
-def test_copy_and_unpack_own_storage_and_clear_includes_padding() -> None:
+def test_copy_owns_its_storage_and_clear_includes_padding() -> None:
     source = Frame.from_packed(9, 1, 3, bytearray((1, 1, 255)), intensity=42)
     copied = source.copy()
-    unpacked = source.unpack()
 
     copied.clear()
-    unpacked.data[0] = 0
 
     assert (copied.width, copied.height, copied.stride, copied.intensity) == (9, 1, 3, 42)
     assert copied.data == bytearray(3)
@@ -109,30 +90,16 @@ def test_set_pixel_unchecked_skips_the_bounds_check_its_caller_already_did() -> 
     assert frame.data[1] & 0b10 != 0
 
 
-def test_packed_frames_reject_nonzero_channel_reads() -> None:
-    with pytest.raises(IndexError, match="one channel"):
-        Frame(1, 1).value_at(0, 0, channel=1)
-
-
 @pytest.mark.parametrize("intensity,expected", [(-1, 0), (0, 0), (37, 37), (300, 255)])
-def test_intensity_is_clamped_and_zero_intensity_unpacks_as_dark(
+def test_intensity_is_clamped_without_disturbing_the_packed_bits(
     intensity: int, expected: int
 ) -> None:
     frame = Frame(2, 1, intensity=intensity)
     frame.pixel(0, 0)
 
     assert frame.value_at(0, 0) == expected
-    assert list(frame.unpack().data) == [expected, 0]
+    assert frame.value_at(1, 0) == 0
     assert frame.data == bytearray((1,))
-
-
-def test_matrix_addresses_each_channel_of_a_pixel_in_row_major_order() -> None:
-    data = bytearray(range(12))
-    frame = MatrixFrame(2, 2, 3, data)
-
-    assert frame.data is data
-    assert [frame.value_at(0, 1, channel) for channel in range(3)] == [6, 7, 8]
-    assert frame.value_at(1, 1, 2) == 11
 
 
 @pytest.mark.parametrize(

@@ -1,8 +1,8 @@
 """Host CPython tests for the MAX7219 pixel-display backend.
 
 Covers the chain wiring (which SPI frame lights which visual pixel), the
-dirty-row and intensity write policy, monochrome conversion limits, and the
-180-degree flip. The decoder below deliberately restates the panel layout from
+dirty-row and intensity write policy, geometry refusal, and the 180-degree
+flip. The decoder below deliberately restates the panel layout from
 the hardware wiring rather than importing the driver's ``_FLIP_Y``/``_MIRROR_X``
 constants, so an orientation regression fails here instead of flipping encoder
 and decoder in lockstep.
@@ -23,16 +23,11 @@ from max7219.max7219 import (
     _REG_SHUTDOWN,
     _MAX7219Backend,
 )
-from pixel_frame import Frame, MatrixFrame
+from pixel_frame import Frame
 
 _NUM_CHIPS = 8
 _WIDTH = 32
 _HEIGHT = 16
-
-
-def _blank(width: int, height: int, channels: int = 1) -> MatrixFrame:
-    """Return an all-off matrix frame; needed at import time by a parametrize."""
-    return MatrixFrame(width, height, channels, bytearray(width * height * channels))
 
 
 def test_facade_opens_declared_geometry_and_spi_bus_settings() -> None:
@@ -93,7 +88,7 @@ def test_leftmost_pixel_lands_on_its_documented_panel_chain_bytes(
     frame.pixel(0, y)
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
 
     # Both panel origins use digit 8; last-chip-first wiring places them four words apart.
     row = _row_writes(spi.writes)[0]
@@ -114,32 +109,26 @@ def test_init_flashes_then_configures_and_clears_every_chip(
     assert cs.toggles == ["off", "on"] * len(spi.writes)
 
 
-@pytest.mark.parametrize("packed", [False, True])
-def test_frame_padding_is_not_rendered_on_either_panel(*, packed: bool) -> None:
+def test_frame_padding_is_not_rendered_on_either_panel() -> None:
     backend, spi, _cs = _make_backend()
     frame = Frame.from_packed(32, 16, 6, bytearray((0, 0, 0, 0, 255, 255)) * 16)
     corners = {(0, 0), (31, 0), (0, 15), (31, 15), (5, 9)}
     for x, y in corners:
         frame.pixel(x, y)
-    if not packed:
-        frame = frame.unpack()
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
 
     assert _decode(spi.writes) == corners
 
 
-@pytest.mark.parametrize("packed", [False, True])
-def test_changed_frames_refresh_only_dirty_rows_without_static_config(*, packed: bool) -> None:
+def test_changed_frames_refresh_only_dirty_rows_without_static_config() -> None:
     backend, spi, _cs = _make_backend()
     frame = Frame(32, 16, intensity=128)
     frame.pixel(0, 0)
-    if not packed:
-        frame = frame.unpack()
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
 
     regs = [write[0] for write in spi.writes]
     assert _REG_DISPLAY_TEST not in regs
@@ -148,33 +137,29 @@ def test_changed_frames_refresh_only_dirty_rows_without_static_config(*, packed:
     assert len(_row_writes(spi.writes)) == 1
     assert _decode(spi.writes) == {(0, 0)}
 
-    if packed:
-        frame.pixel(1, 0)
-    else:
-        frame.data[1] = 128
+    frame.pixel(1, 0)
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
     assert len(_row_writes(spi.writes)) == 1
     assert _decode(spi.writes) == {(0, 0), (1, 0)}
 
 
-@pytest.mark.parametrize("packed", [False, True])
 @pytest.mark.parametrize("intensity,register", [(8, 0), (9, 1), (246, 14)])
 def test_same_bitmap_with_lower_brightness_writes_only_intensity(
-    *, packed: bool, intensity: int, register: int
+    intensity: int, register: int
 ) -> None:
     backend, spi, _cs = _make_backend()
     state = _MatrixState()
     bright = Frame(32, 16, intensity=255)
     bright.pixel(0, 0)
-    assert backend.write_frame(bright if packed else bright.unpack(), allow_lossy=False) is True
+    assert backend.write_frame(bright) is True
     state.apply(spi.writes)
 
     dim = Frame.from_packed(bright.width, bright.height, bright.stride, bright.data, intensity)
     spi.writes.clear()
 
-    assert backend.write_frame(dim if packed else dim.unpack(), allow_lossy=False) is True
+    assert backend.write_frame(dim) is True
 
     state.apply(spi.writes)
     assert _intensity_writes(spi.writes) == [register]
@@ -186,14 +171,14 @@ def test_zero_intensity_packed_frame_blanks_the_matrix() -> None:
     backend, spi, _cs = _make_backend()
     lit = Frame(32, 16, intensity=255)
     lit.pixel(4, 4)
-    assert backend.write_frame(lit, allow_lossy=False) is True
+    assert backend.write_frame(lit) is True
     state = _MatrixState()
     state.apply(spi.writes)
     spi.writes.clear()
 
     dark = Frame(32, 16, intensity=0)
     dark.pixel(4, 4)
-    assert backend.write_frame(dark, allow_lossy=False) is True
+    assert backend.write_frame(dark) is True
 
     state.apply(spi.writes)
     assert not state.lit()
@@ -203,10 +188,10 @@ def test_unchanged_frame_reasserts_config_and_all_rows() -> None:
     backend, spi, _cs = _make_backend()
     frame = Frame(32, 16, intensity=64)
     frame.pixel(0, 0)
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
 
     regs = [write[0] for write in spi.writes]
     assert _REG_DISPLAY_TEST in regs
@@ -215,58 +200,21 @@ def test_unchanged_frame_reasserts_config_and_all_rows() -> None:
     assert len(_row_writes(spi.writes)) == _PANEL_H
 
 
-def test_varying_grayscale_requires_the_lossy_override() -> None:
-    backend, spi, _cs = _make_backend()
-    frame = _blank(32, 16)
-    frame.data[0] = 64
-    frame.data[1] = 128
-    spi.writes.clear()
-
-    assert backend.write_frame(frame, allow_lossy=False) is False
-    assert not spi.writes
-
-    assert backend.write_frame(frame, allow_lossy=True) is True
-    assert set(_intensity_writes(spi.writes)) == {8}
-
-
-def test_rgb_requires_the_lossy_override() -> None:
-    backend, spi, _cs = _make_backend()
-    frame = _blank(32, 16, 3)
-    frame.data[0:3] = bytearray((0, 128, 0))
-    frame.data[3:6] = bytearray((64, 0, 0))
-    frame.data[6:9] = bytearray((0, 0, 255))
-    spi.writes.clear()
-
-    assert backend.write_frame(frame, allow_lossy=False) is False
-    assert not spi.writes
-
-    assert backend.write_frame(frame, allow_lossy=True) is True
-    assert _decode(spi.writes) == {(0, 0), (1, 0), (2, 0)}
-    assert _intensity_writes(spi.writes) == [15]
-
-
-@pytest.mark.parametrize(
-    "frame",
-    [
-        _blank(16, 16),  # too narrow
-        _blank(32, 8),  # too short
-        Frame(16, 16),  # packed, too narrow
-    ],
-)
-def test_frames_not_fitted_to_hardware_geometry_are_refused(frame: object) -> None:
+@pytest.mark.parametrize("width,height", [(16, 16), (32, 8), (64, 16), (32, 32)])
+def test_frames_not_fitted_to_hardware_geometry_are_refused(width: int, height: int) -> None:
     backend, spi, _cs = _make_backend()
     spi.writes.clear()
 
-    assert backend.write_frame(frame, allow_lossy=True) is False
+    assert backend.write_frame(Frame(width, height)) is False
     assert not spi.writes
 
 
 def test_clear_blanks_the_framebuffer_and_reapplies_config() -> None:
     backend, spi, _cs = _make_backend()
     state = _MatrixState()
-    frame = _blank(32, 16)
-    frame.data[0] = 15
-    backend.write_frame(frame, allow_lossy=False)
+    frame = Frame(32, 16, intensity=255)
+    frame.pixel(0, 0)
+    backend.write_frame(frame)
     state.apply(spi.writes)
     spi.writes.clear()
 
@@ -280,17 +228,14 @@ def test_clear_blanks_the_framebuffer_and_reapplies_config() -> None:
     assert not state.lit()
 
 
-@pytest.mark.parametrize("packed", [False, True])
-def test_flip_swaps_panels_and_a_second_flip_restores_the_image(*, packed: bool) -> None:
+def test_flip_swaps_panels_and_a_second_flip_restores_the_image() -> None:
     backend, spi, _cs = _make_backend()
     state = _MatrixState()
     frame = Frame(32, 16, intensity=128)
     lit_in = {(0, 0), (31, 0), (5, 2), (10, 9)}
     for x, y in lit_in:
         frame.pixel(x, y)
-    if not packed:
-        frame = frame.unpack()
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
     state.apply(spi.writes)
     assert state.lit() == lit_in
     spi.writes.clear()
@@ -317,7 +262,7 @@ def test_flip_before_the_first_frame_sets_orientation_without_writing() -> None:
     assert not spi.writes
     frame = Frame(32, 16)
     frame.pixel(0, 0)
-    assert backend.write_frame(frame, allow_lossy=False) is True
+    assert backend.write_frame(frame) is True
     assert _decode(spi.writes) == {(31, 15)}
 
 
@@ -326,13 +271,11 @@ def test_rejected_conversion_preserves_the_last_frame_and_recovers_on_next_write
     state = _MatrixState()
     initial = Frame(32, 16, intensity=128)
     initial.pixel(5, 2)
-    assert backend.write_frame(initial, allow_lossy=False) is True
+    assert backend.write_frame(initial) is True
     state.apply(spi.writes)
     spi.writes.clear()
-    rejected = _blank(32, 16)
-    rejected.data[:2] = bytearray((64, 255))
 
-    assert backend.write_frame(rejected, allow_lossy=False) is False
+    assert backend.write_frame(Frame(16, 16)) is False
 
     assert not spi.writes
     backend.flip()
@@ -340,7 +283,7 @@ def test_rejected_conversion_preserves_the_last_frame_and_recovers_on_next_write
     assert state.lit() == {(26, 13)}
     spi.writes.clear()
 
-    assert backend.write_frame(_blank(32, 16), allow_lossy=False) is True
+    assert backend.write_frame(Frame(32, 16)) is True
 
     state.apply(spi.writes)
     assert not state.lit()
@@ -357,7 +300,7 @@ def test_spi_failures_propagate_to_the_caller(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(spi, "write", fail_write)
 
     with pytest.raises(OSError, match="SPI unavailable"):
-        backend.write_frame(frame, allow_lossy=False)
+        backend.write_frame(frame)
 
 
 def _make_facade(*, brightness: float = 1.0) -> MAX7219:

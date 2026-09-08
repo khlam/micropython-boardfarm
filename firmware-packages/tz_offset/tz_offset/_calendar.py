@@ -43,7 +43,7 @@ def weekday(year: int, month: int, day: int) -> int:
     return (sunday_anchored + 6) % 7
 
 
-def _days_from_epoch(year: int, month: int, day: int) -> int:
+def days_from_epoch(year: int, month: int, day: int) -> int:
     """Return the count of days from ``_EPOCH_YEAR``-01-01 to the given date.
 
     Assumes ``year >= _EPOCH_YEAR`` (always true for GPS dates). Walks years then
@@ -63,7 +63,7 @@ def _days_from_epoch(year: int, month: int, day: int) -> int:
 
 
 def _date_from_days(n: int) -> tuple:
-    """Inverse of ``_days_from_epoch``: map a day count back to ``(year, month, day)``."""
+    """Inverse of ``days_from_epoch``: map a day count back to ``(year, month, day)``."""
     y = _EPOCH_YEAR
     while True:
         year_days = 366 if _is_leap(y) else 365
@@ -109,7 +109,7 @@ def utc_to_local_seconds(
         ``(year, month, day, hour, minute, second)`` in local time.
     """
     total = (
-        _days_from_epoch(year, month, day) * 86400
+        days_from_epoch(year, month, day) * 86400
         + hour * 3600
         + minute * 60
         + second

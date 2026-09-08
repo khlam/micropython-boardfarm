@@ -18,6 +18,7 @@ from atgm336h import GPS
 from boot_button import button
 from boot_status_led import status
 from clock_cycle import (
+    POLL_SLEEP_MS,
     DisplayEngine,
     hold_screen,
     play_dissolve_transition,
@@ -27,7 +28,6 @@ from clock_cycle import (
     run_frame_rate_test,
 )
 from clock_hardware import ClockHardware
-from clock_runtime import pump_gps
 from clock_sync import ClockSynchronizer
 from max7219 import MAX7219
 
@@ -119,6 +119,26 @@ async def clock_program(engine: object, sync: object, rng: object, clock: object
         await hold_screen(engine, clock)  # season / full date (3 s)
         regular = clock_screens.choose_next_regular(regular, rng)
         await play_transition(engine, regular, clock)
+
+
+async def pump_gps(gps: object, sync: object) -> None:
+    """Continuously read GPS lines and keep the RTC synchronized.
+
+    Runs independently of the display program: every poll interval it reads one
+    line and feeds it to ``sync``, which sets the RTC on a complete fix and
+    flips ``sync.synced``. A read that NACKs flashes the error LED but never
+    crashes the loop.
+
+    Args:
+        gps: Object with ``readline() -> str | None``.
+        sync: :class:`clock_sync.ClockSynchronizer` consuming each line.
+    """
+    while True:
+        try:
+            sync.consume(gps.readline())
+        except Exception:  # noqa: BLE001 — sensors NACK; never crash the loop
+            status.read_err()
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
 
 
 async def guarded_program(engine: object, sync: object, rng: object, clock: object) -> None:

@@ -9,9 +9,9 @@ and under host CPython pytest. There is nothing chip-specific, so this package h
 no per-chip backends.
 """
 
-from tz_offset._calendar import utc_to_local_seconds, weekday
+from tz_offset._calendar import days_from_epoch, utc_to_local_seconds, weekday
 
-__all__ = ["offset_hours_from_longitude", "utc_to_local_seconds", "weekday"]
+__all__ = ["days_from_epoch", "offset_hours_from_longitude", "utc_to_local_seconds", "weekday"]
 
 # round(lon/15) can reach ±13 near the date line; clamp to the real UTC range.
 _MIN_OFFSET = -12

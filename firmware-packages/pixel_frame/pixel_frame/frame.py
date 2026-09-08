@@ -1,36 +1,4 @@
-"""Packed and matrix frame primitives for pixel display rendering."""
-
-_CHANNELS_INTENSITY = 1
-
-
-class MatrixFrame:
-    """Row-major n-channel pixel matrix backed by byte values."""
-
-    def __init__(self, width: int, height: int, channels: int, data: bytearray) -> None:
-        """Store matrix frame geometry and pixel bytes.
-
-        Args:
-            width: Frame width in pixels.
-            height: Frame height in pixels.
-            channels: Number of byte channels per pixel.
-            data: Row-major bytes, ``height * width * channels`` long.
-
-        Raises:
-            ValueError: If geometry is not positive or data length mismatches it.
-        """
-        if width <= 0 or height <= 0 or channels <= 0:
-            raise ValueError("frame geometry must be positive")
-        expected = width * height * channels
-        if len(data) != expected:
-            raise ValueError("frame data length does not match geometry")
-        self.width = width
-        self.height = height
-        self.channels = channels
-        self.data = data
-
-    def value_at(self, x: int, y: int, channel: int = 0) -> int:
-        """Return one byte value from the frame."""
-        return self.data[(y * self.width + x) * self.channels + channel]
+"""Packed monochrome frame primitive for pixel display rendering."""
 
 
 class Frame:
@@ -70,7 +38,6 @@ class Frame:
             raise ValueError("packed data length does not match geometry")
         self.width = width
         self.height = height
-        self.channels = _CHANNELS_INTENSITY
         self.stride = stride
         self.data = data
         self.intensity = _clamp_byte(intensity)
@@ -109,28 +76,13 @@ class Frame:
             return
         self.set_pixel_unchecked(x, y, on=on)
 
-    def value_at(self, x: int, y: int, channel: int = 0) -> int:
+    def value_at(self, x: int, y: int) -> int:
         """Return the shared byte intensity when the packed bit is lit."""
-        if channel != 0:
-            raise IndexError("packed frames expose one channel")
         if x < 0 or y < 0 or x >= self.width or y >= self.height:
             raise IndexError("packed frame coordinate out of range")
         if self.data[(y * self.stride) + (x >> 3)] & (1 << (x & 7)):
             return self.intensity
         return 0
-
-    def unpack(self) -> MatrixFrame:
-        """Return an equivalent byte-per-pixel matrix frame."""
-        data = bytearray(self.width * self.height)
-        if self.intensity <= 0:
-            return MatrixFrame(self.width, self.height, self.channels, data)
-        for y in range(self.height):
-            packed_base = y * self.stride
-            unpacked_base = y * self.width
-            for x in range(self.width):
-                if self.data[packed_base + (x >> 3)] & (1 << (x & 7)):
-                    data[unpacked_base + x] = self.intensity
-        return MatrixFrame(self.width, self.height, self.channels, data)
 
     def copy(self) -> "Frame":
         """Return a byte-for-byte copy of the packed frame."""

@@ -152,7 +152,7 @@ class TransitionRun:
         self.target_frame = target_frame
         self.target_key = target_key
         self.step = 1
-        self.steps = 1 if effect == clock_transitions.TRANSITION_INSTANT else steps
+        self.steps = steps
 
 
 class DisplayEngine:
@@ -199,25 +199,70 @@ class DisplayEngine:
         effect: int | None = None,
         direction: int | None = None,
     ) -> None:
-        """Start a transition from the current screen into ``target_screen``."""
-        source = self.current_screen
-        if source is None:
-            source = clock_screens.WAIT_OFF
-        steps = (
-            WAIT_TRANSITION_STEPS
-            if clock_screens.is_wait(target_screen)
-            else clock_transitions.TRANSITION_STEPS
+        """Snapshot both endpoints for a transition into ``target_screen``."""
+        random_effect = effect is None
+        if effect is None:
+            effect = clock_transitions.choose_transition(self._rng)
+        if direction is None:
+            direction = _transition_direction(effect, random_effect=random_effect, rng=self._rng)
+        source_screen = self.current_screen
+        source_frame = self.screen_frame
+        if source_screen is None:
+            source_screen = clock_screens.WAIT_OFF
+            source_frame = None
+        if source_frame is None:
+            source_frame = self._frame_and_key(
+                source_screen, self._parts_for_screen(source_screen)
+            )[0]
+        target_frame, target_key = self._frame_and_key(
+            target_screen, self._parts_for_screen(target_screen)
         )
-        self._start_transition(source, target_screen, steps, effect=effect, direction=direction)
+        self.transition = TransitionRun(
+            effect,
+            direction,
+            target_screen,
+            source_frame,
+            target_frame,
+            target_key,
+            _transition_steps(effect, target_screen),
+        )
 
     def advance_transition(self, now: int) -> bool:
         """Render one transition frame; return whether the transition has landed."""
-        self._advance_transition(now)
-        return self.transition is None
+        transition = self.transition
+        if transition is None:
+            return True
+        frame = clock_transitions.frame_transition_frame(
+            transition.effect,
+            transition.source_frame,
+            transition.target_frame,
+            step=transition.step,
+            steps=transition.steps,
+            direction=transition.direction,
+        )
+        self._display.show(frame)
+        self.last_reassert_ms = now
+        if transition.step < transition.steps:
+            transition.step += 1
+            return False
+        self._land_transition(transition, now)
+        return True
 
     def reassert(self, now: int) -> None:
-        """Refresh live content changes or periodically heal the current screen."""
-        self._show_current_or_reassert(now)
+        """Refresh live content changes or periodically heal display state.
+
+        Every path that sets ``current_screen`` also stamps ``last_reassert_ms``,
+        so the heal deadline below is always comparable once a screen is up.
+        """
+        if self.current_screen is None:
+            return
+        parts = self._parts_for_screen(self.current_screen)
+        if self.shown_key == clock_screens.screen_key(self.current_screen, parts) and (
+            self._clock.ticks_diff(now, self.last_reassert_ms) < REASSERT_MS
+        ):
+            return
+        frame, key = self._frame_and_key(self.current_screen, parts)
+        self._show_frame(frame, key, now)
 
     def show_frame_rate(self, frame_count: int, elapsed_ms: int, now: int) -> None:
         """Render one diagnostic sample while measuring display throughput."""
@@ -271,91 +316,14 @@ class DisplayEngine:
         self.shown_key = key
         self.last_reassert_ms = now
 
-    def _start_transition(
-        self,
-        source_screen: int,
-        target_screen: int,
-        steps: int,
-        *,
-        effect: int | None = None,
-        direction: int | None = None,
-    ) -> None:
-        """Snapshot source and target frames for a transition run."""
-        random_effect = effect is None
-        if effect is None:
-            effect = clock_transitions.choose_transition(self._rng)
-        if direction is None:
-            direction = _transition_direction(effect, random_effect=random_effect, rng=self._rng)
-        source_parts = self._parts_for_screen(source_screen)
-        target_parts = self._parts_for_screen(target_screen)
-        if source_screen == self.current_screen and self.screen_frame is not None:
-            source_frame = self.screen_frame
-        else:
-            source_frame = self._frame_and_key(source_screen, source_parts)[0]
-        target_frame, target_key = self._frame_and_key(target_screen, target_parts)
-        self.transition = TransitionRun(
-            effect,
-            direction,
-            target_screen,
-            source_frame,
-            target_frame,
-            target_key,
-            steps,
-        )
-
-    def _advance_transition(self, now: int) -> None:
-        """Render at most one active transition frame."""
-        transition = self.transition
-        if transition is None:
-            return
-        frame = clock_transitions.frame_transition_frame(
-            transition.effect,
-            transition.source_frame,
-            transition.target_frame,
-            step=transition.step,
-            steps=transition.steps,
-            direction=transition.direction,
-        )
-        self._display.show(frame)
-        self.last_reassert_ms = now
-        if transition.step >= transition.steps:
-            self._land_transition(transition, now)
-            return
-        transition.step += 1
-
     def _land_transition(self, transition: object, now: int) -> None:
-        """Commit a completed transition and refresh changed target content."""
-        target = transition.target_screen
-        self.current_screen = target
+        """Commit a completed transition, refreshing content that changed in flight."""
+        self.current_screen = transition.target_screen
         self.screen_frame = transition.target_frame
         self.shown_key = transition.target_key
         self.transition = None
-        self._refresh_landed_target(now)
-
-    def _refresh_landed_target(self, now: int) -> None:
-        """Refresh the target once if its RTC-backed content changed in flight."""
         parts = self._parts_for_screen(self.current_screen)
-        key = clock_screens.screen_key(self.current_screen, parts)
-        if key == self.shown_key:
-            return
-        frame, key = self._frame_and_key(self.current_screen, parts)
-        self._show_frame(frame, key, now)
-
-    def _show_current_or_reassert(self, now: int) -> None:
-        """Refresh live content changes or periodically heal display state.
-
-        Every path that sets ``current_screen`` also stamps ``last_reassert_ms``,
-        so the heal deadline below is always comparable once a screen is up.
-        """
-        if self.current_screen is None:
-            return
-        parts = self._parts_for_screen(self.current_screen)
-        key = clock_screens.screen_key(self.current_screen, parts)
-        if self.shown_key != key:
-            frame, key = self._frame_and_key(self.current_screen, parts)
-            self._show_frame(frame, key, now)
-            return
-        if self._clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS:
+        if clock_screens.screen_key(self.current_screen, parts) != self.shown_key:
             frame, key = self._frame_and_key(self.current_screen, parts)
             self._show_frame(frame, key, now)
 
@@ -365,6 +333,15 @@ def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:
     if elapsed_ms <= 0:
         return 0
     return frame_count * 10_000 // elapsed_ms
+
+
+def _transition_steps(effect: int, target_screen: int) -> int:
+    """Return how many frames a transition into ``target_screen`` should take."""
+    if effect == clock_transitions.TRANSITION_INSTANT:
+        return 1
+    if clock_screens.is_wait(target_screen):
+        return WAIT_TRANSITION_STEPS
+    return clock_transitions.TRANSITION_STEPS
 
 
 def _transition_direction(effect: int, *, random_effect: bool, rng: object) -> int:

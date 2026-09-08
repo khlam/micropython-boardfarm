@@ -15,15 +15,9 @@ from pixel_frame import Frame, Text
 from pixel_frame.glyphs import _GLYPH_ROWS, HEIGHT, glyph
 
 
-@pytest.mark.parametrize("flow,expected", [("horizontal", (11, 7)), ("vertical", (5, 23))])
-def test_measure_accounts_for_variable_glyph_widths_and_intercharacter_spacing(
-    flow: str, expected: tuple[int, int]
-) -> None:
-    assert Text("M.i", flow=flow).measure() == expected
-    assert Text("M.i", flow=flow, scale=(2, 3)).measure() == (
-        expected[0] * 2,
-        expected[1] * 3,
-    )
+def test_measure_accounts_for_variable_glyph_widths_and_intercharacter_spacing() -> None:
+    assert Text("M.i").measure() == (11, 7)
+    assert Text("M.i", scale=(2, 3)).measure() == (22, 21)
 
 
 @pytest.mark.parametrize("value", ["A", "a"])
@@ -121,19 +115,16 @@ def test_explicit_anisotropic_scale_expands_each_source_pixel() -> None:
     assert _lit_pixels(frame) == {(x, y) for x in range(2) for y in (6, 7, 8, 12, 13, 14)}
 
 
-@pytest.mark.parametrize("flow", ["horizontal", "vertical"])
-def test_hidden_characters_reserve_layout_without_drawing(flow: str) -> None:
-    visible = Text(":.:", flow=flow, scale=1)
-    hidden = Text(":.:", flow=flow, scale=1, hidden_chars=".")
+def test_hidden_characters_reserve_layout_without_drawing() -> None:
+    visible = Text(":.:", scale=1)
+    hidden = Text(":.:", scale=1, hidden_chars=".")
     width, height = visible.measure()
     frame = Frame(width, height)
 
     frame[:, :] = hidden
 
     assert hidden.measure() == visible.measure()
-    expected = {(0, 2), (0, 4)}
-    expected |= {(4, 2), (4, 4)} if flow == "horizontal" else {(0, 18), (0, 20)}
-    assert _lit_pixels(frame) == expected
+    assert _lit_pixels(frame) == {(0, 2), (0, 4), (4, 2), (4, 4)}
 
 
 @pytest.mark.parametrize("scale", [1, "auto"])
@@ -150,22 +141,11 @@ def test_overflow_draws_nothing_and_fits_reports_the_exact_boundary(scale: objec
     assert _lit_pixels(frame) == {(5, 6)}
 
 
-@pytest.mark.parametrize(
-    "value,flow,expected",
-    [
-        # An empty string measures (0, 0) before flow is ever consulted, so it
-        # needs only one case; a space has a real width in both directions.
-        ("", "horizontal", (0, 0)),
-        (" ", "horizontal", (1, 7)),
-        (" ", "vertical", (1, 7)),
-    ],
-)
-def test_blank_text_preserves_existing_pixels(
-    value: str, flow: str, expected: tuple[int, int]
-) -> None:
+@pytest.mark.parametrize("value,expected", [("", (0, 0)), (" ", (1, 7))])
+def test_blank_text_preserves_existing_pixels(value: str, expected: tuple[int, int]) -> None:
     frame = Frame(3, 7)
     frame.pixel(0, 0)
-    text = Text(value, flow=flow)
+    text = Text(value)
 
     frame[:, :] = text
 
@@ -184,7 +164,7 @@ def test_non_string_values_render_as_their_decimal_text() -> None:
     assert _lit_pixels(frame) == _lit_pixels(_rendered("12", 7, 7))
 
 
-@pytest.mark.parametrize("option", ["align", "valign", "flow"])
+@pytest.mark.parametrize("option", ["align", "valign"])
 def test_invalid_layout_options_fail_at_construction(option: str) -> None:
     with pytest.raises(ValueError, match=option):
         Text("1", **{option: "invalid"})

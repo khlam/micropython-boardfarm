@@ -24,13 +24,11 @@ Slice assignment uses matrix order: `frame[y_slice, x_slice]`.
 - `Frame.from_packed(width, height, stride, data, intensity=255)` wraps packed
   data produced by transition or backend helpers.
 - `Text(value, scale="auto", align="center", valign="middle",
-  flow="horizontal", hidden_chars="")` describes text for a frame box.
-- `MatrixFrame.from_matrix(matrix)` creates byte-per-pixel frames for grayscale
-  or channel data.
+  hidden_chars="")` describes text for a frame box.
 
 `Text` chooses the largest integer scale that fits the assigned box unless an
 explicit scale is provided. Adjacent visible characters always reserve at least
-one blank pixel column or row between them. Characters listed in `hidden_chars`
+one blank pixel column between them. Characters listed in `hidden_chars`
 reserve their normal advance but draw no pixels, so blink states do not shift
 layout.
 

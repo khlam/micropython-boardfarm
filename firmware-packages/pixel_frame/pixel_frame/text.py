@@ -8,8 +8,6 @@ _ALIGN_RIGHT = "right"
 _VALIGN_TOP = "top"
 _VALIGN_MIDDLE = "middle"
 _VALIGN_BOTTOM = "bottom"
-_FLOW_HORIZONTAL = "horizontal"
-_FLOW_VERTICAL = "vertical"
 _SCALE_AUTO = "auto"
 
 
@@ -23,7 +21,6 @@ class Text:
         scale: object = _SCALE_AUTO,
         align: str = _ALIGN_CENTER,
         valign: str = _VALIGN_MIDDLE,
-        flow: str = _FLOW_HORIZONTAL,
         hidden_chars: str = "",
     ) -> None:
         """Store text layout intent without binding it to a frame."""
@@ -31,13 +28,10 @@ class Text:
             raise ValueError("align must be 'left', 'center', or 'right'")
         if valign not in (_VALIGN_TOP, _VALIGN_MIDDLE, _VALIGN_BOTTOM):
             raise ValueError("valign must be 'top', 'middle', or 'bottom'")
-        if flow not in (_FLOW_HORIZONTAL, _FLOW_VERTICAL):
-            raise ValueError("flow must be 'horizontal' or 'vertical'")
         self.value = str(value)
         self.scale = scale
         self.align = align
         self.valign = valign
-        self.flow = flow
         self.hidden_chars = hidden_chars
 
     def measure(self, box_width: int | None = None, box_height: int | None = None) -> tuple:
@@ -62,50 +56,16 @@ class Text:
             return
         if text_width > width or text_height > height:
             return
-        tx = x0 + _aligned_offset(width, text_width, self.align)
+        x = x0 + _aligned_offset(width, text_width, self.align)
         ty = y0 + _aligned_offset(height, text_height, self.valign)
-        if self.flow == _FLOW_VERTICAL:
-            self._draw_vertical(frame, tx, ty, x_scale, y_scale)
-            return
-        self._draw_horizontal(frame, tx, ty, x_scale, y_scale)
-
-    def _draw_horizontal(
-        self,
-        frame: object,
-        x0: int,
-        y0: int,
-        x_scale: int,
-        y_scale: int,
-    ) -> None:
-        """Draw horizontal text at the resolved origin."""
-        x = x0
-        last = len(self.value) - 1
+        # Advance exactly as _measure_at_scale does, so layout and drawing agree.
         for i, char in enumerate(self.value):
-            cols, width = glyph(char)
-            if char not in self.hidden_chars:
-                _draw_glyph(frame, cols, width, x, y0, x_scale, y_scale)
-            x += width * x_scale
-            if i != last:
+            cols, glyph_width = glyph(char)
+            if i:
                 x += SPACING * x_scale
-
-    def _draw_vertical(
-        self,
-        frame: object,
-        x0: int,
-        y0: int,
-        x_scale: int,
-        y_scale: int,
-    ) -> None:
-        """Draw vertical text at the resolved origin."""
-        y = y0
-        last = len(self.value) - 1
-        for i, char in enumerate(self.value):
-            cols, width = glyph(char)
             if char not in self.hidden_chars:
-                _draw_glyph(frame, cols, width, x0, y, x_scale, y_scale)
-            y += HEIGHT * y_scale
-            if i != last:
-                y += SPACING * y_scale
+                _draw_glyph(frame, cols, glyph_width, x, ty, x_scale, y_scale)
+            x += glyph_width * x_scale
 
     def _scale_for_box(self, box_width: int | None, box_height: int | None) -> tuple:
         """Return explicit or largest fitting integer scale."""
@@ -132,15 +92,6 @@ class Text:
         """Return text bounds at one explicit scale."""
         if not self.value:
             return 0, 0
-        if self.flow == _FLOW_VERTICAL:
-            width = 0
-            for char in self.value:
-                _cols, glyph_width = glyph(char)
-                width = max(width, glyph_width * x_scale)
-            height = (len(self.value) * HEIGHT * y_scale) + (
-                (len(self.value) - 1) * SPACING * y_scale
-            )
-            return width, height
         width = 0
         for i, char in enumerate(self.value):
             _cols, glyph_width = glyph(char)

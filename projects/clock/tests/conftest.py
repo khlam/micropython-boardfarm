@@ -40,23 +40,16 @@ def _micropython_asyncio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def status(monkeypatch: pytest.MonkeyPatch) -> FakeStatus:
-    """Replace the boot LED in every firmware module that drives it.
+def status() -> FakeStatus:
+    """Return the recorder that stands in for the boot LED.
 
-    ``main`` and ``clock_runtime`` each bind ``boot_status_led.status`` at
-    import, so both bindings are swapped for one recorder.
-
-    Args:
-        monkeypatch: Fixture used to swap the module-level status bindings.
+    ``main_module`` binds it over the module's own ``boot_status_led.status``
+    once the firmware has been executed.
 
     Returns:
         The FakeStatus whose ``calls`` list records each LED transition by name.
     """
-    import clock_runtime
-
-    recorder = FakeStatus()
-    monkeypatch.setattr(clock_runtime, "status", recorder)
-    return recorder
+    return FakeStatus()
 
 
 @pytest.fixture

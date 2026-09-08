@@ -26,7 +26,7 @@ def test_every_screen_renders_content_in_the_matrix_geometry(screen: int) -> Non
     frame = clock_screens.render_screen(screen, _parts_for(screen))
 
     assert isinstance(frame, Frame)
-    assert (frame.width, frame.height, frame.channels) == (32, 16, 1)
+    assert (frame.width, frame.height) == (32, 16)
     assert (lit_count(frame) > 0) is (screen != clock_screens.WAIT_OFF)
 
 

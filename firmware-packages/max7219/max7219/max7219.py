@@ -44,31 +44,23 @@ class _MAX7219Backend:
         self._intensity = _DEFAULT_INTENSITY
         self._rotated = False
         self._last_frame = None
-        self._last_allow_lossy = False
         self._init_display()
 
-    def write_frame(self, frame: object, *, allow_lossy: bool) -> bool:
-        """Convert a fitted frame into the binary matrix and refresh.
+    def write_frame(self, frame: object) -> bool:
+        """Convert a fitted packed frame into the binary matrix and refresh.
 
         Args:
-            frame: A fitted ``pixel_frame.Frame`` or ``MatrixFrame`` capped to
-                normalized byte intensity values.
-            allow_lossy: Whether RGB/grayscale collapse may discard information.
+            frame: A fitted ``pixel_frame.Frame`` capped to a normalized byte
+                intensity.
 
         Returns:
             ``True`` when the frame was represented, ``False`` when the display
             facade should render its failure indicator instead.
         """
-        max_intensity = _convert_frame(
-            frame,
-            self._next_rows,
-            allow_lossy=allow_lossy,
-            rotate=self._rotated,
-        )
+        max_intensity = _convert_packed_frame(frame, self._next_rows, rotate=self._rotated)
         if max_intensity is None:
             return False
         self._last_frame = frame
-        self._last_allow_lossy = allow_lossy
         rows_changed = _buffers_differ(self._rows, self._next_rows)
         intensity_changed = max_intensity != self._intensity
         if intensity_changed:
@@ -92,7 +84,7 @@ class _MAX7219Backend:
         """
         self._rotated = not self._rotated
         if self._last_frame is not None:
-            self.write_frame(self._last_frame, allow_lossy=self._last_allow_lossy)
+            self.write_frame(self._last_frame)
 
     def clear(self) -> None:
         """Blank the matrix and flush the cleared framebuffer."""
@@ -168,33 +160,6 @@ class _MAX7219Backend:
         self._write_all_rows(self._rows)
 
 
-def _pixel_value(frame: object, x: int, y: int, *, allow_lossy: bool) -> int | None:
-    """Return one monochrome normalized byte, or ``None`` on unsupported data."""
-    index = (y * frame.width + x) * frame.channels
-    if frame.channels == 1:
-        return frame.data[index]
-    if not allow_lossy:
-        return None
-    value = 0
-    for offset in range(frame.channels):
-        channel = frame.data[index + offset]
-        value = max(value, channel)
-    return value
-
-
-def _convert_frame(
-    frame: object,
-    buf: bytearray,
-    *,
-    allow_lossy: bool,
-    rotate: bool,
-) -> int | None:
-    """Convert one frame into chain rows and return its MAX7219 intensity."""
-    if isinstance(frame, Frame):
-        return _convert_packed_frame(frame, buf, rotate=rotate)
-    return _convert_byte_frame(frame, buf, allow_lossy=allow_lossy, rotate=rotate)
-
-
 def _convert_packed_frame(frame: Frame, buf: bytearray, *, rotate: bool) -> int | None:
     """Convert one packed frame directly into MAX7219 chain rows."""
     if frame.width != _WIDTH or frame.height != _HEIGHT:
@@ -212,53 +177,6 @@ def _convert_packed_frame(frame: Frame, buf: bytearray, *, rotate: bool) -> int 
             pos = _NUM_CHIPS - 1 - chip
             buf[base + pos] = _packed_chip_byte(frame, col_chip, vy, rotate=rotate)
     return _max7219_intensity(frame.intensity)
-
-
-def _convert_byte_frame(
-    frame: object,
-    buf: bytearray,
-    *,
-    allow_lossy: bool,
-    rotate: bool,
-) -> int | None:
-    """Convert one byte-per-pixel frame into MAX7219 chain rows."""
-    if frame.width != _WIDTH or frame.height != _HEIGHT:
-        return None
-    _clear_buffer(buf)
-    state = [None, 0]
-    for y in range(_HEIGHT):
-        for x in range(_WIDTH):
-            value = _pixel_value(frame, x, y, allow_lossy=allow_lossy)
-            if value is None or not _add_pixel(
-                buf, x, y, value, state, allow_lossy=allow_lossy, rotate=rotate
-            ):
-                return None
-    return _max7219_intensity(state[1])
-
-
-def _add_pixel(
-    buf: bytearray,
-    x: int,
-    y: int,
-    value: int,
-    state: list,
-    *,
-    allow_lossy: bool,
-    rotate: bool,
-) -> bool:
-    """Apply one normalized pixel value to a monochrome framebuffer."""
-    if value <= 0:
-        return True
-    if state[0] is None:
-        state[0] = value
-    elif value != state[0] and not allow_lossy:
-        return False
-    state[1] = max(state[1], value)
-    if rotate:
-        x = _WIDTH - 1 - x
-        y = _HEIGHT - 1 - y
-    _set_visual_pixel(buf, x, y)
-    return True
 
 
 def _max7219_intensity(value: int) -> int:
@@ -301,16 +219,3 @@ def _packed_chip_byte(frame: Frame, col_chip: int, vy: int, *, rotate: bool) -> 
         if frame.data[(src_y * frame.stride) + (src_x >> 3)] & (1 << (src_x & 7)):
             byte |= 1 << bit
     return byte
-
-
-def _set_visual_pixel(buf: bytearray, x: int, y: int) -> None:
-    """Set one visual pixel in a chain-row buffer."""
-    panel = y // _PANEL_H
-    src_row = y % _PANEL_H
-    chip_row = (_PANEL_H - 1 - src_row) if _FLIP_Y else src_row
-    nat_x = (_WIDTH - 1 - x) if _MIRROR_X else x
-    col_chip = nat_x >> 3
-    chip = (panel * _CHIPS_PER_PANEL) + col_chip
-    pos = _NUM_CHIPS - 1 - chip
-    idx = (chip_row * _NUM_CHIPS) + pos
-    buf[idx] |= 1 << (nat_x & 7)

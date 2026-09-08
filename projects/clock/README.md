@@ -41,9 +41,8 @@ packages remain board-agnostic and the firmware builds for RP2040, RP2350, and E
 ## Layout
 ```
 clock/
-  firmware/main.py            board wiring, boot/init retry, async screen sequence
+  firmware/main.py            board wiring, boot/init retry, GPS pump, screen sequence
   firmware/clock_hardware.py  device construction and BOOT-button display flip
-  firmware/clock_runtime.py   pump_gps task that keeps the RTC synced
   firmware/clock_cycle.py     DisplayEngine + transition/hold step coroutines
   firmware/clock_*.py         GPS sync, screen specs, text drawing, transitions
   tests/                      host pytest over the whole firmware, fake hardware
