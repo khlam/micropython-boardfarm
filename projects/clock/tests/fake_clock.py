@@ -151,9 +151,15 @@ def same_frame(left: object, right: object) -> bool:
     )
 
 
-def lit_pixels(frame: object) -> set:
-    """Return the ``(x, y)`` coordinates of every lit pixel."""
-    return {(x, y) for y in range(frame.height) for x in range(frame.width) if frame.value_at(x, y)}
+def lit_pixels(frame: object, y0: int = 0, y1: int | None = None) -> set:
+    """Return the ``(x, y)`` coordinates of every lit pixel in a row band.
+
+    The band defaults to the whole frame; pass ``y0``/``y1`` to compare one text
+    row of a two-row screen without the other row's pixels muddying the result.
+    """
+    if y1 is None:
+        y1 = frame.height
+    return {(x, y) for y in range(y0, y1) for x in range(frame.width) if frame.value_at(x, y)}
 
 
 def lit_count(frame: object) -> int:

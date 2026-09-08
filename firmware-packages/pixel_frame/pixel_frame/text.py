@@ -59,9 +59,9 @@ class Text:
         """Draw the text into an assigned pixel box."""
         x_scale, y_scale = self._scale_for_box(width, height)
         text_width, text_height = self._measure_at_scale(x_scale, y_scale)
-        if text_width <= 0 or text_height <= 0:
-            return
-        if text_width > width or text_height > height:
+        # Empty text has no bounds and overlong text would overflow the box, so
+        # both draw nothing rather than spilling outside the assignment.
+        if not 0 < text_width <= width or not 0 < text_height <= height:
             return
         x = x0 + _aligned_offset(width, text_width, self.align)
         ty = y0 + _aligned_offset(height, text_height, self.valign)

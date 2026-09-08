@@ -10,7 +10,7 @@ glyphs come closest to overflowing the matrix.
 from __future__ import annotations
 
 import pytest
-from fake_clock import FakeRandom, FakeRTC, lit_bounds, lit_count, lit_row, same_frame
+from fake_clock import FakeRandom, FakeRTC, lit_bounds, lit_count, lit_pixels, lit_row, same_frame
 
 import clock_screens
 from pixel_frame import Frame, Text
@@ -107,8 +107,7 @@ def test_season_name_uses_meteorological_boundaries(month: int, expected: str) -
 
 def test_month_abbreviations_fit_beside_the_widest_day() -> None:
     """Every abbreviation must fit "<MONTH> 31" inside the 32px matrix."""
-    for month in range(1, 13):
-        label = clock_screens.format_month_abbr(month)
+    for label in clock_screens.MONTH_ABBRS:
         assert Text(f"{label} 31").measure()[0] <= clock_screens.WIDTH_PIXELS
 
 
@@ -126,7 +125,7 @@ def test_full_date_always_draws_a_month_label_that_fits(month: int, day: int) ->
         clock_screens.SCREEN_FULL_DATE, (2026, month, day, 0, 0, 0, 0)
     )
 
-    assert _band(frame, 0, 8), (month, day)
+    assert lit_pixels(frame, 0, 8), (month, day)
 
 
 @pytest.mark.parametrize(
@@ -142,7 +141,7 @@ def test_full_date_prefers_the_whole_month_name_while_it_still_fits(
     labelled = Frame(32, 16)
     labelled[0:8, 0:32] = Text(expected)
 
-    assert _band(frame, 0, 8) == _band(labelled, 0, 8)
+    assert lit_pixels(frame, 0, 8) == lit_pixels(labelled, 0, 8)
 
 
 @pytest.mark.parametrize("weekday", range(7))
@@ -153,7 +152,7 @@ def test_compact_face_names_every_day_of_the_week(weekday: int) -> None:
     named = Frame(32, 16)
     named[8:16, 0:32] = Text(f"{clock_screens.DAYS[weekday]} 31", valign="bottom")
 
-    assert _band(frame, 8, 16) == _band(named, 8, 16)
+    assert lit_pixels(frame, 8, 16) == lit_pixels(named, 8, 16)
 
 
 @pytest.mark.parametrize(
@@ -256,7 +255,7 @@ def test_seconds_free_faces_blink_the_colon_each_second(screen: int) -> None:
 
     assert not same_frame(colon_on, colon_off)
     assert lit_count(colon_on) > lit_count(colon_off)
-    assert _band(colon_off, 0, 15) < _band(colon_on, 0, 15)
+    assert lit_pixels(colon_off, 0, 15) < lit_pixels(colon_on, 0, 15)
 
 
 @pytest.mark.parametrize(
@@ -282,10 +281,10 @@ def test_frame_rate_screen_reports_the_measured_rate() -> None:
     label_only[8:16, 0:32] = Text("FPS 17.5", valign="bottom")
 
     # The label band must contain exactly the rendered "FPS 17.5" glyphs.
-    assert _band(frame, 8, 16) == _band(label_only, 8, 16)
+    assert lit_pixels(frame, 8, 16) == lit_pixels(label_only, 8, 16)
     next_frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (8, 450, 175))
-    assert _band(frame, 0, 8) != _band(next_frame, 0, 8)
-    assert _band(frame, 8, 16) == _band(next_frame, 8, 16)
+    assert lit_pixels(frame, 0, 8) != lit_pixels(next_frame, 0, 8)
+    assert lit_pixels(frame, 8, 16) == lit_pixels(next_frame, 8, 16)
 
 
 @pytest.mark.parametrize(
@@ -393,7 +392,7 @@ def test_uptime_scrolls_the_elapsed_time_and_latched_boot_date(scroll_ms: int, o
         expected = {
             (x, y + y0) for y in range(8) for x in range(32) if strip.value_at(x + offset, y)
         }
-        assert _band(frame, y0, y0 + 8) == expected
+        assert lit_pixels(frame, y0, y0 + 8) == expected
 
 
 def test_uptime_centers_both_rows_when_the_display_is_wide_enough() -> None:
@@ -448,11 +447,6 @@ def test_random_screen_selection_stays_within_each_kind_and_reaches_every_screen
         clock_screens.SCREEN_FULL_DATE,
         clock_screens.SCREEN_UPTIME,
     }
-
-
-def _band(frame: object, y0: int, y1: int) -> set:
-    """Return lit coordinates inside a row band."""
-    return {(x, y) for y in range(y0, y1) for x in range(frame.width) if frame.value_at(x, y)}
 
 
 def _parts_for(screen: int) -> tuple | None:

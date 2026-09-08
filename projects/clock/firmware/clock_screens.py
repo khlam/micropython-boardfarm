@@ -106,9 +106,8 @@ _SEASONS = (
 
 
 def rtc_parts(rtc: object) -> tuple:
-    """Return the RTC tuple fields used by the display manager."""
-    year, month, day, weekday, hour, minute, second, _subsecond = rtc.datetime()
-    return year, month, day, weekday, hour, minute, second
+    """Return the RTC datetime without its trailing subsecond field."""
+    return tuple(rtc.datetime())[:7]
 
 
 def format_time_parts(hour: int, minute: int) -> tuple:
@@ -118,11 +117,6 @@ def format_time_parts(hour: int, minute: int) -> tuple:
         display_hour = 12
     meridiem = "AM" if hour < 12 else "PM"
     return f"{display_hour}:{minute:02d}", meridiem
-
-
-def format_month_abbr(month: int) -> str:
-    """Return a month abbreviation short enough to fit the matrix beside a day number."""
-    return MONTH_ABBRS[month - 1]
 
 
 def season_name(month: int) -> str:
@@ -202,9 +196,8 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
 def full_date_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render the full month name with day number above the four-digit year."""
     year, month, day, _weekday, _hour, _minute, _second = parts
-    row_height = max(1, height_pixels // 2)
     return _two_row_frame(
-        _month_day_label(month, day, width_pixels, row_height),
+        _month_day_label(month, day, width_pixels, _row_split(height_pixels)),
         f"{year:04d}",
         width_pixels,
         height_pixels,
@@ -215,7 +208,7 @@ def frame_rate_screen_frame(parts: tuple | None, width_pixels: int, height_pixel
     """Render one display frame-rate diagnostic sample."""
     frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
     frame = Frame(width_pixels, height_pixels)
-    split = max(1, height_pixels // 2)
+    split = _row_split(height_pixels)
     _draw_frame_rate_trace(frame, frame_index, width_pixels, split)
     if split < height_pixels:
         frame[split:height_pixels, 0:width_pixels] = Text(
@@ -244,7 +237,7 @@ def uptime_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: i
     """
     boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
     frame = Frame(width_pixels, height_pixels)
-    split = max(1, height_pixels // 2)
+    split = _row_split(height_pixels)
     top = "UP " + _format_uptime(_uptime_seconds(boot_parts, now_parts))
     _draw_marquee_row(frame, top, 0, split, scroll_ms, "middle")
     if split < height_pixels:
@@ -277,11 +270,20 @@ def _two_row_frame(
     time colon blink without shifting the rest of the row.
     """
     frame = Frame(width_pixels, height_pixels)
-    split = max(1, height_pixels // 2)
+    split = _row_split(height_pixels)
     frame[0:split, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
     if split < height_pixels:
         frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
     return frame
+
+
+def _row_split(height_pixels: int) -> int:
+    """Return the row where the bottom text band starts.
+
+    Also the top band's height. Never zero, so a panel too short for two bands
+    still gets a whole one and the bottom band collapses instead.
+    """
+    return max(1, height_pixels // 2)
 
 
 def _blink_colon_hidden(second: int) -> str:
@@ -402,7 +404,7 @@ def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int
     full = f"{MONTH_NAMES[month - 1]} {day}"
     if Text(full).fits(width_pixels, height_pixels):
         return full
-    return f"{format_month_abbr(month)} {day}"
+    return f"{MONTH_ABBRS[month - 1]} {day}"
 
 
 def _frame_rate_parts(parts: tuple | None) -> tuple:

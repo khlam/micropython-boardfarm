@@ -89,11 +89,12 @@ def _axis_rank(delta: int, length: int, position: int) -> int:
     return 0
 
 
-def _mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
-    """Return ``source`` and ``target`` composited through a packed mask."""
-    data = bytearray(len(source.data))
-    for i, item in enumerate(mask):
-        data[i] = (target.data[i] & item) | (source.data[i] & (0xFF ^ item))
+def _composited_frame(source: object, target: object, data: bytearray) -> object:
+    """Wrap composited packed bytes in a frame sized like the two endpoints.
+
+    An in-between frame holds pixels from both, so it takes the brighter
+    endpoint's intensity rather than dimming whichever half it came from.
+    """
     return Frame(
         source.width,
         source.height,
@@ -101,6 +102,14 @@ def _mixed_mask_frame(source: object, target: object, mask: bytearray) -> object
         stride=source.stride,
         data=data,
     )
+
+
+def _mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
+    """Return ``source`` and ``target`` composited through a packed mask."""
+    data = bytearray(len(source.data))
+    for i, item in enumerate(mask):
+        data[i] = (target.data[i] & item) | (source.data[i] & (0xFF ^ item))
+    return _composited_frame(source, target, data)
 
 
 def _shuffled_pixel_order(width: int, height: int, seed: int) -> list:
@@ -198,13 +207,7 @@ def _scroll_frame(
             )
         base = y * source.stride
         data[base : base + source.stride] = bits.to_bytes(source.stride, "little")
-    return Frame(
-        source.width,
-        source.height,
-        max(source.intensity, target.intensity),
-        stride=source.stride,
-        data=data,
-    )
+    return _composited_frame(source, target, data)
 
 
 def frame_transition_frame(
