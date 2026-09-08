@@ -12,7 +12,7 @@ pumps the GPS (non-blocking `readline`) and the other steps the display program
 After the first GPS fix, the display cycles through three regular 16×32
 screens, holding each completed regular screen for three minutes:
 
-- **Compact time/date** — `HH:MM` plus `AM/PM` alongside abbreviated month and day.
+- **Compact time/date** — `HH:MM` plus `AM/PM` above the abbreviated weekday and day of month.
 - **Clock with meridiem** — large centered `HH:MM` with stacked `AM` / `PM`.
 - **Time with seconds** — large centered `HH:MM:SS` plus `AM/PM`.
 

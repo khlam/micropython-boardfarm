@@ -10,8 +10,8 @@ never address individual chips.
 ## Public API
 
 - `MAX7219(*, spi_id, sck, mosi, cs, width_pixels=32, height_pixels=16,
-  brightness=1.0)` — opens SPI from flat project pins and wraps the hardware
-  backend in `pixel_display.Display`.
+  brightness=1.0)` — a `pixel_display.Display` that opens SPI from flat project
+  pins and drives the cascaded chain as its backend.
 - `display.show(frame)` — the only public render method. Build frames with
   `pixel_frame.Frame` and text content with `pixel_frame.Text`.
 
@@ -95,7 +95,7 @@ Digit registers 1-8 drive each chip's rows; data bits drive its columns. The
 framebuffer holds the image the right way up; `refresh` maps it onto the chain at
 the last moment: chips 0-3 are the top panel and 4-7 the bottom, and the SPI
 cascade shifts the first byte to the last chip, so each frame is emitted with the
-chips reversed. Two orientation knobs in `max7219.py` correct the panels'
-physical mounting — `_MIRROR_X` (flip if text reads backwards left-to-right) and
-`_FLIP_Y` (flip if text reads upside down). On init the driver briefly lights
-every LED via the display-test register as a wiring check.
+chips reversed. Digit register 0 drives a panel's bottom row, so chip rows are
+emitted up each panel's visual rows. `display.flip()` rotates the whole 16x32
+surface 180 degrees at runtime, for panels hung the other way up. On init the
+driver briefly lights every LED via the display-test register as a wiring check.

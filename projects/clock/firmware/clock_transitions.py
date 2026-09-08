@@ -1,7 +1,5 @@
 """Packed frame transition effects for clock screens."""
 
-import random
-
 from pixel_frame import Frame
 
 TRANSITION_WIPE = 0
@@ -110,12 +108,12 @@ def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
     data = bytearray(len(source.data))
     for i, item in enumerate(mask):
         data[i] = (target.data[i] & item) | (source.data[i] & (0xFF ^ item))
-    return Frame.from_packed(
+    return Frame(
         source.width,
         source.height,
-        source.stride,
-        data,
         max(source.intensity, target.intensity),
+        stride=source.stride,
+        data=data,
     )
 
 
@@ -238,12 +236,12 @@ def _scroll_frame(
                 dx,
             )
         write_packed_row_bits(data, y * source.stride, source.stride, bits)
-    return Frame.from_packed(
+    return Frame(
         source.width,
         source.height,
-        source.stride,
-        data,
         max(source.intensity, target.intensity),
+        stride=source.stride,
+        data=data,
     )
 
 
@@ -254,7 +252,7 @@ def frame_transition_frame(
     *,
     step: int,
     steps: int,
-    direction: int | None = None,
+    direction: int,
 ) -> object:
     """Render one transition frame between two packed frame endpoints."""
     if effect == TRANSITION_INSTANT:
@@ -266,25 +264,21 @@ def frame_transition_frame(
     if effect == TRANSITION_DISSOLVE:
         # Binary pixel swaps stay visible even at low global brightness.
         return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
-    if direction is None:
-        direction = DIRECTION_RIGHT if effect == TRANSITION_SCROLL else DIRECTION_LEFT
     if effect == TRANSITION_SCROLL:
         return _scroll_frame(source, target, step, steps, direction)
     return mixed_mask_frame(source, target, directional_mask(source, steps, step, direction))
 
 
-def randbelow(limit: int, rng: object | None = None) -> int:
+def randbelow(limit: int, rng: object) -> int:
     """Return a random integer in ``range(limit)`` using a small MCU API."""
-    if rng is None:
-        rng = random
     return rng.getrandbits(8) % limit
 
 
-def choose_transition(rng: object | None = None) -> int:
+def choose_transition(rng: object) -> int:
     """Choose one transition effect."""
     return TRANSITIONS[randbelow(len(TRANSITIONS), rng)]
 
 
-def choose_direction(rng: object | None = None) -> int:
+def choose_direction(rng: object) -> int:
     """Choose one transition entry direction."""
     return DIRECTIONS[randbelow(len(DIRECTIONS), rng)]

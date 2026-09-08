@@ -49,10 +49,9 @@ micropython_stubs/
 Replacement module behavior:
 - `machine.py` records every `Pin(...)` construction in
   `pin_constructions`, routes I2C reads and writes to devices registered
-  with `machine.register_device(addr, dev)`, feeds `UART.readline()` from byte
-  lines queued with `machine.feed_uart(...)`, and feeds non-blocking
-  `UART.any()` / `UART.readinto()` from
-  `machine.feed_uart_bytes(...)`.
+  with `machine.register_device(addr, dev)`, and feeds `UART.any()` /
+  `UART.read()` / `UART.readline()` / `UART.readinto()` from one shared receive
+  buffer filled by `machine.feed_uart_bytes(...)`.
 - `machine.UART` also records constructions in `uart_constructions`, keeps
   every constructor keyword in `config`, and implements `irq()` / `deinit()`.
   `feed_uart_bytes(...)` runs each UART's `IRQ_RXIDLE` handler after queueing,

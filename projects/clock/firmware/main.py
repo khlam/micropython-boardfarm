@@ -90,35 +90,35 @@ _INIT_ERR_PAUSE_MS = 1_000
 _PROGRAM_ERR_PAUSE_MS = 200
 
 
-async def clock_program(engine: object, sync: object, rng: object, clock: object) -> None:
+async def clock_program(engine: object, sync: object) -> None:
     """Drive the screen sequence: wait for GPS, then cycle the clock faces.
 
     Reads top-to-bottom as the order the display actually steps through. The
-    rendering mechanics live in :class:`clock_cycle.DisplayEngine`; this is only
-    the sequence.
+    rendering mechanics — and the clock and RNG every step reads — live in
+    :class:`clock_cycle.DisplayEngine`; this is only the sequence.
     """
-    await run_frame_rate_test(engine, clock)
-    regular = clock_screens.choose_regular(rng)
+    await run_frame_rate_test(engine)
+    regular = clock_screens.choose_regular(engine.rng)
     target = regular if sync.synced else clock_screens.WAIT_ON
-    await play_startup_handoff(engine, target, clock)
+    await play_startup_handoff(engine, target)
 
     # Wait for the first GPS fix: hold GPS / WAIT, scrolling it back into itself
     # each second until ``sync`` reports a fix, so the screen never goes blank.
     while not sync.synced:
-        await hold_screen(engine, clock, stop=lambda: sync.synced)
+        await hold_screen(engine, stop=lambda: sync.synced)
         if sync.synced:
             break
-        await play_wait_transition(engine, clock)
+        await play_wait_transition(engine)
 
     # Synced: reveal a random clock, then cycle regular faces with interstitials.
     if engine.current_screen != regular:
-        await play_dissolve_transition(engine, regular, clock)
+        await play_dissolve_transition(engine, regular)
     while True:
-        await hold_screen(engine, clock)  # live clock face (3 min)
-        await play_transition(engine, clock_screens.choose_interstitial(rng), clock)
-        await hold_screen(engine, clock)  # season / full date (3 s)
-        regular = clock_screens.choose_next_regular(regular, rng)
-        await play_transition(engine, regular, clock)
+        await hold_screen(engine)  # live clock face (3 min)
+        await play_transition(engine, clock_screens.choose_interstitial(engine.rng))
+        await hold_screen(engine)  # season / full date (3 s)
+        regular = clock_screens.choose_next_regular(regular, engine.rng)
+        await play_transition(engine, regular)
 
 
 async def pump_gps(gps: object, sync: object) -> None:
@@ -141,11 +141,11 @@ async def pump_gps(gps: object, sync: object) -> None:
         await asyncio.sleep_ms(POLL_SLEEP_MS)
 
 
-async def guarded_program(engine: object, sync: object, rng: object, clock: object) -> None:
+async def guarded_program(engine: object, sync: object) -> None:
     """Run the screen sequence, healing the LED and restarting on any exception."""
     while True:
         try:
-            await clock_program(engine, sync, rng, clock)
+            await clock_program(engine, sync)
         except Exception:  # noqa: BLE001 — never let a render glitch kill the loop
             status.read_err()
             await asyncio.sleep_ms(_PROGRAM_ERR_PAUSE_MS)
@@ -163,10 +163,7 @@ async def run_async(gps: object, display: object, rtc: object) -> None:
     sync = ClockSynchronizer(rtc)
     engine = DisplayEngine(display, rtc, clock=time, rng=random, sync=sync)
     status.streaming()
-    await asyncio.gather(
-        pump_gps(gps, sync),
-        guarded_program(engine, sync, random, time),
-    )
+    await asyncio.gather(pump_gps(gps, sync), guarded_program(engine, sync))
 
 
 def run(gps: object, display: object, rtc: object) -> None:

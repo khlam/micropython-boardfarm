@@ -42,18 +42,6 @@ class Frame:
         self.data = data
         self.intensity = _clamp_byte(intensity)
 
-    @classmethod
-    def from_packed(
-        cls,
-        width: int,
-        height: int,
-        stride: int,
-        data: bytearray,
-        intensity: int = 255,
-    ) -> "Frame":
-        """Wrap packed row-major data in a frame object."""
-        return cls(width, height, intensity, stride=stride, data=data)
-
     def __setitem__(self, key: object, content: object) -> None:
         """Draw content into a matrix-order pixel box."""
         if not isinstance(key, tuple) or len(key) != 2:
@@ -64,11 +52,6 @@ class Frame:
         if draw is None:
             raise TypeError("assigned content must expose draw(frame, x, y, width, height)")
         draw(self, x0, y0, x1 - x0, y1 - y0)
-
-    def clear(self) -> None:
-        """Turn off every packed pixel."""
-        for i in range(len(self.data)):
-            self.data[i] = 0
 
     def pixel(self, x: int, y: int, *, on: bool = True) -> None:
         """Set or clear one pixel, clipping coordinates outside the frame."""
@@ -86,12 +69,12 @@ class Frame:
 
     def copy(self) -> "Frame":
         """Return a byte-for-byte copy of the packed frame."""
-        return Frame.from_packed(
+        return Frame(
             self.width,
             self.height,
-            self.stride,
-            bytearray(self.data),
             self.intensity,
+            stride=self.stride,
+            data=bytearray(self.data),
         )
 
     def set_pixel_unchecked(self, x: int, y: int, *, on: bool = True) -> None:

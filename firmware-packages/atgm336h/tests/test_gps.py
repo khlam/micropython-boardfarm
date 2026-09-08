@@ -145,5 +145,5 @@ def test_uart_failure_preserves_partial_sentence_for_retry(monkeypatch):
 def _make_gps(uart_lines):
     """Create a GPS instance with pre-fed UART data (first line consumed by probe)."""
     machine.reset()
-    machine.feed_uart(uart_lines)
+    machine.feed_uart_bytes(b"".join(uart_lines))
     return GPS(bus_id=0, tx=0, rx=1)

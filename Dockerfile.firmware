@@ -5,7 +5,8 @@
 
 # renovate: datasource=github-tags depName=micropython/micropython
 ARG MICROPYTHON_REF=v1.28.0
-ARG RPI_PICO2=
+# RP2350 variant to build alongside the RP2040: the Wi-Fi board needs RPI_PICO2_W.
+ARG RP2350_BOARD=RPI_PICO2
 
 
 # -----------------------------------------------------------------------------
@@ -40,12 +41,13 @@ RUN mkdir -p /outputs
 WORKDIR /app
 
 ARG MICROPYTHON_REF
-ARG RPI_PICO2
-RUN case "${RPI_PICO2}" in \
-      ""|W) ;; \
-      *) echo "ERROR: RPI_PICO2 must be blank or W (got ${RPI_PICO2})" >&2; exit 1 ;; \
+ARG RP2350_BOARD
+RUN case "${RP2350_BOARD}" in \
+      RPI_PICO2|RPI_PICO2_W) ;; \
+      *) echo "ERROR: RP2350_BOARD must be RPI_PICO2 or RPI_PICO2_W (got ${RP2350_BOARD})" >&2; \
+         exit 1 ;; \
     esac
-ENV RPI_PICO2=${RPI_PICO2}
+ENV RP2350_BOARD=${RP2350_BOARD}
 RUN git clone --depth 1 --branch ${MICROPYTHON_REF} \
       https://github.com/micropython/micropython.git
 
@@ -53,9 +55,8 @@ WORKDIR /app/micropython
 RUN make -C mpy-cross -j$(nproc)
 
 # RP-port submodules only — no ESP-IDF or Xtensa toolchain in this image.
-RUN PICO2_BOARD="RPI_PICO2${RPI_PICO2:+_${RPI_PICO2}}" \
- && make -C ports/rp2 BOARD=RPI_PICO submodules \
- && make -C ports/rp2 BOARD="${PICO2_BOARD}" submodules
+RUN make -C ports/rp2 BOARD=RPI_PICO submodules \
+ && make -C ports/rp2 BOARD="${RP2350_BOARD}" submodules
 
 ENV PICO_SDK_PATH=/app/micropython/lib/pico-sdk
 WORKDIR /app/micropython/ports/rp2
@@ -66,12 +67,7 @@ COPY manifest.py /manifest.py
 
 ENTRYPOINT ["sh","-c", "\
   set -e; \
-  case \"$RPI_PICO2\" in \
-    ''|W) ;; \
-    *) echo ERROR: RPI_PICO2 must be blank or W \\(got $RPI_PICO2\\). >&2; exit 1 ;; \
-  esac; \
-  PICO2_BOARD=RPI_PICO2${RPI_PICO2:+_$RPI_PICO2}; \
-  for B in RPI_PICO $PICO2_BOARD; do \
+  for B in RPI_PICO $RP2350_BOARD; do \
     cmake -S . -B /build/$B \
       -DPICO_SDK_PATH=${PICO_SDK_PATH} \
       -DUPDATE_SUBMODULES=OFF \
@@ -81,10 +77,10 @@ ENTRYPOINT ["sh","-c", "\
       -DMICROPY_FROZEN_MANIFEST=/manifest.py; \
     cmake --build /build/$B -- -j$(nproc); \
   done; \
-  cat /build/RPI_PICO/firmware.uf2 /build/$PICO2_BOARD/firmware.uf2 \
+  cat /build/RPI_PICO/firmware.uf2 /build/$RP2350_BOARD/firmware.uf2 \
     > /outputs/app.rp2040.rp2350.uf2; \
   chown -R $(stat -c '%u:%g' /firmware 2>/dev/null || echo 0:0) /outputs; \
-  echo \"/outputs/app.rp2040.rp2350.uf2 ready (RP2350: $PICO2_BOARD)\""]
+  echo \"/outputs/app.rp2040.rp2350.uf2 ready (RP2350: $RP2350_BOARD)\""]
 
 
 # -----------------------------------------------------------------------------

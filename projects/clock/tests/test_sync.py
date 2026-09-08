@@ -90,7 +90,7 @@ def test_timezone_stays_at_first_fix_when_receiver_crosses_a_meridian(
 
     sync.consume(_sentence("GPRMC,120001,A,5230.0000,N,01324.0000,E,0,0,230626,,"))
 
-    assert sync.state["lon"] == pytest.approx(13.4)
+    assert sync._lon == pytest.approx(13.4)
     assert rtc.value == (2026, 6, 23, 1, expected_hour, 0, 1, 0)
     assert sync.boot_time == boot_time
 

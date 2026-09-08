@@ -21,9 +21,6 @@ _FLASH_MS = const(250)
 _DEFAULT_INTENSITY = const(0x00)
 _MAX_INTENSITY = const(0x0F)
 
-_MIRROR_X = False
-_FLIP_Y = True
-
 _REG_DECODE = const(0x09)
 _REG_INTENSITY = const(0x0A)
 _REG_SCAN_LIMIT = const(0x0B)
@@ -169,8 +166,9 @@ def _convert_packed_frame(frame: Frame, buf: bytearray, *, rotate: bool) -> int 
         for chip in range(_NUM_CHIPS):
             panel = chip // _CHIPS_PER_PANEL
             col_chip = chip % _CHIPS_PER_PANEL
-            src_row = (_PANEL_H - 1 - chip_row) if _FLIP_Y else chip_row
-            vy = panel * _PANEL_H + src_row
+            # Digit register 0 drives the panel's bottom row, so chip rows run
+            # up the visual rows of their panel.
+            vy = panel * _PANEL_H + (_PANEL_H - 1 - chip_row)
             pos = _NUM_CHIPS - 1 - chip
             buf[base + pos] = _packed_chip_byte(frame, col_chip, vy, rotate=rotate)
     return _max7219_intensity(frame.intensity)
@@ -190,18 +188,16 @@ def _clear_buffer(buf: bytearray) -> None:
 def _packed_chip_byte(frame: Frame, col_chip: int, vy: int, *, rotate: bool) -> int:
     """Return one chip byte for hardware visual row ``vy`` and column block.
 
-    Folds the fixed ``_MIRROR_X`` hardware mapping and the optional 180-degree
-    visual rotation into the source read. When neither applies the packed byte
-    can be copied straight through, which keeps the common path cheap.
+    Unrotated, the packed byte already matches the chip's bit order and can be
+    copied straight through, which keeps the common path cheap. A 180-degree
+    rotation is folded into the source read instead of rebuilding the frame.
     """
-    if not _MIRROR_X and not rotate:
+    if not rotate:
         return frame.data[(vy * frame.stride) + col_chip]
     byte = 0
-    src_y = (_HEIGHT - 1 - vy) if rotate else vy
+    src_y = _HEIGHT - 1 - vy
     for bit in range(8):
-        nat_x = col_chip * 8 + bit
-        vx = (_WIDTH - 1 - nat_x) if _MIRROR_X else nat_x
-        src_x = (_WIDTH - 1 - vx) if rotate else vx
+        src_x = _WIDTH - 1 - (col_chip * 8 + bit)
         if frame.data[(src_y * frame.stride) + (src_x >> 3)] & (1 << (src_x & 7)):
             byte |= 1 << bit
     return byte

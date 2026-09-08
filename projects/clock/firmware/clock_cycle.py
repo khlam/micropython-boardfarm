@@ -1,14 +1,11 @@
 """Display engine and step coroutines for clock screens and transitions."""
 
 import asyncio
-import random
-import time
 
 import clock_screens
 import clock_transitions
 
 POLL_SLEEP_MS = 10
-FRAME_RATE_TEST_SLEEP_MS = POLL_SLEEP_MS
 REASSERT_MS = 5_000
 
 # Adaptive animation frame pacing. Transition frames are paced to a wall-clock
@@ -32,13 +29,13 @@ WAIT_TRANSITION_STEPS = min(
 async def play_transition(
     engine: object,
     target: int,
-    clock: object,
     *,
     effect: int | None = None,
     direction: int | None = None,
 ) -> None:
     """Animate the transition into ``target``, one frame per adaptive budget."""
     engine.begin_transition(target, effect=effect, direction=direction)
+    clock = engine.clock
     while True:
         frame_start = clock.ticks_ms()
         if engine.advance_transition(frame_start):
@@ -58,18 +55,17 @@ async def _pace_frame(clock: object, frame_start: int) -> None:
     await asyncio.sleep_ms(max(MIN_FRAME_YIELD_MS, remaining))
 
 
-async def play_dissolve_transition(engine: object, target: int, clock: object) -> None:
+async def play_dissolve_transition(engine: object, target: int) -> None:
     """Dissolve the current display state into ``target``."""
     await play_transition(
         engine,
         target,
-        clock,
         effect=clock_transitions.TRANSITION_DISSOLVE,
         direction=clock_transitions.DIRECTION_LEFT,
     )
 
 
-async def play_wait_transition(engine: object, clock: object) -> None:
+async def play_wait_transition(engine: object) -> None:
     """Scroll the GPS-wait screen back into itself for the looping wait animation.
 
     The wait screen scrolls into a fresh copy of itself rather than blinking to a
@@ -79,21 +75,20 @@ async def play_wait_transition(engine: object, clock: object) -> None:
     await play_transition(
         engine,
         clock_screens.WAIT_ON,
-        clock,
         effect=clock_transitions.TRANSITION_SCROLL,
         direction=clock_transitions.DIRECTION_RIGHT,
     )
 
 
-async def hold_screen(engine: object, clock: object, *, stop: object = None) -> None:
+async def hold_screen(engine: object, *, stop: object = None) -> None:
     """Hold the landed screen for its spec'd time, healing live content each frame.
 
     Args:
         engine: The :class:`DisplayEngine` whose ``current_screen`` is held.
-        clock: ``time``-like source providing ``ticks_ms``/``ticks_diff``.
         stop: Optional predicate; when it returns true the hold ends early. Used
             by the GPS-wait blink to break out the moment a fix arrives.
     """
+    clock = engine.clock
     started = clock.ticks_ms()
     hold_ms = clock_screens.screen_spec(engine.current_screen).hold_ms
     while clock.ticks_diff(clock.ticks_ms(), started) < hold_ms:
@@ -103,8 +98,9 @@ async def hold_screen(engine: object, clock: object, *, stop: object = None) -> 
         engine.reassert(clock.ticks_ms())
 
 
-async def run_frame_rate_test(engine: object, clock: object) -> None:
+async def run_frame_rate_test(engine: object) -> None:
     """Render the startup display frame-rate diagnostic for its screen hold."""
+    clock = engine.clock
     start = clock.ticks_ms()
     frame_count = 0
     hold_ms = clock_screens.screen_spec(clock_screens.SCREEN_FRAME_RATE).hold_ms
@@ -115,20 +111,19 @@ async def run_frame_rate_test(engine: object, clock: object) -> None:
             return
         frame_count += 1
         engine.show_frame_rate(frame_count, elapsed_ms, now)
-        await asyncio.sleep_ms(FRAME_RATE_TEST_SLEEP_MS)
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
 
 
-async def play_startup_handoff(engine: object, target: int, clock: object) -> None:
+async def play_startup_handoff(engine: object, target: int) -> None:
     """Scroll the diagnostic away, show the brand, then dissolve into ``target``."""
     await play_transition(
         engine,
         clock_screens.SCREEN_BRAND,
-        clock,
         effect=clock_transitions.TRANSITION_SCROLL,
         direction=clock_transitions.DIRECTION_RIGHT,
     )
-    await hold_screen(engine, clock)
-    await play_dissolve_transition(engine, target, clock)
+    await hold_screen(engine)
+    await play_dissolve_transition(engine, target)
 
 
 class TransitionRun:
@@ -160,7 +155,9 @@ class DisplayEngine:
 
     Exposes synchronous step primitives (`begin_transition`, `advance_transition`,
     `reassert`) that the module-level coroutines drive in `await`-sleep loops; the
-    screen *order* lives in the caller, not in this engine.
+    screen *order* lives in the caller, not in this engine. It also owns the
+    ``clock`` and ``rng`` the whole display side reads, so pacing and random
+    choices cannot drift onto two different sources.
     """
 
     def __init__(
@@ -168,8 +165,8 @@ class DisplayEngine:
         display: object,
         rtc: object,
         *,
-        clock: object | None = None,
-        rng: object | None = None,
+        clock: object,
+        rng: object,
         sync: object | None = None,
     ) -> None:
         """Bind the engine to a display, RTC, clock source, RNG, and sync state.
@@ -180,8 +177,8 @@ class DisplayEngine:
         """
         self._display = display
         self._rtc = rtc
-        self._clock = time if clock is None else clock
-        self._rng = random if rng is None else rng
+        self.clock = clock
+        self.rng = rng
         self._sync = sync
         self._width_pixels = getattr(display, "width_pixels", clock_screens.WIDTH_PIXELS)
         self._height_pixels = getattr(display, "height_pixels", clock_screens.HEIGHT_PIXELS)
@@ -202,9 +199,9 @@ class DisplayEngine:
         """Snapshot both endpoints for a transition into ``target_screen``."""
         random_effect = effect is None
         if effect is None:
-            effect = clock_transitions.choose_transition(self._rng)
+            effect = clock_transitions.choose_transition(self.rng)
         if direction is None:
-            direction = _transition_direction(effect, random_effect=random_effect, rng=self._rng)
+            direction = _transition_direction(effect, random_effect=random_effect, rng=self.rng)
         source_screen = self.current_screen
         source_frame = self.screen_frame
         if source_screen is None:
@@ -262,7 +259,7 @@ class DisplayEngine:
             return
         parts = self._parts_for_screen(self.current_screen)
         if self.shown_key == clock_screens.screen_key(self.current_screen, parts) and (
-            self._clock.ticks_diff(now, self.last_reassert_ms) < REASSERT_MS
+            self.clock.ticks_diff(now, self.last_reassert_ms) < REASSERT_MS
         ):
             return
         frame, key = self._frame_and_key(self.current_screen, parts)
@@ -291,7 +288,7 @@ class DisplayEngine:
             return None
         if screen == clock_screens.SCREEN_UPTIME:
             boot_time = getattr(self._sync, "boot_time", None)
-            return boot_time, self._parts(), self._clock.ticks_ms()
+            return boot_time, self._parts(), self.clock.ticks_ms()
         return self._parts()
 
     def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:

@@ -33,7 +33,7 @@ def test_packed_frame_rejects_invalid_storage(kwargs: dict, message: str) -> Non
 
 def test_packed_storage_uses_row_stride_and_keeps_padding_out_of_reads() -> None:
     data = bytearray((0x81, 0xFF, 0xFF, 0x02, 0xFE, 0xFF))
-    frame = Frame.from_packed(9, 2, 3, data, intensity=37)
+    frame = Frame(9, 2, 37, stride=3, data=data)
 
     frame.pixel(8, 1)
     frame.pixel(7, 0, on=False)
@@ -46,14 +46,14 @@ def test_packed_storage_uses_row_stride_and_keeps_padding_out_of_reads() -> None
         frame.value_at(9, 0)
 
 
-def test_copy_owns_its_storage_and_clear_includes_padding() -> None:
-    source = Frame.from_packed(9, 1, 3, bytearray((1, 1, 255)), intensity=42)
+def test_copy_owns_its_storage() -> None:
+    source = Frame(9, 1, 42, stride=3, data=bytearray((1, 1, 255)))
     copied = source.copy()
 
-    copied.clear()
+    copied.pixel(0, 0, on=False)
 
     assert (copied.width, copied.height, copied.stride, copied.intensity) == (9, 1, 3, 42)
-    assert copied.data == bytearray(3)
+    assert copied.data == bytearray((0, 1, 255))
     assert source.data == bytearray((1, 1, 255))
     assert source.value_at(0, 0) == 42
 

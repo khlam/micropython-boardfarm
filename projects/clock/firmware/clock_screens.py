@@ -124,7 +124,7 @@ def format_time_seconds(hour: int, minute: int, second: int) -> str:
 
 
 def format_month_abbr(month: int) -> str:
-    """Return the fixed-width month abbreviation for the display cycle."""
+    """Return a month abbreviation short enough to fit the matrix beside a day number."""
     return MONTH_ABBRS[month - 1]
 
 
@@ -133,11 +133,7 @@ def season_name(month: int) -> str:
     return _SEASONS[month - 1]
 
 
-def main_screen_frame(
-    parts: tuple,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def main_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render time with meridiem above day name and day number, both centered.
 
     The face shows no seconds, so the time colon blinks once per second and a
@@ -156,21 +152,13 @@ def main_screen_frame(
     return frame
 
 
-def season_screen_frame(
-    parts: tuple,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def season_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render the current meteorological season above the four-digit year."""
     year, month, _day, _weekday, _hour, _minute, _second = parts
     return _two_row_frame(season_name(month), f"{year:04d}", width_pixels, height_pixels)
 
 
-def time_seconds_screen_frame(
-    parts: tuple,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def time_seconds_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render large 12-hour time with seconds and meridiem."""
     _year, _month, _day, _weekday, hour, minute, second = parts
     _clock, meridiem = format_time_parts(hour, minute)
@@ -182,11 +170,7 @@ def time_seconds_screen_frame(
     )
 
 
-def clock_meridiem_screen_frame(
-    parts: tuple,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render a centered time-only face, scaling the time to fill the frame.
 
     The meridiem keeps a fixed narrow column on the right, drawn with the
@@ -225,11 +209,7 @@ def clock_meridiem_screen_frame(
     return frame
 
 
-def full_date_screen_frame(
-    parts: tuple,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def full_date_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render the full month name with day number above the four-digit year."""
     year, month, day, _weekday, _hour, _minute, _second = parts
     row_height = max(1, height_pixels // 2)
@@ -241,11 +221,7 @@ def full_date_screen_frame(
     )
 
 
-def frame_rate_screen_frame(
-    parts: tuple | None,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def frame_rate_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render one display frame-rate diagnostic sample."""
     frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
     frame = Frame(width_pixels, height_pixels)
@@ -259,20 +235,12 @@ def frame_rate_screen_frame(
     return frame
 
 
-def brand_screen_frame(
-    _parts: tuple | None,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def brand_screen_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render the startup brand screen."""
     return _two_row_frame("KINHOLA", "M.COM", width_pixels, height_pixels)
 
 
-def uptime_screen_frame(
-    parts: tuple | None,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def uptime_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render the run uptime over the boot timestamp, scrolling rows that overflow.
 
     Top row reads ``UP HH:MM:SS`` (elapsed since the first GPS fix); bottom row
@@ -295,20 +263,12 @@ def uptime_screen_frame(
     return frame
 
 
-def wait_on_frame(
-    _parts: tuple | None,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def wait_on_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render the visible GPS wait screen endpoint."""
     return _two_row_frame("GPS", "WAIT", width_pixels, height_pixels)
 
 
-def wait_off_frame(
-    _parts: tuple | None,
-    width_pixels: int = WIDTH_PIXELS,
-    height_pixels: int = HEIGHT_PIXELS,
-) -> object:
+def wait_off_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render the blank GPS wait screen endpoint."""
     return Frame(width_pixels, height_pixels, intensity=0)
 
@@ -692,7 +652,7 @@ def is_wait(screen: int) -> bool:
     return screen_spec(screen).kind == KIND_WAIT
 
 
-def choose_next_regular(current: int, rng: object | None = None) -> int:
+def choose_next_regular(current: int, rng: object) -> int:
     """Choose any regular screen except ``current``.
 
     A ``current`` that is not itself a regular screen — the brand screen on the
@@ -702,11 +662,11 @@ def choose_next_regular(current: int, rng: object | None = None) -> int:
     return options[randbelow(len(options), rng)]
 
 
-def choose_regular(rng: object | None = None) -> int:
+def choose_regular(rng: object) -> int:
     """Choose one regular clock screen at random."""
     return REGULAR_SCREENS[randbelow(len(REGULAR_SCREENS), rng)]
 
 
-def choose_interstitial(rng: object | None = None) -> int:
+def choose_interstitial(rng: object) -> int:
     """Choose one interstitial screen at random."""
     return INTERSTITIAL_SCREENS[randbelow(len(INTERSTITIAL_SCREENS), rng)]

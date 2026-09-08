@@ -2,10 +2,10 @@
 
 Covers the chain wiring (which SPI frame lights which visual pixel), the
 dirty-row and intensity write policy, geometry refusal, and the 180-degree
-flip. The decoder below deliberately restates the panel layout from
-the hardware wiring rather than importing the driver's ``_FLIP_Y``/``_MIRROR_X``
-constants, so an orientation regression fails here instead of flipping encoder
-and decoder in lockstep.
+flip. The decoder below deliberately restates the panel layout from the
+hardware wiring rather than reusing the driver's own row/column mapping, so an
+orientation regression fails here instead of flipping encoder and decoder in
+lockstep.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def test_init_flashes_then_configures_and_clears_every_chip(
 
 def test_frame_padding_is_not_rendered_on_either_panel() -> None:
     backend, spi, _cs = _make_backend()
-    frame = Frame.from_packed(32, 16, 6, bytearray((0, 0, 0, 0, 255, 255)) * 16)
+    frame = Frame(32, 16, stride=6, data=bytearray((0, 0, 0, 0, 255, 255)) * 16)
     corners = {(0, 0), (31, 0), (0, 15), (31, 15), (5, 9)}
     for x, y in corners:
         frame.pixel(x, y)
@@ -156,7 +156,7 @@ def test_same_bitmap_with_lower_brightness_writes_only_intensity(
     assert backend.write_frame(bright) is True
     state.apply(spi.writes)
 
-    dim = Frame.from_packed(bright.width, bright.height, bright.stride, bright.data, intensity)
+    dim = Frame(bright.width, bright.height, intensity, stride=bright.stride, data=bright.data)
     spi.writes.clear()
 
     assert backend.write_frame(dim) is True

@@ -31,8 +31,9 @@ wiring, and any model-specific layout.
 
 ## Adapter Pattern
 
-Hardware packages should expose a flat constructor that opens its own bus, builds
-its private backend, and wraps it in `Display`. For example, an SSD1306/OLED
+Hardware packages should subclass `Display` with a flat constructor that opens
+its own bus and hands its private backend to `Display.__init__`, so the adapter
+*is* a display rather than delegating to one. For example, an SSD1306/OLED
 adapter should accept `bus_id`/`sda`/`scl`/`width_pixels`/`height_pixels`, scan or
 init the panel in the SSD1306 package, and convert the packed frame to the
 panel framebuffer in `write_frame`.

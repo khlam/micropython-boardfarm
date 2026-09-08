@@ -42,9 +42,7 @@ def test_play_transition_runs_until_the_transition_lands(
 ) -> None:
     engine, display, _clock = paced_engine
 
-    asyncio.run(
-        clock_cycle.play_transition(engine, clock_screens.SCREEN_MAIN, _clock, effect=effect)
-    )
+    asyncio.run(clock_cycle.play_transition(engine, clock_screens.SCREEN_MAIN, effect=effect))
 
     assert engine.current_screen == clock_screens.SCREEN_MAIN
     assert engine.transition is None
@@ -55,11 +53,11 @@ def test_dissolve_transition_lands_the_target_through_a_random_pixel_mask(
     paced_engine: tuple,
 ) -> None:
     """The dissolve helper forces its own effect rather than drawing one."""
-    engine, display, clock = paced_engine
+    engine, display, _clock = paced_engine
     _land(engine, clock_screens.SCREEN_SEASON)
     display.shown.clear()
 
-    asyncio.run(clock_cycle.play_dissolve_transition(engine, clock_screens.SCREEN_MAIN, clock))
+    asyncio.run(clock_cycle.play_dissolve_transition(engine, clock_screens.SCREEN_MAIN))
 
     assert engine.current_screen == clock_screens.SCREEN_MAIN
     assert len(display.shown) == ct.TRANSITION_STEPS
@@ -80,11 +78,11 @@ def test_wait_transition_scrolls_the_wait_screen_into_itself(paced_engine: tuple
     Frames must also keep *moving* — a static repeat would satisfy "never dark"
     while showing the user a frozen display.
     """
-    engine, display, clock = paced_engine
+    engine, display, _clock = paced_engine
     _land(engine, clock_screens.WAIT_ON)
     display.shown.clear()
 
-    asyncio.run(clock_cycle.play_wait_transition(engine, clock))
+    asyncio.run(clock_cycle.play_wait_transition(engine))
 
     assert engine.current_screen == clock_screens.WAIT_ON
     assert len(display.shown) > 1
@@ -100,7 +98,7 @@ def test_hold_screen_waits_for_its_duration_and_periodically_refreshes(
     hold_ms = clock_screens.screen_spec(clock_screens.SCREEN_MAIN).hold_ms
     started = clock.ticks
 
-    asyncio.run(clock_cycle.hold_screen(engine, clock))
+    asyncio.run(clock_cycle.hold_screen(engine))
 
     assert clock.ticks - started == hold_ms
     assert len(display.shown) == 1 + hold_ms // clock_cycle.REASSERT_MS
@@ -117,7 +115,7 @@ def test_hold_screen_breaks_out_early_when_the_stop_predicate_fires(
     def _stop() -> bool:
         return clock.ticks - started >= 2 * clock_cycle.POLL_SLEEP_MS
 
-    asyncio.run(clock_cycle.hold_screen(engine, clock, stop=_stop))
+    asyncio.run(clock_cycle.hold_screen(engine, stop=_stop))
 
     assert clock.ticks - started == 2 * clock_cycle.POLL_SLEEP_MS
 
@@ -131,7 +129,7 @@ def test_hold_screen_returns_immediately_when_the_fix_is_already_in(
     display.shown.clear()
     started = clock.ticks
 
-    asyncio.run(clock_cycle.hold_screen(engine, clock, stop=lambda: True))
+    asyncio.run(clock_cycle.hold_screen(engine, stop=lambda: True))
 
     assert clock.ticks == started
     assert display.shown == []
@@ -154,7 +152,7 @@ def test_held_uptime_screen_advances_its_marquee_every_scroll_step(
     display.shown.clear()
     started = clock.ticks
 
-    asyncio.run(clock_cycle.hold_screen(engine, clock))
+    asyncio.run(clock_cycle.hold_screen(engine))
 
     held_ms = clock.ticks - started
     assert held_ms == clock_screens.screen_spec(clock_screens.SCREEN_UPTIME).hold_ms
@@ -171,11 +169,11 @@ def test_frame_rate_test_runs_for_its_hold_and_reports_rising_frame_counts(
     samples: list = []
     engine.show_frame_rate = lambda count, elapsed, _now: samples.append((count, elapsed))
 
-    asyncio.run(clock_cycle.run_frame_rate_test(engine, clock))
+    asyncio.run(clock_cycle.run_frame_rate_test(engine))
 
     hold_ms = clock_screens.screen_spec(clock_screens.SCREEN_FRAME_RATE).hold_ms
-    assert samples == list(enumerate(range(0, hold_ms, clock_cycle.FRAME_RATE_TEST_SLEEP_MS), 1))
-    assert hold_ms <= clock.ticks < hold_ms + clock_cycle.FRAME_RATE_TEST_SLEEP_MS
+    assert samples == list(enumerate(range(0, hold_ms, clock_cycle.POLL_SLEEP_MS), 1))
+    assert hold_ms <= clock.ticks < hold_ms + clock_cycle.POLL_SLEEP_MS
 
 
 def test_startup_handoff_shows_the_brand_then_dissolves_to_the_target(
@@ -191,7 +189,7 @@ def test_startup_handoff_shows_the_brand_then_dissolves_to_the_target(
 
     engine.begin_transition = _record
 
-    asyncio.run(clock_cycle.play_startup_handoff(engine, clock_screens.SCREEN_MAIN, clock))
+    asyncio.run(clock_cycle.play_startup_handoff(engine, clock_screens.SCREEN_MAIN))
 
     assert [visit[:3] for visit in visited] == [
         (clock_screens.SCREEN_BRAND, ct.TRANSITION_SCROLL, ct.DIRECTION_RIGHT),
@@ -240,10 +238,12 @@ def test_transition_pacing_accounts_for_render_cost_and_always_yields(
 
     monkeypatch.setattr(asyncio, "sleep_ms", _record)
     engine = SimpleNamespace(
-        begin_transition=lambda *_args, **_kwargs: None, advance_transition=_render
+        clock=wrapping_clock,
+        begin_transition=lambda *_args, **_kwargs: None,
+        advance_transition=_render,
     )
 
-    asyncio.run(clock_cycle.play_transition(engine, clock_screens.SCREEN_MAIN, wrapping_clock))
+    asyncio.run(clock_cycle.play_transition(engine, clock_screens.SCREEN_MAIN))
 
     assert slept == [expected_sleep, expected_sleep]
     assert frame_starts == [0, render_ms + expected_sleep, 2 * (render_ms + expected_sleep)]
@@ -260,7 +260,9 @@ def test_engine_uses_the_display_geometry_or_the_project_default(geometry: tuple
     if geometry is not None:
         display.width_pixels, display.height_pixels = geometry
 
-    engine = clock_cycle.DisplayEngine(display, FakeRTC(_RTC_VALUE), clock=ManualTime())
+    engine = clock_cycle.DisplayEngine(
+        display, FakeRTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
+    )
     _land(engine, clock_screens.SCREEN_MAIN)
 
     width, height = geometry or (32, 16)
@@ -406,7 +408,9 @@ def test_every_screen_that_lands_also_stamps_the_heal_deadline(
     _land(engine, clock_screens.SCREEN_MAIN)
     assert engine.last_reassert_ms is not None
 
-    fresh = clock_cycle.DisplayEngine(FakeDisplay(), FakeRTC(_RTC_VALUE), clock=ManualTime())
+    fresh = clock_cycle.DisplayEngine(
+        FakeDisplay(), FakeRTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
+    )
     fresh.show_frame_rate(1, 100, 7)
     assert (fresh.current_screen, fresh.last_reassert_ms) == (clock_screens.SCREEN_FRAME_RATE, 7)
 
@@ -487,7 +491,7 @@ def test_frame_rate_reports_tenths_and_cancels_any_transition(
 def test_uptime_screen_receives_the_latched_boot_time(engine_with_sync: tuple) -> None:
     engine, sync = engine_with_sync
     sync.boot_time = (2026, 6, 23, 1, 12, 0, 0)
-    engine._clock.advance(4_000)
+    engine.clock.advance(4_000)
 
     boot, now, scroll_ms = engine._parts_for_screen(clock_screens.SCREEN_UPTIME)
 
@@ -544,7 +548,7 @@ def test_random_instant_effect_still_uses_the_fixed_direction() -> None:
 def test_transition_without_a_forced_effect_draws_one_from_the_table(
     engine: clock_cycle.DisplayEngine,
 ) -> None:
-    engine._rng = FakeRandom([1])  # -> TRANSITION_DISSOLVE
+    engine.rng = FakeRandom([1])  # -> TRANSITION_DISSOLVE
 
     engine.begin_transition(clock_screens.SCREEN_MAIN)
 
@@ -588,7 +592,7 @@ def paced_engine(monkeypatch: pytest.MonkeyPatch, engine: clock_cycle.DisplayEng
     the act of sleeping rather than by real elapsed time. Without it a 3-minute
     screen hold would take 3 real minutes.
     """
-    clock = engine._clock
+    clock = engine.clock
     real_sleep = asyncio.sleep_ms
 
     async def _advancing_sleep(ms: int) -> None:

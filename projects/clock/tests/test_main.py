@@ -162,13 +162,11 @@ def test_clock_program_waits_for_a_fix_before_showing_a_clock_face(
     main_module: object,
 ) -> None:
     """Until GPS syncs, the sequence loops on the wait screen and shows no clock."""
-    engine = _RecordingEngine()
+    engine = _RecordingEngine(FakeRandom([0]))
     sync = SimpleNamespace(synced=False)
 
     with pytest.raises(StopLoop):
-        asyncio.run(
-            main_module.clock_program(engine, sync, FakeRandom([0]), AdvancingTime()),
-        )
+        asyncio.run(main_module.clock_program(engine, sync))
 
     assert clock_screens.WAIT_ON in engine.targets
     assert not (set(engine.targets) & set(clock_screens.REGULAR_SCREENS))
@@ -177,13 +175,11 @@ def test_clock_program_waits_for_a_fix_before_showing_a_clock_face(
 def test_clock_program_alternates_regular_faces_with_interstitials(
     main_module: object,
 ) -> None:
-    engine = _RecordingEngine(stop_after=8)
+    engine = _RecordingEngine(FakeRandom([0, 1, 2]), stop_after=8)
     sync = SimpleNamespace(synced=True)
 
     with pytest.raises(StopLoop):
-        asyncio.run(
-            main_module.clock_program(engine, sync, FakeRandom([0, 1, 2]), AdvancingTime()),
-        )
+        asyncio.run(main_module.clock_program(engine, sync))
 
     assert engine.targets[0] == clock_screens.SCREEN_BRAND
     cycle = engine.targets[1:]
@@ -204,27 +200,24 @@ def test_clock_program_alternates_regular_faces_with_interstitials(
 def test_first_fix_during_wait_hold_reveals_clock_without_another_wait_animation(
     main_module: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    engine = _RecordingEngine(stop_after=3)
+    engine = _RecordingEngine(FakeRandom([0]), stop_after=3)
     sync = SimpleNamespace(synced=False)
-    clock = AdvancingTime()
     original_hold = main_module.hold_screen
     held: list = []
 
-    async def _fix_during_wait(
-        engine: object, clock: object, *, stop: Callable[[], bool] | None = None
-    ) -> None:
+    async def _fix_during_wait(engine: object, *, stop: Callable[[], bool] | None = None) -> None:
         held.append(engine.current_screen)
         if engine.current_screen == clock_screens.WAIT_ON:
             assert stop is not None
             assert stop() is False
             sync.synced = True
             assert stop() is True
-        await original_hold(engine, clock, stop=stop)
+        await original_hold(engine, stop=stop)
 
     monkeypatch.setattr(main_module, "hold_screen", _fix_during_wait)
 
     with pytest.raises(StopLoop):
-        asyncio.run(main_module.clock_program(engine, sync, FakeRandom([0]), clock))
+        asyncio.run(main_module.clock_program(engine, sync))
 
     assert engine.targets[:2] == [clock_screens.SCREEN_BRAND, clock_screens.WAIT_ON]
     assert engine.targets[2] in clock_screens.REGULAR_SCREENS
@@ -269,7 +262,7 @@ def test_whole_sequence_runs_against_the_real_engine_and_renderers(
     engine.begin_transition = _counted
 
     with pytest.raises(StopLoop):
-        asyncio.run(main_module.clock_program(engine, sync, FakeRandom([0]), clock))
+        asyncio.run(main_module.clock_program(engine, sync))
 
     assert engine.current_screen in clock_screens.INTERSTITIAL_SCREENS
     # The landed screen is really rendered, not a stub frame.
@@ -302,7 +295,7 @@ def test_guarded_program_restarts_the_sequence_after_a_render_error(
     with pytest.raises(StopLoop):
         asyncio.run(
             main_module.guarded_program(
-                _RecordingEngine(), SimpleNamespace(synced=True), FakeRandom([0]), AdvancingTime()
+                _RecordingEngine(FakeRandom([0])), SimpleNamespace(synced=True)
             ),
         )
 
@@ -424,7 +417,7 @@ def test_runtime_keeps_gps_pumping_while_display_waits(
     gps = FakeGPS([None, _RMC_FIX])
     display_finished: list = []
 
-    async def _display_program(engine: object, sync: object, _rng: object, _clock: object) -> None:
+    async def _display_program(engine: object, sync: object) -> None:
         assert sync.synced is False
         assert engine._display is display
         assert engine._rtc is rtc
@@ -486,10 +479,12 @@ def _raise_stop_loop(**_kwargs: object) -> None:
 class _RecordingEngine:
     """Engine stub recording transition targets and ending the sequence."""
 
-    def __init__(self, stop_after: int = 4) -> None:
+    def __init__(self, rng: object, stop_after: int = 4) -> None:
         """Land every transition immediately and stop after ``stop_after`` of them."""
         self.targets: list = []
         self.current_screen = clock_screens.WAIT_OFF
+        self.clock = AdvancingTime()
+        self.rng = rng
         self._stop_after = stop_after
 
     def begin_transition(

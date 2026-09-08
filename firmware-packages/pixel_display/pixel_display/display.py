@@ -65,7 +65,7 @@ class Display:
         intensity = _scale_byte(frame.intensity, self._brightness)
         if intensity == frame.intensity:
             return frame
-        return Frame.from_packed(frame.width, frame.height, frame.stride, frame.data, intensity)
+        return Frame(frame.width, frame.height, intensity, stride=frame.stride, data=frame.data)
 
 
 def _corner_failure(width: int, height: int) -> Frame | None:

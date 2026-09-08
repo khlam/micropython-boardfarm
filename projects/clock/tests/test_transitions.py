@@ -24,7 +24,9 @@ def test_effects_clamp_to_independent_endpoint_copies(effect: int, step: int) ->
     source, target = _endpoints()
     source_before, target_before = source.copy(), target.copy()
 
-    frame = ct.frame_transition_frame(effect, source, target, step=step, steps=_STEPS)
+    frame = ct.frame_transition_frame(
+        effect, source, target, step=step, steps=_STEPS, direction=ct.DIRECTION_LEFT
+    )
 
     expected = target if effect == ct.TRANSITION_INSTANT or step >= _STEPS else source
     assert same_frame(frame, expected)
@@ -61,14 +63,6 @@ def test_animation_preserves_endpoints_and_uses_the_brighter_intensity(
 
     assert same_frame(source, source_before)
     assert same_frame(target, target_before)
-
-
-def test_effect_and_direction_choices_fall_back_to_the_module_random_source() -> None:
-    """`rng=None` defaults to `random`; nothing else executes that fallback."""
-    for _ in range(32):
-        assert ct.choose_transition() in ct.TRANSITIONS
-        assert ct.choose_direction() in ct.DIRECTIONS
-        assert ct.randbelow(4) in range(4)
 
 
 @pytest.mark.parametrize("direction", ct.DIRECTIONS)
@@ -129,7 +123,12 @@ def test_dissolve_flips_a_stable_scattered_share_of_pixels_each_step() -> None:
     remaining = [
         lit_pixels(
             ct.frame_transition_frame(
-                ct.TRANSITION_DISSOLVE, source, target, step=step, steps=_STEPS
+                ct.TRANSITION_DISSOLVE,
+                source,
+                target,
+                step=step,
+                steps=_STEPS,
+                direction=ct.DIRECTION_LEFT,
             )
         )
         for step in range(_STEPS + 1)
@@ -140,7 +139,7 @@ def test_dissolve_flips_a_stable_scattered_share_of_pixels_each_step() -> None:
         assert later <= earlier
     assert all(0 < sum(y == row for _x, y in remaining[4]) < 16 for row in range(8))
     repeated = ct.frame_transition_frame(
-        ct.TRANSITION_DISSOLVE, source, target, step=4, steps=_STEPS
+        ct.TRANSITION_DISSOLVE, source, target, step=4, steps=_STEPS, direction=ct.DIRECTION_LEFT
     )
     assert lit_pixels(repeated) == remaining[4]
 
@@ -153,7 +152,9 @@ def test_reveals_preserve_pixels_shared_by_both_endpoints(effect: int) -> None:
     allowed = lit_pixels(source) | lit_pixels(target)
 
     for step in range(1, _STEPS):
-        frame = ct.frame_transition_frame(effect, source, target, step=step, steps=_STEPS)
+        frame = ct.frame_transition_frame(
+            effect, source, target, step=step, steps=_STEPS, direction=ct.DIRECTION_LEFT
+        )
         assert (4, 3) in lit_pixels(frame)
         assert lit_pixels(frame) <= allowed
 
@@ -189,25 +190,12 @@ def test_scroll_translates_both_endpoints_and_clips_at_each_edge(
     assert lit_pixels(frame) == expected
 
 
-@pytest.mark.parametrize(
-    "effect,direction",
-    [(ct.TRANSITION_WIPE, ct.DIRECTION_LEFT), (ct.TRANSITION_SCROLL, ct.DIRECTION_RIGHT)],
-)
-def test_default_entry_directions(effect: int, direction: int) -> None:
-    source, target = _endpoints()
-    default = ct.frame_transition_frame(effect, source, target, step=3, steps=_STEPS)
-    explicit = ct.frame_transition_frame(
-        effect, source, target, step=3, steps=_STEPS, direction=direction
-    )
-
-    assert same_frame(default, explicit)
-
-
 def test_unknown_effect_falls_back_to_a_wipe() -> None:
     source, target = _endpoints()
+    box = {"step": 3, "steps": _STEPS, "direction": ct.DIRECTION_LEFT}
 
-    unknown = ct.frame_transition_frame(99, source, target, step=3, steps=_STEPS)
-    wipe = ct.frame_transition_frame(ct.TRANSITION_WIPE, source, target, step=3, steps=_STEPS)
+    unknown = ct.frame_transition_frame(99, source, target, **box)
+    wipe = ct.frame_transition_frame(ct.TRANSITION_WIPE, source, target, **box)
 
     assert same_frame(unknown, wipe)
 
@@ -223,7 +211,12 @@ def test_cached_reveals_remain_correct_after_other_geometries_and_step_counts(ef
     for width, height, steps in [(10, 6, 8), (9, 7, 8), (10, 6, 4), (10, 6, 8)]:
         target = _filled_frame(width, height)
         frame = ct.frame_transition_frame(
-            effect, Frame(width, height), target, step=steps // 2, steps=steps
+            effect,
+            Frame(width, height),
+            target,
+            step=steps // 2,
+            steps=steps,
+            direction=ct.DIRECTION_LEFT,
         )
         assert (frame.width, frame.height) == (width, height)
         if effect == ct.TRANSITION_WIPE:

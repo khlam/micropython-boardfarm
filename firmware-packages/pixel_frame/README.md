@@ -19,10 +19,9 @@ Slice assignment uses matrix order: `frame[y_slice, x_slice]`.
 
 ## Public API
 
-- `Frame(width, height, intensity=255)` creates an exact-size packed
-  monochrome frame.
-- `Frame.from_packed(width, height, stride, data, intensity=255)` wraps packed
-  data produced by transition or backend helpers.
+- `Frame(width, height, intensity=255, *, stride=None, data=None)` creates an
+  exact-size packed monochrome frame, or wraps packed `data` produced by
+  transition or backend helpers.
 - `Text(value, scale="auto", align="center", valign="middle",
   hidden_chars="")` describes text for a frame box.
 

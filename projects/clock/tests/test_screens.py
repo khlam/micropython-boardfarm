@@ -464,21 +464,6 @@ def test_next_regular_from_a_screen_outside_the_rotation_can_still_reach_them_al
     assert chosen == set(clock_screens.REGULAR_SCREENS)
 
 
-def test_screen_choices_fall_back_to_the_module_random_source() -> None:
-    """Every chooser defaults `rng=None` to `random`; the firmware relies on it.
-
-    `clock_program` passes an rng explicitly, but the defaults are part of the
-    published signature and nothing else executes that fallback.
-    """
-    for _ in range(32):
-        assert clock_screens.choose_regular() in clock_screens.REGULAR_SCREENS
-        assert clock_screens.choose_interstitial() in clock_screens.INTERSTITIAL_SCREENS
-        current = clock_screens.REGULAR_SCREENS[0]
-        assert clock_screens.choose_next_regular(current) in set(clock_screens.REGULAR_SCREENS) - {
-            current
-        }
-
-
 def test_random_screen_selection_stays_within_each_kind_and_reaches_every_screen() -> None:
     assert {clock_screens.choose_regular(FakeRandom([n])) for n in range(256)} == {
         clock_screens.SCREEN_MAIN,

@@ -8,7 +8,7 @@ services:
       target: pi-compile
       # Uncomment to build Pico 2 W firmware with Wi-Fi support.
       # args:
-      #   RPI_PICO2: "W"
+      #   RP2350_BOARD: RPI_PICO2_W
     volumes:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import ClassVar
 
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
-_pin_instances: list[object] = []
 uart_constructions: list[UART] = []
 _devices: dict[int, object] = {}
 _uart_rx = bytearray()
 _uart_read_exc: Exception | None = None
 _uart_write_exc: Exception | None = None
 _uart_replies: list[bytes] = []
-_spi_instances: list[object] = []
-_timer_instances: list[object] = []
 _rtc_datetime: tuple = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
@@ -23,20 +21,11 @@ def register_device(address: int, device: object) -> None:
     _devices[address] = device
 
 
-def feed_uart(lines: list[bytes]) -> None:
-    """Append byte chunks to the shared UART receive buffer (FIFO).
-
-    Chunks need not be whole lines: feeding a sentence in fragments models a
-    non-blocking UART that returns only the bytes received so far.
-
-    Args:
-        lines: Byte chunks appended, in order, to the receive buffer.
-    """
-    feed_uart_bytes(b"".join(lines))
-
-
 def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
     """Queue UART data for the any()/read()/readline()/readinto() consumers.
+
+    Bytes need not arrive as whole lines: feeding a sentence in fragments models
+    a non-blocking UART that returns only what has been received so far.
 
     Args:
         data: Bytes appended to the shared receive buffer.
@@ -93,15 +82,15 @@ def reset() -> None:
     """Clear recorded constructions, the device registry, and UART/SPI/Timer/RTC state."""
     global _uart_read_exc, _uart_write_exc, _rtc_datetime  # noqa: PLW0603
     pin_constructions.clear()
-    _pin_instances.clear()
+    Pin.instances.clear()
     uart_constructions.clear()
     _devices.clear()
     _uart_rx.clear()
     _uart_replies.clear()
     _uart_read_exc = None
     _uart_write_exc = None
-    _spi_instances.clear()
-    _timer_instances.clear()
+    SPI.instances.clear()
+    Timer.instances.clear()
     _rtc_datetime = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
@@ -132,7 +121,7 @@ class RTC:
 class Pin:
     """Fake `machine.Pin`. Records id, mode and pull, supports value() and irq()."""
 
-    instances = _pin_instances
+    instances: ClassVar[list[Pin]] = []
 
     OUT = "OUT"
     IN = "IN"
@@ -165,7 +154,7 @@ class Pin:
         self._irq_handler = None
         self._irq_trigger = None
         pin_constructions.append((id, mode))
-        _pin_instances.append(self)
+        Pin.instances.append(self)
 
     def value(self, v: int | None = None) -> int | None:
         """Get or set the pin value (0/1)."""
@@ -202,7 +191,7 @@ class Pin:
 class SPI:
     """Fake `machine.SPI` that records writes."""
 
-    instances = _spi_instances
+    instances: ClassVar[list[SPI]] = []
 
     def __init__(
         self,
@@ -225,7 +214,7 @@ class SPI:
         self.mosi = mosi
         self.miso = miso
         self.writes: list[bytes] = []
-        _spi_instances.append(self)
+        SPI.instances.append(self)
 
     def write(self, buf: bytes) -> None:
         """Record one SPI write payload."""
@@ -454,14 +443,14 @@ class Timer:
 
     PERIODIC = "PERIODIC"
     ONE_SHOT = "ONE_SHOT"
-    instances = _timer_instances
+    instances: ClassVar[list[Timer]] = []
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         """Register the instance with no callback until init() runs."""
         self.period = None
         self.mode = None
         self.callback = None
-        _timer_instances.append(self)
+        Timer.instances.append(self)
 
     def init(
         self,
