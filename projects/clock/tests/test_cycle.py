@@ -254,34 +254,26 @@ def test_transition_pacing_accounts_for_render_cost_and_always_yields(
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("geometry", [None, (64, 16)])
-def test_engine_uses_the_display_geometry_or_the_project_default(geometry: tuple | None) -> None:
-    display = FakeDisplay()
-    if geometry is not None:
-        display.width_pixels, display.height_pixels = geometry
+@pytest.mark.parametrize("geometry", [(32, 16), (64, 16)])
+def test_engine_renders_at_the_displays_declared_geometry(geometry: tuple) -> None:
+    display = FakeDisplay(*geometry)
 
     engine = clock_cycle.DisplayEngine(
         display, FakeRTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
     )
     _land(engine, clock_screens.SCREEN_MAIN)
 
-    width, height = geometry or (32, 16)
     assert same_frame(
         display.shown[-1],
-        clock_screens.render_screen(clock_screens.SCREEN_MAIN, _RTC_VALUE[:7], width, height),
+        clock_screens.render_screen(clock_screens.SCREEN_MAIN, _RTC_VALUE[:7], *geometry),
     )
 
 
-@pytest.mark.parametrize(
-    "screen,steps",
-    [
-        (clock_screens.SCREEN_MAIN, ct.TRANSITION_STEPS),
-        (clock_screens.WAIT_ON, clock_cycle.WAIT_TRANSITION_STEPS),
-    ],
-)
+@pytest.mark.parametrize("screen", [clock_screens.SCREEN_MAIN, clock_screens.WAIT_ON])
 def test_animated_transition_lands_after_the_screens_step_budget(
-    engine: clock_cycle.DisplayEngine, screen: int, steps: int
+    engine: clock_cycle.DisplayEngine, screen: int
 ) -> None:
+    steps = ct.TRANSITION_STEPS
     engine.begin_transition(screen, effect=ct.TRANSITION_WIPE)
 
     landings = [engine.advance_transition(step) for step in range(steps)]
@@ -290,28 +282,6 @@ def test_animated_transition_lands_after_the_screens_step_budget(
     assert landings[-1] is True
     assert engine.current_screen == screen
     assert same_frame(engine._display.shown[-1], engine.screen_frame)
-
-
-def test_wait_transitions_never_outrun_the_screens_own_rotate_period(
-    engine: clock_cycle.DisplayEngine, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Wait screens cap their step count so one scroll fits inside WAIT_ROTATE_MS.
-
-    With the shipped constants the cap is inert — `WAIT_TRANSITION_STEPS` equals
-    `TRANSITION_STEPS`, so asserting the two against each other proves nothing.
-    This pins the invariant that makes the cap meaningful, then shrinks it to
-    prove `begin_transition` really routes wait screens through it.
-    """
-    assert clock_cycle.WAIT_TRANSITION_STEPS <= (
-        clock_screens.WAIT_ROTATE_MS // clock_cycle.POLL_SLEEP_MS
-    )
-
-    monkeypatch.setattr(clock_cycle, "WAIT_TRANSITION_STEPS", 3)
-    engine.begin_transition(clock_screens.WAIT_ON, effect=ct.TRANSITION_SCROLL)
-    assert engine.transition.steps == 3
-
-    engine.begin_transition(clock_screens.SCREEN_MAIN, effect=ct.TRANSITION_SCROLL)
-    assert engine.transition.steps == ct.TRANSITION_STEPS
 
 
 def test_first_transition_starts_from_the_blank_wait_endpoint(

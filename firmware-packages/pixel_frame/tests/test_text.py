@@ -47,7 +47,7 @@ def test_wide_glyphs_render_at_their_declared_width(char: str, expected: tuple[s
     width = len(expected[0])
     frame = Frame(width, HEIGHT)
 
-    frame[:, :] = Text(char, scale=1, align="left", valign="top")
+    frame[:, :] = Text(char, scale=(1, 1), align="left", valign="top")
 
     assert glyph(char)[1] == width
     assert tuple(_rows(frame)) == expected
@@ -84,7 +84,7 @@ def test_alignment_respects_the_assigned_box_origin(
 ) -> None:
     frame = Frame(11, 15)
 
-    frame[2:13, 3:10] = Text(":", scale=1, align=align, valign=valign)
+    frame[2:13, 3:10] = Text(":", scale=(1, 1), align=align, valign=valign)
 
     assert _lit_pixels(frame) == {(3 + x_offset, 4 + y_offset), (3 + x_offset, 6 + y_offset)}
 
@@ -116,8 +116,8 @@ def test_explicit_anisotropic_scale_expands_each_source_pixel() -> None:
 
 
 def test_hidden_characters_reserve_layout_without_drawing() -> None:
-    visible = Text(":.:", scale=1)
-    hidden = Text(":.:", scale=1, hidden_chars=".")
+    visible = Text(":.:", scale=(1, 1))
+    hidden = Text(":.:", scale=(1, 1), hidden_chars=".")
     width, height = visible.measure()
     frame = Frame(width, height)
 
@@ -127,8 +127,10 @@ def test_hidden_characters_reserve_layout_without_drawing() -> None:
     assert _lit_pixels(frame) == {(0, 2), (0, 4), (4, 2), (4, 4)}
 
 
-@pytest.mark.parametrize("scale", [1, "auto"])
-def test_overflow_draws_nothing_and_fits_reports_the_exact_boundary(scale: object) -> None:
+@pytest.mark.parametrize("scale", [(1, 1), None])
+def test_overflow_draws_nothing_and_fits_reports_the_exact_boundary(
+    scale: tuple | None,
+) -> None:
     text = Text("12", scale=scale)
     frame = Frame(6, 7)
     frame.pixel(5, 6)
@@ -158,7 +160,7 @@ def test_non_string_values_render_as_their_decimal_text() -> None:
     """The clock passes ints and f-string numbers straight into Text."""
     frame = Frame(7, 7)
 
-    frame[:, :] = Text(12, scale=1, align="left", valign="top")
+    frame[:, :] = Text(12, scale=(1, 1), align="left", valign="top")
 
     assert Text(12).measure() == Text("12").measure()
     assert _lit_pixels(frame) == _lit_pixels(_rendered("12", 7, 7))
@@ -170,7 +172,7 @@ def test_invalid_layout_options_fail_at_construction(option: str) -> None:
         Text("1", **{option: "invalid"})
 
 
-@pytest.mark.parametrize("scale", [0, -1, (0, 1), (1, -1)])
+@pytest.mark.parametrize("scale", [(0, 1), (1, -1)])
 def test_nonpositive_scales_are_rejected_when_layout_is_resolved(scale: object) -> None:
     with pytest.raises(ValueError, match="scale must be positive"):
         Text("1", scale=scale).measure()
@@ -179,7 +181,7 @@ def test_nonpositive_scales_are_rejected_when_layout_is_resolved(scale: object) 
 def _rendered(value: str, width: int, height: int) -> Frame:
     """Return ``value`` drawn top-left into a fresh frame of the given size."""
     frame = Frame(width, height)
-    frame[:, :] = Text(value, scale=1, align="left", valign="top")
+    frame[:, :] = Text(value, scale=(1, 1), align="left", valign="top")
     return frame
 
 

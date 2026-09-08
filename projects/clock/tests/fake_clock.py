@@ -77,8 +77,10 @@ class CountdownTime(ManualTime):
 class FakeDisplay:
     """Display stand-in recording rendered frames and orientation flips."""
 
-    def __init__(self) -> None:
-        """Initialise an empty call log."""
+    def __init__(self, width_pixels: int = 32, height_pixels: int = 16) -> None:
+        """Declare the panel geometry the engine renders into, with an empty call log."""
+        self.width_pixels = width_pixels
+        self.height_pixels = height_pixels
         self.shown: list[object] = []
         self.flips = 0
 

@@ -8,7 +8,6 @@ _ALIGN_RIGHT = "right"
 _VALIGN_TOP = "top"
 _VALIGN_MIDDLE = "middle"
 _VALIGN_BOTTOM = "bottom"
-_SCALE_AUTO = "auto"
 
 
 class Text:
@@ -18,12 +17,16 @@ class Text:
         self,
         value: object,
         *,
-        scale: object = _SCALE_AUTO,
+        scale: tuple | None = None,
         align: str = _ALIGN_CENTER,
         valign: str = _VALIGN_MIDDLE,
         hidden_chars: str = "",
     ) -> None:
-        """Store text layout intent without binding it to a frame."""
+        """Store text layout intent without binding it to a frame.
+
+        ``scale`` is an explicit ``(x, y)`` integer pair, or ``None`` to grow to
+        the largest uniform scale that fits the box the text is assigned into.
+        """
         if align not in (_ALIGN_LEFT, _ALIGN_CENTER, _ALIGN_RIGHT):
             raise ValueError("align must be 'left', 'center', or 'right'")
         if valign not in (_VALIGN_TOP, _VALIGN_MIDDLE, _VALIGN_BOTTOM):
@@ -69,14 +72,11 @@ class Text:
 
     def _scale_for_box(self, box_width: int | None, box_height: int | None) -> tuple:
         """Return explicit or largest fitting integer scale."""
-        if self.scale == _SCALE_AUTO:
-            if box_width is None or box_height is None:
-                return 1, 1
-            return self._auto_scale(box_width, box_height)
-        if isinstance(self.scale, tuple):
+        if self.scale is not None:
             return _positive_scale(self.scale[0]), _positive_scale(self.scale[1])
-        scale = _positive_scale(self.scale)
-        return scale, scale
+        if box_width is None or box_height is None:
+            return 1, 1
+        return self._auto_scale(box_width, box_height)
 
     def _auto_scale(self, box_width: int, box_height: int) -> tuple:
         """Return the largest uniform scale that fits the box."""

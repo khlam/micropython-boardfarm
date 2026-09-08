@@ -9,9 +9,10 @@ never address individual chips.
 
 ## Public API
 
-- `MAX7219(*, spi_id, sck, mosi, cs, width_pixels=32, height_pixels=16,
-  brightness=1.0)` — a `pixel_display.Display` that opens SPI from flat project
-  pins and drives the cascaded chain as its backend.
+- `MAX7219(*, spi_id, sck, mosi, cs, brightness=1.0)` — a `pixel_display.Display`
+  that opens SPI from flat project pins and drives the cascaded chain as its
+  backend. It reports the chain's fixed 32x16 geometry as `width_pixels` /
+  `height_pixels`; the panel wiring, not the caller, decides it.
 - `display.show(frame)` — the only public render method. Build frames with
   `pixel_frame.Frame` and text content with `pixel_frame.Text`.
 

@@ -28,7 +28,7 @@ def test_each_chip_binds_its_documented_backend(monkeypatch, machine_str, backen
     button = _fresh_button(monkeypatch, machine_str)
     backend = importlib.import_module("boot_button." + backend_name)
 
-    assert button._on_press is backend.on_press
+    assert button._watch_edges is backend.watch_edges
 
 
 def test_esp32s3_pulls_up_gpio0_so_the_line_never_floats(button_backend):
@@ -109,7 +109,7 @@ def test_bounce_is_ignored_and_next_press_accepts_debounce_boundary(
             (now - before + _TICKS_PERIOD // 2) % _TICKS_PERIOD - _TICKS_PERIOD // 2
         ),
     )
-    backend._state["last_ms"] = (start_ms - 150) % _TICKS_PERIOD
+    button._state["last_ms"] = (start_ms - 150) % _TICKS_PERIOD
     button.on_press(lambda: fired.append("pressed"))
 
     _press(backend)
@@ -124,11 +124,11 @@ def test_bounce_is_ignored_and_next_press_accepts_debounce_boundary(
 
 def test_scheduled_trampoline_is_inert_before_any_registration(button_backend):
     """The trampoline can be scheduled before a callback exists; it must not raise."""
-    _button, backend = button_backend
+    button, _backend = button_backend
 
-    backend._run(None)
+    button._run(None)
 
-    assert backend._state["callback"] is None
+    assert button._state["callback"] is None
 
 
 @pytest.fixture(

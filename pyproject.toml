@@ -193,10 +193,7 @@ exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-package
 
 [tool.vulture]
 min_confidence = 70
-exclude = [
-  "firmware-packages/vl53l0x/vl53l0x/vl53l0x.py",
-  "manifest.py",
-]
+exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
 
 # tools/matter-build runs as scripts from a bind mount, so build.py imports its
 # siblings by bare name off sys.path[0]. Nothing installs them, so ty needs the

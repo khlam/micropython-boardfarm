@@ -5,6 +5,9 @@ from pixel_display import Display
 
 __all__ = ["MAX7219"]
 
+# Two 8x32 panels stacked. The chain's geometry is fixed by how the panels are
+# wired, so it is reported rather than accepted from the caller: the backend can
+# only convert frames of exactly this size.
 _WIDTH_PIXELS = 32
 _HEIGHT_PIXELS = 16
 
@@ -19,8 +22,6 @@ class MAX7219(Display):
         sck: int,
         mosi: int,
         cs: int,
-        width_pixels: int = _WIDTH_PIXELS,
-        height_pixels: int = _HEIGHT_PIXELS,
         brightness: float = 1.0,
     ) -> None:
         """Open SPI from flat pins and hand the chain to ``pixel_display.Display``.
@@ -30,8 +31,6 @@ class MAX7219(Display):
             sck: SPI clock GPIO.
             mosi: SPI data-out GPIO.
             cs: Chain chip-select GPIO.
-            width_pixels: Declared project display width.
-            height_pixels: Declared project display height.
             brightness: Normalized output brightness.
         """
         from machine import SPI, Pin  # noqa: PLC0415
@@ -39,7 +38,7 @@ class MAX7219(Display):
         spi = SPI(spi_id, baudrate=1_000_000, polarity=0, phase=0, sck=Pin(sck), mosi=Pin(mosi))
         super().__init__(
             _MAX7219Backend(spi, Pin(cs, Pin.OUT, value=1)),
-            width_pixels=width_pixels,
-            height_pixels=height_pixels,
+            width_pixels=_WIDTH_PIXELS,
+            height_pixels=_HEIGHT_PIXELS,
             brightness=brightness,
         )

@@ -37,7 +37,7 @@ _RANDOM_DISSOLVE_MASKS = {}
 _DISSOLVE_SEED = 0x9E3779B1
 
 
-def direction_delta(direction: int) -> tuple:
+def _direction_delta(direction: int) -> tuple:
     """Return the entry vector for ``direction``."""
     dx = 0
     dy = 0
@@ -52,7 +52,7 @@ def direction_delta(direction: int) -> tuple:
     return dx, dy
 
 
-def directional_mask(
+def _directional_mask(
     frame: object,
     total_steps: int,
     visible_steps: int,
@@ -64,12 +64,12 @@ def directional_mask(
     cached = _DIRECTION_MASKS.get(key)
     if cached is not None:
         return cached[visible_steps]
-    masks = build_direction_masks(frame.width, frame.height, total_steps, direction)
+    masks = _build_direction_masks(frame.width, frame.height, total_steps, direction)
     _DIRECTION_MASKS[key] = masks
     return masks[visible_steps]
 
 
-def build_direction_masks(
+def _build_direction_masks(
     width: int,
     height: int,
     total_steps: int,
@@ -77,7 +77,7 @@ def build_direction_masks(
 ) -> tuple:
     """Build packed directional reveal masks for every transition step."""
     stride = (width + 7) // 8
-    dx, dy = direction_delta(direction)
+    dx, dy = _direction_delta(direction)
     total_ranks = 1 + (width - 1 if dx else 0) + (height - 1 if dy else 0)
     masks = []
     for visible_steps in range(total_steps + 1):
@@ -103,7 +103,7 @@ def _axis_rank(delta: int, length: int, position: int) -> int:
     return 0
 
 
-def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
+def _mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
     """Return ``source`` and ``target`` composited through a packed mask."""
     data = bytearray(len(source.data))
     for i, item in enumerate(mask):
@@ -117,7 +117,7 @@ def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
     )
 
 
-def shuffled_pixel_order(width: int, height: int, seed: int) -> list:
+def _shuffled_pixel_order(width: int, height: int, seed: int) -> list:
     """Return all pixel indices in a deterministic pseudo-random order.
 
     A fixed LCG-driven Fisher-Yates shuffle keeps the order stable across the
@@ -133,14 +133,14 @@ def shuffled_pixel_order(width: int, height: int, seed: int) -> list:
     return order
 
 
-def build_dissolve_masks(width: int, height: int, total: int) -> tuple:
+def _build_dissolve_masks(width: int, height: int, total: int) -> tuple:
     """Build cumulative packed masks revealing pixels in random order.
 
     ``masks[k]`` has the first ``k / total`` of all pixels set (in the shuffled
     order), so ``masks[0]`` is empty and ``masks[total]`` is fully lit.
     """
     stride = (width + 7) // 8
-    order = shuffled_pixel_order(width, height, _DISSOLVE_SEED)
+    order = _shuffled_pixel_order(width, height, _DISSOLVE_SEED)
     pixel_count = width * height
     data = bytearray(height * stride)
     masks = [bytes(data)]
@@ -157,18 +157,18 @@ def build_dissolve_masks(width: int, height: int, total: int) -> tuple:
     return tuple(masks)
 
 
-def dissolve_mask(frame: object, total: int, visible_steps: int) -> bytes:
+def _dissolve_mask(frame: object, total: int, visible_steps: int) -> bytes:
     """Return the cumulative random-dissolve mask for one frame geometry."""
     visible_steps = min(total, max(0, visible_steps))
     key = (frame.width, frame.height, total)
     cached = _RANDOM_DISSOLVE_MASKS.get(key)
     if cached is None:
-        cached = build_dissolve_masks(frame.width, frame.height, total)
+        cached = _build_dissolve_masks(frame.width, frame.height, total)
         _RANDOM_DISSOLVE_MASKS[key] = cached
     return cached[visible_steps]
 
 
-def packed_row_bits(frame: object, y: int) -> int:
+def _packed_row_bits(frame: object, y: int) -> int:
     """Return one packed row as a little-endian integer."""
     bits = 0
     row_base = y * frame.stride
@@ -177,14 +177,14 @@ def packed_row_bits(frame: object, y: int) -> int:
     return bits
 
 
-def write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -> None:
+def _write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -> None:
     """Write a little-endian row integer into packed row bytes."""
     for byte_index in range(stride):
         data[base + byte_index] = bits & 0xFF
         bits >>= 8
 
 
-def shifted_source_bits(bits: int, width: int, offset: int, dx: int) -> int:
+def _shifted_source_bits(bits: int, width: int, offset: int, dx: int) -> int:
     """Return source row bits shifted out opposite the entry direction."""
     mask = (1 << width) - 1
     if dx < 0:
@@ -194,7 +194,7 @@ def shifted_source_bits(bits: int, width: int, offset: int, dx: int) -> int:
     return bits & mask
 
 
-def shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
+def _shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
     """Return target row bits shifted in from the entry direction."""
     mask = (1 << width) - 1
     if dx < 0:
@@ -213,7 +213,7 @@ def _scroll_frame(
 ) -> object:
     """Slide packed ``target`` in from ``direction``."""
     data = bytearray(len(source.data))
-    dx, dy = direction_delta(direction)
+    dx, dy = _direction_delta(direction)
     offset_x = source.width * step // steps if dx else 0
     offset_y = source.height * step // steps if dy else 0
     target_y = dy * (source.height - offset_y) if dy else 0
@@ -221,21 +221,21 @@ def _scroll_frame(
         bits = 0
         source_y = y + dy * offset_y
         if 0 <= source_y < source.height:
-            bits |= shifted_source_bits(
-                packed_row_bits(source, source_y),
+            bits |= _shifted_source_bits(
+                _packed_row_bits(source, source_y),
                 source.width,
                 offset_x,
                 dx,
             )
         target_sample_y = y - target_y
         if 0 <= target_sample_y < target.height:
-            bits |= shifted_target_bits(
-                packed_row_bits(target, target_sample_y),
+            bits |= _shifted_target_bits(
+                _packed_row_bits(target, target_sample_y),
                 source.width,
                 offset_x,
                 dx,
             )
-        write_packed_row_bits(data, y * source.stride, source.stride, bits)
+        _write_packed_row_bits(data, y * source.stride, source.stride, bits)
     return Frame(
         source.width,
         source.height,
@@ -263,10 +263,10 @@ def frame_transition_frame(
         return target.copy()
     if effect == TRANSITION_DISSOLVE:
         # Binary pixel swaps stay visible even at low global brightness.
-        return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
+        return _mixed_mask_frame(source, target, _dissolve_mask(source, steps, step))
     if effect == TRANSITION_SCROLL:
         return _scroll_frame(source, target, step, steps, direction)
-    return mixed_mask_frame(source, target, directional_mask(source, steps, step, direction))
+    return _mixed_mask_frame(source, target, _directional_mask(source, steps, step, direction))
 
 
 def randbelow(limit: int, rng: object) -> int:

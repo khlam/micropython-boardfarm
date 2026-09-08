@@ -32,58 +32,31 @@ from clock_sync import ClockSynchronizer
 from max7219 import MAX7219
 
 UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-PixelSurface = namedtuple("PixelSurface", ("width_pixels", "height_pixels", "brightness"))
-DisplayWiring = namedtuple(
-    "DisplayWiring",
-    (
-        "spi_id",
-        "sck",
-        "mosi",
-        "cs",
-        "surface",
-    ),
-)
+DisplayWiring = namedtuple("DisplayWiring", ("spi_id", "sck", "mosi", "cs"))
 Board = namedtuple("Board", ("name", "uart", "display"))
-
-_SURFACE = PixelSurface(width_pixels=32, height_pixels=16, brightness=0.1)
 
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
     BOARD = Board(
         name="ESP32-S3-Zero",
         uart=UartWiring(bus_id=1, tx=13, rx=12),
-        display=DisplayWiring(
-            spi_id=1,
-            sck=5,
-            mosi=6,
-            cs=7,
-            surface=_SURFACE,
-        ),
+        display=DisplayWiring(spi_id=1, sck=5, mosi=6, cs=7),
     )
 elif "RP2350" in _machine:
     BOARD = Board(
         name="RP2350",
         uart=UartWiring(bus_id=1, tx=4, rx=5),
-        display=DisplayWiring(
-            spi_id=1,
-            sck=10,
-            mosi=11,
-            cs=9,
-            surface=_SURFACE,
-        ),
+        display=DisplayWiring(spi_id=1, sck=10, mosi=11, cs=9),
     )
 else:
     BOARD = Board(
         name="RP2040-Zero",
         uart=UartWiring(bus_id=0, tx=0, rx=1),
-        display=DisplayWiring(
-            spi_id=1,
-            sck=26,
-            mosi=27,
-            cs=28,
-            surface=_SURFACE,
-        ),
+        display=DisplayWiring(spi_id=1, sck=26, mosi=27, cs=28),
     )
+
+# The matrix is painfully bright at full scale for a clock left running in a room.
+_BRIGHTNESS = 0.1
 
 _BOOT_PAUSE_MS = 300
 _INIT_ERR_PAUSE_MS = 1_000
@@ -180,7 +153,7 @@ def main() -> None:
     status.boot()
     time.sleep_ms(_BOOT_PAUSE_MS)
 
-    hardware = ClockHardware(BOARD, MAX7219, GPS, RTC)
+    hardware = ClockHardware(BOARD, MAX7219, GPS, RTC, brightness=_BRIGHTNESS)
     button.on_press(hardware.flip_display)
     while True:
         status.i2c_init()

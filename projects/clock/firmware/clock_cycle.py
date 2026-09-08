@@ -20,10 +20,6 @@ FRAME_BUDGET_MS = 1_000 // TARGET_FPS
 # Floor on the per-frame sleep so the cooperative GPS pump is always scheduled,
 # even when a render eats the whole budget.
 MIN_FRAME_YIELD_MS = 2
-WAIT_TRANSITION_STEPS = min(
-    clock_transitions.TRANSITION_STEPS,
-    max(1, clock_screens.WAIT_ROTATE_MS // POLL_SLEEP_MS),
-)
 
 
 async def play_transition(
@@ -180,8 +176,8 @@ class DisplayEngine:
         self.clock = clock
         self.rng = rng
         self._sync = sync
-        self._width_pixels = getattr(display, "width_pixels", clock_screens.WIDTH_PIXELS)
-        self._height_pixels = getattr(display, "height_pixels", clock_screens.HEIGHT_PIXELS)
+        self._width_pixels = display.width_pixels
+        self._height_pixels = display.height_pixels
         self._frame_cache = {}
         self.current_screen = None
         self.last_reassert_ms = None
@@ -202,26 +198,19 @@ class DisplayEngine:
             effect = clock_transitions.choose_transition(self.rng)
         if direction is None:
             direction = _transition_direction(effect, random_effect=random_effect, rng=self.rng)
-        source_screen = self.current_screen
+        # Nothing rendered yet: transition in from the dark wait endpoint.
         source_frame = self.screen_frame
-        if source_screen is None:
-            source_screen = clock_screens.WAIT_OFF
-            source_frame = None
         if source_frame is None:
-            source_frame = self._frame_and_key(
-                source_screen, self._parts_for_screen(source_screen)
-            )[0]
+            source_frame = self._frame_and_key(clock_screens.WAIT_OFF, None)[0]
         target_frame, target_key = self._frame_and_key(
             target_screen, self._parts_for_screen(target_screen)
         )
+        # An instant cut lands on its single frame; every other effect animates.
+        steps = clock_transitions.TRANSITION_STEPS
+        if effect == clock_transitions.TRANSITION_INSTANT:
+            steps = 1
         self.transition = TransitionRun(
-            effect,
-            direction,
-            target_screen,
-            source_frame,
-            target_frame,
-            target_key,
-            _transition_steps(effect, target_screen),
+            effect, direction, target_screen, source_frame, target_frame, target_key, steps
         )
 
     def advance_transition(self, now: int) -> bool:
@@ -319,15 +308,6 @@ def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:
     if elapsed_ms <= 0:
         return 0
     return frame_count * 10_000 // elapsed_ms
-
-
-def _transition_steps(effect: int, target_screen: int) -> int:
-    """Return how many frames a transition into ``target_screen`` should take."""
-    if effect == clock_transitions.TRANSITION_INSTANT:
-        return 1
-    if clock_screens.is_wait(target_screen):
-        return WAIT_TRANSITION_STEPS
-    return clock_transitions.TRANSITION_STEPS
 
 
 def _transition_direction(effect: int, *, random_effect: bool, rng: object) -> int:

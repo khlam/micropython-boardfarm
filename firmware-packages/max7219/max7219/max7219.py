@@ -9,14 +9,13 @@ from micropython import const
 
 from pixel_frame import Frame
 
-_PANEL_W = const(32)
 _PANEL_H = const(8)
 _CHIPS_PER_PANEL = const(4)
 _PANELS = const(2)
 _NUM_CHIPS = const(_CHIPS_PER_PANEL * _PANELS)
-_WIDTH = const(_PANEL_W)
+# The panels stack vertically, so the surface is one panel wide and _PANELS tall.
+_WIDTH = const(32)
 _HEIGHT = const(_PANEL_H * _PANELS)
-_BYTES_PER_ROW = const(_WIDTH // 8)
 _FLASH_MS = const(250)
 _DEFAULT_INTENSITY = const(0x00)
 _MAX_INTENSITY = const(0x0F)

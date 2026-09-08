@@ -139,7 +139,7 @@ def test_slice_assignment_requires_drawable_content() -> None:
 def test_slice_assignment_uses_matrix_order_and_open_bounds() -> None:
     frame = Frame(9, 9)
 
-    frame[2:, :1] = Text(":", scale=1)
+    frame[2:, :1] = Text(":", scale=(1, 1))
 
     assert {(x, y) for y in range(9) for x in range(9) if frame.value_at(x, y)} == {
         (0, 4),

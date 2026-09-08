@@ -49,8 +49,7 @@ def test_board_table_selects_documented_wiring(
 
     assert board.name == name
     assert board.uart == uart
-    assert board.display[:4] == spi
-    assert board.display.surface == (32, 16, 0.1)
+    assert board.display == spi
 
 
 def test_hardware_opens_devices_with_the_boards_pins() -> None:
@@ -64,7 +63,7 @@ def test_hardware_opens_devices_with_the_boards_pins() -> None:
         created["gps"] = dict(kwargs)
         return FakeGPS()
 
-    hardware = clock_hardware.ClockHardware(_BOARD, _display, _gps, FakeRTC)
+    hardware = clock_hardware.ClockHardware(_BOARD, _display, _gps, FakeRTC, brightness=0.2)
     devices = hardware.open()
 
     assert created["display"] == {
@@ -72,8 +71,6 @@ def test_hardware_opens_devices_with_the_boards_pins() -> None:
         "sck": 26,
         "mosi": 27,
         "cs": 28,
-        "width_pixels": 32,
-        "height_pixels": 16,
         "brightness": 0.2,
     }
     assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}
@@ -509,11 +506,5 @@ class _RecordingEngine:
 
 _BOARD = SimpleNamespace(
     uart=SimpleNamespace(bus_id=0, tx=0, rx=1),
-    display=SimpleNamespace(
-        spi_id=1,
-        sck=26,
-        mosi=27,
-        cs=28,
-        surface=SimpleNamespace(width_pixels=32, height_pixels=16, brightness=0.2),
-    ),
+    display=SimpleNamespace(spi_id=1, sck=26, mosi=27, cs=28),
 )

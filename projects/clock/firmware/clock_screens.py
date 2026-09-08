@@ -6,7 +6,7 @@ from clock_transitions import randbelow
 from pixel_frame import Frame, Text
 from tz_offset import days_from_epoch
 
-ScreenSpec = namedtuple("ScreenSpec", ("id", "name", "kind", "hold_ms", "render", "key"))
+ScreenSpec = namedtuple("ScreenSpec", ("id", "kind", "hold_ms", "render", "key"))
 
 SCREEN_MAIN = 0
 SCREEN_SEASON = 1
@@ -85,10 +85,10 @@ MONTH_NAMES = (
 )
 DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
-_SEASON_WINTER = "WINTER"
+# Meteorological seasons, indexed by month - 1.
 _SEASONS = (
-    _SEASON_WINTER,
-    _SEASON_WINTER,
+    "WINTER",
+    "WINTER",
     "SPRING",
     "SPRING",
     "SPRING",
@@ -98,7 +98,7 @@ _SEASONS = (
     "AUTUMN",
     "AUTUMN",
     "AUTUMN",
-    _SEASON_WINTER,
+    "WINTER",
 )
 
 
@@ -188,7 +188,7 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
     label_width, label_height = label.measure()
     base_width, base_height = Text(clock).measure()
     time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - label_width
-    if base_width <= 0 or base_height <= 0 or time_box_width <= 0:
+    if time_box_width <= 0:
         frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
         return frame
     x_scale = max(1, time_box_width // base_width)
@@ -554,17 +554,9 @@ def wait_off_key(_parts: tuple | None) -> tuple:
 
 
 SCREEN_SPECS = (
-    ScreenSpec(
-        SCREEN_MAIN,
-        "main",
-        KIND_REGULAR,
-        SCREEN_HOLD_MS,
-        main_screen_frame,
-        main_screen_key,
-    ),
+    ScreenSpec(SCREEN_MAIN, KIND_REGULAR, SCREEN_HOLD_MS, main_screen_frame, main_screen_key),
     ScreenSpec(
         SCREEN_CLOCK_MERIDIEM,
-        "clock_meridiem",
         KIND_REGULAR,
         SCREEN_HOLD_MS,
         clock_meridiem_screen_frame,
@@ -572,7 +564,6 @@ SCREEN_SPECS = (
     ),
     ScreenSpec(
         SCREEN_TIME_SECONDS,
-        "time_seconds",
         KIND_REGULAR,
         SCREEN_HOLD_MS,
         time_seconds_screen_frame,
@@ -580,7 +571,6 @@ SCREEN_SPECS = (
     ),
     ScreenSpec(
         SCREEN_SEASON,
-        "season",
         KIND_INTERSTITIAL,
         INTERSTITIAL_HOLD_MS,
         season_screen_frame,
@@ -588,38 +578,24 @@ SCREEN_SPECS = (
     ),
     ScreenSpec(
         SCREEN_FULL_DATE,
-        "full_date",
         KIND_INTERSTITIAL,
         INTERSTITIAL_HOLD_MS,
         full_date_screen_frame,
         full_date_screen_key,
     ),
     ScreenSpec(
-        SCREEN_UPTIME,
-        "uptime",
-        KIND_INTERSTITIAL,
-        UPTIME_HOLD_MS,
-        uptime_screen_frame,
-        uptime_screen_key,
+        SCREEN_UPTIME, KIND_INTERSTITIAL, UPTIME_HOLD_MS, uptime_screen_frame, uptime_screen_key
     ),
     ScreenSpec(
         SCREEN_FRAME_RATE,
-        "frame_rate",
         KIND_DIAGNOSTIC,
         FRAME_RATE_TEST_MS,
         frame_rate_screen_frame,
         frame_rate_screen_key,
     ),
-    ScreenSpec(
-        SCREEN_BRAND,
-        "brand",
-        KIND_DIAGNOSTIC,
-        BRAND_HOLD_MS,
-        brand_screen_frame,
-        brand_screen_key,
-    ),
-    ScreenSpec(WAIT_OFF, "wait_off", KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, wait_off_key),
-    ScreenSpec(WAIT_ON, "wait_on", KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, wait_on_key),
+    ScreenSpec(SCREEN_BRAND, KIND_DIAGNOSTIC, BRAND_HOLD_MS, brand_screen_frame, brand_screen_key),
+    ScreenSpec(WAIT_OFF, KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, wait_off_key),
+    ScreenSpec(WAIT_ON, KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, wait_on_key),
 )
 
 SCREEN_BY_ID = {spec.id: spec for spec in SCREEN_SPECS}

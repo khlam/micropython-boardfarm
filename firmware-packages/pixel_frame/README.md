@@ -22,11 +22,11 @@ Slice assignment uses matrix order: `frame[y_slice, x_slice]`.
 - `Frame(width, height, intensity=255, *, stride=None, data=None)` creates an
   exact-size packed monochrome frame, or wraps packed `data` produced by
   transition or backend helpers.
-- `Text(value, scale="auto", align="center", valign="middle",
+- `Text(value, scale=None, align="center", valign="middle",
   hidden_chars="")` describes text for a frame box.
 
 `Text` chooses the largest integer scale that fits the assigned box unless an
-explicit scale is provided. Adjacent visible characters always reserve at least
+explicit `(x, y)` scale pair is provided. Adjacent visible characters always reserve at least
 one blank pixel column between them. Characters listed in `hidden_chars`
 reserve their normal advance but draw no pixels, so blink states do not shift
 layout.
