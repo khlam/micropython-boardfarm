@@ -52,30 +52,17 @@ def _direction_delta(direction: int) -> tuple:
     return dx, dy
 
 
-def _directional_mask(
-    frame: object,
-    total_steps: int,
-    visible_steps: int,
-    direction: int,
-) -> bytearray:
-    """Return a packed directional reveal mask."""
-    visible_steps = min(total_steps, max(0, visible_steps))
-    key = (frame.width, frame.height, total_steps, direction)
-    cached = _DIRECTION_MASKS.get(key)
-    if cached is not None:
-        return cached[visible_steps]
-    masks = _build_direction_masks(frame.width, frame.height, total_steps, direction)
-    _DIRECTION_MASKS[key] = masks
-    return masks[visible_steps]
-
-
-def _build_direction_masks(
+def _direction_masks(
     width: int,
     height: int,
     total_steps: int,
     direction: int,
 ) -> tuple:
-    """Build packed directional reveal masks for every transition step."""
+    """Return cached packed directional reveal masks for every transition step."""
+    key = (width, height, total_steps, direction)
+    cached = _DIRECTION_MASKS.get(key)
+    if cached is not None:
+        return cached
     stride = (width + 7) // 8
     dx, dy = _direction_delta(direction)
     total_ranks = 1 + (width - 1 if dx else 0) + (height - 1 if dy else 0)
@@ -91,7 +78,9 @@ def _build_direction_masks(
                 if rank < visible_ranks:
                     data[row_base + (x >> 3)] |= 1 << (x & 7)
         masks.append(data)
-    return tuple(masks)
+    cached = tuple(masks)
+    _DIRECTION_MASKS[key] = cached
+    return cached
 
 
 def _axis_rank(delta: int, length: int, position: int) -> int:
@@ -133,12 +122,16 @@ def _shuffled_pixel_order(width: int, height: int, seed: int) -> list:
     return order
 
 
-def _build_dissolve_masks(width: int, height: int, total: int) -> tuple:
-    """Build cumulative packed masks revealing pixels in random order.
+def _dissolve_masks(width: int, height: int, total: int) -> tuple:
+    """Return cached cumulative packed masks revealing pixels in random order.
 
     ``masks[k]`` has the first ``k / total`` of all pixels set (in the shuffled
     order), so ``masks[0]`` is empty and ``masks[total]`` is fully lit.
     """
+    key = (width, height, total)
+    cached = _RANDOM_DISSOLVE_MASKS.get(key)
+    if cached is not None:
+        return cached
     stride = (width + 7) // 8
     order = _shuffled_pixel_order(width, height, _DISSOLVE_SEED)
     pixel_count = width * height
@@ -154,18 +147,9 @@ def _build_dissolve_masks(width: int, height: int, total: int) -> tuple:
             data[(y * stride) + (x >> 3)] |= 1 << (x & 7)
             placed += 1
         masks.append(bytes(data))
-    return tuple(masks)
-
-
-def _dissolve_mask(frame: object, total: int, visible_steps: int) -> bytes:
-    """Return the cumulative random-dissolve mask for one frame geometry."""
-    visible_steps = min(total, max(0, visible_steps))
-    key = (frame.width, frame.height, total)
-    cached = _RANDOM_DISSOLVE_MASKS.get(key)
-    if cached is None:
-        cached = _build_dissolve_masks(frame.width, frame.height, total)
-        _RANDOM_DISSOLVE_MASKS[key] = cached
-    return cached[visible_steps]
+    cached = tuple(masks)
+    _RANDOM_DISSOLVE_MASKS[key] = cached
+    return cached
 
 
 def _packed_row_bits(frame: object, y: int) -> int:
@@ -251,12 +235,14 @@ def frame_transition_frame(
         return source.copy()
     if step >= steps:
         return target.copy()
-    if effect == TRANSITION_DISSOLVE:
-        # Binary pixel swaps stay visible even at low global brightness.
-        return _mixed_mask_frame(source, target, _dissolve_mask(source, steps, step))
     if effect == TRANSITION_SCROLL:
         return _scroll_frame(source, target, step, steps, direction)
-    return _mixed_mask_frame(source, target, _directional_mask(source, steps, step, direction))
+    if effect == TRANSITION_DISSOLVE:
+        # Binary pixel swaps stay visible even at low global brightness.
+        masks = _dissolve_masks(source.width, source.height, steps)
+    else:
+        masks = _direction_masks(source.width, source.height, steps, direction)
+    return _mixed_mask_frame(source, target, masks[step])
 
 
 def randbelow(limit: int, rng: object) -> int:

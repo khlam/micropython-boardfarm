@@ -86,13 +86,11 @@ class Text:
         """Return text bounds at one explicit scale."""
         if not self.value:
             return 0, 0
-        width = 0
-        for i, char in enumerate(self.value):
+        width = (len(self.value) - 1) * SPACING
+        for char in self.value:
             _cols, glyph_width = glyph(char)
-            if i:
-                width += SPACING * x_scale
-            width += glyph_width * x_scale
-        return width, HEIGHT * y_scale
+            width += glyph_width
+        return width * x_scale, HEIGHT * y_scale
 
 
 def _draw_glyph(

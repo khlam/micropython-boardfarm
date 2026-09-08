@@ -51,14 +51,10 @@ def days_from_epoch(year: int, month: int, day: int) -> int:
     Gregorian rules.
     """
     n = 0
-    y = _EPOCH_YEAR
-    while y < year:
+    for y in range(_EPOCH_YEAR, year):
         n += 366 if _is_leap(y) else 365
-        y += 1
-    mo = 1
-    while mo < month:
+    for mo in range(1, month):
         n += _days_in_month(year, mo)
-        mo += 1
     return n + (day - 1)
 
 
