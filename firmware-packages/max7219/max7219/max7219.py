@@ -145,13 +145,10 @@ class _MAX7219Backend:
         """Write only digit rows whose chain bytes changed."""
         for chip_row in range(_PANEL_H):
             base = chip_row * _NUM_CHIPS
-            dirty = False
             for pos in range(_NUM_CHIPS):
                 if self._rows[base + pos] != self._next_rows[base + pos]:
-                    dirty = True
+                    self._write_row(chip_row, self._next_rows)
                     break
-            if dirty:
-                self._write_row(chip_row, self._next_rows)
 
     def _reassert(self) -> None:
         """Heal the chip configuration and current matrix state."""

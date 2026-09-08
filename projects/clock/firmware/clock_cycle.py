@@ -245,7 +245,11 @@ class DisplayEngine:
         if transition.step < transition.steps:
             transition.step += 1
             return False
-        self._land_transition(transition, now)
+        self.current_screen = transition.target_screen
+        self.screen_frame = transition.target_frame
+        self.shown_key = transition.target_key
+        self.transition = None
+        self.reassert(now)
         return True
 
     def reassert(self, now: int) -> None:
@@ -311,17 +315,6 @@ class DisplayEngine:
         self.screen_frame = frame
         self.shown_key = key
         self.last_reassert_ms = now
-
-    def _land_transition(self, transition: object, now: int) -> None:
-        """Commit a completed transition, refreshing content that changed in flight."""
-        self.current_screen = transition.target_screen
-        self.screen_frame = transition.target_frame
-        self.shown_key = transition.target_key
-        self.transition = None
-        parts = self._parts_for_screen(self.current_screen)
-        if clock_screens.screen_key(self.current_screen, parts) != self.shown_key:
-            frame, key = self._frame_and_key(self.current_screen, parts)
-            self._show_frame(frame, key, now)
 
 
 def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:

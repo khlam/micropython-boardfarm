@@ -27,32 +27,25 @@ class ClockSynchronizer:
             self.boot_time = tuple(self._rtc.datetime())[:7]
 
 
-def parse_utc_parts(date_str: str, utc_str: str) -> tuple:
-    """Split GPS date and UTC strings into integer date/time fields."""
-    return (
+def local_from_offset(date_str: str, utc_str: str, offset_s: int) -> tuple:
+    """Convert a GPS UTC timestamp to an RTC-ready local tuple with a cached offset."""
+    year, month, day, hour, minute, second = utc_to_local_seconds(
         int(date_str[0:4]),
         int(date_str[5:7]),
         int(date_str[8:10]),
         int(utc_str[0:2]),
         int(utc_str[3:5]),
         int(utc_str[6:8]),
-    )
-
-
-def local_from_offset(date_str: str, utc_str: str, offset_s: int) -> tuple:
-    """Convert a GPS UTC timestamp to an RTC-ready local tuple with a cached offset."""
-    year, month, day, hour, minute, second = parse_utc_parts(date_str, utc_str)
-    local_year, local_month, local_day, local_hour, local_minute, local_second = (
-        utc_to_local_seconds(year, month, day, hour, minute, second, offset_s)
+        offset_s,
     )
     return (
-        local_year,
-        local_month,
-        local_day,
-        weekday(local_year, local_month, local_day),
-        local_hour,
-        local_minute,
-        local_second,
+        year,
+        month,
+        day,
+        weekday(year, month, day),
+        hour,
+        minute,
+        second,
         0,
     )
 

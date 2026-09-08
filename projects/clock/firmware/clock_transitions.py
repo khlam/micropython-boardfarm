@@ -54,49 +54,6 @@ def direction_delta(direction: int) -> tuple:
     return dx, dy
 
 
-def direction_rank(direction: int, width: int, height: int, x: int, y: int) -> int:
-    """Return the reveal rank for one pixel from ``direction``."""
-    rank = 0
-    dx, dy = direction_delta(direction)
-    if dx < 0:
-        rank += x
-    elif dx > 0:
-        rank += width - 1 - x
-    if dy < 0:
-        rank += y
-    elif dy > 0:
-        rank += height - 1 - y
-    return rank
-
-
-def direction_total(direction: int, width: int, height: int) -> int:
-    """Return the number of reveal ranks for ``direction``."""
-    if direction in (DIRECTION_LEFT, DIRECTION_RIGHT):
-        return width
-    if direction in (DIRECTION_TOP, DIRECTION_BOTTOM):
-        return height
-    return width + height - 1
-
-
-def direction_visible(
-    direction: int,
-    width: int,
-    height: int,
-    x: int,
-    y: int,
-    visible_steps: int,
-    total_steps: int,
-) -> bool:
-    """Return whether one pixel is visible for a directional reveal."""
-    if visible_steps <= 0:
-        return False
-    if visible_steps >= total_steps:
-        return True
-    total = direction_total(direction, width, height)
-    visible_ranks = max(1, total * visible_steps // total_steps)
-    return direction_rank(direction, width, height, x, y) < visible_ranks
-
-
 def directional_mask(
     frame: object,
     total_steps: int,
@@ -122,24 +79,30 @@ def build_direction_masks(
 ) -> tuple:
     """Build packed directional reveal masks for every transition step."""
     stride = (width + 7) // 8
+    dx, dy = direction_delta(direction)
+    total_ranks = 1 + (width - 1 if dx else 0) + (height - 1 if dy else 0)
     masks = []
     for visible_steps in range(total_steps + 1):
         data = bytearray(height * stride)
+        visible_ranks = max(1, total_ranks * visible_steps // total_steps) if visible_steps else 0
         for y in range(height):
             row_base = y * stride
+            row_rank = _axis_rank(dy, height, y)
             for x in range(width):
-                if direction_visible(
-                    direction,
-                    width,
-                    height,
-                    x,
-                    y,
-                    visible_steps,
-                    total_steps,
-                ):
+                rank = row_rank + _axis_rank(dx, width, x)
+                if rank < visible_ranks:
                     data[row_base + (x >> 3)] |= 1 << (x & 7)
         masks.append(data)
     return tuple(masks)
+
+
+def _axis_rank(delta: int, length: int, position: int) -> int:
+    """Return distance from an entry edge, or zero for a stationary axis."""
+    if delta < 0:
+        return position
+    if delta > 0:
+        return length - 1 - position
+    return 0
 
 
 def mixed_mask_frame(source: object, target: object, mask: bytearray) -> object:
