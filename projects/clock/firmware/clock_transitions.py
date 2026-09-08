@@ -184,23 +184,13 @@ def _write_packed_row_bits(data: bytearray, base: int, stride: int, bits: int) -
         bits >>= 8
 
 
-def _shifted_source_bits(bits: int, width: int, offset: int, dx: int) -> int:
-    """Return source row bits shifted out opposite the entry direction."""
+def _shifted_row_bits(bits: int, width: int, offset: int, dx: int) -> int:
+    """Shift packed row bits by ``offset`` pixels opposite ``dx``."""
     mask = (1 << width) - 1
     if dx < 0:
         return (bits << offset) & mask
     if dx > 0:
         return bits >> offset
-    return bits & mask
-
-
-def _shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
-    """Return target row bits shifted in from the entry direction."""
-    mask = (1 << width) - 1
-    if dx < 0:
-        return bits >> (width - offset)
-    if dx > 0:
-        return (bits << (width - offset)) & mask
     return bits & mask
 
 
@@ -221,7 +211,7 @@ def _scroll_frame(
         bits = 0
         source_y = y + dy * offset_y
         if 0 <= source_y < source.height:
-            bits |= _shifted_source_bits(
+            bits |= _shifted_row_bits(
                 _packed_row_bits(source, source_y),
                 source.width,
                 offset_x,
@@ -229,11 +219,11 @@ def _scroll_frame(
             )
         target_sample_y = y - target_y
         if 0 <= target_sample_y < target.height:
-            bits |= _shifted_target_bits(
+            bits |= _shifted_row_bits(
                 _packed_row_bits(target, target_sample_y),
                 source.width,
-                offset_x,
-                dx,
+                source.width - offset_x,
+                -dx,
             )
         _write_packed_row_bits(data, y * source.stride, source.stride, bits)
     return Frame(

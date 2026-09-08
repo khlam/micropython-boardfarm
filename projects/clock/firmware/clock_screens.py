@@ -188,9 +188,6 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
     label_width, label_height = label.measure()
     base_width, base_height = Text(clock).measure()
     time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - label_width
-    if time_box_width <= 0:
-        frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
-        return frame
     x_scale = max(1, time_box_width // base_width)
     y_scale = max(1, height_pixels // base_height)
     time_text = Text(clock, scale=(x_scale, y_scale), hidden_chars=_blink_colon_hidden(second))
@@ -396,7 +393,7 @@ def _draw_marquee_row(
         frame[y0 : y0 + band_height, 0:width_pixels] = content
         return
     strip = Frame(text_width, band_height)
-    strip[0:band_height, 0:text_width] = Text(text, align="left", valign=valign)
+    strip[0:band_height, 0:text_width] = content
     # The offset never exceeds the overflow, so the window always lands inside
     # the strip and needs no per-column bounds check.
     offset = _scroll_offset(text_width, width_pixels, scroll_ms)

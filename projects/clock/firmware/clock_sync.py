@@ -10,7 +10,6 @@ class ClockSynchronizer:
     def __init__(self, rtc: object) -> None:
         """Bind synchronization state to one RTC."""
         self._rtc = rtc
-        self._utc = None
         self._date = None
         self._lon = None
         self._offset_s = None
@@ -20,25 +19,25 @@ class ClockSynchronizer:
     def consume(self, line: str | None) -> None:
         """Parse one GPS line and set the RTC once time, date, and position are known.
 
-        The three fields can arrive in separate sentences, so each is cached
-        until the set is complete. The first complete fix latches ``boot_time``
+        Date and longitude are cached across sentences; UTC must be fresh in
+        the current sentence. The first complete fix latches ``boot_time``
         as the RTC parts tuple it just set, giving the uptime screen a fixed
         reference instant — the wall-clock moment this run became a real clock.
         """
         if line is None or not nmea_checksum_valid(line):
             return
         _signals, _in_use, _total, _dop, position, parsed = parse_sentence(line)
-        self._utc, self._date = apply_parsed(parsed, self._utc, self._date)
+        utc, self._date = apply_parsed(parsed, None, self._date)
         lon = parsed.get("lon", position.get("lon"))
         if lon is not None:
             self._lon = lon
-        if parsed.get("utc") is None or self._date is None or self._lon is None:
+        if utc is None or self._date is None or self._lon is None:
             return
         if self._offset_s is None:
             # Latched on the first fix so the displayed time never jumps mid-run:
             # crossing a 15-degree meridian would otherwise shift it a whole hour.
             self._offset_s = offset_hours_from_longitude(self._lon) * 3600
-        self._rtc.datetime(_local_datetime(self._date, self._utc, self._offset_s))
+        self._rtc.datetime(_local_datetime(self._date, utc, self._offset_s))
         self.synced = True
         if self.boot_time is None:
             self.boot_time = tuple(self._rtc.datetime())[:7]

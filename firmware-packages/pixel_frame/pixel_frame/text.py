@@ -76,16 +76,10 @@ class Text:
             return _positive_scale(self.scale[0]), _positive_scale(self.scale[1])
         if box_width is None or box_height is None:
             return 1, 1
-        return self._auto_scale(box_width, box_height)
-
-    def _auto_scale(self, box_width: int, box_height: int) -> tuple:
-        """Return the largest uniform scale that fits the box."""
         base_width, base_height = self._measure_at_scale(1, 1)
         if base_width <= 0 or base_height <= 0:
             return 1, 1
-        scale = min(box_width // base_width, box_height // base_height)
-        if scale <= 0:
-            return 1, 1
+        scale = max(1, min(box_width // base_width, box_height // base_height))
         return scale, scale
 
     def _measure_at_scale(self, x_scale: int, y_scale: int) -> tuple:
