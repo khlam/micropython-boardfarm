@@ -415,7 +415,9 @@ def test_landing_refreshes_a_target_whose_content_moved_mid_transition(
         engine._display.shown[-1],
         clock_screens.render_screen(clock_screens.SCREEN_MAIN, engine._rtc.value[:7]),
     )
-    assert engine.shown_key == clock_screens.screen_key(clock_screens.SCREEN_MAIN, engine._parts())
+    assert engine.shown_key == clock_screens.screen_key(
+        clock_screens.SCREEN_MAIN, engine._rtc.value[:7]
+    )
 
 
 def test_landing_does_not_redraw_when_the_target_content_is_unchanged(
@@ -466,7 +468,7 @@ def test_uptime_screen_receives_the_latched_boot_time(engine_with_sync: tuple) -
     boot, now, scroll_ms = engine._parts_for_screen(clock_screens.SCREEN_UPTIME)
 
     assert boot == sync.boot_time
-    assert now == engine._parts()
+    assert now == engine._rtc.value[:7]
     assert scroll_ms == 4_000
 
 

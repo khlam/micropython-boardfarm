@@ -254,10 +254,6 @@ class DisplayEngine:
         self.transition = None
         self._show_frame(frame, key, now)
 
-    def _parts(self) -> tuple:
-        """Return the current RTC parts snapshot."""
-        return clock_screens.rtc_parts(self._rtc)
-
     def _parts_for_screen(self, screen: int) -> tuple | None:
         """Return the render inputs a screen depends on.
 
@@ -269,8 +265,8 @@ class DisplayEngine:
             return None
         if screen == clock_screens.SCREEN_UPTIME:
             boot_time = getattr(self._sync, "boot_time", None)
-            return boot_time, self._parts(), self.clock.ticks_ms()
-        return self._parts()
+            return boot_time, clock_screens.rtc_parts(self._rtc), self.clock.ticks_ms()
+        return clock_screens.rtc_parts(self._rtc)
 
     def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:
         """Return a cached frame and its visible-content key."""

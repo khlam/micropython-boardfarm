@@ -65,14 +65,11 @@ class Text:
             return
         x = x0 + _aligned_offset(width, text_width, self.align)
         ty = y0 + _aligned_offset(height, text_height, self.valign)
-        # Advance exactly as _measure_at_scale does, so layout and drawing agree.
-        for i, char in enumerate(self.value):
+        for char in self.value:
             cols, glyph_width = glyph(char)
-            if i:
-                x += SPACING * x_scale
             if char not in self.hidden_chars:
                 _draw_glyph(frame, cols, glyph_width, x, ty, x_scale, y_scale)
-            x += glyph_width * x_scale
+            x += (glyph_width + SPACING) * x_scale
 
     def _scale_for_box(self, box_width: int | None, box_height: int | None) -> tuple:
         """Return explicit or largest fitting integer scale."""
@@ -126,10 +123,9 @@ def _draw_scaled_pixel(
     y_scale: int,
 ) -> None:
     """Draw one scaled source pixel into a packed frame."""
-    for sy in range(y_scale):
-        y = y0 + sy
-        for sx in range(x_scale):
-            frame.set_pixel_unchecked(x0 + sx, y)
+    for y in range(y0, y0 + y_scale):
+        for x in range(x0, x0 + x_scale):
+            frame.set_pixel_unchecked(x, y)
 
 
 def _aligned_offset(box_size: int, content_size: int, alignment: str) -> int:

@@ -35,12 +35,7 @@ def offset_hours_from_longitude(lon: float) -> int:
     Returns:
         ``round(lon / 15)`` clamped to ``[-12, 14]``.
     """
-    offset = round(lon / 15)
-    if offset < _MIN_OFFSET:
-        return _MIN_OFFSET
-    if offset > _MAX_OFFSET:
-        return _MAX_OFFSET
-    return offset
+    return min(_MAX_OFFSET, max(_MIN_OFFSET, round(lon / 15)))
 
 
 def utc_to_local_seconds(

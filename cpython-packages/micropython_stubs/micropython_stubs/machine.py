@@ -353,10 +353,6 @@ class UART:
         """
         if not _uart_rx:
             return None
-        if nbytes is None or nbytes >= len(_uart_rx):
-            data = bytes(_uart_rx)
-            _uart_rx.clear()
-            return data
         data = bytes(_uart_rx[:nbytes])
         del _uart_rx[:nbytes]
         return data
@@ -370,9 +366,7 @@ class UART:
         nl = _uart_rx.find(b"\n")
         if nl < 0:
             return None
-        data = bytes(_uart_rx[: nl + 1])
-        del _uart_rx[: nl + 1]
-        return data
+        return self.read(nl + 1)
 
     def readinto(self, buf: bytearray, nbytes: int | None = None) -> int | None:
         """Move up to ``nbytes`` buffered bytes into ``buf``, or None when empty.
