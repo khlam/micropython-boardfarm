@@ -286,13 +286,9 @@ class DisplayEngine:
         if clock_screens.is_wait(screen):
             return None
         if screen == clock_screens.SCREEN_UPTIME:
-            return self._uptime_parts()
+            boot_time = getattr(self._sync, "boot_time", None)
+            return boot_time, self._parts(), self._clock.ticks_ms()
         return self._parts()
-
-    def _uptime_parts(self) -> tuple:
-        """Return the uptime screen's ``(boot_time, now, scroll_ms)`` inputs."""
-        boot_time = None if self._sync is None else getattr(self._sync, "boot_time", None)
-        return boot_time, self._parts(), self._clock.ticks_ms()
 
     def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:
         """Return a cached frame and its visible-content key."""

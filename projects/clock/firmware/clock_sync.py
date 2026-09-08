@@ -27,11 +27,6 @@ class ClockSynchronizer:
             self.boot_time = tuple(self._rtc.datetime())[:7]
 
 
-def rtc_datetime(local: tuple) -> tuple:
-    """Convert local clock fields into an RTC datetime tuple."""
-    return local[:4] + local[4:7] + (0,)
-
-
 def parse_utc_parts(date_str: str, utc_str: str) -> tuple:
     """Split GPS date and UTC strings into integer date/time fields."""
     return (
@@ -58,6 +53,7 @@ def local_from_offset(date_str: str, utc_str: str, offset_s: int) -> tuple:
         local_hour,
         local_minute,
         local_second,
+        0,
     )
 
 
@@ -86,5 +82,5 @@ def sync_from_line(line: str | None, rtc: object, state: dict) -> None:
     if parsed.get("utc") is None or cached_date is None or state.get("lon") is None:
         return
     local = local_from_offset(cached_date, utc_time, gps_offset(state))
-    rtc.datetime(rtc_datetime(local))
+    rtc.datetime(local)
     state["synced"] = True

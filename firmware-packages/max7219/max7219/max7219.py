@@ -61,14 +61,14 @@ class _MAX7219Backend:
         if max_intensity is None:
             return False
         self._last_frame = frame
-        rows_changed = _buffers_differ(self._rows, self._next_rows)
+        rows_changed = self._rows != self._next_rows
         intensity_changed = max_intensity != self._intensity
         if intensity_changed:
             self._intensity = max_intensity
             self._write_intensity()
         if rows_changed:
             self._refresh_dirty()
-            _copy_buffer(self._next_rows, self._rows)
+            self._rows[:] = self._next_rows
         elif not intensity_changed:
             self._reassert()
         return True
@@ -92,7 +92,7 @@ class _MAX7219Backend:
         self._write_static_config()
         self._write_intensity()
         self._write_all_rows(self._next_rows)
-        _copy_buffer(self._next_rows, self._rows)
+        self._rows[:] = self._next_rows
 
     def _init_display(self) -> None:
         """Run the power-on register sequence, flash all LEDs, and clear."""
@@ -188,17 +188,6 @@ def _clear_buffer(buf: bytearray) -> None:
     """Zero a framebuffer buffer in place."""
     for i in range(len(buf)):
         buf[i] = 0
-
-
-def _copy_buffer(src: bytearray, dst: bytearray) -> None:
-    """Copy one same-sized buffer into another."""
-    for i, value in enumerate(src):
-        dst[i] = value
-
-
-def _buffers_differ(left: bytearray, right: bytearray) -> bool:
-    """Return whether two same-sized buffers contain different bytes."""
-    return any(value != right[i] for i, value in enumerate(left))
 
 
 def _packed_chip_byte(frame: Frame, col_chip: int, vy: int, *, rotate: bool) -> int:

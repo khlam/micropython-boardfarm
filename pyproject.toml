@@ -355,7 +355,6 @@ known-first-party = [
   "boot_status_led",
   "clock_cycle",
   "clock_hardware",
-  "clock_runtime",
   "clock_screens",
   "clock_sync",
   "clock_transitions",

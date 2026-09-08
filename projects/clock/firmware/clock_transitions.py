@@ -243,22 +243,6 @@ def shifted_target_bits(bits: int, width: int, offset: int, dx: int) -> int:
     return bits & mask
 
 
-def _wipe_frame(
-    source: object,
-    target: object,
-    step: int,
-    steps: int,
-    direction: int,
-) -> object:
-    """Reveal a packed ``target`` over a packed ``source`` from ``direction``."""
-    if step <= 0:
-        return source.copy()
-    if step >= steps:
-        return target.copy()
-    mask = directional_mask(source, steps, step, direction)
-    return mixed_mask_frame(source, target, mask)
-
-
 def _scroll_frame(
     source: object,
     target: object,
@@ -267,10 +251,6 @@ def _scroll_frame(
     direction: int,
 ) -> object:
     """Slide packed ``target`` in from ``direction``."""
-    if step <= 0:
-        return source.copy()
-    if step >= steps:
-        return target.copy()
     data = bytearray(len(source.data))
     dx, dy = direction_delta(direction)
     offset_x = source.width * step // steps if dx else 0
@@ -304,22 +284,6 @@ def _scroll_frame(
     )
 
 
-def _dissolve_frame(source: object, target: object, step: int, steps: int) -> object:
-    """Swap packed ``source`` pixels for ``target`` pixels in random order.
-
-    Pixels toggle fully on or off as they flip between frames rather than
-    dimming, so the dissolve stays visible at the display's low global brightness
-    where an intensity ramp collapses to one or two MAX7219 levels. The out- and
-    in-dissolves run together: one growing random mask picks the pixels already
-    showing ``target`` and leaves the rest on ``source``.
-    """
-    if step <= 0:
-        return source.copy()
-    if step >= steps:
-        return target.copy()
-    return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
-
-
 def frame_transition_frame(
     effect: int,
     source: object,
@@ -332,15 +296,18 @@ def frame_transition_frame(
     """Render one transition frame between two packed frame endpoints."""
     if effect == TRANSITION_INSTANT:
         return target.copy()
+    if step <= 0:
+        return source.copy()
+    if step >= steps:
+        return target.copy()
     if effect == TRANSITION_DISSOLVE:
-        return _dissolve_frame(source, target, step, steps)
-    if effect == TRANSITION_SCROLL:
-        if direction is None:
-            direction = DIRECTION_RIGHT
-        return _scroll_frame(source, target, step, steps, direction)
+        # Binary pixel swaps stay visible even at low global brightness.
+        return mixed_mask_frame(source, target, dissolve_mask(source, steps, step))
     if direction is None:
-        direction = DIRECTION_LEFT
-    return _wipe_frame(source, target, step, steps, direction)
+        direction = DIRECTION_RIGHT if effect == TRANSITION_SCROLL else DIRECTION_LEFT
+    if effect == TRANSITION_SCROLL:
+        return _scroll_frame(source, target, step, steps, direction)
+    return mixed_mask_frame(source, target, directional_mask(source, steps, step, direction))
 
 
 def randbelow(limit: int, rng: object | None = None) -> int:
