@@ -482,47 +482,15 @@ def test_wait_screens_render_without_rtc_parts(engine: clock_cycle.DisplayEngine
     assert engine._parts_for_screen(clock_screens.WAIT_ON) is None
 
 
-@pytest.mark.parametrize(
-    "effect,expected",
-    [
-        (ct.TRANSITION_INSTANT, ct.DIRECTION_LEFT),
-        (ct.TRANSITION_SCROLL, ct.DIRECTION_RIGHT),
-        (ct.TRANSITION_WIPE, ct.DIRECTION_LEFT),
-    ],
-)
-def test_forced_effects_use_a_fixed_direction(effect: int, expected: int) -> None:
-    direction = clock_cycle._transition_direction(effect, random_effect=False, rng=FakeRandom([0]))
-
-    assert direction == expected
-
-
-def test_randomly_chosen_effects_also_choose_a_random_direction() -> None:
-    direction = clock_cycle._transition_direction(
-        ct.TRANSITION_WIPE, random_effect=True, rng=FakeRandom([3])
-    )
-
-    assert direction == ct.DIRECTIONS[3]
-
-
-def test_random_instant_effect_still_uses_the_fixed_direction() -> None:
-    """INSTANT ignores direction entirely, so it must not consume a random value."""
-    rng = FakeRandom([5])
-
-    direction = clock_cycle._transition_direction(
-        ct.TRANSITION_INSTANT, random_effect=True, rng=rng
-    )
-
-    assert direction == ct.DIRECTION_LEFT
-
-
-def test_transition_without_a_forced_effect_draws_one_from_the_table(
+def test_transition_without_a_forced_effect_draws_both_from_the_tables(
     engine: clock_cycle.DisplayEngine,
 ) -> None:
-    engine.rng = FakeRandom([1])  # -> TRANSITION_DISSOLVE
+    engine.rng = FakeRandom([1, 3])  # -> TRANSITION_DISSOLVE, then DIRECTIONS[3]
 
     engine.begin_transition(clock_screens.SCREEN_MAIN)
 
     assert engine.transition.effect == ct.TRANSITION_DISSOLVE
+    assert engine.transition.direction == ct.DIRECTIONS[3]
 
 
 def _land(engine: clock_cycle.DisplayEngine, screen: int) -> None:

@@ -15,9 +15,6 @@ services:
       context: ../..
       dockerfile: Dockerfile.firmware
       target: pi-compile
-      # Uncomment to build Pico 2 W firmware with Wi-Fi support.
-      # args:
-      #   RP2350_BOARD: RPI_PICO2_W
     volumes:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro

@@ -193,11 +193,10 @@ class DisplayEngine:
         direction: int | None = None,
     ) -> None:
         """Snapshot both endpoints for a transition into ``target_screen``."""
-        random_effect = effect is None
         if effect is None:
             effect = clock_transitions.choose_transition(self.rng)
         if direction is None:
-            direction = _transition_direction(effect, random_effect=random_effect, rng=self.rng)
+            direction = clock_transitions.choose_direction(self.rng)
         # Nothing rendered yet: transition in from the dark wait endpoint.
         source_frame = self.screen_frame
         if source_frame is None:
@@ -308,14 +307,3 @@ def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:
     if elapsed_ms <= 0:
         return 0
     return frame_count * 10_000 // elapsed_ms
-
-
-def _transition_direction(effect: int, *, random_effect: bool, rng: object) -> int:
-    """Return the direction for either a random or forced transition effect."""
-    if effect == clock_transitions.TRANSITION_INSTANT:
-        return clock_transitions.DIRECTION_LEFT
-    if random_effect:
-        return clock_transitions.choose_direction(rng)
-    if effect == clock_transitions.TRANSITION_SCROLL:
-        return clock_transitions.DIRECTION_RIGHT
-    return clock_transitions.DIRECTION_LEFT
