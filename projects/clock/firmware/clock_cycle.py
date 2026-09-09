@@ -261,10 +261,11 @@ class DisplayEngine:
         """
         if clock_screens.is_wait(screen):
             return None
+        parts = clock_screens.rtc_parts(self._rtc)
         if screen == clock_screens.SCREEN_UPTIME:
-            boot_time = getattr(self._sync, "boot_time", None)
-            return boot_time, clock_screens.rtc_parts(self._rtc), self.clock.ticks_ms()
-        return clock_screens.rtc_parts(self._rtc)
+            boot_time = self._sync.boot_time if self._sync is not None else None
+            return boot_time, parts, self.clock.ticks_ms()
+        return parts
 
     def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:
         """Return a cached frame and its visible-content key."""
