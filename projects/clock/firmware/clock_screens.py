@@ -194,7 +194,7 @@ def full_date_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) 
 
 def frame_rate_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
     """Render one display frame-rate diagnostic sample."""
-    frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
+    frame_index, fps_x10 = _frame_rate_parts(parts)
     frame = Frame(width_pixels, height_pixels)
     split = _row_split(height_pixels)
     _draw_frame_rate_trace(frame, frame_index, width_pixels, split)
@@ -397,8 +397,8 @@ def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int
 
 def _frame_rate_parts(parts: tuple | None) -> tuple:
     """Return checked frame-rate diagnostic values."""
-    if parts is None or len(parts) != 3:
-        return 0, 0, 0
+    if parts is None or len(parts) != 2:
+        return 0, 0
     return parts
 
 
@@ -463,8 +463,7 @@ def full_date_screen_key(parts: tuple) -> tuple:
 
 def frame_rate_screen_key(parts: tuple | None) -> tuple:
     """Return the visible-content key for one frame-rate diagnostic sample."""
-    frame_index, _elapsed_ms, fps_x10 = _frame_rate_parts(parts)
-    return frame_index, fps_x10
+    return _frame_rate_parts(parts)
 
 
 def uptime_screen_key(parts: tuple | None) -> tuple:

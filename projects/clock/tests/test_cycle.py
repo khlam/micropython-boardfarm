@@ -455,9 +455,7 @@ def test_frame_rate_reports_tenths_and_cancels_any_transition(
     assert engine.transition is None
     assert same_frame(
         engine._display.shown[-1],
-        clock_screens.render_screen(
-            clock_screens.SCREEN_FRAME_RATE, (frame_count, elapsed_ms, expected)
-        ),
+        clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (frame_count, expected)),
     )
 
 

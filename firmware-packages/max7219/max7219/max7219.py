@@ -84,11 +84,9 @@ class _MAX7219Backend:
 
     def clear(self) -> None:
         """Blank the matrix and flush the cleared framebuffer."""
+        _clear_buffer(self._rows)
         _clear_buffer(self._next_rows)
-        self._write_static_config()
-        self._write_intensity()
-        self._write_all_rows(self._next_rows)
-        self._rows[:] = self._next_rows
+        self._reassert()
 
     def _init_display(self) -> None:
         """Run the power-on register sequence, flash all LEDs, and clear."""

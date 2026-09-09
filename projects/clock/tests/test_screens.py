@@ -277,13 +277,13 @@ def test_seconds_progress_bar_fills_across_the_minute(screen: int, row: int) -> 
 
 
 def test_frame_rate_screen_reports_the_measured_rate() -> None:
-    frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (7, 400, 175))
+    frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (7, 175))
     label_only = Frame(32, 16)
     label_only[8:16, 0:32] = Text("FPS 17.5", valign="bottom")
 
     # The label band must contain exactly the rendered "FPS 17.5" glyphs.
     assert lit_pixels(frame, 8, 16) == lit_pixels(label_only, 8, 16)
-    next_frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (8, 450, 175))
+    next_frame = clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (8, 175))
     assert lit_pixels(frame, 0, 8) != lit_pixels(next_frame, 0, 8)
     assert lit_pixels(frame, 8, 16) == lit_pixels(next_frame, 8, 16)
 
@@ -302,11 +302,11 @@ def test_frame_rate_label_is_clamped(fps_x10: int, expected: str) -> None:
     assert clock_screens._frame_rate_label(fps_x10) == expected
 
 
-@pytest.mark.parametrize("parts", [None, (1, 2), (1, 2, 3, 4)])
+@pytest.mark.parametrize("parts", [None, (1,), (1, 2, 3)])
 def test_frame_rate_parts_rejects_malformed_input(parts: object) -> None:
     assert same_frame(
         clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, parts),
-        clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (0, 0, 0)),
+        clock_screens.render_screen(clock_screens.SCREEN_FRAME_RATE, (0, 0)),
     )
 
 
@@ -457,5 +457,5 @@ def _parts_for(screen: int) -> tuple | None:
     if screen == clock_screens.SCREEN_UPTIME:
         return _PARTS, _PARTS, 0
     if screen == clock_screens.SCREEN_FRAME_RATE:
-        return 7, 400, 175
+        return 7, 175
     return _PARTS

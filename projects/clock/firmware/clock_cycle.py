@@ -246,7 +246,7 @@ class DisplayEngine:
 
     def show_frame_rate(self, frame_count: int, elapsed_ms: int, now: int) -> None:
         """Render one diagnostic sample while measuring display throughput."""
-        parts = (frame_count, elapsed_ms, _frame_rate_x10(frame_count, elapsed_ms))
+        parts = (frame_count, _frame_rate_x10(frame_count, elapsed_ms))
         frame, key = self._frame_and_key(clock_screens.SCREEN_FRAME_RATE, parts)
         self.current_screen = clock_screens.SCREEN_FRAME_RATE
         self.transition = None
