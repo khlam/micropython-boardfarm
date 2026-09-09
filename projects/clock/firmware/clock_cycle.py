@@ -271,13 +271,13 @@ class DisplayEngine:
         """Return a cached frame and its visible-content key."""
         key = clock_screens.screen_key(screen, parts)
         cached = self._frame_cache.get(screen)
-        if cached is not None and cached[0] == key:
-            return cached[1], key
-        frame = clock_screens.render_screen(
-            screen, parts, self._display.width_pixels, self._display.height_pixels
-        )
-        self._frame_cache[screen] = (key, frame)
-        return frame, key
+        if cached is None or cached[1] != key:
+            frame = clock_screens.render_screen(
+                screen, parts, self._display.width_pixels, self._display.height_pixels
+            )
+            cached = (frame, key)
+            self._frame_cache[screen] = cached
+        return cached
 
     def _show_frame(self, frame: object, key: tuple, now: int) -> None:
         """Render ``frame`` and store the visible-content state."""

@@ -40,7 +40,9 @@ class _MAX7219Backend:
         self._intensity = _DEFAULT_INTENSITY
         self._rotated = False
         self._last_frame = None
-        self._init_display()
+        self._write_all(_REG_DISPLAY_TEST, 0x01)
+        utime.sleep_ms(_FLASH_MS)
+        self.clear()
 
     def write_frame(self, frame: object) -> bool:
         """Convert a fitted packed frame into the binary matrix and refresh.
@@ -88,12 +90,6 @@ class _MAX7219Backend:
         _clear_buffer(self._next_rows)
         self._reassert()
 
-    def _init_display(self) -> None:
-        """Run the power-on register sequence, flash all LEDs, and clear."""
-        self._write_all(_REG_DISPLAY_TEST, 0x01)
-        utime.sleep_ms(_FLASH_MS)
-        self.clear()
-
     def _write_static_config(self) -> None:
         """Write steady-state control registers that rarely change."""
         for reg, val in (
@@ -130,11 +126,6 @@ class _MAX7219Backend:
         self._spi.write(cmd)
         self._cs.on()
 
-    def _write_all_rows(self, rows: bytearray) -> None:
-        """Write all digit register rows."""
-        for chip_row in range(_PANEL_H):
-            self._write_row(chip_row, rows)
-
     def _refresh_dirty(self) -> None:
         """Write only digit rows whose chain bytes changed."""
         for chip_row in range(_PANEL_H):
@@ -148,7 +139,8 @@ class _MAX7219Backend:
         """Heal the chip configuration and current matrix state."""
         self._write_static_config()
         self._write_intensity()
-        self._write_all_rows(self._rows)
+        for chip_row in range(_PANEL_H):
+            self._write_row(chip_row, self._rows)
 
 
 def _convert_packed_frame(frame: Frame, buf: bytearray, *, rotate: bool) -> int | None:
