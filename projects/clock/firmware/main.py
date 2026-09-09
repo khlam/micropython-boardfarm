@@ -31,29 +31,18 @@ from clock_hardware import ClockHardware
 from clock_sync import ClockSynchronizer
 from max7219 import MAX7219
 
-UartWiring = namedtuple("UartWiring", ("bus_id", "tx", "rx"))
-DisplayWiring = namedtuple("DisplayWiring", ("spi_id", "sck", "mosi", "cs"))
-Board = namedtuple("Board", ("name", "uart", "display"))
-
+# Per-chip pin map — the authoritative wiring for this project, plain GPIO
+# numbers. uart_id selects the UART peripheral the GPS driver opens, spi_id the
+# SPI peripheral carrying the matrix chain. Filled per chip by os.uname().machine
+# dispatch at import.
+Board = namedtuple("Board", ("name", "uart_id", "tx", "rx", "spi_id", "sck", "mosi", "cs"))
 _machine = os.uname().machine
 if "ESP32S3" in _machine:
-    BOARD = Board(
-        name="ESP32-S3-Zero",
-        uart=UartWiring(bus_id=1, tx=13, rx=12),
-        display=DisplayWiring(spi_id=1, sck=5, mosi=6, cs=7),
-    )
+    BOARD = Board("ESP32-S3-Zero", uart_id=1, tx=13, rx=12, spi_id=1, sck=5, mosi=6, cs=7)
 elif "RP2350" in _machine:
-    BOARD = Board(
-        name="RP2350",
-        uart=UartWiring(bus_id=1, tx=4, rx=5),
-        display=DisplayWiring(spi_id=1, sck=10, mosi=11, cs=9),
-    )
+    BOARD = Board("RP2350", uart_id=1, tx=4, rx=5, spi_id=1, sck=10, mosi=11, cs=9)
 else:
-    BOARD = Board(
-        name="RP2040-Zero",
-        uart=UartWiring(bus_id=0, tx=0, rx=1),
-        display=DisplayWiring(spi_id=1, sck=26, mosi=27, cs=28),
-    )
+    BOARD = Board("RP2040-Zero", uart_id=0, tx=0, rx=1, spi_id=1, sck=26, mosi=27, cs=28)
 
 # The matrix is painfully bright at full scale for a clock left running in a room.
 _BRIGHTNESS = 0.1

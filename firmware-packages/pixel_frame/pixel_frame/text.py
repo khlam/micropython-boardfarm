@@ -75,10 +75,9 @@ class Text:
         """Return explicit or largest fitting integer scale."""
         if self.scale is not None:
             return self.scale
-        if box_width is None or box_height is None:
-            return 1, 1
+        # Empty text has no bounds to grow, and an unmeasured box no target size.
         base_width, base_height = self._measure_at_scale(1, 1)
-        if base_width <= 0 or base_height <= 0:
+        if not base_width or box_width is None or box_height is None:
             return 1, 1
         scale = max(1, min(box_width // base_width, box_height // base_height))
         return scale, scale

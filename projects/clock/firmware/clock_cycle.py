@@ -169,8 +169,6 @@ class DisplayEngine:
         self.clock = clock
         self.rng = rng
         self._sync = sync
-        self._width_pixels = display.width_pixels
-        self._height_pixels = display.height_pixels
         self._frame_cache = {}
         self.current_screen = None
         self.last_reassert_ms = None
@@ -275,10 +273,7 @@ class DisplayEngine:
         if cached is not None and cached[0] == key:
             return cached[1], key
         frame = clock_screens.render_screen(
-            screen,
-            parts,
-            self._width_pixels,
-            self._height_pixels,
+            screen, parts, self._display.width_pixels, self._display.height_pixels
         )
         self._frame_cache[screen] = (key, frame)
         return frame, key

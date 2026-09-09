@@ -34,22 +34,17 @@ _RMC_FIX = "$GPRMC,235958,A,3723.2475,N,12158.3416,W,0.0,0.0,230626,0.0,E*69"
 
 
 @pytest.mark.parametrize(
-    "main_module,name,uart,spi",
+    "main_module,wiring",
     [
-        ("RP2040 with RP2040", "RP2040-Zero", (0, 0, 1), (1, 26, 27, 28)),
-        ("RP2350 with RP2350", "RP2350", (1, 4, 5), (1, 10, 11, 9)),
-        ("Generic ESP32S3 module with ESP32S3", "ESP32-S3-Zero", (1, 13, 12), (1, 5, 6, 7)),
+        ("RP2040 with RP2040", ("RP2040-Zero", 0, 0, 1, 1, 26, 27, 28)),
+        ("RP2350 with RP2350", ("RP2350", 1, 4, 5, 1, 10, 11, 9)),
+        ("Generic ESP32S3 module with ESP32S3", ("ESP32-S3-Zero", 1, 13, 12, 1, 5, 6, 7)),
     ],
     indirect=["main_module"],
 )
-def test_board_table_selects_documented_wiring(
-    main_module: object, name: str, uart: tuple, spi: tuple
-) -> None:
-    board = main_module.BOARD
-
-    assert board.name == name
-    assert board.uart == uart
-    assert board.display == spi
+def test_board_table_selects_documented_wiring(main_module: object, wiring: tuple) -> None:
+    # name, uart_id, tx, rx, spi_id, sck, mosi, cs
+    assert tuple(main_module.BOARD) == wiring
 
 
 def test_hardware_opens_devices_with_the_boards_pins() -> None:
@@ -504,7 +499,4 @@ class _RecordingEngine:
         """Ignore frame-rate samples."""
 
 
-_BOARD = SimpleNamespace(
-    uart=SimpleNamespace(bus_id=0, tx=0, rx=1),
-    display=SimpleNamespace(spi_id=1, sck=26, mosi=27, cs=28),
-)
+_BOARD = SimpleNamespace(uart_id=0, tx=0, rx=1, spi_id=1, sck=26, mosi=27, cs=28)

@@ -20,8 +20,8 @@ class ClockSynchronizer:
         """Parse one GPS line and set the RTC once time, date, and position are known.
 
         Date and longitude are cached across sentences; UTC must be fresh in
-        the current sentence. The first complete fix latches ``boot_time``
-        as the RTC parts tuple it just set, giving the uptime screen a fixed
+        the current sentence. The first complete fix latches ``boot_time`` from
+        the datetime it just wrote to the RTC, giving the uptime screen a fixed
         reference instant — the wall-clock moment this run became a real clock.
         """
         if line is None or not nmea_checksum_valid(line):
@@ -37,10 +37,11 @@ class ClockSynchronizer:
             # Latched on the first fix so the displayed time never jumps mid-run:
             # crossing a 15-degree meridian would otherwise shift it a whole hour.
             self._offset_s = offset_hours_from_longitude(self._lon) * 3600
-        self._rtc.datetime(_local_datetime(self._date, utc, self._offset_s))
+        local = _local_datetime(self._date, utc, self._offset_s)
+        self._rtc.datetime(local)
         self.synced = True
         if self.boot_time is None:
-            self.boot_time = tuple(self._rtc.datetime())[:7]
+            self.boot_time = local[:7]
 
 
 def _local_datetime(date_str: str, utc_str: str, offset_s: int) -> tuple:

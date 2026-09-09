@@ -27,19 +27,16 @@ class ClockHardware:
 
     def open(self) -> object:
         """Open the display, GPS, and RTC and return them as one bundle."""
+        board = self._board
         self.display = None
         display = self._display_cls(
-            spi_id=self._board.display.spi_id,
-            sck=self._board.display.sck,
-            mosi=self._board.display.mosi,
-            cs=self._board.display.cs,
+            spi_id=board.spi_id,
+            sck=board.sck,
+            mosi=board.mosi,
+            cs=board.cs,
             brightness=self._brightness,
         )
-        gps = self._gps_cls(
-            bus_id=self._board.uart.bus_id,
-            tx=self._board.uart.tx,
-            rx=self._board.uart.rx,
-        )
+        gps = self._gps_cls(bus_id=board.uart_id, tx=board.tx, rx=board.rx)
         rtc = self._rtc_cls()
         self.display = display
         return ClockDevices(gps, display, rtc)

@@ -88,21 +88,9 @@ MONTH_NAMES = (
 )
 DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
-# Meteorological seasons, indexed by month - 1.
-_SEASONS = (
-    "WINTER",
-    "WINTER",
-    "SPRING",
-    "SPRING",
-    "SPRING",
-    "SUMMER",
-    "SUMMER",
-    "SUMMER",
-    "AUTUMN",
-    "AUTUMN",
-    "AUTUMN",
-    "WINTER",
-)
+# Meteorological seasons run in whole-month threes starting at March, so
+# ``month // 3`` names the season and December wraps back onto winter.
+_SEASONS = ("WINTER", "SPRING", "SUMMER", "AUTUMN")
 
 
 def rtc_parts(rtc: object) -> tuple:
@@ -121,7 +109,7 @@ def format_time_parts(hour: int, minute: int) -> tuple:
 
 def season_name(month: int) -> str:
     """Return the meteorological season name for ``month``."""
-    return _SEASONS[month - 1]
+    return _SEASONS[(month // 3) % 4]
 
 
 def main_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
