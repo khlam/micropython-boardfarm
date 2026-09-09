@@ -53,11 +53,11 @@ class Frame:
             raise TypeError("assigned content must expose draw(frame, x, y, width, height)")
         draw(self, x0, y0, x1 - x0, y1 - y0)
 
-    def pixel(self, x: int, y: int, *, on: bool = True) -> None:
-        """Set or clear one pixel, clipping coordinates outside the frame."""
+    def pixel(self, x: int, y: int) -> None:
+        """Light one pixel, clipping coordinates outside the frame."""
         if x < 0 or y < 0 or x >= self.width or y >= self.height:
             return
-        self.set_pixel_unchecked(x, y, on=on)
+        self.set_pixel_unchecked(x, y)
 
     def value_at(self, x: int, y: int) -> int:
         """Return the shared byte intensity when the packed bit is lit."""
@@ -77,14 +77,9 @@ class Frame:
             data=bytearray(self.data),
         )
 
-    def set_pixel_unchecked(self, x: int, y: int, *, on: bool = True) -> None:
-        """Set or clear one in-bounds packed pixel."""
-        index = (y * self.stride) + (x >> 3)
-        mask = 1 << (x & 7)
-        if on:
-            self.data[index] |= mask
-        else:
-            self.data[index] &= 0xFF ^ mask
+    def set_pixel_unchecked(self, x: int, y: int) -> None:
+        """Light one in-bounds packed pixel."""
+        self.data[(y * self.stride) + (x >> 3)] |= 1 << (x & 7)
 
 
 def _slice_bounds(item: object, limit: int, axis: str) -> tuple:

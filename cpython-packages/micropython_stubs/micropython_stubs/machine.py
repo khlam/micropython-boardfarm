@@ -22,7 +22,7 @@ def register_device(address: int, device: object) -> None:
 
 
 def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
-    """Queue UART data for the any()/read()/readline()/readinto() consumers.
+    """Queue UART data for the any()/read()/readinto() consumers.
 
     Bytes need not arrive as whole lines: feeding a sentence in fragments models
     a non-blocking UART that returns only what has been received so far.
@@ -356,17 +356,6 @@ class UART:
         data = bytes(_uart_rx[:nbytes])
         del _uart_rx[:nbytes]
         return data
-
-    def readline(self) -> bytes | None:
-        """Return bytes up to and including the next newline, or None.
-
-        Returns None when no complete line is buffered yet — matching a
-        non-blocking UART that does not wait for the rest of the sentence.
-        """
-        nl = _uart_rx.find(b"\n")
-        if nl < 0:
-            return None
-        return self.read(nl + 1)
 
     def readinto(self, buf: bytearray, nbytes: int | None = None) -> int | None:
         """Move up to ``nbytes`` buffered bytes into ``buf``, or None when empty.

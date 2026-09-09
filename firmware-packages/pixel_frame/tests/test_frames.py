@@ -32,11 +32,10 @@ def test_packed_frame_rejects_invalid_storage(kwargs: dict, message: str) -> Non
 
 
 def test_packed_storage_uses_row_stride_and_keeps_padding_out_of_reads() -> None:
-    data = bytearray((0x81, 0xFF, 0xFF, 0x02, 0xFE, 0xFF))
+    data = bytearray((0x01, 0xFF, 0xFF, 0x02, 0xFE, 0xFF))
     frame = Frame(9, 2, 37, stride=3, data=data)
 
     frame.pixel(8, 1)
-    frame.pixel(7, 0, on=False)
 
     assert frame.data is data
     assert data == bytearray((0x01, 0xFF, 0xFF, 0x02, 0xFF, 0xFF))
@@ -50,12 +49,12 @@ def test_copy_owns_its_storage() -> None:
     source = Frame(9, 1, 42, stride=3, data=bytearray((1, 1, 255)))
     copied = source.copy()
 
-    copied.pixel(0, 0, on=False)
+    copied.pixel(1, 0)
 
     assert (copied.width, copied.height, copied.stride, copied.intensity) == (9, 1, 3, 42)
-    assert copied.data == bytearray((0, 1, 255))
+    assert copied.data == bytearray((3, 1, 255))
     assert source.data == bytearray((1, 1, 255))
-    assert source.value_at(0, 0) == 42
+    assert (source.value_at(0, 0), source.value_at(1, 0)) == (42, 0)
 
 
 @pytest.mark.parametrize("x,y", [(-1, 0), (0, -1), (9, 0), (0, 2)])
@@ -81,8 +80,6 @@ def test_set_pixel_unchecked_skips_the_bounds_check_its_caller_already_did() -> 
     frame.set_pixel_unchecked(8, 1)
 
     assert frame.value_at(8, 1) == 255
-    frame.set_pixel_unchecked(8, 1, on=False)
-    assert frame.value_at(8, 1) == 0
 
     # x=9 is past the width but inside the stride's padding byte, so it lands
     # in storage `pixel()` would have refused to touch.
