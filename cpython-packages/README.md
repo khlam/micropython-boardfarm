@@ -52,6 +52,9 @@ Replacement module behavior:
   with `machine.register_device(addr, dev)`, and feeds `UART.any()` /
   `UART.read()` / `UART.readinto()` from one shared receive buffer filled by
   `machine.feed_uart_bytes(...)`.
+- `machine.RTC` holds its datetime tuple in `value`, so a test seeds the clock
+  with `RTC(value)` and asserts on `rtc.value` without round-tripping
+  `datetime()`.
 - `machine.UART` also records constructions in `uart_constructions`, keeps
   every constructor keyword in `config`, and implements `irq()` / `deinit()`.
   `feed_uart_bytes(...)` runs each UART's `IRQ_RXIDLE` handler after queueing,

@@ -9,8 +9,9 @@ glyphs come closest to overflowing the matrix.
 
 from __future__ import annotations
 
+import machine
 import pytest
-from fake_clock import FakeRandom, FakeRTC, lit_bounds, lit_count, lit_pixels, lit_row, same_frame
+from fake_clock import FakeRandom, lit_bounds, lit_count, lit_pixels, lit_row, same_frame
 
 import clock_screens
 from pixel_frame import Frame, Text
@@ -57,7 +58,7 @@ def test_time_only_face_falls_back_to_one_row_when_the_badge_crowds_it_out() -> 
 
 def test_rtc_parts_drops_the_subsecond_field() -> None:
     """Renderers key off whole seconds, so the RTC's subsecond must not leak in."""
-    assert clock_screens.rtc_parts(FakeRTC(_RTC_VALUE)) == _RTC_VALUE[:7]
+    assert clock_screens.rtc_parts(machine.RTC(_RTC_VALUE)) == _RTC_VALUE[:7]
 
 
 @pytest.mark.parametrize("screen", _ALL_SCREENS)

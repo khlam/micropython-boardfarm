@@ -1,8 +1,9 @@
 """Shared fakes and frame inspection helpers for the clock firmware tests.
 
 The firmware talks to four collaborators: a display (``show``/``flip``), a GPS
-(``readline``), an RTC (``datetime``), and a ``time``-like clock. Each is faked
-here so tests drive the async loops deterministically, with no wall-clock waits.
+(``readline``), an RTC (``datetime``), and a ``time``-like clock. All but the RTC
+— which the shared ``machine.RTC`` stub already fakes — are faked here so tests
+drive the async loops deterministically, with no wall-clock waits.
 """
 
 from __future__ import annotations
@@ -108,21 +109,6 @@ class FakeGPS:
         if isinstance(line, Exception):
             raise line
         return line
-
-
-class FakeRTC:
-    """RTC stand-in supporting MicroPython's datetime getter/setter shape."""
-
-    def __init__(self, value: tuple = (2026, 1, 1, 3, 0, 0, 0, 0)) -> None:
-        """Start at a deterministic instant."""
-        self.value = value
-
-    def datetime(self, value: tuple | None = None) -> tuple | None:
-        """Get or set the stored RTC datetime tuple."""
-        if value is None:
-            return self.value
-        self.value = tuple(value)
-        return None
 
 
 class FakeRandom:

@@ -13,7 +13,9 @@ _uart_rx = bytearray()
 _uart_read_exc: Exception | None = None
 _uart_write_exc: Exception | None = None
 _uart_replies: list[bytes] = []
-_rtc_datetime: tuple = (2000, 1, 1, 5, 0, 0, 0, 0)
+
+# What an unset RTC reads back on the rp2 port: 2000-01-01, a Saturday (5).
+_RTC_POWER_ON = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
 def register_device(address: int, device: object) -> None:
@@ -79,8 +81,8 @@ def queue_uart_replies(replies: list[bytes]) -> None:
 
 
 def reset() -> None:
-    """Clear recorded constructions, the device registry, and UART/SPI/Timer/RTC state."""
-    global _uart_read_exc, _uart_write_exc, _rtc_datetime  # noqa: PLW0603
+    """Clear recorded constructions, the device registry, and UART/SPI/Timer state."""
+    global _uart_read_exc, _uart_write_exc  # noqa: PLW0603
     pin_constructions.clear()
     Pin.instances.clear()
     uart_constructions.clear()
@@ -91,15 +93,18 @@ def reset() -> None:
     _uart_write_exc = None
     SPI.instances.clear()
     Timer.instances.clear()
-    _rtc_datetime = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
 class RTC:
-    """Fake `machine.RTC` sharing one module-level datetime across instances.
+    """Fake `machine.RTC` holding one datetime tuple in `value`.
 
-    The real RTC is a single hardware peripheral, so every construction reads and
-    writes the same clock; `reset()` returns it to the port's power-on default.
+    Tests read and seed the clock through `value` rather than round-tripping
+    `datetime()`, so an assertion names the field it cares about directly.
     """
+
+    def __init__(self, value: tuple = _RTC_POWER_ON) -> None:
+        """Start at the port's power-on default, or at a given instant."""
+        self.value = tuple(value)
 
     def datetime(self, value: tuple | None = None) -> tuple | None:
         """Get the stored datetime tuple, or set it when ``value`` is given.
@@ -111,10 +116,9 @@ class RTC:
         Returns:
             The stored 8-tuple when reading, otherwise ``None``.
         """
-        global _rtc_datetime  # noqa: PLW0603
         if value is None:
-            return _rtc_datetime
-        _rtc_datetime = tuple(value)
+            return self.value
+        self.value = tuple(value)
         return None
 
 

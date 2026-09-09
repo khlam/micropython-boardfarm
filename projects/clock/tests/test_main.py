@@ -12,6 +12,7 @@ from collections.abc import Callable
 from itertools import pairwise
 from types import SimpleNamespace
 
+import machine
 import pytest
 from fake_clock import (
     AdvancingTime,
@@ -19,7 +20,6 @@ from fake_clock import (
     FakeDisplay,
     FakeGPS,
     FakeRandom,
-    FakeRTC,
     StopLoop,
     same_frame,
 )
@@ -58,7 +58,7 @@ def test_hardware_opens_devices_with_the_boards_pins() -> None:
         created["gps"] = dict(kwargs)
         return FakeGPS()
 
-    hardware = clock_hardware.ClockHardware(_BOARD, _display, _gps, FakeRTC, brightness=0.2)
+    hardware = clock_hardware.ClockHardware(_BOARD, _display, _gps, machine.RTC, brightness=0.2)
     devices = hardware.open()
 
     assert created["display"] == {
@@ -70,13 +70,13 @@ def test_hardware_opens_devices_with_the_boards_pins() -> None:
     }
     assert created["gps"] == {"bus_id": 0, "tx": 0, "rx": 1}
     assert devices.display is hardware.display
-    assert isinstance(devices.rtc, FakeRTC)
+    assert isinstance(devices.rtc, machine.RTC)
 
 
 def test_flip_display_is_a_no_op_before_the_devices_open() -> None:
     """The BOOT button is live from boot, before any display exists to flip."""
     hardware = clock_hardware.ClockHardware(
-        _BOARD, lambda **_kw: FakeDisplay(), lambda **_kw: FakeGPS(), FakeRTC
+        _BOARD, lambda **_kw: FakeDisplay(), lambda **_kw: FakeGPS(), machine.RTC
     )
 
     hardware.flip_display()  # must not raise
@@ -94,7 +94,7 @@ def test_a_failed_open_clears_the_stale_display_reference(failing: str) -> None:
     so a GPS failure leaves a live display object that must still be dropped.
     """
     hardware = clock_hardware.ClockHardware(
-        _BOARD, lambda **_kw: FakeDisplay(), lambda **_kw: FakeGPS(), FakeRTC
+        _BOARD, lambda **_kw: FakeDisplay(), lambda **_kw: FakeGPS(), machine.RTC
     )
     hardware.open()
 
@@ -109,7 +109,7 @@ def test_a_failed_open_clears_the_stale_display_reference(failing: str) -> None:
 def test_pump_gps_recovers_from_read_errors_and_idle_polls(
     main_module: object, status: object
 ) -> None:
-    rtc = FakeRTC()
+    rtc = machine.RTC()
     sync = ClockSynchronizer(rtc)
     consumed: list = []
     sync_spy = SimpleNamespace(consume=lambda line: (consumed.append(line), sync.consume(line))[1])
@@ -134,7 +134,7 @@ def test_pump_gps_survives_an_rtc_that_rejects_the_write(
     `sync.consume` propagates OSError from the RTC, so this failure reaches the
     pump's guard from the opposite side to a GPS read error.
     """
-    rtc = FakeRTC()
+    rtc = machine.RTC()
     sync = ClockSynchronizer(rtc)
 
     def _fail(_value: tuple) -> None:
@@ -228,7 +228,7 @@ def test_whole_sequence_runs_against_the_real_engine_and_renderers(
     screen table says it should.
     """
     display = FakeDisplay()
-    rtc = FakeRTC((2026, 6, 23, 1, 12, 30, 0, 0))
+    rtc = machine.RTC((2026, 6, 23, 1, 12, 30, 0, 0))
     clock = AdvancingTime()
     sync = SimpleNamespace(synced=True, boot_time=(2026, 6, 23, 1, 12, 0, 0))
     engine = clock_cycle.DisplayEngine(display, rtc, clock=clock, rng=FakeRandom([0]), sync=sync)
@@ -310,7 +310,6 @@ def test_main_retries_after_an_init_failure(
 
     main_module.MAX7219 = lambda **_kw: FakeDisplay()
     main_module.GPS = _gps
-    main_module.RTC = FakeRTC
     main_module.run = lambda *_args: _raise_stop_loop()
     sleeps: list = []
     monkeypatch.setattr(main_module.time, "sleep_ms", sleeps.append)
@@ -336,7 +335,6 @@ def test_main_hands_devices_to_runtime_and_button_flips_the_live_display(
 
     main_module.MAX7219 = lambda **_kw: FakeDisplay()
     main_module.GPS = lambda **_kw: FakeGPS()
-    main_module.RTC = FakeRTC
     main_module.run = _run
 
     with pytest.raises(StopLoop):
@@ -345,7 +343,7 @@ def test_main_hands_devices_to_runtime_and_button_flips_the_live_display(
     gps, display, rtc = received["devices"]
     assert isinstance(gps, FakeGPS)
     assert isinstance(display, FakeDisplay)
-    assert isinstance(rtc, FakeRTC)
+    assert isinstance(rtc, machine.RTC)
     assert len(registered) == 1
     registered[0]()
     assert display.flips == 1
@@ -365,7 +363,7 @@ def test_run_starts_the_event_loop_with_the_devices_in_order(
         received.append((gps, display, rtc))
 
     monkeypatch.setattr(main_module, "run_async", _run_async)
-    gps, display, rtc = FakeGPS(), FakeDisplay(), FakeRTC()
+    gps, display, rtc = FakeGPS(), FakeDisplay(), machine.RTC()
 
     main_module.run(gps, display, rtc)
 
@@ -389,7 +387,6 @@ def test_main_reopens_the_hardware_if_the_runtime_ever_returns(
 
     main_module.MAX7219 = _display
     main_module.GPS = lambda **_kw: FakeGPS()
-    main_module.RTC = FakeRTC
     main_module.run = lambda *_args: _raise_stop_loop() if opens["n"] >= 2 else None
     monkeypatch.setattr(main_module.time, "sleep_ms", lambda _ms: None)
 
@@ -404,7 +401,7 @@ def test_main_reopens_the_hardware_if_the_runtime_ever_returns(
 def test_runtime_keeps_gps_pumping_while_display_waits(
     main_module: object, monkeypatch: pytest.MonkeyPatch, status: object
 ) -> None:
-    rtc = FakeRTC()
+    rtc = machine.RTC()
     display = FakeDisplay()
     gps = FakeGPS([None, _RMC_FIX])
     display_finished: list = []

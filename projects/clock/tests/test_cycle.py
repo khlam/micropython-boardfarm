@@ -18,8 +18,9 @@ from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import machine
 import pytest
-from fake_clock import FakeDisplay, FakeRandom, FakeRTC, ManualTime, same_frame
+from fake_clock import FakeDisplay, FakeRandom, ManualTime, same_frame
 
 import clock_cycle
 import clock_screens
@@ -259,7 +260,7 @@ def test_engine_renders_at_the_displays_declared_geometry(geometry: tuple) -> No
     display = FakeDisplay(*geometry)
 
     engine = clock_cycle.DisplayEngine(
-        display, FakeRTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
+        display, machine.RTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
     )
     _land(engine, clock_screens.SCREEN_MAIN)
 
@@ -379,7 +380,7 @@ def test_every_screen_that_lands_also_stamps_the_heal_deadline(
     assert engine.last_reassert_ms is not None
 
     fresh = clock_cycle.DisplayEngine(
-        FakeDisplay(), FakeRTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
+        FakeDisplay(), machine.RTC(_RTC_VALUE), clock=ManualTime(), rng=FakeRandom([0])
     )
     fresh.show_frame_rate(1, 100, 7)
     assert (fresh.current_screen, fresh.last_reassert_ms) == (clock_screens.SCREEN_FRAME_RATE, 7)
@@ -506,7 +507,7 @@ def engine() -> clock_cycle.DisplayEngine:
     """Return an engine over fake hardware with a manually advanced clock."""
     return clock_cycle.DisplayEngine(
         FakeDisplay(),
-        FakeRTC(_RTC_VALUE),
+        machine.RTC(_RTC_VALUE),
         clock=ManualTime(),
         rng=FakeRandom([0]),
     )
@@ -515,7 +516,7 @@ def engine() -> clock_cycle.DisplayEngine:
 @pytest.fixture
 def engine_with_sync() -> tuple:
     """Return an ``(engine, sync)`` pair sharing a synchronizer stub."""
-    rtc = FakeRTC(_RTC_VALUE)
+    rtc = machine.RTC(_RTC_VALUE)
     sync = clock_sync.ClockSynchronizer(rtc)
     engine = clock_cycle.DisplayEngine(
         FakeDisplay(), rtc, clock=ManualTime(), rng=FakeRandom([0]), sync=sync
