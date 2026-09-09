@@ -237,16 +237,16 @@ class DisplayEngine:
         if self.current_screen is None:
             return
         parts = self._parts_for_screen(self.current_screen)
-        if self.shown_key == clock_screens.screen_key(self.current_screen, parts) and (
-            self.clock.ticks_diff(now, self.last_reassert_ms) < REASSERT_MS
-        ):
-            return
         frame, key = self._frame_and_key(self.current_screen, parts)
-        self._show_frame(frame, key, now)
+        if self.shown_key != key or (
+            self.clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS
+        ):
+            self._show_frame(frame, key, now)
 
     def show_frame_rate(self, frame_count: int, elapsed_ms: int, now: int) -> None:
         """Render one diagnostic sample while measuring display throughput."""
-        parts = (frame_count, _frame_rate_x10(frame_count, elapsed_ms))
+        fps_x10 = frame_count * 10_000 // elapsed_ms if elapsed_ms > 0 else 0
+        parts = (frame_count, fps_x10)
         frame, key = self._frame_and_key(clock_screens.SCREEN_FRAME_RATE, parts)
         self.current_screen = clock_screens.SCREEN_FRAME_RATE
         self.transition = None
@@ -285,10 +285,3 @@ class DisplayEngine:
         self.screen_frame = frame
         self.shown_key = key
         self.last_reassert_ms = now
-
-
-def _frame_rate_x10(frame_count: int, elapsed_ms: int) -> int:
-    """Return frames per second as a fixed-point tenths value."""
-    if elapsed_ms <= 0:
-        return 0
-    return frame_count * 10_000 // elapsed_ms

@@ -184,12 +184,10 @@ def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: 
 def full_date_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
     """Render the full month name with day number above the four-digit year."""
     year, month, day, _weekday, _hour, _minute, _second = parts
-    return _two_row_frame(
-        _month_day_label(month, day, width_pixels, _row_split(height_pixels)),
-        f"{year:04d}",
-        width_pixels,
-        height_pixels,
-    )
+    label = f"{MONTH_NAMES[month - 1]} {day}"
+    if not Text(label).fits(width_pixels, _row_split(height_pixels)):
+        label = f"{MONTH_ABBRS[month - 1]} {day}"
+    return _two_row_frame(label, f"{year:04d}", width_pixels, height_pixels)
 
 
 def frame_rate_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
@@ -385,14 +383,6 @@ def _draw_meridiem_badge(frame: object, meridiem: str, x0: int, y0: int) -> None
                 if bit == "1":
                     frame.pixel(x0 + dx, y + dy)
         y += _MERIDIEM_GLYPH_HEIGHT + _MERIDIEM_GLYPH_GAP
-
-
-def _month_day_label(month: int, day: int, width_pixels: int, height_pixels: int) -> str:
-    """Return the longest month/day label that fits the display width."""
-    full = f"{MONTH_NAMES[month - 1]} {day}"
-    if Text(full).fits(width_pixels, height_pixels):
-        return full
-    return f"{MONTH_ABBRS[month - 1]} {day}"
 
 
 def _frame_rate_label(fps_x10: int) -> str:
