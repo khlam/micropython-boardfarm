@@ -22,6 +22,7 @@ from fake_clock import (
     FakeRandom,
     StopLoop,
     same_frame,
+    sleep_advances,
 )
 
 import clock_cycle
@@ -233,13 +234,7 @@ def test_whole_sequence_runs_against_the_real_engine_and_renderers(
     sync = SimpleNamespace(synced=True, boot_time=(2026, 6, 23, 1, 12, 0, 0))
     engine = clock_cycle.DisplayEngine(display, rtc, clock=clock, rng=FakeRandom([0]), sync=sync)
 
-    real_sleep = asyncio.sleep_ms
-
-    async def _advancing_sleep(ms: int) -> None:
-        clock.advance(max(1, ms))
-        await real_sleep(0)
-
-    monkeypatch.setattr(asyncio, "sleep_ms", _advancing_sleep)
+    sleep_advances(monkeypatch, clock)
     # Hops are brand -> regular -> interstitial; stop before the fourth so the
     # sequence is parked on the interstitial it just landed.
     hops = {"n": 0}

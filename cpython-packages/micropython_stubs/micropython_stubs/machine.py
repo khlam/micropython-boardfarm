@@ -130,9 +130,7 @@ class Pin:
     OUT = "OUT"
     IN = "IN"
     PULL_UP = "PULL_UP"
-    PULL_DOWN = "PULL_DOWN"
     IRQ_FALLING = "IRQ_FALLING"
-    IRQ_RISING = "IRQ_RISING"
 
     def __init__(
         self,
@@ -206,7 +204,6 @@ class SPI:
         phase: int = 0,
         sck: object = None,
         mosi: object = None,
-        miso: object = None,
         **_kwargs: object,
     ) -> None:
         """Record SPI configuration and start with no writes."""
@@ -216,7 +213,6 @@ class SPI:
         self.phase = phase
         self.sck = sck
         self.mosi = mosi
-        self.miso = miso
         self.writes: list[bytes] = []
         SPI.instances.append(self)
 
@@ -429,7 +425,6 @@ class Timer:
     """Fake `machine.Timer` recording its periodic callback for tests to fire."""
 
     PERIODIC = "PERIODIC"
-    ONE_SHOT = "ONE_SHOT"
     instances: ClassVar[list[Timer]] = []
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -451,10 +446,6 @@ class Timer:
         self.period = period
         self.mode = mode
         self.callback = callback
-
-    def deinit(self) -> None:
-        """Stop the timer by dropping its callback."""
-        self.callback = None
 
     def tick(self) -> None:
         """Test helper: invoke the periodic callback as the hardware timer would."""

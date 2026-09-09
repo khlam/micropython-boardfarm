@@ -63,7 +63,7 @@ def test_rtc_parts_drops_the_subsecond_field() -> None:
 
 @pytest.mark.parametrize("screen", _ALL_SCREENS)
 def test_only_the_gps_endpoints_are_wait_screens(screen: int) -> None:
-    """`is_wait` drives both the engine's step budget and its parts lookup."""
+    """`is_wait` is what makes the engine skip the RTC lookup for a static screen."""
     expected = screen in (clock_screens.WAIT_ON, clock_screens.WAIT_OFF)
 
     assert clock_screens.is_wait(screen) is expected

@@ -20,7 +20,7 @@ from unittest.mock import Mock
 
 import machine
 import pytest
-from fake_clock import FakeDisplay, FakeRandom, ManualTime, same_frame
+from fake_clock import FakeDisplay, FakeRandom, ManualTime, same_frame, sleep_advances
 
 import clock_cycle
 import clock_screens
@@ -526,19 +526,6 @@ def engine_with_sync() -> tuple:
 
 @pytest.fixture
 def paced_engine(monkeypatch: pytest.MonkeyPatch, engine: clock_cycle.DisplayEngine) -> tuple:
-    """Return ``(engine, display, clock)`` with sleeping wired to the clock.
-
-    ``asyncio.sleep_ms`` advances this clock by the requested interval and then
-    yields immediately, so the coroutines' wall-clock deadlines are reached by
-    the act of sleeping rather than by real elapsed time. Without it a 3-minute
-    screen hold would take 3 real minutes.
-    """
-    clock = engine.clock
-    real_sleep = asyncio.sleep_ms
-
-    async def _advancing_sleep(ms: int) -> None:
-        clock.advance(max(1, ms))
-        await real_sleep(0)
-
-    monkeypatch.setattr(asyncio, "sleep_ms", _advancing_sleep)
-    return engine, engine._display, clock
+    """Return ``(engine, display, clock)`` with sleeping wired to the clock."""
+    sleep_advances(monkeypatch, engine.clock)
+    return engine, engine._display, engine.clock

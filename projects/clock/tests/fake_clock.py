@@ -8,6 +8,8 @@ drive the async loops deterministically, with no wall-clock waits.
 
 from __future__ import annotations
 
+import asyncio
+
 
 class StopLoop(BaseException):
     """Sentinel that escapes the firmware's ``except Exception`` guards.
@@ -73,6 +75,22 @@ class CountdownTime(ManualTime):
         self.advance(self._step_ms)
         if self.sleeps >= self._stop:
             raise StopLoop
+
+
+def sleep_advances(monkeypatch: object, clock: ManualTime) -> None:
+    """Point ``asyncio.sleep_ms`` at ``clock``, so sleeping is what passes time.
+
+    The step coroutines' wall-clock deadlines are then reached by the act of
+    sleeping rather than by real elapsed time. Without it a three-minute screen
+    hold would take three real minutes.
+    """
+    real_sleep = asyncio.sleep_ms
+
+    async def _advancing_sleep(ms: int) -> None:
+        clock.advance(max(1, ms))
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep_ms", _advancing_sleep)
 
 
 class FakeDisplay:
