@@ -1,0 +1,47 @@
+# boot_button
+
+Board-agnostic, event-driven onboard BOOT button. Every project MCU registers one
+callback and never polls — the package hides the per-chip hardware split behind a
+single `on_press` API.
+
+## Layout
+```
+boot_button/
+  boot_button/
+    __init__.py     re-exports nothing; import the `button` module
+    button.py       chip dispatch, debounce/defer, public on_press()
+    esp32s3.py      GPIO0 hardware IRQ edges (ESP32-S3-Zero)
+    bootsel.py      soft-Timer poll of rp2.bootsel_button() (RP2040 + RP2350)
+  tests/            host pytest (CPython + stubbed machine/rp2/micropython)
+```
+
+## Public API
+```python
+from boot_button import button
+
+button.on_press(handle_press)   # registered once; fires once per debounced press
+```
+
+The callback runs in scheduler context (via `micropython.schedule`), not in the
+interrupt/timer handler, so it may allocate and do non-trivial work.
+
+## Notes
+
+### Per-chip mechanism
+
+| Board                | Mechanism                                                            |
+|----------------------|----------------------------------------------------------------------|
+| ESP32-S3-Zero        | True hardware interrupt: `Pin(0, IN, PULL_UP).irq(IRQ_FALLING, …)`   |
+| RP2040-Zero, RP2350  | Periodic soft `Timer` polling `rp2.bootsel_button()` for a press edge |
+
+BOOTSEL on the RP chips doubles as the QSPI flash CS line and has no GPIO
+interrupt, so `bootsel.py` emulates the same edge notification. Both RP chips
+read BOOTSEL identically, so they share that one backend instead of each having
+a named module. A backend only reports raw edges; the ~150 ms debounce and the
+deferral off interrupt context are chip-independent and live in `button.py`.
+
+## Tests
+From the repo root:
+```
+docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/boot_button/tests
+```

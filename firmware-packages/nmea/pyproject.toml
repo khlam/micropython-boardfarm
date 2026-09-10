@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nmea"
+version = "0.1.0"
+description = "Pure NMEA-0183 sentence parsers (RMC/ZDA/GGA/GSA/GSV), shared across projects."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nmea"]

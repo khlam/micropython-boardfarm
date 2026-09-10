@@ -16,14 +16,20 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | Package | What it does |
 |---|---|
 | [atgm336h](atgm336h/) | Driver for the ATGM336H GNSS module: reads NMEA sentences over UART. |
+| [boot_button](boot_button/) | Board-agnostic BOOT button as a debounced press callback: GPIO0 IRQ on the ESP32-S3, BOOTSEL polling on the RP chips. |
 | [boot_status_led](boot_status_led/) | Boot/runtime indicator LED state machine. |
 | [httpd](httpd/) | On-device HTTP page server and WebSocket broadcast for board-hosted dashboards. |
 | [i2c_bus](i2c_bus/) | `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` bus factories plus `DeviceNotFoundError`; consumed only by drivers, never by projects. |
 | [matter](matter/) | Reusable MicroPython endpoint API over native ESP-Matter. |
+| [max7219](max7219/) | Driver for two cascaded MAX7219 8×32 panels stacked into one 16×32 matrix, exposed as a `pixel_display.Display`. |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
+| [nmea](nmea/) | Pure NMEA-0183 sentence parsing — checksum, GSV/GGA/RMC fields. No hardware dependency. |
+| [pixel_display](pixel_display/) | Geometry check and brightness policy between packed `pixel_frame` frames and a matrix backend. |
+| [pixel_frame](pixel_frame/) | Packed monochrome `Frame` plus declarative `Text` layout for pixel displays. No hardware dependency. |
 | [qmc5883p](qmc5883p/) | Driver for the QST QMC5883P 3-axis magnetometer. |
 | [radar](radar/) | UART drivers for the HLK-LD2450 and HLK-LD2420 presence radars, selected by model or detected on the wire. |
 | [smoothing](smoothing/) | Sliding-window smoothing functions (SMA, WMA, EMA, median) for noisy sensor streams. No hardware dependency. |
+| [tz_offset](tz_offset/) | Longitude-derived UTC offset plus pure-integer Gregorian calendar math. No hardware dependency. |
 | [vl53l0x](vl53l0x/) | Driver for the ST VL53L0X time-of-flight distance sensor. Vendored from [github.com/uceeatz/VL53L0X](https://github.com/uceeatz/VL53L0X). |
 | [vl53l5cx](vl53l5cx/) | Driver for the ST VL53L5CX 8×8 multizone time-of-flight sensor. Vendored from [mp-extras/vl53l5cx](https://github.com/mp-extras/vl53l5cx). |
 

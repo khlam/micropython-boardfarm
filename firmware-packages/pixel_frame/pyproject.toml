@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pixel_frame"
+version = "0.1.0"
+description = "MicroPython frame construction and text rendering for pixel displays."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pixel_frame"]

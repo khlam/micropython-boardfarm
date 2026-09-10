@@ -84,6 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         project:
+          - clock
           - compass
           - distance-stream
           - gps

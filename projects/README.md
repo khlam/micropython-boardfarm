@@ -22,6 +22,7 @@ Run project commands from inside a project directory.
 
 | Project | Sensor | Stream rate | Dashboard |
 |---|---|---|---|
+| [clock](clock/) | ATGM336H GPS (time + longitude) | On-device only | 16×32 MAX7219 LED matrix clock faces |
 | [compass](compass/) | QMC5883P magnetometer | ~50 Hz | Plotly compass rose + heading readout |
 | [distance-stream](distance-stream/) | VL53L0X ToF | ~50 Hz | Plotly line chart of `distance_mm` |
 | [gyro-stream](gyro-stream/) | MPU6050 IMU (accel + gyro + temp) | ~100 Hz | Plotly multi-trace + 3D orientation view |

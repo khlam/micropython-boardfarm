@@ -4,6 +4,7 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
+    "clock",
     "compass",
     "distance-stream",
     "gps-stream",
@@ -49,11 +50,20 @@ wheels = [
 
 [[package]]
 name = "atgm336h"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/atgm336h-0.2.0.tar.gz" }
+sdist = { path = "/wheels/atgm336h-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/atgm336h-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/atgm336h-0.3.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "boot-button"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/boot_button-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/boot_button-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -172,6 +182,17 @@ wheels = [
 ]
 
 [[package]]
+name = "clock"
+version = "0.2.0"
+source = { virtual = "projects/clock" }
+dependencies = [
+    { name = "micropython-boardfarm" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -182,7 +203,7 @@ wheels = [
 
 [[package]]
 name = "compass"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/compass" }
 dependencies = [
     { name = "boot-status-led" },
@@ -344,7 +365,7 @@ wheels = [
 
 [[package]]
 name = "distance-stream"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -433,7 +454,7 @@ wheels = [
 
 [[package]]
 name = "gps-stream"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/gps" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -444,7 +465,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -654,6 +675,19 @@ dependencies = [
 requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
+name = "max7219"
+version = "0.1.0"
+source = { registry = "/wheels" }
+dependencies = [
+    { name = "pixel-display" },
+    { name = "pixel-frame" },
+]
+sdist = { path = "/wheels/max7219-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/max7219-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -664,20 +698,26 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.19.1"
+version = "0.20.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
+    { name = "boot-button" },
     { name = "boot-status-led" },
     { name = "httpd" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "max7219" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "nmea" },
+    { name = "pixel-display" },
+    { name = "pixel-frame" },
     { name = "qmc5883p" },
     { name = "radar" },
     { name = "serial-over-web" },
     { name = "smoothing" },
+    { name = "tz-offset" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -693,6 +733,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h" },
+    { name = "boot-button" },
     { name = "boot-status-led" },
     { name = "cryptography" },
     { name = "esp-idf-nvs-partition-gen" },
@@ -700,8 +741,12 @@ test = [
     { name = "httpx" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "max7219" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
+    { name = "nmea" },
+    { name = "pixel-display" },
+    { name = "pixel-frame" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
@@ -710,6 +755,7 @@ test = [
     { name = "serial-over-web" },
     { name = "smoothing" },
     { name = "ty" },
+    { name = "tz-offset" },
     { name = "vl53l0x" },
     { name = "vl53l5cx" },
 ]
@@ -723,16 +769,22 @@ viz = [
 [package.metadata]
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "boot-button", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
+    { name = "max7219", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "micropython-stubs", specifier = ">=0.10.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "nmea", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "pixel-display", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "pixel-frame", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "radar", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "serial-over-web", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "smoothing", specifier = ">=0.1.0", index = "file:///wheels" },
+    { name = "tz-offset", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l0x", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "vl53l5cx", specifier = ">=0.1.1", index = "file:///wheels" },
 ]
@@ -748,6 +800,7 @@ lint = [
 ]
 test = [
     { name = "atgm336h", index = "file:///wheels" },
+    { name = "boot-button", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
@@ -755,8 +808,12 @@ test = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
+    { name = "max7219", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
+    { name = "nmea", index = "file:///wheels" },
+    { name = "pixel-display", index = "file:///wheels" },
+    { name = "pixel-frame", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
@@ -765,6 +822,7 @@ test = [
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
     { name = "ty", specifier = ">=0.0.42" },
+    { name = "tz-offset", index = "file:///wheels" },
     { name = "vl53l0x", index = "file:///wheels" },
     { name = "vl53l5cx", index = "file:///wheels" },
 ]
@@ -773,11 +831,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.8.0"
+version = "0.10.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.8.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.10.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.8.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.10.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -800,7 +858,7 @@ wheels = [
 
 [[package]]
 name = "multizone-ranging"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -808,6 +866,15 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+
+[[package]]
+name = "nmea"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/nmea-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/nmea-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "orjson"
@@ -949,6 +1016,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/18/f0/a5595c1e8c3ae44b9828cb2f0fa8155e5095ef04d6327b8f61cf44a3df85/pillow-12.3.0-cp315-cp315t-win32.whl", hash = "sha256:1657923d2d45afb66526e5b933e5b3052e6bdea196c90d3abb2424e18c77dae8", size = 6474384, upload-time = "2026-07-01T11:56:18.855Z" },
     { url = "https://files.pythonhosted.org/packages/e4/04/62bcd9f844984c5938d3b05264a61d797a29d3e0812341a8204af70bbdee/pillow-12.3.0-cp315-cp315t-win_amd64.whl", hash = "sha256:8cd2f7bdda092d99c9fc2fb7391354f306d01443d22785d0cbfafa2e2c8bb418", size = 7243537, upload-time = "2026-07-01T11:56:21.214Z" },
     { url = "https://files.pythonhosted.org/packages/3d/68/1f3066acedf37673694a7141381d8f811ae97f30d34413d236abe7d489f1/pillow-12.3.0-cp315-cp315t-win_arm64.whl", hash = "sha256:06ff022112bc9cbf83b60f8e028d94ad87b60621706487e65f673de61610ab59", size = 2567491, upload-time = "2026-07-01T11:56:23.506Z" },
+]
+
+[[package]]
+name = "pixel-display"
+version = "0.1.0"
+source = { registry = "/wheels" }
+dependencies = [
+    { name = "pixel-frame" },
+]
+sdist = { path = "/wheels/pixel_display-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/pixel_display-0.1.0-py3-none-any.whl" },
+]
+
+[[package]]
+name = "pixel-frame"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/pixel_frame-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/pixel_frame-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -1414,6 +1502,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
+]
+
+[[package]]
+name = "tz-offset"
+version = "0.1.0"
+source = { registry = "/wheels" }
+sdist = { path = "/wheels/tz_offset-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/tz_offset-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
