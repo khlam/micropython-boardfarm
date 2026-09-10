@@ -126,9 +126,8 @@ class TransitionRun:
         source_frame: object,
         target_frame: object,
         target_key: tuple,
-        steps: int,
     ) -> None:
-        """Store transition endpoints and the next frame step."""
+        """Store transition endpoints and the frame step walking between them."""
         self.effect = effect
         self.direction = direction
         self.target_screen = target_screen
@@ -136,7 +135,11 @@ class TransitionRun:
         self.target_frame = target_frame
         self.target_key = target_key
         self.step = 1
-        self.steps = steps
+        # An instant cut lands on its single frame; every other effect animates.
+        if effect == clock_transitions.TRANSITION_INSTANT:
+            self.steps = 1
+        else:
+            self.steps = clock_transitions.TRANSITION_STEPS
 
 
 class DisplayEngine:
@@ -195,12 +198,8 @@ class DisplayEngine:
         target_frame, target_key = self._frame_and_key(
             target_screen, self._parts_for_screen(target_screen)
         )
-        # An instant cut lands on its single frame; every other effect animates.
-        steps = clock_transitions.TRANSITION_STEPS
-        if effect == clock_transitions.TRANSITION_INSTANT:
-            steps = 1
         self.transition = TransitionRun(
-            effect, direction, target_screen, source_frame, target_frame, target_key, steps
+            effect, direction, target_screen, source_frame, target_frame, target_key
         )
 
     def advance_transition(self, now: int) -> bool:
