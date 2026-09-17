@@ -13,7 +13,8 @@ the heavier, repo-wide gates run only in CI.
 
 | Target | Purpose |
 |---|---|
-| `make init` | Point git's `core.hooksPath` at [.githooks/](.githooks/) and make the `pre-commit` hook executable. Run once after cloning. |
+| `make init` | Build the linter images, sync the skill links, then point git's `core.hooksPath` at [.githooks/](.githooks/) and make the `pre-commit` hook executable. Run once after cloning. |
+| `make skills` | Re-link the canonical skills under [skills/](skills/) into both agent trees via [skills/link-skills.sh](skills/link-skills.sh). Run after adding, renaming, or removing a skill — CI fails if the links are stale. |
 | `make precommit` | The self-contained local gate. Auto-fixes staged Python in place (`ruff format`, `ruff check --fix`, then re-stages), then verifies `ruff` + `pydoclint` + `ty`. Invoked automatically by the `.githooks/pre-commit` hook on every commit. |
 | `make remove-ci` | Delete the CI / pre-commit / linting scaffolding for a clean slate. See [Removing the CI](#removing-the-ci). |
 
@@ -42,7 +43,7 @@ parallel after the guards pass.
 
 | Job | What it does |
 |---|---|
-| **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), and locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff. All other jobs depend on this. |
+| **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff — and runs `./skills/link-skills.sh --check`, which fails if a skill link is missing or stale, or if any `SKILL.md` / `AGENTS.md` exceeds the 600-word cap (repair with `make skills`). All other jobs depend on this. |
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up matter-native-test` — the host C++ unit test for the coalesced Matter state snapshot policy — then `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
 | **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and mint fresh Matter commissioning credentials on every build. |
