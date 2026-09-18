@@ -137,7 +137,8 @@
 
   <script>
   (function () {
-    const RECONNECT_MS = 250;
+    const RECONNECT_MS = 1_000;
+    const MAX_RECONNECT_MS = 30_000;
     const HISTORY_MS = 60_000;
     const TRAIL_MS = 5_000;
     const STALE_MS = 1_000;
@@ -150,6 +151,8 @@
     const $ = (id) => document.getElementById(id);
 
     let connected = false;
+    let socket = null;
+    let reconnectDelay = RECONNECT_MS;
     let occupied = null;
     let reportCount = 0;
     let lastReportAt = null;
@@ -335,6 +338,7 @@
     }
 
     function renderAnalytics() {
+      if (document.hidden) return;
       const now = Date.now();
       const age = history.map((sample) => (sample.at - now) / 1000);
       Plotly.react("target-count", [{
@@ -444,18 +448,28 @@
       $("freshness").textContent = age < STALE_MS ? age + " ms" : (age / 1000).toFixed(1) + " s stale";
     }
 
+    // Only ever one socket, and none while the page is hidden, so a reconnect
+    // timer that outlived its reason is a no-op.
     function connect() {
+      if (document.hidden || socket !== null) return;
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(protocol + "//" + location.host + "/ws");
-      ws.onmessage = (event) => {
+      socket = new WebSocket(protocol + "//" + location.host + "/ws");
+      socket.onmessage = (event) => {
+        reconnectDelay = RECONNECT_MS;
         try { onMessage(JSON.parse(event.data)); } catch { /* Ignore malformed host data. */ }
       };
-      ws.onclose = () => {
+      socket.onclose = () => {
+        socket = null;
         setConnection(false, "WebSocket closed; reconnecting");
-        setTimeout(connect, RECONNECT_MS);
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_MS);
       };
     }
 
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) socket?.close();
+      else connect();
+    });
     setInterval(refreshFreshness, 250);
     setInterval(renderAnalytics, ANALYTICS_REFRESH_MS);
     connect();

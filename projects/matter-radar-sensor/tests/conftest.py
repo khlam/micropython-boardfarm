@@ -68,7 +68,11 @@ class FakeServer:
 
     def stream(self, path: str, *, greeting: str) -> object:
         """Record one WebSocket route and return its broadcaster."""
-        self.broadcast = SimpleNamespace(greeting=greeting, send=lambda _line: None)
+        self.broadcast = SimpleNamespace(
+            greeting=greeting,
+            send=lambda _line: None,
+            has_clients=lambda: True,
+        )
         self.streams.append((path, self.broadcast))
         return self.broadcast
 

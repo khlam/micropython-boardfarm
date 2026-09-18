@@ -7,8 +7,8 @@ occupancy stays on after the first empty report, from zero to ten minutes. A
 missing report or UART error forces occupancy on and restarts the radar
 connection.
 
-The board sends the same JSON reports over USB serial and its dashboard
-WebSocket.
+The board sends target telemetry only while a dashboard client is connected.
+Diagnostics always reach USB serial.
 """
 
 import asyncio
@@ -101,13 +101,13 @@ class _Application:
             dashboard_page.PAGE,
             encoding=dashboard_page.ENCODING,
         )
-        dashboard_reports = self._dashboard.stream(
+        self._dashboard_reports = self._dashboard.stream(
             "/ws",
             # The radar model is only known after detection, so it arrives later
             # with the radar_ok diagnostic instead.
             greeting=ujson.dumps({"event": "connected", "port": f"radar uart{BOARD.uart_id}"}),
         )
-        add_sink(dashboard_reports.send)
+        add_sink(self._dashboard_reports.send)
 
         self._node = matter.Node()
         # Endpoint IDs persist, so always create the occupancy endpoint first.
@@ -207,22 +207,30 @@ class _Application:
             if last_dashboard_report_ms is None or (
                 time.ticks_diff(now_ms, last_dashboard_report_ms) >= _DASHBOARD_REPORT_INTERVAL_MS
             ):
-                emit(
-                    {
-                        "t": now_ms,
-                        "targets": [
-                            {
-                                "slot": target.slot,
-                                "x_mm": target.x_mm,
-                                "y_mm": target.y_mm,
-                                "speed_cm_s": target.speed_cm_s,
-                                "resolution_mm": target.resolution_mm,
-                            }
-                            for target in targets
-                        ],
-                    }
-                )
+                # Advance the interval even when nothing is sent, so an idle
+                # timestamp never ages out of ticks_diff's signed range.
                 last_dashboard_report_ms = now_ms
+                self._send_radar_telemetry(targets, now_ms)
+
+    def _send_radar_telemetry(self, targets: tuple, now_ms: int) -> None:
+        """Serialize one telemetry line, skipping the work when nobody is watching."""
+        if not self._dashboard_reports.has_clients():
+            return
+        emit(
+            {
+                "t": now_ms,
+                "targets": [
+                    {
+                        "slot": target.slot,
+                        "x_mm": target.x_mm,
+                        "y_mm": target.y_mm,
+                        "speed_cm_s": target.speed_cm_s,
+                        "resolution_mm": target.resolution_mm,
+                    }
+                    for target in targets
+                ],
+            }
+        )
 
     def _set_pixel_color(self, color: tuple) -> None:
         """Update the onboard status pixel when its color changes."""

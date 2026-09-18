@@ -42,6 +42,10 @@ asyncio.run(main())
 the port. Build the server wherever it reads best and open it once the network
 is actually up.
 
+`reports.has_clients()` is true while at least one client is connected. Check it
+before serializing optional telemetry, and keep sensing and control decisions
+independent of it.
+
 ## Bounds
 
 Everything that a remote peer could otherwise grow is capped:
