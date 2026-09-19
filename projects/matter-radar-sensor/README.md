@@ -3,8 +3,8 @@
 This project exposes an HLK-LD2450 or HLK-LD2420 mmWave radar as a read-only
 Matter Occupancy Sensor and a virtual Dimmable Light that configures its
 occupancy hold. It is an edge translator: detailed 10 Hz radar reports become a
-low-bandwidth Matter occupancy state, while full target telemetry remains
-available through the board's webpage and the USB serial stream.
+low-bandwidth Matter occupancy state, while full target telemetry is produced
+only while the board's webpage is open.
 
 Both radars wire to the same UART pins and one firmware image serves either.
 The board detects which one is attached at startup, and the product contract
@@ -273,8 +273,10 @@ is unavailable.
 
 ## Telemetry stream
 
-At most once every 500 ms, the newest valid report produces one compact JSON
-line containing targets outside the dead zone. Raw sensor fields are preserved:
+While a dashboard client is connected, at most once every 500 ms the newest
+valid report produces one compact JSON line containing targets outside the dead
+zone. With no client, the firmware skips that serialization; every radar report
+still updates occupancy either way. Raw sensor fields are preserved:
 
 ```json
 {"t":1234,"targets":[{"slot":1,"x_mm":-782,"y_mm":1713,"speed_cm_s":-16,"resolution_mm":320}]}
@@ -288,8 +290,8 @@ radar produced it is reported once per detection:
 {"diag":"radar_ok","model":"LD2420"}
 ```
 
-One `emit()` sink writes each line to both destinations: USB serial and the
-dashboard WebSocket. Read the serial side with
+Each line goes to both USB serial and the dashboard WebSocket, so diagnostics
+reach USB with no client connected. Read the serial side with
 `docker compose run --rm --build esp32-monitor`, setting
 `SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
 
@@ -313,13 +315,27 @@ The address is reported once it exists, and again if the DHCP lease changes it:
 
 Read it with `docker compose run --rm --build esp32-monitor`, then open that URL.
 Nothing is served during the protected startup interval or before commissioning,
-because until then the listener is delayed or the board has no address. Serial
-output remains available at a power-conscious two reports per second; the
-WebSocket is a second destination for those same lines, not a replacement.
+because until then the listener is delayed or the board has no address. The page
+drops its live stream while hidden and reconnects when viewed again. A failed
+connection retries with exponential backoff, one to 30 seconds, so a board that
+is refusing connections is not asked again immediately.
 
 The page loads Plotly from `cdn.plot.ly`, so the **viewing device** needs
 internet access for the charts; the board itself does not. Up to three browsers
 can watch at once, and a fourth is refused rather than served slowly.
+
+## Power and detection timing
+
+The radar stays powered and its IRQ-driven reader consumes every report at the
+sensor's normal rate. The occupancy decision and the Matter publish run before
+any telemetry work, so nothing here delays detection. Only optional work is cut:
+the skipped serialization above, routine stack logging, and the BLE modem, which
+sleeps between commissioning events per the
+[ESP-IDF power-management guidance](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32s3/api-reference/system/power_management.html).
+
+That is not a measured temperature guarantee — validate on the board, comparing
+temperature, current draw, and person-to-controller response with the dashboard
+open and closed.
 
 ## Build, artifacts, and flashing
 

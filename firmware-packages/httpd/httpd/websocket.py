@@ -53,6 +53,10 @@ class Broadcast:
         self._greeting = greeting
         self._clients = []
 
+    def has_clients(self) -> bool:
+        """Return whether any client is connected."""
+        return bool(self._clients)
+
     def send(self, text: str) -> None:
         """Queue one line for every connected client.
 
