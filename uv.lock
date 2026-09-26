@@ -476,15 +476,6 @@ wheels = [
 ]
 
 [[package]]
-name = "httpd"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/httpd-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/httpd-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "httptools"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -682,7 +673,6 @@ source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
-    { name = "httpd" },
     { name = "i2c-bus" },
     { name = "matter" },
     { name = "micropython-stubs" },
@@ -712,7 +702,6 @@ test = [
     { name = "boot-status-led" },
     { name = "cryptography" },
     { name = "esp-idf-nvs-partition-gen" },
-    { name = "httpd" },
     { name = "httpx" },
     { name = "i2c-bus" },
     { name = "matter" },
@@ -741,7 +730,6 @@ viz = [
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.2.1", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
@@ -769,7 +757,6 @@ test = [
     { name = "boot-status-led", index = "file:///wheels" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
-    { name = "httpd", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
