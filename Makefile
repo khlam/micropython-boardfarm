@@ -2,12 +2,15 @@ SHELL := /bin/bash
 
 LINT_IMAGES := local/ruff:latest local/pydoclint:latest local/typecheck:latest
 
-.PHONY: init build-linters precommit remove-ci
+.PHONY: init build-linters skills precommit remove-ci
 
 build-linters:
 	@docker buildx bake -f docker-bake.hcl ruff pydoclint typecheck
 
-init: build-linters
+skills:
+	@./skills/link-skills.sh
+
+init: build-linters skills
 	@set -euo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel 2>/dev/null || true)"; \
 	if [[ -z "$$repo_root" ]]; then \
