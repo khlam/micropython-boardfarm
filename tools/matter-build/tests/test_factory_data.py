@@ -9,6 +9,9 @@ import sys
 import build
 import nvs_partition_read
 import pytest
+import spake2p
+
+from matter import generate_pairing
 
 _DISCRIMINATOR = 3840
 _SALT = base64.b64encode(b"a per-device salt").decode()
@@ -52,21 +55,21 @@ def test_reads_the_factory_namespace_through_the_idf_nvs_tool(monkeypatch, tmp_p
 
 
 def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, monkeypatch):
-    passcode = 20202021
-    monkeypatch.setattr(build.secrets, "randbelow", lambda _limit: _DISCRIMINATOR)
+    pairing = generate_pairing("correct-horse-battery-staple")
+    discriminator = pairing["discriminator"]
+    passcode = pairing["passcode"]
     monkeypatch.setattr(build.secrets, "token_bytes", lambda length: bytes(range(length)))
 
-    factory, qr, manual, payload, discriminator = build._mint_credentials(
+    factory, qr, payload = build._mint_credentials(
         tmp_path,
         identity,
         "Acme",
         "SN0001",
         "Color Light",
-        passcode=passcode,
+        pairing,
     )
 
     assert factory == tmp_path / "manufacturing" / "factory-partition.bin"
-    assert discriminator == _DISCRIMINATOR
     assert factory.stat().st_size == identity.factory_size
     assert qr == tmp_path / "manufacturing" / "qrcode.png"
     assert qr.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
@@ -80,7 +83,7 @@ def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, mon
         "passcode": passcode,
         "padding": 0,
     }
-    assert build._decode_manual_code(manual) == {
+    assert build._decode_manual_code(pairing["manual_pairing_code"]) == {
         "short_discriminator": discriminator >> 8,
         "passcode": passcode,
     }
@@ -96,7 +99,9 @@ def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, mon
     assert rows["product-name"] == "Color Light"
     assert rows["serial-num"] == "SN0001"
     assert base64.b64decode(rows["salt"]) == bytes(range(build._SPAKE2P_SALT_LEN))
-    assert len(base64.b64decode(rows["verifier"])) == 97
+    assert base64.b64decode(rows["verifier"]) == spake2p.generate_verifier(
+        passcode, base64.b64decode(rows["salt"]), int(rows["iteration-count"])
+    )
     assert "passcode" not in rows
 
 

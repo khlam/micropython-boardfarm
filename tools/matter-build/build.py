@@ -1,10 +1,10 @@
-"""Build the ESP32-S3 Matter firmware and publish its commissioning artifacts.
+"""Compile reusable Matter firmware or provision and flash one physical board.
 
-Runs inside the `matter-toolchain` stage of Dockerfile.matter. The stage's
-ENTRYPOINT sources the ESP-IDF and ESP-Matter environments before exec'ing this
-module rather than running it directly: both `export.sh` scripts mutate PATH and
-several dozen other variables in the calling shell, and there is no way to source
-them from inside a Python process.
+Runs inside Dockerfile.matter's `matter-toolchain` stage, or `matter-flash` with
+`--flash`. Each stage's ENTRYPOINT sources ESP-IDF's environment (and, to
+compile, ESP-Matter's) before exec'ing this module rather than running it
+directly: each `export.sh` mutates PATH and several dozen other variables in the
+calling shell, and there is no way to source one from inside a Python process.
 
 Everything that describes the device is read from the board configuration the
 firmware itself consumes -- the factory row of partitions.csv and the CONFIG_
@@ -14,9 +14,9 @@ where two independent copies of the same literals would quietly agree with each
 other and disagree with the running device.
 
 The checks between minting and publishing decode the QR and manual codes from
-scratch rather than trusting the manufacturing tool that produced them, so a
-pairing code only reaches /outputs alongside an image it describes. Their logic
-is exercised on the host by tests/.
+scratch rather than trusting the encoders that produced them, so a pairing code
+only reaches /outputs alongside an image it describes. Their logic is exercised
+on the host by tests/.
 """
 
 from __future__ import annotations
@@ -44,8 +44,9 @@ import nvs_partition_read
 import onboarding_codes
 import qr_image
 import spake2p
+from pairing import generate_pairing
 
-_BOARD_DIR = Path("/matter-board/ESP32_S3_MATTER")
+BOARD_DIR = Path("/matter-board/ESP32_S3_MATTER")
 _BUILD_CACHE = Path("/build-cache")
 _MANIFEST = Path("/manifest.py")
 _MATTER_NATIVE = Path("/firmware-packages/matter/native")
@@ -73,15 +74,15 @@ _SETUP_NAME = "app.esp32-s3.setup.txt"
 _OUTPUT_NAMES = frozenset({_MERGED_NAME, _QR_NAME, _SETUP_NAME})
 _STAGING_NAMES = frozenset(f".matter-build.{name}.new" for name in _OUTPUT_NAMES)
 
-# Hardware identity with no board-configuration source and no per-build
+# Hardware identity with no board-configuration source and no flash-time
 # parameter. Discovery mode also reaches the onboarding check, which
 # cross-checks it: minting encodes it into the QR payload and the check
 # base38-decodes it back out. Vendor name, product name, and serial number are
-# per-build instead -- see _parse_args and _pyproject_to_model.
+# supplied at flash time -- see _parse_args and _pyproject_to_model.
 
 _DISCOVERY_BLE = 2
 _DISCOVERY_ON_NETWORK = 4
-_DISCOVERY_MODE = _DISCOVERY_BLE | _DISCOVERY_ON_NETWORK
+DISCOVERY_MODE = _DISCOVERY_BLE | _DISCOVERY_ON_NETWORK
 _HARDWARE_VERSION = 1
 _HARDWARE_VERSION_STRING = "development"
 
@@ -144,7 +145,7 @@ class _BuildIdentity:
 
 
 def main() -> int:
-    """Build, mint, validate, publish, and return an exit status.
+    """Compile or flash, validate, publish, and return an exit status.
 
     Every check runs before anything is copied into /outputs, so a rejected build
     leaves the previous artifacts untouched rather than half-replaced.
@@ -153,59 +154,110 @@ def main() -> int:
         The process exit status.
     """
     args = _parse_args()
-    passcode = int(args.passcode) if args.passcode else None
-    manufacturer = args.manufacturer or _DEFAULT_MANUFACTURER
-    serial_number = args.serial_number or _default_serial_number()
-    model = _pyproject_to_model(_PROJECT_TOML)
-    identity = _board_to_identity(_BOARD_DIR, _DISCOVERY_MODE)
+    identity = board_to_identity(BOARD_DIR, DISCOVERY_MODE)
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         staging_root = Path(scratch)
-        _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
-        _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
-        factory, qr, manual, payload, discriminator = _mint_credentials(
-            staging_root, identity, manufacturer, serial_number, model, passcode
-        )
-        merged = _merge_image(
-            _BUILD_CACHE,
-            factory,
-            identity,
-            artifact_root=staging_root,
-        )
-        _validate_merged_image(merged, factory, qr, identity)
-        _validate_factory_identity(
-            nvs_partition_read.read_factory_partition(factory, nvs_partition_gen.NAMESPACE),
-            discriminator,
-            identity,
-        )
-        _publish(merged, qr, manual, payload)
+        if args.flash:
+            _flash_board(staging_root, identity, args)
+        else:
+            _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
+            _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
+            merged = _merge_image(_BUILD_CACHE, identity, artifact_root=staging_root)
+            _validate_merged_image(merged, None, None, identity)
+            _publish(merged, None, {})
         _hand_outputs_to_owner()
-    sys.stdout.write(f"{_OUTPUT_DIR / _MERGED_NAME} and matching commissioning artifacts ready\n")
+    sys.stdout.write(
+        "Matter flash complete\n" if args.flash else "Matter firmware ready to provision\n"
+    )
     return 0
 
 
 def _parse_args() -> argparse.Namespace:
     """Parse the build's command line."""
-    parser = argparse.ArgumentParser(description="Build and publish ESP32-S3 Matter firmware.")
+    parser = argparse.ArgumentParser(description="Compile or flash ESP32-S3 Matter firmware.")
+    parser.add_argument(
+        "--flash", action="store_true", help="provision and flash the compiled image"
+    )
+    parser.add_argument("--port", default="/dev/ttyACM0", help="serial port for --flash")
     parser.add_argument(
         "--passcode",
         default="",
-        help="setup passcode to mint into this build's credentials; random if omitted",
+        help="secret pairing key for --flash; a fresh random key if blank",
     )
     parser.add_argument(
         "--manufacturer",
         default="",
-        help=f"vendor name to mint into this build's credentials; "
-        f"{_DEFAULT_MANUFACTURER!r} if omitted",
+        help=f"vendor name for --flash; {_DEFAULT_MANUFACTURER!r} if omitted",
     )
     parser.add_argument(
         "--serial-number",
         default="",
-        help="serial number to mint into this build's credentials; a build timestamp if omitted",
+        help="serial number for --flash; a timestamp if omitted",
     )
     return parser.parse_args()
 
 
-def _board_to_identity(board_dir: Path, discovery_mode: int) -> _BuildIdentity:
+def _flash_board(staging_root: Path, identity: _BuildIdentity, args: argparse.Namespace) -> None:
+    """Provision the connected board, flash a validated image, then publish its codes."""
+    pairing = generate_pairing(args.passcode or None)
+    factory, qr, payload = _mint_credentials(
+        staging_root,
+        identity,
+        args.manufacturer or _DEFAULT_MANUFACTURER,
+        args.serial_number or _default_serial_number(),
+        _pyproject_to_model(_PROJECT_TOML),
+        pairing,
+    )
+    merged = staging_root / _MERGED_NAME
+    merged.write_bytes(
+        _provision_image((_OUTPUT_DIR / _MERGED_NAME).read_bytes(), factory.read_bytes(), identity)
+    )
+    _validate_merged_image(merged, factory, qr, identity)
+    _validate_factory_identity(
+        nvs_partition_read.read_factory_partition(factory, nvs_partition_gen.NAMESPACE),
+        pairing["discriminator"],
+        identity,
+    )
+    _run(_flash_command(args.port, merged))
+    _publish(
+        merged,
+        qr,
+        {
+            "manual_pairing_code": pairing["manual_pairing_code"],
+            "setup_payload": payload,
+            "passcode": pairing["key"],
+        },
+    )
+
+
+def _provision_image(image: bytes, factory: bytes, identity: _BuildIdentity) -> bytes:
+    """Return the compiled image with one board's factory partition in place."""
+    start = identity.factory_offset
+    return image[:start] + factory + image[start + identity.factory_size :]
+
+
+def _flash_command(port: str, image: Path) -> list[str]:
+    """Return the esptool command that writes a whole image, restarting only local boards."""
+    # esptool cannot reset a board it reaches over TCP.
+    remote = port.startswith(("socket://", "rfc2217://"))
+    return [
+        "esptool.py",
+        "--chip",
+        _IDF_TARGET,
+        "--port",
+        port,
+        "--before",
+        "no_reset" if remote else "default_reset",
+        "--after",
+        "no_reset" if remote else "watchdog_reset",
+        "write_flash",
+        "-z",
+        "0x0",
+        str(image),
+    ]
+
+
+def board_to_identity(board_dir: Path, discovery_mode: int) -> _BuildIdentity:
     """Read the device's identity and flash layout out of its board configuration."""
     config = _sdkconfig_to_values(board_dir / "sdkconfig.board")
     label = _required(config, "CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL").strip('"')
@@ -277,7 +329,7 @@ def _pyproject_to_model(path: Path) -> str:
 
 
 def _default_serial_number() -> str:
-    """Mint a build-timestamp serial number when none is supplied."""
+    """Mint a flash-timestamp serial number when none is supplied."""
     return datetime.now(UTC).strftime("%m.%d.%y.%H.%M.%S")
 
 
@@ -347,7 +399,7 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
             "-D",
             f"MICROPY_BOARD={_BOARD_NAME}",
             "-D",
-            f"MICROPY_BOARD_DIR={_BOARD_DIR}",
+            f"MICROPY_BOARD_DIR={BOARD_DIR}",
             "-D",
             f"MICROPY_FROZEN_MANIFEST={_MANIFEST}",
             "-D",
@@ -368,21 +420,13 @@ def _mint_credentials(
     manufacturer: str,
     serial_number: str,
     model: str,
-    passcode: int | None = None,
-) -> tuple[Path, Path, str, str, int]:
-    """Generate one device's factory partition, onboarding codes and QR image.
-
-    A caller-supplied passcode is minted into this device's credentials; when
-    none is given, a fresh random one is minted here. Either way a fresh
-    discriminator and salt are minted each run, so the returned artifacts only
-    ever match the image built alongside them.
-    """
+    pairing: dict,
+) -> tuple[Path, Path, str]:
+    """Generate one board's factory partition, QR payload, and QR image from its pairing."""
+    discriminator = pairing["discriminator"]
+    passcode = pairing["passcode"]
     outdir = build_root / "manufacturing"
     outdir.mkdir(parents=True, exist_ok=True)
-
-    discriminator = secrets.randbelow(0x1000)
-    if passcode is None:
-        passcode = _random_passcode()
     salt = secrets.token_bytes(_SPAKE2P_SALT_LEN)
     verifier = spake2p.generate_verifier(passcode, salt, _SPAKE2P_ITERATION_COUNT)
 
@@ -407,40 +451,28 @@ def _mint_credentials(
     payload = onboarding_codes.encode_qr_payload(
         identity.vendor_id, identity.product_id, discriminator, passcode, identity.discovery_mode
     )
-    manual = onboarding_codes.encode_manual_code(discriminator, passcode)
-    _validate_onboarding(payload, manual, discriminator, passcode, identity)
+    _validate_onboarding(payload, pairing["manual_pairing_code"], discriminator, passcode, identity)
 
     qr = outdir / "qrcode.png"
     qr_image.render(payload, qr)
 
-    return factory, qr, manual, payload, discriminator
-
-
-def _random_passcode() -> int:
-    """Mint a cryptographically random setup passcode, excluding invalid values."""
-    while True:
-        passcode = spake2p.MIN_PASSCODE + secrets.randbelow(
-            spake2p.MAX_PASSCODE - spake2p.MIN_PASSCODE + 1
-        )
-        if passcode not in spake2p.INVALID_PASSCODES:
-            return passcode
+    return factory, qr, payload
 
 
 def _merge_image(
     build_root: Path,
-    factory: Path,
     identity: _BuildIdentity,
     *,
-    artifact_root: Path | None = None,
+    artifact_root: Path,
 ) -> Path:
-    """Combine the IDF build and the factory partition into one flashable image.
+    """Combine the IDF build into a reusable image with an empty factory partition.
 
     Runs from the IDF build directory because @flash_args names the bootloader,
     partition table and application by paths relative to it. The merged image can
-    be staged outside the persistent compilation tree so per-device artifacts do
+    be staged outside the persistent compilation tree so published artifacts do
     not become build-cache state.
     """
-    merged = (artifact_root if artifact_root is not None else build_root) / _MERGED_NAME
+    merged = artifact_root / _MERGED_NAME
     _run(
         [
             "esptool.py",
@@ -452,8 +484,6 @@ def _merge_image(
             "-o",
             str(merged),
             "@flash_args",
-            hex(identity.factory_offset),
-            str(factory),
         ],
         cwd=build_root / "idf",
     )
@@ -532,7 +562,7 @@ def _decode_manual_code(code: str) -> dict[str, int]:
 def _verhoeff_check_digit(body: str) -> str:
     """Recompute the Verhoeff check digit a manual code's leading digits require.
 
-    Kept independent of onboarding_codes._verhoeff_check_digit
+    Kept independent of the encoder in matter/pairing.py.
 
     Args:
         body: The 10 decimal digits preceding the check digit.
@@ -577,26 +607,30 @@ def _validate_onboarding(
 
 
 def _validate_merged_image(
-    merged_path: Path, factory_path: Path, qr_path: Path, identity: _BuildIdentity
+    merged_path: Path, factory_path: Path | None, qr_path: Path | None, identity: _BuildIdentity
 ) -> None:
-    """Check image size, factory placement, and QR image presence.
+    """Check image size, the factory partition, and a provisioned image's QR.
 
     The merged image is padded to the whole flash, so anything else means the
     merge did not produce the layout the board is about to be written with.
     """
     merged = merged_path.read_bytes()
-    factory = factory_path.read_bytes()
     start = identity.factory_offset
     end = start + identity.factory_size
     if len(merged) != identity.flash_size:
         raise ValueError(f"merged image must be exactly {identity.flash_size:#x} bytes")
+    if factory_path is None:
+        if merged[start:end] != b"\xff" * identity.factory_size:
+            raise ValueError("unprovisioned image must have an empty factory partition")
+        return
+    factory = factory_path.read_bytes()
     if len(factory) != identity.factory_size:
         raise ValueError(f"factory partition must be exactly {identity.factory_size:#x} bytes")
     if merged[start:end] != factory:
         raise ValueError(
             f"merged image does not carry the generated factory partition at {start:#x}"
         )
-    if not qr_path.is_file() or qr_path.stat().st_size == 0:
+    if qr_path is None or not qr_path.is_file() or qr_path.stat().st_size == 0:
         raise ValueError("QR image is missing or empty")
 
 
@@ -617,14 +651,15 @@ def _validate_factory_identity(values: dict, discriminator: int, identity: _Buil
         raise ValueError("factory data must contain a verifier and no plaintext passcode")
 
 
-def _publish(merged: Path, qr: Path, manual: str, payload: str) -> None:
+def _publish(merged: Path, qr: Path | None, setup: dict[str, str]) -> None:
     """Publish one matched artifact generation with a fail-closed cutover.
 
-    All three files are staged on the output filesystem before the public pairing
-    material is removed. During cutover, the binary is replaced before its matching
-    QR and setup text, so an interrupted build never exposes stale credentials beside
-    a new image. An advisory lock on the output directory serializes live build
-    processes without adding a fourth artifact that could itself become stale.
+    Without a QR, only the binary is published. All published files are staged on
+    the output filesystem before public pairing material is removed. During
+    cutover, the binary is replaced before its matching QR and setup text, so an
+    interrupted build never exposes stale credentials beside a new image. An
+    advisory lock on the output directory serializes live build processes without
+    adding a fourth artifact that could itself become stale.
     """
     with _publication_lock():
         unexpected = sorted(
@@ -642,12 +677,14 @@ def _publish(merged: Path, qr: Path, manual: str, payload: str) -> None:
 
         try:
             _install(merged, staged[_MERGED_NAME])
-            _install(qr, staged[_QR_NAME])
-            _write_setup(staged[_SETUP_NAME], manual, payload)
+            if qr is not None:
+                _install(qr, staged[_QR_NAME])
+                _write_setup(staged[_SETUP_NAME], setup)
 
             destinations[_SETUP_NAME].unlink(missing_ok=True)
             destinations[_QR_NAME].unlink(missing_ok=True)
-            for name in (_MERGED_NAME, _QR_NAME, _SETUP_NAME):
+            names = (_MERGED_NAME,) if qr is None else (_MERGED_NAME, _QR_NAME, _SETUP_NAME)
+            for name in names:
                 _commit_staged(staged[name], destinations[name])
         finally:
             for path in staged.values():
@@ -671,10 +708,10 @@ def _install(source: Path, destination: Path) -> None:
     destination.chmod(_ARTIFACT_MODE)
 
 
-def _write_setup(path: Path, manual: str, payload: str) -> None:
-    """Write the two-line setup file naming this build's pairing codes."""
+def _write_setup(path: Path, setup: dict[str, str]) -> None:
+    """Write one ``key=value`` line per setup field."""
     path.write_text(
-        f"manual_pairing_code={manual}\nsetup_payload={payload}\n",
+        "".join(f"{key}={value}\n" for key, value in setup.items()),
         encoding="utf-8",
     )
     path.chmod(_ARTIFACT_MODE)
@@ -688,8 +725,8 @@ def _commit_staged(source: Path, destination: Path) -> None:
 def _hand_outputs_to_owner() -> None:
     """Give the finished artifacts to whoever owns the bind-mounted source tree."""
     published = sorted(_OUTPUT_DIR.iterdir())
-    if len(published) != len(_OUTPUT_NAMES):
-        raise ValueError(f"expected {len(_OUTPUT_NAMES)} artifacts, found {len(published)}")
+    if {path.name for path in published} not in ({_MERGED_NAME}, _OUTPUT_NAMES):
+        raise ValueError("expected firmware alone or firmware with matching pairing artifacts")
     owner = _OWNER_REFERENCE.stat()
     for path in [_OUTPUT_DIR, *published]:
         os.chown(path, owner.st_uid, owner.st_gid)

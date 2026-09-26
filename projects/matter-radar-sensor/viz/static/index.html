@@ -14,12 +14,14 @@
       --dim: #6b7280;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       color: var(--text);
       background: var(--bg);
+      overflow-wrap: anywhere;
     }
     h1 { margin: 0 0 4px; font-size: 21px; font-weight: 550; }
     .subtitle { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
@@ -38,6 +40,8 @@
     .diag { color: #fbbf24; font-size: 12px; }
     .occupancy-box {
       display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
       margin-bottom: 14px;
       padding: 14px 18px;
       align-items: center;
@@ -84,21 +88,49 @@
       background: #0e131d;
       font-variant-numeric: tabular-nums;
     }
-    .target-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .target-head { display: flex; flex-wrap: wrap; gap: 4px 8px; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
     .target-head strong { color: var(--slot-color); font-size: 14px; }
     .target-head span { color: var(--dim); font-size: 11px; }
-    .target-values { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px 12px; }
-    .target-values div { color: var(--muted); font-size: 12px; }
-    .target-values b { float: right; color: var(--text); font-weight: 500; }
+    .target-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; }
+    .target-values div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; color: var(--muted); font-size: 12px; }
+    .target-values b { color: var(--text); font-weight: 500; }
     .empty { padding: 24px 8px; color: var(--dim); text-align: center; font-size: 13px; }
     .note { margin: 8px 2px 0; color: var(--dim); font-size: 11px; line-height: 1.4; }
+    .chart { width: 100%; min-width: 0; }
+    .history-chart { height: 260px; }
+    .chart svg { display: block; width: 100%; height: 100%; font-size: 11px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 16px; height: 3px; background: var(--slot-color); }
+    button {
+      min-height: 44px;
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      background: #1d4ed8;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
     @media (max-width: 980px) {
       .grid, .analytics { grid-template-columns: 1fr; }
     }
+    @media (prefers-reduced-motion: reduce) {
+      .occupancy-box.flash { animation: none; }
+    }
   </style>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
+  <section id="connection-error" class="panel" role="alert" hidden>
+    <h1>Dashboard disconnected</h1>
+    <p id="connection-error-message"></p>
+    <p>One viewer can connect at a time, for up to 10 minutes.
+      Taking the connection disconnects the current viewer.</p>
+    <button id="take-connection" type="button">Take connection</button>
+  </section>
+
+  <main id="dashboard">
   <h1>HLK-LD2450 — Live Targets</h1>
   <p class="subtitle">Current radar slots, short motion trails, and the last 60 seconds of activity</p>
 
@@ -119,7 +151,7 @@
   <div class="grid">
     <section class="panel">
       <h2>Radar plane · meters</h2>
-      <div id="radar" style="height: 570px;"></div>
+      <div id="radar" class="chart"></div>
       <p class="note">The guide shows the documented 6 m, ±60° field of view. Trails retain 5 seconds.</p>
     </section>
     <section class="panel">
@@ -130,26 +162,25 @@
   </div>
 
   <div class="analytics">
-    <section class="panel"><h2>Active targets · 60 s</h2><div id="target-count" style="height: 260px;"></div></section>
-    <section class="panel"><h2>Distance by slot · meters</h2><div id="distance" style="height: 260px;"></div></section>
-    <section class="panel"><h2>Signed speed by slot · cm/s</h2><div id="speed" style="height: 260px;"></div></section>
+    <section class="panel"><h2>Active targets · 60 s</h2><div id="target-count" class="chart history-chart"></div></section>
+    <section class="panel"><h2>Distance by slot · meters</h2><div id="distance" class="chart history-chart"></div></section>
+    <section class="panel"><h2>Signed speed by slot · cm/s</h2><div id="speed" class="chart history-chart"></div></section>
   </div>
+  </main>
 
   <script>
   (function () {
-    const RECONNECT_MS = 250;
     const HISTORY_MS = 60_000;
     const TRAIL_MS = 5_000;
     const STALE_MS = 1_000;
     const ANALYTICS_REFRESH_MS = 1_000;
     const COLORS = ["#22c55e", "#38bdf8", "#f97316"];
-    const PANEL = "#131722";
     const GRID = "#263041";
     const TEXT = "#9ca3af";
-    const config = { displayModeBar: false, responsive: true };
     const $ = (id) => document.getElementById(id);
 
     let connected = false;
+    let socket = null;
     let occupied = null;
     let reportCount = 0;
     let lastReportAt = null;
@@ -158,71 +189,156 @@
     let reportTimes = [];
     let gapOpen = false;
     let liveRenderPending = false;
+    let chartRenderPending = false;
 
-    function buildCoverageTrace() {
-      const x = [0];
-      const y = [0];
-      for (let degree = -60; degree <= 60; degree += 3) {
-        const radians = degree * Math.PI / 180;
-        x.push(6 * Math.sin(radians));
-        y.push(6 * Math.cos(radians));
+    const radar = createChart("radar", "Radar plane", "Current slots and five-second trails in meters. The shaded sector extends 6 meters, 60 degrees either side of center.", "X · left / right (m)", "Y · ahead (m)", COLORS);
+    const countChart = createChart("target-count", "Active targets", "Number of active targets, from zero to three, over the last 60 seconds.", "Seconds ago", "Targets", ["#a78bfa"]);
+    const distanceChart = createChart("distance", "Distance by slot", "Distance in meters over the last 60 seconds. Gaps indicate absent slots.", "Seconds ago", "Meters", COLORS);
+    const speedChart = createChart("speed", "Signed speed by slot", "Signed speed in centimeters per second over the last 60 seconds. Gaps indicate absent slots.", "Seconds ago", "cm/s", COLORS);
+    const charts = [radar, countChart, distanceChart, speedChart];
+    const coverage = svgElement("path", radar.plot, {
+      fill: "rgba(56,189,248,0.05)", stroke: "rgba(148,163,184,0.45)", "stroke-dasharray": "2 3",
+    });
+    radar.plot.prepend(coverage);
+    const markers = COLORS.map((color, index) => {
+      radar.paths[index].setAttribute("opacity", "0.45");
+      const group = svgElement("g", radar.plot, { display: "none" });
+      svgElement("circle", group, { r: 11, fill: color, stroke: "#e5e7eb" });
+      svgElement("text", group, { "text-anchor": "middle", y: 4, fill: "#071018" }, String(index + 1));
+      return group;
+    });
+    const origin = svgElement("text", radar.svg, { "text-anchor": "middle", fill: "#e5e7eb", "font-size": 10 }, "RADAR");
+
+    function createChart(id, title, description, xTitle, yTitle, colors) {
+      const container = $(id);
+      const svg = svgElement("svg", container, {
+        role: "img", "aria-labelledby": id + "-title " + id + "-description", fill: TEXT,
+      });
+      svgElement("title", svg, { id: id + "-title" }, title);
+      svgElement("desc", svg, { id: id + "-description" }, description);
+      const clip = svgElement("clipPath", svgElement("defs", svg), { id: id + "-clip" });
+      const clipRect = svgElement("rect", clip);
+      const axes = svgElement("g", svg);
+      const xTicks = createTicks(axes);
+      const yTicks = createTicks(axes);
+      const xLabel = svgElement("text", axes, { "text-anchor": "middle" }, xTitle);
+      const yLabel = svgElement("text", axes, { y: 13 }, yTitle);
+      const plot = svgElement("g", svg, { "clip-path": "url(#" + id + "-clip)" });
+      const paths = colors.map((color) => svgElement("path", plot, {
+        fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round",
+      }));
+      const legend = document.createElement("div");
+      legend.className = "legend";
+      colors.forEach((color, index) => {
+        const item = document.createElement("span");
+        const swatch = document.createElement("i");
+        swatch.style.setProperty("--slot-color", color);
+        swatch.setAttribute("aria-hidden", "true");
+        item.append(swatch, colors.length === 1 ? "Active targets" : "Slot " + (index + 1));
+        legend.append(item);
+      });
+      container.after(legend);
+      return { container, svg, clipRect, plot, paths, xTicks, yTicks, xLabel, yLabel };
+    }
+
+    function createTicks(parent) {
+      // Bounded tick pools keep every chart's DOM stable during live updates.
+      return Array.from({ length: 16 }, () => {
+        const group = svgElement("g", parent, { display: "none" });
+        return { group, line: svgElement("line", group), label: svgElement("text", group) };
+      });
+    }
+
+    function svgElement(tag, parent, attributes = {}, text = "") {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      setAttributes(element, attributes);
+      if (text) element.textContent = text;
+      parent.append(element);
+      return element;
+    }
+
+    function setAttributes(element, attributes) {
+      for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+    }
+
+    function sizeChart(chart, xRange, yRange, xTicks, yTicks) {
+      const width = chart.container.getBoundingClientRect().width;
+      if (width <= 0) return false;
+      const left = 52;
+      const right = width - 16;
+      const top = 26;
+      const height = chart === radar
+        ? (right - left) * 6.6 / 11 + top + 52
+        : chart.container.getBoundingClientRect().height;
+      if (chart === radar) chart.container.style.height = height + "px";
+      if (height <= 0) return false;
+      const bottom = height - (chart === radar ? 52 : 44);
+      chart.x = (value) => left + (value - xRange[0]) / (xRange[1] - xRange[0]) * (right - left);
+      chart.y = (value) => bottom - (value - yRange[0]) / (yRange[1] - yRange[0]) * (bottom - top);
+      setAttributes(chart.svg, { viewBox: `0 0 ${width} ${height}` });
+      setAttributes(chart.clipRect, { x: left, y: top, width: right - left, height: bottom - top });
+      setAttributes(chart.xLabel, { x: (left + right) / 2, y: height - 5 });
+      chart.yLabel.setAttribute("x", left);
+      updateTicks(chart.xTicks, xTicks, (value) => ({
+        line: { x1: chart.x(value), x2: chart.x(value), y1: top, y2: bottom },
+        label: { x: chart.x(value), y: bottom + 20, "text-anchor": "middle" },
+      }));
+      updateTicks(chart.yTicks, yTicks, (value) => ({
+        line: { x1: left, x2: right, y1: chart.y(value), y2: chart.y(value) },
+        label: { x: left - 8, y: chart.y(value) + 4, "text-anchor": "end" },
+      }));
+      return true;
+    }
+
+    function updateTicks(pool, values, position) {
+      pool.forEach((tick, index) => {
+        const value = values[index];
+        tick.group.setAttribute("display", value === undefined ? "none" : "inline");
+        if (value === undefined) return;
+        const coordinates = position(value);
+        setAttributes(tick.line, { ...coordinates.line, stroke: value === 0 ? "#64748b" : GRID });
+        setAttributes(tick.label, coordinates.label);
+        tick.label.textContent = String(Number(value.toPrecision(10)));
+      });
+    }
+
+    function ticksBetween(minimum, maximum, step) {
+      const ticks = [];
+      for (let index = Math.ceil(minimum / step); index <= Math.floor(maximum / step + 1e-9); index++) {
+        ticks.push(index * step);
       }
-      x.push(0);
-      y.push(0);
-      return {
-        x, y,
-        type: "scatter",
-        mode: "lines",
-        fill: "toself",
-        fillcolor: "rgba(56,189,248,0.05)",
-        line: { color: "rgba(148,163,184,0.45)", width: 1, dash: "dot" },
-        hoverinfo: "skip",
-        showlegend: false,
-      };
+      return ticks;
     }
 
-    const COVERAGE_TRACE = buildCoverageTrace();
-
-    const radarLayout = {
-      paper_bgcolor: PANEL,
-      plot_bgcolor: PANEL,
-      font: { color: TEXT, size: 11 },
-      margin: { l: 52, r: 20, t: 8, b: 48 },
-      hovermode: "closest",
-      showlegend: true,
-      legend: { orientation: "h", y: -0.12 },
-      xaxis: {
-        title: "X · left / right (m)", range: [-5.5, 5.5],
-        gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT,
-        scaleanchor: "y", scaleratio: 1,
-      },
-      yaxis: {
-        title: "Y · distance ahead (m)", range: [-0.35, 6.25],
-        gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT,
-      },
-      annotations: [{
-        x: 0, y: 0, text: "RADAR", showarrow: false, yshift: -14,
-        font: { color: "#e5e7eb", size: 10 },
-      }],
-    };
-
-    function axisLayout(yTitle) {
-      return {
-        paper_bgcolor: PANEL,
-        plot_bgcolor: PANEL,
-        font: { color: TEXT, size: 10 },
-        margin: { l: 48, r: 12, t: 8, b: 38 },
-        hovermode: "x unified",
-        legend: { orientation: "h", y: -0.2 },
-        xaxis: { title: "Seconds ago", range: [-60, 0], gridcolor: GRID, color: TEXT },
-        yaxis: { title: yTitle, gridcolor: GRID, zerolinecolor: "#64748b", color: TEXT },
-      };
+    function valueScale(maximum, symmetric, narrow) {
+      if (maximum === 0) {
+        return symmetric
+          ? { range: [-100, 100], ticks: ticksBetween(-100, 100, 50) }
+          : { range: [0, 6], ticks: ticksBetween(0, 6, 2) };
+      }
+      const roughStep = maximum / (narrow ? 2 : 4);
+      const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+      const step = [1, 2, 5, 10].find((factor) => factor * magnitude >= roughStep) * magnitude;
+      const bound = Math.ceil(maximum / step) * step;
+      const minimum = symmetric ? -bound : 0;
+      return { range: [minimum, bound], ticks: ticksBetween(minimum, bound, step) };
     }
 
-    Plotly.newPlot("radar", [COVERAGE_TRACE], radarLayout, config);
-    Plotly.newPlot("target-count", [], axisLayout("Targets"), config);
-    Plotly.newPlot("distance", [], axisLayout("m"), config);
-    Plotly.newPlot("speed", [], axisLayout("cm/s"), config);
+    function linePath(samples, point, stepped = false) {
+      let path = "";
+      let started = false;
+      for (const sample of samples) {
+        const coordinates = point(sample);
+        if (!coordinates || !coordinates.every(Number.isFinite)) {
+          started = false;
+          continue;
+        }
+        const [x, y] = coordinates.map((value) => value.toFixed(2));
+        path += !started ? `M${x},${y}` : stepped ? `H${x}V${y}` : `L${x},${y}`;
+        started = true;
+      }
+      return path;
+    }
 
     function targetBySlot(targets) {
       const slots = {};
@@ -254,62 +370,36 @@
 
     function appendHistory(targets, wallTime) {
       history.push({ at: wallTime, targets: targetBySlot(targets) });
-      const cutoff = wallTime - HISTORY_MS;
-      while (history.length && history[0].at < cutoff) history.shift();
+      pruneHistory(wallTime);
     }
 
-    function slotTrace(slot, field, scale, unit) {
-      const now = Date.now();
-      return {
-        name: "Slot " + slot,
-        type: "scatter",
-        mode: "lines",
-        connectgaps: false,
-        x: history.map((sample) => (sample.at - now) / 1000),
-        y: history.map((sample) => {
-          const target = sample.targets[slot];
-          return target ? target[field] * scale : null;
-        }),
-        line: { color: COLORS[slot - 1], width: 2 },
-        hovertemplate: "Slot " + slot + ": %{y:.2f} " + unit + "<extra></extra>",
-      };
+    function pruneHistory(now) {
+      while (history.length && history[0].at < now - HISTORY_MS) history.shift();
     }
 
     function renderRadar() {
+      if (document.hidden) return;
+      const narrow = radar.container.getBoundingClientRect().width < 400;
+      if (!sizeChart(radar, [-5.5, 5.5], [-0.35, 6.25], narrow ? [-5, 0, 5] : [-4, -2, 0, 2, 4], ticksBetween(0, 6, narrow ? 2 : 1))) return;
       const now = Date.now();
-      const traces = [COVERAGE_TRACE];
-      for (let slot = 1; slot <= 3; slot++) {
-        const points = [];
-        history.forEach((sample) => {
-          const target = sample.targets[slot];
-          if (sample.at >= now - TRAIL_MS && target) points.push(target);
-        });
-        traces.push({
-          name: "Slot " + slot,
-          type: "scatter",
-          mode: "lines",
-          x: points.map((target) => target.x_mm / 1000),
-          y: points.map((target) => target.y_mm / 1000),
-          line: { color: COLORS[slot - 1], width: 2 },
-          opacity: 0.45,
-          hoverinfo: "skip",
-          showlegend: false,
-        });
-        const current = currentTargets.find((target) => target.slot === slot);
-        traces.push({
-          name: "Slot " + slot,
-          type: "scatter",
-          mode: "markers+text",
-          x: current ? [current.x_mm / 1000] : [],
-          y: current ? [current.y_mm / 1000] : [],
-          text: current ? [String(slot)] : [],
-          textposition: "middle center",
-          textfont: { color: "#071018", size: 11 },
-          marker: { color: COLORS[slot - 1], size: 22, line: { color: "#e5e7eb", width: 1 } },
-          hovertemplate: "Slot " + slot + "<br>X %{x:.2f} m<br>Y %{y:.2f} m<extra></extra>",
-        });
+      const sector = [[0, 0]];
+      for (let degree = -60; degree <= 60; degree += 3) {
+        const radians = degree * Math.PI / 180;
+        sector.push([6 * Math.sin(radians), 6 * Math.cos(radians)]);
       }
-      Plotly.react("radar", traces, radarLayout, config);
+      coverage.setAttribute("d", linePath(sector, ([x, y]) => [radar.x(x), radar.y(y)]) + "Z");
+      setAttributes(origin, { x: radar.x(0), y: radar.y(0) + 14 });
+      const trail = history.filter((sample) => sample.at >= now - TRAIL_MS);
+      for (let slot = 1; slot <= 3; slot++) {
+        radar.paths[slot - 1].setAttribute("d", linePath(trail, (sample) => {
+          const target = sample.targets[slot];
+          return target ? [radar.x(target.x_mm / 1000), radar.y(target.y_mm / 1000)] : null;
+        }));
+        const current = currentTargets.find((target) => target.slot === slot);
+        const marker = markers[slot - 1];
+        marker.setAttribute("display", current ? "inline" : "none");
+        if (current) marker.setAttribute("transform", `translate(${radar.x(current.x_mm / 1000)},${radar.y(current.y_mm / 1000)})`);
+      }
     }
 
     function renderCards() {
@@ -335,19 +425,46 @@
     }
 
     function renderAnalytics() {
+      if (document.hidden) return;
       const now = Date.now();
-      const age = history.map((sample) => (sample.at - now) / 1000);
-      Plotly.react("target-count", [{
-        name: "Active",
-        type: "scatter",
-        mode: "lines",
-        x: age,
-        y: history.map((sample) => Object.keys(sample.targets).length),
-        line: { color: "#a78bfa", width: 2, shape: "hv" },
-        hovertemplate: "%{y} active<extra></extra>",
-      }], axisLayout("Targets"), config);
-      Plotly.react("distance", [1, 2, 3].map((slot) => slotTrace(slot, "distance_mm", 0.001, "m")), axisLayout("m"), config);
-      Plotly.react("speed", [1, 2, 3].map((slot) => slotTrace(slot, "speed_cm_s", 1, "cm/s")), axisLayout("cm/s"), config);
+      pruneHistory(now);
+      const narrow = countChart.container.getBoundingClientRect().width < 400;
+      if (sizeChart(countChart, [-60, 0], [0, 3], ticksBetween(-60, 0, narrow ? 30 : 10), [0, 1, 2, 3])) {
+        countChart.paths[0].setAttribute("d", linePath(history, (sample) => [
+          countChart.x((sample.at - now) / 1000), countChart.y(Object.keys(sample.targets).length),
+        ], true));
+      }
+      renderSlotHistory(distanceChart, "distance_mm", 0.001, false, now);
+      renderSlotHistory(speedChart, "speed_cm_s", 1, true, now);
+    }
+
+    function renderSlotHistory(chart, field, multiplier, symmetric, now) {
+      let maximum = 0;
+      for (const sample of history) {
+        for (let slot = 1; slot <= 3; slot++) {
+          const value = sample.targets[slot]?.[field] * multiplier;
+          if (Number.isFinite(value)) maximum = Math.max(maximum, Math.abs(value));
+        }
+      }
+      const narrow = chart.container.getBoundingClientRect().width < 400;
+      const scale = valueScale(maximum, symmetric, narrow);
+      if (!sizeChart(chart, [-60, 0], scale.range, ticksBetween(-60, 0, narrow ? 30 : 10), scale.ticks)) return;
+      for (let slot = 1; slot <= 3; slot++) {
+        chart.paths[slot - 1].setAttribute("d", linePath(history, (sample) => {
+          const target = sample.targets[slot];
+          return target ? [chart.x((sample.at - now) / 1000), chart.y(target[field] * multiplier)] : null;
+        }));
+      }
+    }
+
+    function scheduleChartRender() {
+      if (chartRenderPending) return;
+      chartRenderPending = true;
+      requestAnimationFrame(() => {
+        chartRenderPending = false;
+        renderRadar();
+        renderAnalytics();
+      });
     }
 
     function scheduleLiveRender() {
@@ -413,8 +530,11 @@
 
     function onMessage(obj) {
       if (obj.event === "connected") {
+        $("connection-error").hidden = true;
+        $("dashboard").hidden = false;
         $("port").textContent = obj.port;
         setConnection(true);
+        scheduleChartRender();
         return;
       }
       if (obj.diag !== undefined) {
@@ -444,20 +564,37 @@
       $("freshness").textContent = age < STALE_MS ? age + " ms" : (age / 1000).toFixed(1) + " s stale";
     }
 
-    function connect() {
+    function connect(takeover = false) {
+      if (document.hidden || socket !== null) return;
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(protocol + "//" + location.host + "/ws");
-      ws.onmessage = (event) => {
+      $("take-connection").disabled = true;
+      const path = takeover ? "/ws?takeover=1" : "/ws";
+      socket = new WebSocket(protocol + "//" + location.host + path);
+      socket.onmessage = (event) => {
         try { onMessage(JSON.parse(event.data)); } catch { /* Ignore malformed host data. */ }
       };
-      ws.onclose = () => {
-        setConnection(false, "WebSocket closed; reconnecting");
-        setTimeout(connect, RECONNECT_MS);
+      socket.onclose = () => {
+        const message = connected
+          ? "Your connection ended. Its time limit may have expired, another viewer may have taken it, or the network may be unavailable."
+          : "Unable to connect. Another viewer may be connected, or the sensor may be unavailable.";
+        socket = null;
+        setConnection(false, message);
+        $("connection-error-message").textContent = message;
+        $("connection-error").hidden = false;
+        $("dashboard").hidden = true;
+        $("take-connection").disabled = false;
       };
     }
 
+    $("take-connection").addEventListener("click", () => connect(true));
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) socket?.close();
+    });
     setInterval(refreshFreshness, 250);
-    setInterval(renderAnalytics, ANALYTICS_REFRESH_MS);
+    const resizeObserver = new ResizeObserver(scheduleChartRender);
+    charts.forEach((chart) => resizeObserver.observe(chart.container));
+    scheduleChartRender();
+    setInterval(scheduleChartRender, ANALYTICS_REFRESH_MS);
     connect();
   })();
   </script>

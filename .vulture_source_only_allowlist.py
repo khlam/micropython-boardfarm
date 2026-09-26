@@ -13,3 +13,8 @@ set_color  # noqa: F821
 # hot-plugs or re-probes hardware calls it. Kept deliberately even though the
 # in-tree projects all construct their sensor once at boot.
 is_alive  # noqa: F821
+
+# Microdot's Response and WebSocket call these stream methods on webserver.py's
+# _Connection; the callers live in Microdot, not in this repo.
+readexactly  # noqa: F821
+awrite  # noqa: F821

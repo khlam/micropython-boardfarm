@@ -1,5 +1,10 @@
 ---
 services:
+  firmware-dependencies:
+    extends:
+      file: ../../docker-compose.yaml
+      service: firmware-dependencies
+
   wheels:
     build:
       context: ../..
@@ -12,6 +17,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.firmware
       target: pi-compile
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     volumes:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
@@ -22,6 +29,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.firmware
       target: esp32-compile
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     volumes:
       - ../../firmware-packages:/firmware-packages:ro
       - ./firmware:/firmware:ro
@@ -32,6 +41,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.firmware
       target: esp32-flash
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     depends_on:
       esp32-compile:
         condition: service_completed_successfully

@@ -49,6 +49,8 @@ jobs:
             fi
           done
           [[ $fail -eq 0 ]]
+      - name: Enforce skill links and the SKILL.md / AGENTS.md word cap
+        run: ./skills/link-skills.sh --check
   lint:
     name: Lint
     needs: version-check

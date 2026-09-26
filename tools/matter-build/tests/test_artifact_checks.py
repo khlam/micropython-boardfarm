@@ -18,6 +18,7 @@ _FACTORY_OFFSET = 128
 _FACTORY_SIZE = 64
 _MANUAL = "34970112332"
 _PAYLOAD = "MT:-24J0AFN00KA0648G00"
+_SETUP = {"manual_pairing_code": _MANUAL, "setup_payload": _PAYLOAD}
 
 
 def test_accepts_an_image_carrying_its_factory_partition(image, identity):
@@ -66,7 +67,7 @@ def test_rejects_an_empty_qr_image(image, identity):
 
 
 def test_publish_installs_a_complete_generation_readable(image, outputs):
-    build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+    build._publish(image.merged, image.qr, _SETUP)
 
     merged = outputs / build._MERGED_NAME
     setup = outputs / build._SETUP_NAME
@@ -91,7 +92,7 @@ def test_publish_staging_failure_preserves_the_current_generation(image, outputs
 
     monkeypatch.setattr(build, "_install", fail_while_staging_qr)
     with pytest.raises(OSError, match="simulated staging failure"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(image.merged, image.qr, _SETUP)
 
     assert {path.name: path.read_bytes() for path in outputs.iterdir()} == current
 
@@ -110,7 +111,7 @@ def test_publish_cutover_failure_never_leaves_stale_pairing_material(image, outp
 
     monkeypatch.setattr(build, "_commit_staged", fail_while_replacing_qr)
     with pytest.raises(OSError, match="simulated cutover failure"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(image.merged, image.qr, _SETUP)
 
     assert (outputs / build._MERGED_NAME).read_bytes() == image.merged.read_bytes()
     assert not (outputs / build._QR_NAME).exists()
@@ -122,7 +123,7 @@ def test_publish_recovers_reserved_staging_files(image, outputs):
     for name in build._STAGING_NAMES:
         (outputs / name).write_bytes(b"interrupted build")
 
-    build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+    build._publish(image.merged, image.qr, _SETUP)
 
     assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
 
@@ -183,7 +184,7 @@ def test_publish_refuses_to_write_beside_a_stray_file(image, outputs):
     current = _seed_generation(outputs)
     (outputs / "leftover.bin").write_bytes(b"")
     with pytest.raises(ValueError, match=r"unexpected output artifacts: leftover\.bin"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(image.merged, image.qr, _SETUP)
     assert {
         path.name: path.read_bytes() for path in outputs.iterdir() if path.name != "leftover.bin"
     } == current
@@ -191,7 +192,7 @@ def test_publish_refuses_to_write_beside_a_stray_file(image, outputs):
 
 def test_write_setup_names_both_codes(outputs):
     setup = outputs / build._SETUP_NAME
-    build._write_setup(setup, _MANUAL, _PAYLOAD)
+    build._write_setup(setup, _SETUP)
 
     assert setup.read_text(encoding="utf-8") == (
         f"manual_pairing_code={_MANUAL}\nsetup_payload={_PAYLOAD}\n"
@@ -249,7 +250,7 @@ def _publish_in_process(
     build._install = controlled_install
     if started is not None:
         started.set()
-    build._publish(merged, qr, manual, payload)
+    build._publish(merged, qr, {"manual_pairing_code": manual, "setup_payload": payload})
 
 
 class _Image:

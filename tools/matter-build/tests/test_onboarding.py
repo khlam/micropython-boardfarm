@@ -39,7 +39,7 @@ def test_discovery_mode_advertises_ble_and_on_network():
     # kDnssdOnly mode, never BLE, so the minted QR must claim on-IP-network
     # capability alongside BLE or a commissioner trusting the BLE-only bit
     # finds nothing when a reopened window is on-network only.
-    assert build._DISCOVERY_MODE == build._DISCOVERY_BLE | build._DISCOVERY_ON_NETWORK
+    assert build.DISCOVERY_MODE == build._DISCOVERY_BLE | build._DISCOVERY_ON_NETWORK
 
 
 def test_decodes_every_field_at_its_boundary():

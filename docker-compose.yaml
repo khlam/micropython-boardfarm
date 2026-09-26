@@ -1,5 +1,12 @@
 ---
 services:
+  firmware-dependencies:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+      target: firmware-dependencies
+    command: ["true"]
+
   # Builds the internal-package wheels; pytest/typecheck/uv consume them as the
   # file:// index via `additional_contexts: wheels: service:wheels`. Compose
   # builds this dependency first, so the consuming commands need no extra steps.

@@ -52,8 +52,10 @@ RUN make -C ports/rp2 BOARD=RPI_PICO submodules \
 ENV PICO_SDK_PATH=/app/micropython/lib/pico-sdk
 WORKDIR /app/micropython/ports/rp2
 
-# Freeze manifest — read by makemanifest.py at cmake time; walks the
-# bind-mounted /firmware-packages and /firmware.
+# Freeze manifest — read by makemanifest.py at cmake time; walks
+# /firmware-dependencies and the bind-mounted /firmware-packages and /firmware.
+COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
+COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
 
 ENTRYPOINT ["sh","-c", "\
@@ -105,6 +107,8 @@ RUN make -C mpy-cross -j$(nproc)
 RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
  && make -C ports/esp32 submodules
 
+COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
+COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
 
 # Build only. Don't pass BUILD=... — it propagates into the recursive mpy-cross
@@ -128,8 +132,7 @@ ENTRYPOINT ["sh","-c", "\
 # Inherits esp32-compile so esptool.py and the IDF environment are already
 # present; the compose esp32-flash service runs esp32-compile first.
 #
-# Real stage-sharing across the two Dockerfiles isn't safe here. Keep this in sync with
-# Dockerfile.matter's matter-flash stage.
+# Keep the reset flags in sync with _flash_command in tools/matter-build/build.py.
 # -----------------------------------------------------------------------------
 FROM esp32-compile AS esp32-flash
 

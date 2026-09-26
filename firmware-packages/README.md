@@ -17,7 +17,6 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 |---|---|
 | [atgm336h](atgm336h/) | Driver for the ATGM336H GNSS module: reads NMEA sentences over UART. |
 | [boot_status_led](boot_status_led/) | Boot/runtime indicator LED state machine. |
-| [httpd](httpd/) | On-device HTTP page server and WebSocket broadcast for board-hosted dashboards. |
 | [i2c_bus](i2c_bus/) | `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` bus factories plus `DeviceNotFoundError`; consumed only by drivers, never by projects. |
 | [matter](matter/) | Reusable MicroPython endpoint API over native ESP-Matter. |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|

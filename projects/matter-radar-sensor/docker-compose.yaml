@@ -1,14 +1,17 @@
 ---
 services:
+  firmware-dependencies:
+    extends:
+      file: ../../docker-compose.yaml
+      service: firmware-dependencies
+
   esp32-compile:
     build:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-toolchain
-    environment:
-      - PASSCODE=${PASSCODE:-}
-      - MANUFACTURER=${MANUFACTURER:-}
-      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     volumes:
       # manifest.py hardcodes /firmware-packages and /firmware.
       - ../../firmware-packages:/firmware-packages:ro
@@ -26,6 +29,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-monitor
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
       - MONITOR_SECONDS=${MONITOR_SECONDS:-90}
@@ -45,13 +50,23 @@ services:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-flash
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     depends_on:
       esp32-compile:
         condition: service_completed_successfully
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+      - PASSCODE=${PASSCODE:-}
+      - MANUFACTURER=${MANUFACTURER:-}
+      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
-      - ./outputs:/outputs:ro
+      - ../../firmware-packages:/firmware-packages:ro
+      - ../../tools/matter-build:/matter-tools:ro
+      - ./firmware:/firmware:ro
+      - ./native/board:/matter-board:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      - ./outputs:/outputs
       - /dev:/dev
     device_cgroup_rules:
       - c 166:* rmw
