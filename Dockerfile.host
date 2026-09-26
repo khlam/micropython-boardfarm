@@ -1,5 +1,6 @@
 # Host-Python stages: wheels (internal-package wheel builder), viz (FastAPI
-# dashboard, port 18501) and uv-runner (standalone uv to regenerate uv.lock).
+# dashboard, port 18501), uv-runner (standalone uv to regenerate uv.lock) and
+# firmware-dependencies (locked sources frozen into firmware).
 # viz/uv-runner consume the lockfile that uv-runner produces; viz pins
 # fastapi/uvicorn/pyserial transitively.
 
@@ -59,3 +60,32 @@ COPY --from=uv-bin /uv /usr/local/bin/uv
 COPY --from=wheels /wheels /wheels
 WORKDIR /workspace
 ENTRYPOINT ["uv"]
+
+
+# Locked Python sources for the MicroPython compiler; no host bytecode is shipped.
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS firmware-dependencies
+COPY --from=uv-bin /uv /usr/local/bin/uv
+WORKDIR /workspace
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --only-group firmware --no-emit-workspace -o /requirements.txt \
+ && uv pip install --require-hashes --no-deps --target /installed -r /requirements.txt
+RUN python - <<'STAGE'
+from pathlib import Path
+from shutil import copy2
+import importlib.metadata
+
+source = Path("/installed")
+target = Path("/firmware-dependencies/microdot")
+target.mkdir(parents=True)
+for name in ("__init__.py", "microdot.py", "websocket.py", "helpers.py"):
+    copy2(source / "microdot" / name, target / name)
+metadata = Path("/firmware-dependency-metadata")
+metadata.mkdir()
+dist = next(importlib.metadata.distributions(path=[str(source)]))
+(metadata / "microdot.version").write_text(dist.version + "\n")
+licenses = [file for file in dist.files if "LICENSE" in str(file).upper()]
+if not licenses:
+    raise RuntimeError("Microdot license missing")
+for index, file in enumerate(licenses):
+    copy2(dist.locate_file(file), metadata / ("microdot.LICENSE." + str(index)))
+STAGE

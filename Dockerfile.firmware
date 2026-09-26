@@ -52,8 +52,10 @@ RUN make -C ports/rp2 BOARD=RPI_PICO submodules \
 ENV PICO_SDK_PATH=/app/micropython/lib/pico-sdk
 WORKDIR /app/micropython/ports/rp2
 
-# Freeze manifest — read by makemanifest.py at cmake time; walks the
-# bind-mounted /firmware-packages and /firmware.
+# Freeze manifest — read by makemanifest.py at cmake time; walks
+# /firmware-dependencies and the bind-mounted /firmware-packages and /firmware.
+COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
+COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
 
 ENTRYPOINT ["sh","-c", "\
@@ -105,6 +107,8 @@ RUN make -C mpy-cross -j$(nproc)
 RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
  && make -C ports/esp32 submodules
 
+COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
+COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
 
 # Build only. Don't pass BUILD=... — it propagates into the recursive mpy-cross

@@ -71,6 +71,8 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
 
 RUN mkdir -p /build-cache /outputs
 
+COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
+COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
 
 ENTRYPOINT ["bash", "-ceu", "\

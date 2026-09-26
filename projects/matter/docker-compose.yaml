@@ -1,9 +1,16 @@
 services:
+  firmware-dependencies:
+    extends:
+      file: ../../docker-compose.yaml
+      service: firmware-dependencies
+
   esp32-compile:
     build:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-toolchain
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     environment:
       - PASSCODE=${PASSCODE:-}
       - MANUFACTURER=${MANUFACTURER:-}
@@ -25,6 +32,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-monitor
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
       - MONITOR_SECONDS=${MONITOR_SECONDS:-90}
@@ -44,6 +53,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.matter
       target: matter-flash
+      additional_contexts:
+        firmware-dependencies: service:firmware-dependencies
     depends_on:
       esp32-compile:
         condition: service_completed_successfully
