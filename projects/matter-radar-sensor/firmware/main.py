@@ -206,7 +206,7 @@ class _Application:
         """
         targets = tuple(target for target in targets if outside_dead_zone(target))
         self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
-        if self._throttle.due(now_ms):
+        if self._throttle.due(targets, now_ms):
             _emit_targets(targets, now_ms)
 
     def _apply_radar_report(self, *, occupied: bool, now_ms: int) -> None:

@@ -7,9 +7,10 @@ import pytest
 
 from micropython_stubs.testing import StopLoopError, json_lines
 
-# A target outside the dead zone. The dict is also the telemetry the firmware is
-# expected to emit for it.
+# A target outside the dead zone, then the same target one millimetre along.
+# Each dict is also the telemetry the firmware is expected to emit for it.
 _FAR_FIELDS = {"slot": 1, "x_mm": 60, "y_mm": 80, "speed_cm_s": 2, "resolution_mm": 20}
+_MOVED_FIELDS = {**_FAR_FIELDS, "x_mm": 61}
 
 
 class FakeRadar:
@@ -82,9 +83,11 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     module = boot.module
     near = SimpleNamespace(slot=0, x_mm=3, y_mm=4, speed_cm_s=1, resolution_mm=10)
     far = SimpleNamespace(**_FAR_FIELDS)
-    radar = FakeRadar(reports=[(near, far), (), (far,), StopLoopError()])
+    moved = SimpleNamespace(**_MOVED_FIELDS)
+    # 499 ms is inside the interval; 500 ms clears it but repeats the targets.
+    radar = FakeRadar(reports=[(near, far), (), (far,), (moved,), StopLoopError()])
     factory = FakeDetect([radar])
-    boot.time.script = [0, 499, 500]
+    boot.time.script = [0, 499, 500, 1000]
     monkeypatch.setattr(module, "detect", factory)
     capsys.readouterr()
 
@@ -97,10 +100,29 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     assert [line.get("diag") for line in lines if "diag" in line] == ["radar_ok"]
     assert reports == [
         {"t": 0, "targets": [_FAR_FIELDS]},
-        {"t": 500, "targets": [_FAR_FIELDS]},
+        {"t": 1000, "targets": [_MOVED_FIELDS]},
     ]
     assert boot.application._occupancy.occupancy == 1
     assert boot.application._radar_healthy is True
+
+
+def test_occupancy_uses_reports_the_dashboard_skips(load_application, monkeypatch, capsys):
+    boot = load_application(commissioned=True)
+    module = boot.module
+    far = SimpleNamespace(**_FAR_FIELDS)
+    # The repeated scene and the empty report 100 ms later are both withheld
+    # from telemetry, but the empty report still empties the room.
+    radar = FakeRadar(reports=[(far,), (far,), (), StopLoopError()])
+    boot.time.script = [0, 600, 700]
+    monkeypatch.setattr(module, "detect", FakeDetect([radar]))
+    capsys.readouterr()
+
+    with pytest.raises(StopLoopError):
+        asyncio.run(boot.application._run_radar())
+
+    lines = json_lines(capsys.readouterr().out)
+    assert [line for line in lines if "targets" in line] == [{"t": 0, "targets": [_FAR_FIELDS]}]
+    assert boot.application._occupancy.occupancy == 0
 
 
 def test_repeated_readiness_failures_report_once_until_recovery(

@@ -68,24 +68,31 @@ class Occupancy:
 
 
 class ReportThrottle:
-    """Pass at most one report per report interval."""
+    """Pass at most one changed set of targets per report interval."""
 
     def __init__(self) -> None:
         """Start with no report sent, so the first one always passes."""
         self._last_ms = None
+        self._last_targets = None
 
-    def due(self, now_ms: int) -> bool:
-        """Return whether to send a report received now, recording it if so.
+    def due(self, targets: tuple, now_ms: int) -> bool:
+        """Return whether to send these targets, recording them if so.
 
         Args:
+            targets: Filtered targets from the most recent radar report.
             now_ms: Monotonic time when the report was received.
 
         Returns:
-            Whether the interval has passed since the last report sent.
+            Whether the interval has passed and the targets changed.
         """
         if self._last_ms is not None and (
             time.ticks_diff(now_ms, self._last_ms) < _REPORT_INTERVAL_MS
         ):
             return False
+        # Advance the interval even when nothing is sent, so an idle timestamp
+        # never ages out of ticks_diff's signed range.
         self._last_ms = now_ms
+        if targets == self._last_targets:
+            return False
+        self._last_targets = targets
         return True

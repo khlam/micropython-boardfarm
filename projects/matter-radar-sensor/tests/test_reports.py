@@ -105,16 +105,31 @@ def test_hold_measures_elapsed_time_across_tick_wrap(reports, firmware_module):
     assert occupancy.occupied is False
 
 
-def test_throttle_sends_at_most_once_per_interval(reports):
+def test_throttle_sends_changed_targets_at_most_once_per_interval(reports):
     throttle = reports.ReportThrottle()
+    first, moved = ("far",), ("moved",)
 
-    assert [throttle.due(0), throttle.due(499), throttle.due(500)] == [True, False, True]
+    assert [
+        throttle.due(first, 0),
+        throttle.due(moved, 499),  # inside the interval
+        throttle.due(first, 500),  # interval passed, but unchanged
+        throttle.due(moved, 999),  # the unchanged report restarted the interval
+        throttle.due(moved, 1_000),
+    ] == [True, False, False, False, True]
+
+
+def test_throttle_sends_an_empty_scene_after_targets(reports):
+    throttle = reports.ReportThrottle()
+    throttle.due(("far",), 0)
+
+    assert throttle.due((), 500) is True
+    assert throttle.due((), 1_000) is False
 
 
 def test_throttle_interval_survives_tick_wrap(reports, firmware_module):
     period = firmware_module.time._PERIOD
     throttle = reports.ReportThrottle()
-    throttle.due(period - 100)
+    throttle.due(("far",), period - 100)
 
-    assert throttle.due(399) is False
-    assert throttle.due(400) is True
+    assert throttle.due(("moved",), 399) is False
+    assert throttle.due(("moved",), 400) is True
