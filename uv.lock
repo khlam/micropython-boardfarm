@@ -647,11 +647,15 @@ name = "matter-radar-sensor"
 version = "0.5.5"
 source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
+    { name = "microdot" },
     { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+requires-dist = [
+    { name = "microdot", specifier = "==2.6.2" },
+    { name = "micropython-boardfarm", editable = "." },
+]
 
 [[package]]
 name = "mdurl"

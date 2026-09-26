@@ -1,7 +1,5 @@
 """Boot guards, stable Matter endpoints, and the boot status."""
 
-import json
-
 import machine
 import neopixel
 import pytest
@@ -30,15 +28,6 @@ def test_boot_creates_persistent_endpoints_in_order_and_publishes_occupied(load_
     )
     assert application._occupancy.occupancy == 1
     assert application._published_occupancy is True
-
-
-def test_boot_registers_the_dashboard_page_and_stream(load_application):
-    server = load_application().server
-
-    assert server.port == 80
-    assert server.pages == [("/", b"dashboard", "gzip")]
-    assert server.streams[0][0] == "/ws"
-    assert json.loads(server.broadcast.greeting) == {"event": "connected", "port": "radar uart1"}
 
 
 @pytest.mark.parametrize(

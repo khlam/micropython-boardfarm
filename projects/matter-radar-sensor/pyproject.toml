@@ -5,7 +5,8 @@ description = "MicroPython Matter occupancy-sensor firmware for an HLK-LD2450 or
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "micropython-boardfarm>=0.17.0",
+    "micropython-boardfarm>=0.20.0",
+    "microdot==2.6.2",
 ]
 
 [tool.uv]

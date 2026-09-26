@@ -1,16 +1,17 @@
 """Shared deterministic runtime for the matter-radar-sensor firmware tests."""
 
+import gc
 import importlib
 import os
 import pathlib
 import sys
 from types import ModuleType, SimpleNamespace
-from typing import ClassVar
 
 import _matter
 import machine
 import neopixel
 import pytest
+from microdot import microdot
 
 import matter.emit as matter_emit
 import matter.node as matter_node
@@ -44,41 +45,9 @@ class FakeTime:
         """Return MicroPython's signed wrap-safe tick difference."""
         return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
 
-
-class FakeServer:
-    """Record routes and provide scripted dashboard startup."""
-
-    instances: ClassVar[list] = []
-
-    def __init__(self, port: int = 80) -> None:
-        """Create a stopped server on ``port``."""
-        self.port = port
-        self.pages = []
-        self.streams = []
-        self.broadcast = None
-        self.running = False
-        self.start_calls = 0
-        self.start_errors = []
-        type(self).instances.append(self)
-
-    def page(self, path: str, body: bytes, *, encoding: str) -> None:
-        """Record one fixed-page route."""
-        self.pages.append((path, body, encoding))
-
-    def stream(self, path: str, *, greeting: str) -> object:
-        """Record one WebSocket route and return its broadcaster."""
-        self.broadcast = SimpleNamespace(greeting=greeting, send=lambda _line: None)
-        self.streams.append((path, self.broadcast))
-        return self.broadcast
-
-    async def start(self) -> None:
-        """Raise the next scripted error or mark the server running."""
-        if self.running:
-            return
-        self.start_calls += 1
-        if self.start_errors:
-            raise self.start_errors.pop(0)
-        self.running = True
+    def ticks_add(self, ticks: int, delta: int) -> int:
+        """Add milliseconds with the device's tick wrap."""
+        return (ticks + delta) % self._PERIOD
 
 
 def _reset_state(*, commissioned: bool = False) -> None:
@@ -89,8 +58,7 @@ def _reset_state(*, commissioned: bool = False) -> None:
     _matter.seed_fabrics([_FABRIC] if commissioned else [])
     matter_node._active_node[0] = None
     matter_emit._sinks.clear()
-    FakeServer.instances.clear()
-    for name in (_MODULE_NAME, "status", "reports"):
+    for name in (_MODULE_NAME, "webserver", "status", "reports"):
         sys.modules.pop(name, None)
 
 
@@ -98,6 +66,7 @@ def _reset_state(*, commissioned: bool = False) -> None:
 def reset_runtime(monkeypatch):
     """Reset process-wide MCU and Matter fakes around every test."""
     asyncio_extras.install(monkeypatch)
+    monkeypatch.setattr(microdot, "print_exception", microdot.print_exception)
     _reset_state()
     yield
     _reset_state()
@@ -144,7 +113,7 @@ def load_firmware(monkeypatch):
         _install_firmware_path(monkeypatch)
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
         monkeypatch.setitem(sys.modules, "time", clock)
-        monkeypatch.setitem(sys.modules, "httpd", SimpleNamespace(Server=FakeServer))
+        monkeypatch.setattr(gc, "mem_free", lambda: 128 * 1024, raising=False)
 
         module = load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
         return SimpleNamespace(module=module, time=clock)
@@ -163,7 +132,7 @@ def load_application(load_firmware):
             module=firmware.module,
             application=application,
             time=firmware.time,
-            server=FakeServer.instances[-1],
+            webserver_module=sys.modules["webserver"],
             status_module=sys.modules["status"],
         )
 

@@ -9,8 +9,8 @@ connection.
 
 This module wires the hardware and runs Matter polling, the dashboard, and radar
 reading, applying each report to occupancy before its telemetry. The reports
-module decides occupancy and telemetry pacing; StatusPixel owns commissioning
-state and LED priority.
+module decides occupancy and telemetry pacing; WebServer serves the dashboard;
+StatusPixel owns commissioning state and LED priority.
 
 The board sends the same JSON lines over USB serial and its dashboard WebSocket.
 """
@@ -20,15 +20,13 @@ import os
 import time
 from collections import namedtuple
 
-import dashboard_page
 import machine
 import neopixel
-import ujson
 from micropython import const
 from reports import Occupancy, ReportThrottle, hold_ms, outside_dead_zone
 from status import StatusPixel
+from webserver import WebServer
 
-import httpd
 import matter
 from matter.emit import add_sink, emit, error
 from radar import NoRadarError, ReportStream, detect
@@ -44,11 +42,6 @@ BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RADAR_RETRY_MS = const(1_000)
 _MATTER_POLL_MS = const(50)
-# Poll because Matter does not report address changes to this application.
-_ADDRESS_POLL_MS = const(1_000)
-# Let Matter finish its high-current startup before starting more network work.
-_DASHBOARD_BOOT_DELAY_MS = const(15_000)
-_DASHBOARD_RETRY_MS = const(5_000)
 
 
 def main() -> None:
@@ -67,26 +60,11 @@ class _Application:
         self._occupancy_policy = Occupancy()
         self._throttle = ReportThrottle()
         self._published_occupancy = None
-        self._dashboard_address = None
-        self._dashboard_failed = False
 
         pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
         self._status = StatusPixel(pixel)
-
-        # Define routes now. Start the server after Matter has a network address.
-        self._dashboard = httpd.Server()
-        self._dashboard.page(
-            "/",
-            dashboard_page.PAGE,
-            encoding=dashboard_page.ENCODING,
-        )
-        dashboard_reports = self._dashboard.stream(
-            "/ws",
-            # The radar model is only known after detection, so it arrives later
-            # with the radar_ok diagnostic instead.
-            greeting=ujson.dumps({"event": "connected", "port": f"radar uart{BOARD.uart_id}"}),
-        )
-        add_sink(dashboard_reports.send)
+        self._webserver = WebServer(port_name=f"radar uart{BOARD.uart_id}")
+        add_sink(self._webserver.queue_report)
 
         self._node = matter.Node()
         # Endpoint IDs persist, so always create the occupancy endpoint first.
@@ -100,7 +78,11 @@ class _Application:
 
     async def run(self) -> None:
         """Run Matter polling, dashboard, and radar tasks."""
-        await asyncio.gather(self._run_matter(), self._run_dashboard(), self._run_radar())
+        await asyncio.gather(
+            self._run_matter(),
+            self._webserver.run(self._node.network_address),
+            self._run_radar(),
+        )
 
     async def _run_matter(self) -> None:
         """Poll Matter and hold fail-safe occupied through failure periods."""
@@ -120,20 +102,6 @@ class _Application:
                     self._update_status()
                 self._handle_matter_events(events)
             await asyncio.sleep_ms(_MATTER_POLL_MS)
-
-    async def _run_dashboard(self) -> None:
-        """Keep the dashboard available after Matter has a network address.
-
-        Wait for Matter startup before adding a server and more network traffic.
-        The server listens on every interface, so an address change only needs
-        a new dashboard address report.
-
-        Report each dashboard failure period once and keep retrying. Dashboard
-        failures do not change occupancy.
-        """
-        await asyncio.sleep_ms(_DASHBOARD_BOOT_DELAY_MS)
-        while True:
-            await asyncio.sleep_ms(await self._update_dashboard())
 
     async def _run_radar(self) -> None:
         """Read radar reports and re-detect the radar after a failure."""
@@ -254,32 +222,6 @@ class _Application:
             error("occupancy", str(exception))
             return
         self._published_occupancy = occupied
-
-    async def _update_dashboard(self) -> int:
-        """Check the dashboard once and return the delay before the next check.
-
-        A failure keeps the last reported address and is written out only once
-        per failure period.
-
-        Returns:
-            Milliseconds to wait before checking again.
-        """
-        retry_ms = _ADDRESS_POLL_MS
-        try:
-            address = self._node.network_address()
-            if address is not None:
-                retry_ms = _DASHBOARD_RETRY_MS
-                await self._dashboard.start()
-        except OSError as exception:
-            if not self._dashboard_failed:
-                error("dashboard", str(exception))
-            self._dashboard_failed = True
-            return retry_ms
-        if address is not None and address != self._dashboard_address:
-            emit({"event": "dashboard", "state": "ready", "url": "http://" + address + "/"})
-        self._dashboard_address = address
-        self._dashboard_failed = False
-        return _ADDRESS_POLL_MS
 
 
 def _emit_targets(targets: tuple, now_ms: int) -> None:
