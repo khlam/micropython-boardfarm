@@ -12,10 +12,6 @@ services:
       target: matter-toolchain
       additional_contexts:
         firmware-dependencies: service:firmware-dependencies
-    environment:
-      - PASSCODE=${PASSCODE:-}
-      - MANUFACTURER=${MANUFACTURER:-}
-      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
       # manifest.py hardcodes /firmware-packages and /firmware.
       - ../../firmware-packages:/firmware-packages:ro
@@ -61,8 +57,16 @@ services:
         condition: service_completed_successfully
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+      - PASSCODE=${PASSCODE:-}
+      - MANUFACTURER=${MANUFACTURER:-}
+      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
-      - ./outputs:/outputs:ro
+      - ../../firmware-packages:/firmware-packages:ro
+      - ../../tools/matter-build:/matter-tools:ro
+      - ./firmware:/firmware:ro
+      - ./native/board:/matter-board:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      - ./outputs:/outputs
       - /dev:/dev
     device_cgroup_rules:
       - c 166:* rmw

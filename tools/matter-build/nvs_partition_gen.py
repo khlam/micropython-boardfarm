@@ -24,12 +24,7 @@ _NVS_VERSION = 2  # multipage blob support enabled
 
 @dataclass(frozen=True)
 class DeviceIdentity:
-    """The device-label fields written into the factory partition verbatim.
-
-    Grouped separately from the per-build commissioning secrets (discriminator,
-    salt, verifier) because these come from the project's static constants
-    rather than being minted fresh each run.
-    """
+    """The device-label fields written into the factory partition verbatim."""
 
     vendor_id: int
     vendor_name: str

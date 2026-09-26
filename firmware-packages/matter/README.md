@@ -34,6 +34,41 @@ flowchart TB
 
 The module sees no CHIP types; C++ sees no `mp_obj_t`.
 
+## Pairing
+
+`matter.generate_pairing(passcode)` derives pairing codes from one secret key
+alone, so a key gives the same codes on every board. It returns the resolved
+`key`, `passcode` (the derived Matter setup passcode), `discriminator`, and
+`manual_pairing_code`. A key shorter than 24 characters or spanning fewer than
+12 distinct ones raises `ValueError`. Omitting it draws a random 256-bit key as
+64 hexadecimal characters, returned as `key` so the codes stay reproducible. To
+base a key on a board MAC, a serial number, or a vault, build that string before
+calling.
+
+The algorithm hashes `b"matter-pairing-v2\x00" + passcode.encode()` with SHA-256.
+The first four digest bytes, read big-endian, map to `1..99999999`; forbidden
+Matter passcodes advance to the next allowed value, wrapping to 1. The low 12
+bits of the next two bytes form the discriminator.
+
+To flash with a chosen key instead of a random one, set `PASSCODE`:
+
+```console
+PASSCODE=<key> docker compose run --rm --build esp32-flash
+```
+
+Either way the key lands as `passcode` in `outputs/app.esp32-s3.setup.txt`. Keep
+the key and that file secret: the key alone gives away the pairing code of every
+board flashed with it.
+
+The build tools import this same module, so from either Matter project directory
+you can regenerate a board's QR and manual code from its key without hardware,
+using that project's board configuration for the QR vendor and product IDs:
+
+```console
+docker compose run --rm --no-deps --entrypoint bash esp32-flash -c \
+  '. /opt/esp/idf/export.sh >/dev/null; python3 /matter-tools/pairing_code.py --passcode <key> --output /outputs/app.esp32-s3.qr.png'
+```
+
 ## Components
 
 | Unit | Responsibility |

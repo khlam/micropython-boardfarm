@@ -50,7 +50,7 @@ def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
     assert command[0] == "idf.py"
     assert command[-1] == "build"
     assert f"MICROPY_BOARD={build._BOARD_NAME}" in command
-    assert f"MICROPY_BOARD_DIR={build._BOARD_DIR}" in command
+    assert f"MICROPY_BOARD_DIR={build.BOARD_DIR}" in command
     assert f"MICROPY_FROZEN_MANIFEST={build._MANIFEST}" in command
     assert command[command.index("-B") + 1] == str(tmp_path / "idf")
     assert kwargs["env"]["MATTER_NATIVE_PATH"] == str(build._MATTER_NATIVE)
@@ -58,13 +58,13 @@ def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
     assert kwargs["env"]["PATH"] == os.environ["PATH"]
 
 
-def test_merge_image_appends_the_factory_partition(recorder, tmp_path):
-    factory = tmp_path / "factory-partition.bin"
-    merged = build._merge_image(tmp_path, factory, _IDENTITY)
+def test_merge_image_contains_no_factory_credentials(recorder, tmp_path):
+    merged = build._merge_image(tmp_path, _IDENTITY, artifact_root=tmp_path)
 
     command, kwargs = recorder[0]
     assert command[0] == "esptool.py"
-    assert command[-3:] == ["@flash_args", "0x3d0000", str(factory)]
+    assert command[-1] == "@flash_args"
+    assert "0x3d0000" not in command
     assert command[command.index("-o") + 1] == str(merged)
     # @flash_args names the bootloader and app relative to the IDF build directory.
     assert kwargs["cwd"] == tmp_path / "idf"

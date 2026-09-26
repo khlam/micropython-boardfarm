@@ -1,5 +1,5 @@
-# Native ESP-Matter toolchain for projects/matter. SDK and host utilities never
-# leave this image; only the three public build artifacts reach /outputs.
+# Native ESP-Matter toolchain. Compilation publishes reusable firmware;
+# flashing publishes the image and pairing artifacts for the connected board.
 
 # renovate: datasource=docker depName=espressif/idf
 ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
@@ -74,14 +74,12 @@ RUN mkdir -p /build-cache /outputs
 COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
 COPY --from=firmware-dependencies /firmware-dependency-metadata /firmware-dependency-metadata
 COPY manifest.py /manifest.py
+ENV PYTHONPATH=/firmware-packages/matter/matter
 
 ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   . /opt/esp-matter/export.sh; \
   exec python3 /matter-tools/build.py \
-    --passcode \"${PASSCODE:-}\" \
-    --manufacturer \"${MANUFACTURER:-}\" \
-    --serial-number \"${SERIAL_NUMBER:-}\" \
 "]
 
 
@@ -105,26 +103,14 @@ ENTRYPOINT ["bash", "-ceu", "\
 "]
 
 
-# Stage: matter-flash — flashes app.esp32-s3.bin to $SERIAL_PORT.
-#
-# Keep this in sync with Dockerfile.firmware's esp32-flash stage.
+# Provision and flash the connected board using the compiled image.
 FROM matter-toolchain AS matter-flash
 
-ENTRYPOINT ["sh","-c", "\
-  set -e; \
-  PORT=${SERIAL_PORT:-/dev/ttyACM0}; \
-  case $PORT in \
-    socket://*|rfc2217://*) \
-      RESET='--before no_reset --after no_reset' ;; \
-    *) \
-      if [ ! -e $PORT ]; then \
-        echo ERROR: serial port $PORT not found. >&2; \
-        echo 'Plug in the ESP32-S3 in bootloader mode (hold BOOT, tap RESET).' >&2; \
-        echo 'On macOS: run tools/serial-bridge.sh and export SERIAL_PORT=socket://host.docker.internal:5555' >&2; \
-        exit 1; \
-      fi; \
-      RESET='--after watchdog_reset' ;; \
-  esac; \
+ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
-  esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \
-    /outputs/app.esp32-s3.bin"]
+  exec python3 /matter-tools/build.py --flash \
+    --port \"${SERIAL_PORT:-/dev/ttyACM0}\" \
+    --passcode \"${PASSCODE:-}\" \
+    --manufacturer \"${MANUFACTURER:-}\" \
+    --serial-number \"${SERIAL_NUMBER:-}\" \
+"]

@@ -46,8 +46,8 @@ shows its status colour; closing it restores the controller-owned light state.
 
 ## Build and flash
 
-Docker is the only host dependency. From this directory, build the merged
-firmware and its matching commissioning artifacts:
+Docker is the only host dependency. From this directory, compile reusable
+firmware without connecting a board:
 
 ```console
 docker compose up --build --exit-code-from esp32-compile esp32-compile
@@ -59,21 +59,26 @@ volume, so a firmware-only edit recompiles only the affected sources. To force a
 fully clean compile, remove the cache with `docker compose down --volumes` before
 running the build again.
 
-The build produces three files under `outputs/`:
+Compilation produces `outputs/app.esp32-s3.bin` without board credentials and
+removes stale pairing artifacts. Flashing derives credentials from a key, random
+unless `PASSCODE` is set, and publishes three matching files under `outputs/`:
 
 - `app.esp32-s3.bin` is the merged firmware and factory-data image.
 - `app.esp32-s3.qr.png` is the commissioning QR code for that image.
-- `app.esp32-s3.setup.txt` contains the matching manual pairing code and setup
-  payload.
+- `app.esp32-s3.setup.txt` contains the matching manual pairing code, setup
+  payload, and the `passcode` key that reproduces them, so keep it secret.
 
-Each build generates commissioning credentials. Always commission with the QR
-code or manual code produced alongside the exact binary that was flashed.
+Reboots keep the flashed credentials. Each flash replaces these files, so pair a
+board before flashing the next.
 
 Put the ESP32-S3-Zero in its bootloader mode and flash it with:
 
 ```console
 docker compose run --rm --build esp32-flash
 ```
+
+Add `--no-deps` to flash another board without recompiling. To choose a key, see
+[Pairing](../../firmware-packages/matter/README.md#pairing).
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
 
@@ -223,5 +228,6 @@ every boot. From the MicroPython REPL, remove an individual fabric with
 node.factory_reset()
 ```
 
-After rebuilding or factory-resetting, use the commissioning artifacts that
-match the flashed image.
+A factory reset keeps the flashed pairing codes. If `outputs/` no longer holds
+them, regenerate them from the board's key (see
+[Pairing](../../firmware-packages/matter/README.md#pairing)).

@@ -25,9 +25,12 @@ dependencies = [
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
 # tools/matter-build is there for the opposite reason: build.py is a bind-mounted
 # script rather than an installed package, so its tests need the directory itself.
+# firmware-packages/matter/matter lets those tools import the pure pairing module
+# without the native-backed matter package.
 [tool.pytest.ini_options]
 pythonpath = [
     "/tools/matter-build",
+    "/firmware-packages/matter/matter",
     "/firmware-packages/atgm336h/tests",
     "/firmware-packages/radar/tests",
     "/firmware-packages/mpu6050/tests",
@@ -171,7 +174,7 @@ exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
 # siblings by bare name off sys.path[0]. Nothing installs them, so ty needs the
 # directory named explicitly to resolve those imports.
 [tool.ty.environment]
-extra-paths = ["tools/matter-build"]
+extra-paths = ["tools/matter-build", "firmware-packages/matter/matter"]
 
 [tool.ty.src]
 include = [

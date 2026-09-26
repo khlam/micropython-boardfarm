@@ -132,8 +132,7 @@ ENTRYPOINT ["sh","-c", "\
 # Inherits esp32-compile so esptool.py and the IDF environment are already
 # present; the compose esp32-flash service runs esp32-compile first.
 #
-# Real stage-sharing across the two Dockerfiles isn't safe here. Keep this in sync with
-# Dockerfile.matter's matter-flash stage.
+# Keep the reset flags in sync with _flash_command in tools/matter-build/build.py.
 # -----------------------------------------------------------------------------
 FROM esp32-compile AS esp32-flash
 
