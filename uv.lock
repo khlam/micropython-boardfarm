@@ -739,7 +739,7 @@ requires-dist = [
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "matter", specifier = ">=0.2.1", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
