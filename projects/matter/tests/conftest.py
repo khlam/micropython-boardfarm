@@ -7,8 +7,8 @@ import sys
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-import _matter
 import machine
+import matter_native
 import neopixel
 import pytest
 
@@ -24,8 +24,8 @@ def _reset_state(*, persisted=None, fabrics=()) -> None:
     """Reset every process-wide fake used by the firmware import."""
     machine.reset()
     neopixel.reset()
-    _matter.reset(persisted=persisted)
-    _matter.seed_fabrics(list(fabrics))
+    matter_native.reset(persisted=persisted)
+    matter_native.seed_fabrics(list(fabrics))
     matter_node._active_node[0] = None
     for name in (_MAIN_MODULE, "color", "color.convert"):
         sys.modules.pop(name, None)
@@ -68,14 +68,14 @@ def load_main(monkeypatch):
         monkeypatch.syspath_prepend(str(_FIRMWARE))
 
         if commissioning:
-            native_start = _matter.start
+            native_start = matter_native.start
 
             def start_with_events():
                 native_start()
                 for state_code in commissioning:
-                    _matter.inject_commissioning_event(state_code)
+                    matter_native.inject_commissioning_event(state_code)
 
-            monkeypatch.setattr(_matter, "start", start_with_events)
+            monkeypatch.setattr(matter_native, "start", start_with_events)
 
         output = io.StringIO()
         with redirect_stdout(output):

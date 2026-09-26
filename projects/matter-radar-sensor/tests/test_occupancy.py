@@ -1,6 +1,6 @@
 """Occupancy publication through Matter and the hold control endpoint."""
 
-import _matter
+import matter_native
 
 
 def test_hold_control_endpoint_sets_the_hold(load_application):
@@ -30,7 +30,7 @@ def test_failed_matter_polling_holds_occupied_through_empty_reports(load_applica
 def test_publication_failure_is_retried_on_the_next_report(load_application, capsys):
     application = load_application().application
     capsys.readouterr()
-    _matter.fail_next("attributes_publish")
+    matter_native.fail_next("attributes_publish")
 
     application._apply_radar_report(occupied=False, now_ms=1)
 
@@ -45,7 +45,7 @@ def test_publication_failure_is_retried_on_the_next_report(load_application, cap
 
 def test_target_after_failed_clear_republishes_occupied(load_application):
     application = load_application().application
-    _matter.fail_next("attributes_publish")
+    matter_native.fail_next("attributes_publish")
     application._apply_radar_report(occupied=False, now_ms=1)
 
     application._apply_radar_report(occupied=True, now_ms=2)

@@ -183,7 +183,7 @@ Factory-reset through the interrupted REPL:
 
 ```console
 docker compose run --rm -e MONITOR_INTERRUPT=1 \
-  -e 'MONITOR_SEND=import _matter; _matter.factory_reset()' esp32-monitor
+  -e 'MONITOR_SEND=import matter_native; matter_native.factory_reset()' esp32-monitor
 ```
 
 Cross UART1 TX/RX and share ground; supply LD2450 with over 200 mA available.

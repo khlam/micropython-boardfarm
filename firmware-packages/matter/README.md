@@ -18,7 +18,7 @@ plain-C boundary.
 ```mermaid
 flowchart TB
     subgraph vm["MicroPython VM task"]
-        app["Application"] --> package["matter"] --> module["_matter"]
+        app["Application"] --> package["matter"] --> module["matter_native"]
     end
     subgraph native["matter-native IDF component"]
         bridge["bridge.h · requests · retained state"]
@@ -32,7 +32,7 @@ flowchart TB
     module -.-> package -.-> app
 ```
 
-The module sees no CHIP types; C++ sees no `mp_obj_t`.
+Applications import`matter`. `matter_native` are the C primitives.
 
 ## Pairing
 
@@ -75,7 +75,7 @@ docker compose run --rm --no-deps --entrypoint bash esp32-flash -c \
 | --- | --- |
 | `Node` | Owns endpoint lifecycle, restored mirrors, events, and fabrics. |
 | `Endpoint` | Validates complete decisions and exposes read-only properties. |
-| `_matter` | Converts Python values across 13 plain-C primitives. |
+| `matter_native` | Converts Python values across 13 plain-C primitives. |
 | Native requests | Schedule CHIP operations with timeout-safe owned storage. |
 | Retained state | Coalesces attributes and separate session/window state. |
 | ESP-Matter | Owns protocol state, persistence, commissioning, and reporting. |

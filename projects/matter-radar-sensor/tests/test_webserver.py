@@ -3,7 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
-import _matter
+import matter_native
 import pytest
 
 from micropython_stubs.testing import StopLoopError, json_lines
@@ -30,7 +30,7 @@ def test_address_lookup_error_is_reported_once_per_failure_period(load_applicati
 
     delays = []
     for _ in range(2):
-        _matter.fail_next("network_address")
+        matter_native.fail_next("network_address")
         delays.append(web._update_address(boot.application._node.network_address))
 
     errors = [
@@ -47,7 +47,7 @@ def test_guard_suspension_is_reported_once_and_leaves_the_product_state_alone(
     boot = load_application(commissioned=True)
     application = boot.application
     web = application._webserver
-    _matter.set_network_address("192.0.2.10")
+    matter_native.set_network_address("192.0.2.10")
     web._task = object()
     web._server.state = "cooldown"
     web._server.reason = "heap"
@@ -76,7 +76,7 @@ def test_successful_start_reports_url_and_returns_to_polling(load_application, c
     web._failed = True
     web._task = object()
     web._server.state = "running"
-    _matter.set_network_address("192.0.2.20")
+    matter_native.set_network_address("192.0.2.20")
     capsys.readouterr()
 
     delay = web._update_address(boot.application._node.network_address)
@@ -101,11 +101,11 @@ def test_running_server_reports_only_address_changes(load_application, capsys):
     web._reported_state = ("running", None)
     web._task = object()
     web._address = "192.0.2.30"
-    _matter.set_network_address("192.0.2.30")
+    matter_native.set_network_address("192.0.2.30")
     capsys.readouterr()
 
     web._update_address(boot.application._node.network_address)
-    _matter.set_network_address("192.0.2.31")
+    matter_native.set_network_address("192.0.2.31")
     web._update_address(boot.application._node.network_address)
 
     assert web._address == "192.0.2.31"
@@ -143,7 +143,7 @@ def test_recovered_listener_announces_same_address_again(load_application, capsy
     network_address = boot.application._node.network_address
     web._task = object()
     web._server.state = "running"
-    _matter.set_network_address("192.0.2.20")
+    matter_native.set_network_address("192.0.2.20")
     web._update_address(network_address)
     capsys.readouterr()
     web._server.state = "cooldown"

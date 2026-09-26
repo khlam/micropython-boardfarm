@@ -7,8 +7,8 @@ import pathlib
 import sys
 from types import ModuleType, SimpleNamespace
 
-import _matter
 import machine
+import matter_native
 import neopixel
 import pytest
 from microdot import microdot
@@ -121,8 +121,8 @@ def _reset_state(*, commissioned: bool = False) -> None:
     """Reset every process-wide fake used by the firmware module."""
     machine.reset()
     neopixel.reset()
-    _matter.reset()
-    _matter.seed_fabrics([_FABRIC] if commissioned else [])
+    matter_native.reset()
+    matter_native.seed_fabrics([_FABRIC] if commissioned else [])
     matter_node._active_node[0] = None
     matter_emit._sinks.clear()
     for name in (_MODULE_NAME, "webserver", "status", "reports"):

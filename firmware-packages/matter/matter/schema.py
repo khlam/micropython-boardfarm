@@ -1,6 +1,6 @@
 """Attribute vocabulary and validation rules for the supported endpoints.
 
-Pure data and pure checks. Nothing here imports ``_matter`` or touches a running
+Pure data and pure checks. Nothing here imports ``matter_native`` or touches a running
 stack, so what an endpoint accepts is decided — and can be exercised — without
 one.
 """

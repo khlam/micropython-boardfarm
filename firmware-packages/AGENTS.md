@@ -31,7 +31,7 @@ else:
 Rules no single package's README states, because they constrain its callers:
 
 - `i2c_bus` is consumed only by drivers, never by projects.
-- `matter/` splits at the native boundary: `matter/` is the MicroPython interface, `native/` the ESP-Matter `_matter` bridge. [matter/README.md](matter/README.md) diagrams the boundary and its key flows.
+- `matter/` splits at the native boundary: `matter/` is the MicroPython interface, `native/` the ESP-Matter `matter_native` bridge. [matter/README.md](matter/README.md) diagrams the boundary and its key flows.
 
 ## Packages are frozen for firmware †
 

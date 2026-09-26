@@ -1,6 +1,6 @@
 """Integration tests for explicit endpoint state and publication."""
 
-import _matter
+import matter_native
 import pytest
 
 from matter import Attributes, Clusters, ColorMode, EndpointType, Node, WriteEvent
@@ -119,13 +119,13 @@ def test_failed_batch_keeps_requested_state_and_full_retry(publishes):
     node, endpoint = _endpoint(EndpointType.EXTENDED_COLOR_LIGHT)
     node.start()
     requested = {"on": True, "hue": 42, "saturation": 200}
-    _matter.fail_next("attributes_publish")
+    matter_native.fail_next("attributes_publish")
 
     with pytest.raises(OSError, match="injected attributes_publish failure"):
         endpoint.set(**requested)
 
     assert (endpoint.on, endpoint.hue, endpoint.saturation) == (True, 42, 200)
-    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is False
+    assert matter_native.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is False
 
     endpoint.set(**requested)
 
@@ -133,14 +133,14 @@ def test_failed_batch_keeps_requested_state_and_full_retry(publishes):
     assert len(publishes) == 2
     assert publishes[1] == publishes[0]
     assert len(publishes[0][1]) == 3
-    assert _matter.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
+    assert matter_native.attribute_get(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF) is True
 
 
 def test_remote_write_updates_mirror_and_poll_returns_immutable_event():
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
 
-    _matter.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
+    matter_native.inject_remote_write(endpoint.id, Clusters.ON_OFF, Attributes.ON_OFF, True)
     events = node.poll()
 
     assert endpoint.on is True
@@ -154,7 +154,9 @@ def test_remote_write_outside_schema_is_reported_and_omitted(capsys):
     node.start()
     capsys.readouterr()
 
-    _matter.inject_remote_write(endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 255)
+    matter_native.inject_remote_write(
+        endpoint.id, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL, 255
+    )
 
     assert node.poll() == ()
     assert endpoint.level == 254
@@ -177,7 +179,7 @@ def test_unknown_paths_are_ignored_during_remote_accept():
 
 
 def test_restore_hydrates_state_without_an_event(capsys):
-    _matter.reset(persisted={(1, Clusters.ON_OFF, Attributes.ON_OFF): True})
+    matter_native.reset(persisted={(1, Clusters.ON_OFF, Attributes.ON_OFF): True})
     node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
     node.start()
@@ -188,7 +190,7 @@ def test_restore_hydrates_state_without_an_event(capsys):
 
 
 def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
-    _matter.reset(persisted={(1, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL): 255})
+    matter_native.reset(persisted={(1, Clusters.LEVEL_CONTROL, Attributes.CURRENT_LEVEL): 255})
     node, endpoint = _endpoint(EndpointType.DIMMABLE_LIGHT)
 
     node.start()
@@ -208,13 +210,13 @@ def test_restore_of_out_of_schema_persisted_value_keeps_default(capsys):
 def publishes(monkeypatch):
     """Record every (endpoint_id, updates) batch while still applying it natively."""
     batches = []
-    native_publish = _matter.attributes_publish
+    native_publish = matter_native.attributes_publish
 
     def record(endpoint_id, updates):
         batches.append((endpoint_id, updates))
         native_publish(endpoint_id, updates)
 
-    monkeypatch.setattr(_matter, "attributes_publish", record)
+    monkeypatch.setattr(matter_native, "attributes_publish", record)
     return batches
 
 

@@ -1,7 +1,7 @@
 """End-to-end tests for the Matter example firmware boot and events."""
 
-import _matter
 import machine
+import matter_native
 import neopixel
 import pytest
 
@@ -64,8 +64,8 @@ def test_poll_loop_recovers_when_commissioning_publication_fails(load_main, monk
 
     monkeypatch.setattr(module.node, "poll", poll)
     monkeypatch.setattr(module.time, "sleep_ms", _stop_after(2))
-    _matter.inject_commissioning_event(1)  # SESSION COMPLETE
-    _matter.fail_next("attributes_publish")
+    matter_native.inject_commissioning_event(1)  # SESSION COMPLETE
+    matter_native.fail_next("attributes_publish")
     capsys.readouterr()
 
     with pytest.raises(StopLoopError):
@@ -116,13 +116,13 @@ def test_set_color_renders_then_publishes_attributes_and_power(load_main):
 def test_set_color_does_not_republish_power_when_already_on(load_main, monkeypatch):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     publications = []
-    native_publish = _matter.attributes_publish
+    native_publish = matter_native.attributes_publish
 
     def record(endpoint_id, updates):
         publications.extend(updates)
         native_publish(endpoint_id, updates)
 
-    monkeypatch.setattr(_matter, "attributes_publish", record)
+    monkeypatch.setattr(matter_native, "attributes_publish", record)
 
     module.set_color((25, 0, 0))
 
@@ -163,11 +163,11 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main)
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_remote_write(module.endpoint.id, *Paths.ON_OFF, True)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.HUE, 85)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
-    _matter.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
+    matter_native.inject_remote_write(module.endpoint.id, *Paths.ON_OFF, True)
+    matter_native.inject_remote_write(module.endpoint.id, *Paths.HUE, 85)
+    matter_native.inject_remote_write(module.endpoint.id, *Paths.SATURATION, 254)
+    matter_native.inject_remote_write(module.endpoint.id, *Paths.LEVEL, 25)
+    matter_native.inject_remote_write(module.endpoint.id, *Paths.ENHANCED_COLOR_MODE, 0)
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes[-1] == (0, 25, 0)
@@ -186,7 +186,7 @@ def test_commissioning_status_colors_after_start(load_main, state_code, expected
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(state_code)
+    matter_native.inject_commissioning_event(state_code)
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes[-1] == expected
@@ -196,8 +196,8 @@ def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_ma
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(0)  # SESSION STARTED
-    _matter.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
+    matter_native.inject_commissioning_event(0)  # SESSION STARTED
+    matter_native.inject_commissioning_event(4)  # WINDOW CLOSED, taken by that session
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.SESSION_COLOR]
@@ -207,8 +207,8 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(3)  # WINDOW OPENED
-    _matter.inject_commissioning_event(4)  # WINDOW CLOSED with nobody connected
+    matter_native.inject_commissioning_event(3)  # WINDOW OPENED
+    matter_native.inject_commissioning_event(4)  # WINDOW CLOSED with nobody connected
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.STALLED_COLOR]
@@ -243,8 +243,8 @@ def test_a_reopened_window_clears_a_failure(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(2)  # SESSION FAILED
-    _matter.inject_commissioning_event(3)  # WINDOW OPENED again by the package
+    matter_native.inject_commissioning_event(2)  # SESSION FAILED
+    matter_native.inject_commissioning_event(3)  # WINDOW OPENED again by the package
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
@@ -254,8 +254,8 @@ def test_successful_retry_after_a_failure_commissions_the_node(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(2)  # SESSION FAILED
-    _matter.inject_commissioning_event(1)  # SESSION COMPLETE
+    matter_native.inject_commissioning_event(2)  # SESSION FAILED
+    matter_native.inject_commissioning_event(1)  # SESSION COMPLETE
     module.handle_events(module.node.poll())
 
     assert module.pixel.writes == [module.OFF_COLOR]
@@ -265,8 +265,8 @@ def test_closed_window_restores_commissioned_controller_state(load_main):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     module.pixel.writes.clear()
 
-    _matter.inject_commissioning_event(3)
-    _matter.inject_commissioning_event(4)
+    matter_native.inject_commissioning_event(3)
+    matter_native.inject_commissioning_event(4)
     module.handle_events(module.node.poll())
 
     # The controller's colour is already lit, so the window closing leaves it

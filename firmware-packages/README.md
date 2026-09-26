@@ -48,8 +48,8 @@ From the repo root:
 docker compose run --rm --build pytest /firmware-packages
 docker compose run --rm pytest /firmware-packages/<pkg>/tests
 ```
-Stubs for `machine`, `neopixel`, `ujson`, `ustruct`, `utime`, and
-`micropython` come from [`cpython-packages/micropython_stubs/`](../cpython-packages/micropython_stubs/) —
+Stubs for `machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`,
+and `matter_native` come from [`cpython-packages/micropython_stubs/`](../cpython-packages/micropython_stubs/) —
 one shared copy across every package.
 
 Each package's source ends up reachable inside the test container at two paths: `/work/firmware-packages/<pkg>/` (`COPY`'d at image build time and installed editable into `/work/.venv` — the path coverage instruments) and `/firmware-packages/<pkg>/` (bind-mounted read-only from the host at runtime). Pytest targets use the bind-mount path; coverage `source` entries in [pyproject.toml](../pyproject.toml) use the `/work/...` path.

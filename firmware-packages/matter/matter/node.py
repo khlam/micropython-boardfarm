@@ -3,7 +3,7 @@
 import time
 from collections import namedtuple
 
-import _matter
+import matter_native
 from micropython import const
 
 from matter.emit import event as emit_event
@@ -59,10 +59,10 @@ class Node:
         """Create the process-wide native node without starting networking."""
         if _active_node[0] is not None:
             raise OSError(114, "only one Matter node is supported")
-        _matter.node_create()
+        matter_native.node_create()
         self._endpoints = {}
         self._started = False
-        self._generation = _matter.generation()
+        self._generation = matter_native.generation()
         _active_node[0] = self
 
     @property
@@ -104,7 +104,7 @@ class Node:
         requested = requested_state(endpoint_type, initial)
         state = default_state(endpoint_type)
         state.update(requested)
-        endpoint_id = _matter.endpoint_create(endpoint_type)
+        endpoint_id = matter_native.endpoint_create(endpoint_type)
 
         # Registered before the initial-attribute loop below, not after it, so
         # a raise partway through the loop still leaves this endpoint tracked.
@@ -117,14 +117,14 @@ class Node:
             # the required zero value until a controller starts identification.
             if (cluster, attribute) == Paths.IDENTIFY:
                 continue
-            _matter.attribute_set_initial(endpoint_id, cluster, attribute, value)
+            matter_native.attribute_set_initial(endpoint_id, cluster, attribute, value)
         return endpoint
 
     def start(self) -> None:
         """Start ESP-Matter and restore persisted endpoint state."""
         if self._started:
             raise OSError(114, "Matter node is already started")
-        _matter.start()
+        matter_native.start()
         self._restore_endpoints()
         self._started = True
         emit_event("matter", "ready")
@@ -141,9 +141,9 @@ class Node:
             shared native revision, or an empty tuple when nothing changed.
         """
         _require_started(self._started)
-        if _matter.generation() == self._generation:
+        if matter_native.generation() == self._generation:
             return ()
-        generation, records = _matter.snapshot()
+        generation, records = matter_native.snapshot()
         # Distance from the last committed generation, so revisions that wrapped
         # past 2**32 still order after the ones they follow. It leads each pair,
         # so the sort reuses the distance the filter already measured.
@@ -165,7 +165,7 @@ class Node:
         """Open a basic commissioning window for a bounded duration."""
         _require_started(self._started)
         timeout_s = bounded_integer("timeout_s", timeout_s, 1, 65535)
-        _matter.open_commissioning_window(timeout_s)
+        matter_native.open_commissioning_window(timeout_s)
 
     def network_address(self) -> str | None:
         """Return the IPv4 address commissioning obtained for this device.
@@ -180,23 +180,23 @@ class Node:
             an address can also change when the lease does.
         """
         _require_started(self._started)
-        return _matter.network_address()
+        return matter_native.network_address()
 
     def fabrics(self) -> tuple:
         """Return non-secret metadata for every commissioned fabric."""
         _require_started(self._started)
-        return tuple(Fabric(*values) for values in _matter.fabrics())
+        return tuple(Fabric(*values) for values in matter_native.fabrics())
 
     def remove_fabric(self, index: int) -> None:
         """Remove one fabric by its operational fabric index."""
         _require_started(self._started)
         index = bounded_integer("index", index, 1, 254)
-        _matter.remove_fabric(index)
+        matter_native.remove_fabric(index)
 
     def factory_reset(self) -> None:
         """Request an ESP-Matter factory reset and platform reboot."""
         _require_started(self._started)
-        _matter.factory_reset()
+        matter_native.factory_reset()
 
     def _restore_endpoints(self) -> None:
         """Hydrate every endpoint once the freshly started stack answers reads.

@@ -1,6 +1,6 @@
 """Integration tests for Matter node lifecycle, routing, and recovery."""
 
-import _matter
+import matter_native
 import pytest
 
 import matter.node as node_module
@@ -26,7 +26,7 @@ def test_node_enforces_process_wide_singleton():
 
 
 def test_failed_native_node_creation_does_not_claim_singleton():
-    _matter.fail_next("node_create")
+    matter_native.fail_next("node_create")
 
     with pytest.raises(OSError, match="injected node_create failure"):
         Node()
@@ -58,7 +58,7 @@ def test_create_endpoint_validates_type_and_initial_mapping():
 
 def test_create_endpoint_tracks_native_endpoint_despite_initial_attribute_failure():
     node = Node()
-    _matter.fail_next("attribute_set_initial")
+    matter_native.fail_next("attribute_set_initial")
 
     with pytest.raises(OSError, match="injected attribute_set_initial failure"):
         node.create_endpoint(EndpointType.ON_OFF_LIGHT, initial={Paths.ON_OFF: True})
@@ -80,7 +80,7 @@ def test_create_endpoint_is_forbidden_after_start():
 
 
 def test_requested_initial_value_overrides_seeded_persistence(capsys):
-    _matter.reset(
+    matter_native.reset(
         persisted={(1, Clusters.ON_OFF, Attributes.ON_OFF): False},
     )
     node = Node()
@@ -92,7 +92,7 @@ def test_requested_initial_value_overrides_seeded_persistence(capsys):
     node.start()
 
     assert endpoint.on is True
-    assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is True
+    assert matter_native.attribute_get(endpoint.id, *Paths.ON_OFF) is True
     assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
@@ -107,7 +107,7 @@ def test_identify_initial_value_is_left_to_native_constructor(capsys):
     node.start()
 
     assert endpoint.identify_time == 0
-    assert _matter.attribute_get(endpoint.id, *Paths.IDENTIFY) == 0
+    assert matter_native.attribute_get(endpoint.id, *Paths.IDENTIFY) == 0
     assert json_lines(capsys.readouterr().out) == [{"event": "matter", "state": "ready"}]
 
 
@@ -116,7 +116,7 @@ def test_start_retries_transient_restore_failure(monkeypatch, capsys):
     node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     sleeps = []
     monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
-    _matter.fail_next("attribute_get")
+    matter_native.fail_next("attribute_get")
 
     node.start()
 
@@ -131,7 +131,7 @@ def test_start_raises_after_restore_retry_budget(monkeypatch):
     sleeps = []
     monkeypatch.setattr(node_module, "_RESTORE_ATTEMPTS", 2)
     monkeypatch.setattr(node_module.time, "sleep", sleeps.append)
-    monkeypatch.setattr(_matter, "attribute_get", _always_fail_read)
+    monkeypatch.setattr(matter_native, "attribute_get", _always_fail_read)
 
     with pytest.raises(OSError, match="persistent read failure"):
         node.start()
@@ -175,7 +175,7 @@ def test_commissioning_window_validates_and_forwards_timeout():
     node.open_commissioning_window(1)
     node.open_commissioning_window(65535)
 
-    assert _matter.commissioning_windows == [300, 1, 65535]
+    assert matter_native.commissioning_windows == [300, 1, 65535]
 
 
 @pytest.mark.parametrize("timeout", [True, 0, 65536])
@@ -190,7 +190,7 @@ def test_commissioning_window_rejects_invalid_timeout(timeout):
 def test_fabric_snapshot_and_removal():
     first = (1, 101, 201, 301, "home")
     second = (2, 102, 202, 302, "lab")
-    _matter.seed_fabrics([first, second])
+    matter_native.seed_fabrics([first, second])
     node = Node()
     node.start()
 
@@ -199,7 +199,7 @@ def test_fabric_snapshot_and_removal():
     assert node.fabrics() == (Fabric(*second),)
     node.remove_fabric(2)
     assert node.fabrics() == ()
-    assert _matter.commissioning_windows == [300]
+    assert matter_native.commissioning_windows == [300]
     with pytest.raises(OSError, match="fabric does not exist"):
         node.remove_fabric(2)
 
@@ -219,7 +219,7 @@ def test_factory_reset_is_forwarded():
 
     node.factory_reset()
 
-    assert _matter.factory_reset_was_requested() is True
+    assert matter_native.factory_reset_was_requested() is True
 
 
 @pytest.mark.parametrize(
@@ -237,7 +237,7 @@ def test_commissioning_event_is_reported_and_delivered(state_code, expected, cap
     node.start()
     capsys.readouterr()
 
-    _matter.inject_commissioning_event(state_code)
+    matter_native.inject_commissioning_event(state_code)
     events = node.poll()
 
     assert events == (expected,)
@@ -250,7 +250,7 @@ def test_unchanged_generation_skips_snapshot(monkeypatch):
     node = Node()
     node.start()
     calls = []
-    monkeypatch.setattr(_matter, "snapshot", lambda: calls.append(True))
+    monkeypatch.setattr(matter_native, "snapshot", lambda: calls.append(True))
 
     events = node.poll()
 
@@ -263,9 +263,9 @@ def test_repeated_writes_coalesce_and_attributes_remain_independent():
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
     node.start()
 
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
-    _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 10)
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
+    matter_native.inject_remote_write(endpoint.id, *Paths.LEVEL, 10)
     events = node.poll()
 
     assert [(event.cluster, event.value) for event in events] == [
@@ -279,8 +279,8 @@ def test_snapshot_failure_retries_without_committing_generation():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
-    _matter.fail_next("snapshot")
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    matter_native.fail_next("snapshot")
 
     with pytest.raises(OSError, match="injected snapshot failure"):
         node.poll()
@@ -290,14 +290,14 @@ def test_snapshot_failure_retries_without_committing_generation():
 
     assert [event.value for event in events] == [True]
     assert endpoint.on is True
-    assert node._generation == _matter.generation()
+    assert node._generation == matter_native.generation()
 
 
 def test_local_publish_discards_older_pending_remote_write():
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
     node.start()
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
 
     endpoint.set(on=False)
     events = node.poll()
@@ -311,8 +311,8 @@ def test_cross_kind_revision_order_keeps_newer_mutation_authoritative():
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
 
     node.start()
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
-    _matter.inject_commissioning_event(1)
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    matter_native.inject_commissioning_event(1)
 
     events = node.poll()
     for event in events:
@@ -321,14 +321,14 @@ def test_cross_kind_revision_order_keeps_newer_mutation_authoritative():
 
     assert [type(event) for event in events] == [WriteEvent, CommissioningEvent]
     assert endpoint.on is False
-    assert _matter.attribute_get(endpoint.id, *Paths.ON_OFF) is False
+    assert matter_native.attribute_get(endpoint.id, *Paths.ON_OFF) is False
 
 
 def test_commissioning_session_and_window_replay_in_revision_order():
     node = Node()
     node.start()
-    _matter.inject_commissioning_event(2)
-    _matter.inject_commissioning_event(3)
+    matter_native.inject_commissioning_event(2)
+    matter_native.inject_commissioning_event(3)
 
     events = node.poll()
 
@@ -336,16 +336,16 @@ def test_commissioning_session_and_window_replay_in_revision_order():
 
 
 def test_startup_restore_precedes_first_polled_write(monkeypatch):
-    _matter.reset(persisted={(1, *Paths.ON_OFF): True})
+    matter_native.reset(persisted={(1, *Paths.ON_OFF): True})
     node = Node()
     endpoint = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
-    native_start = _matter.start
+    native_start = matter_native.start
 
     def start_with_write():
         native_start()
-        _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
+        matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, False)
 
-    monkeypatch.setattr(_matter, "start", start_with_write)
+    monkeypatch.setattr(matter_native, "start", start_with_write)
     node.start()
 
     assert endpoint.on is False
@@ -358,9 +358,9 @@ def test_wrapping_revisions_are_ordered_from_committed_generation():
     endpoint = node.create_endpoint(EndpointType.DIMMABLE_LIGHT)
     node.start()
     node._generation = 0xFFFFFFFE
-    _matter._state.generation = 0xFFFFFFFE
-    _matter.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
-    _matter.inject_remote_write(endpoint.id, *Paths.LEVEL, 9)
+    matter_native._state.generation = 0xFFFFFFFE
+    matter_native.inject_remote_write(endpoint.id, *Paths.ON_OFF, True)
+    matter_native.inject_remote_write(endpoint.id, *Paths.LEVEL, 9)
 
     events = node.poll()
 
