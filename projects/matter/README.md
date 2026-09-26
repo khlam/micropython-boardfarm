@@ -190,9 +190,9 @@ and the pixel follows it there. Amber is the state where that did not happen.
 The path is four files. `native/src/callbacks.cpp` translates CHIP's events and
 owns the recovery; `matter/node.py` pulls coalesced state during the 50 ms
 application poll; `firmware/main.py` turns retained state into a colour; and
-`firmware/color/convert.py` takes over once a controller owns the light. Full
-call paths across the native boundary are in
-[`../../firmware-packages/matter/ARCHITECTURE.md`](../../firmware-packages/matter/ARCHITECTURE.md).
+`firmware/color/convert.py` takes over once a controller owns the light. The
+[package README](../../firmware-packages/matter/README.md) diagrams the native
+boundary.
 
 Once the light is on, whichever side wrote most recently is what the pixel
 shows. Both directions are plain functions in `firmware/main.py` that funnel

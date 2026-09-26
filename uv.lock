@@ -624,11 +624,11 @@ wheels = [
 
 [[package]]
 name = "matter"
-version = "0.2.0"
+version = "0.2.2"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter-0.2.0.tar.gz" }
+sdist = { path = "/wheels/matter-0.2.2.tar.gz" }
 wheels = [
-    { path = "/wheels/matter-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/matter-0.2.2-py3-none-any.whl" },
 ]
 
 [[package]]

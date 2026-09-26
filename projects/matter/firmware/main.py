@@ -9,8 +9,8 @@ Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
 file for compiled code: `matter/` (Python) calls the `_matter` C module
 (`native/micropython/matter_module.c`), which calls the C++ bridge in
 `native/src/`, which drives ESP-Matter/CHIP. Comments below name the native
-file each call lands in next. Full call-path diagrams:
-`firmware-packages/matter/ARCHITECTURE.md`.
+file each call lands in next. Call-path diagrams:
+`firmware-packages/matter/README.md`.
 """
 
 import os
@@ -76,8 +76,7 @@ def set_color(color: tuple) -> None:
     """
     render(color)
     # Below: Endpoint.set -> _matter.attributes_publish -> request.cpp
-    # matter_attributes_publish -- a bounded round trip onto the CHIP task
-    # (ARCHITECTURE.md "Local publication").
+    # matter_attributes_publish -- a bounded round trip onto the CHIP task.
     publish_triple(endpoint, color)
     lit = endpoint.level != 0
     if endpoint.on != lit:
@@ -144,8 +143,7 @@ render(BOOT_COLOR)
 
 # Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
 # stack.cpp matter_node_create() -> esp_matter::node::create(). Runs directly
-# on this task -- there's no CHIP task yet to schedule onto (ARCHITECTURE.md
-# "Startup and restoration").
+# on this task -- there's no CHIP task yet to schedule onto.
 node = matter.Node()
 
 # create_endpoint() crosses into stack.cpp the same way: matter_endpoint_create(),
