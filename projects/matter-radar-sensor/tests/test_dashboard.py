@@ -46,7 +46,7 @@ def test_bind_failure_retries_once_per_period_without_changing_product_state(
     _matter.set_network_address("192.0.2.10")
     boot.server.start_errors.extend([OSError("address in use"), OSError("address in use")])
     before = (
-        application._occupancy_state,
+        application._occupancy_policy.occupied,
         application._published_occupancy,
         application._radar_healthy,
     )
@@ -58,7 +58,7 @@ def test_bind_failure_retries_once_per_period_without_changing_product_state(
     assert application._dashboard_address is None
     assert boot.server.running is False
     assert (
-        application._occupancy_state,
+        application._occupancy_policy.occupied,
         application._published_occupancy,
         application._radar_healthy,
     ) == before

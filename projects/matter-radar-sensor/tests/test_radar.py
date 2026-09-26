@@ -7,6 +7,10 @@ import pytest
 
 from micropython_stubs.testing import StopLoopError, json_lines
 
+# A target outside the dead zone. The dict is also the telemetry the firmware is
+# expected to emit for it.
+_FAR_FIELDS = {"slot": 1, "x_mm": 60, "y_mm": 80, "speed_cm_s": 2, "resolution_mm": 20}
+
 
 class FakeRadar:
     """Script reports, closure, and close errors for an already-detected radar."""
@@ -77,7 +81,7 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
     boot = load_application(commissioned=True)
     module = boot.module
     near = SimpleNamespace(slot=0, x_mm=3, y_mm=4, speed_cm_s=1, resolution_mm=10)
-    far = SimpleNamespace(slot=1, x_mm=60, y_mm=80, speed_cm_s=2, resolution_mm=20)
+    far = SimpleNamespace(**_FAR_FIELDS)
     radar = FakeRadar(reports=[(near, far), (), (far,), StopLoopError()])
     factory = FakeDetect([radar])
     boot.time.script = [0, 499, 500]
@@ -89,20 +93,13 @@ def test_radar_filters_targets_and_decimates_dashboard_reports(
 
     lines = json_lines(capsys.readouterr().out)
     reports = [line for line in lines if "targets" in line]
-    far_fields = {
-        "slot": 1,
-        "x_mm": 60,
-        "y_mm": 80,
-        "speed_cm_s": 2,
-        "resolution_mm": 20,
-    }
     assert factory.calls == [{"bus_id": 1, "tx": 5, "rx": 6}]
     assert [line.get("diag") for line in lines if "diag" in line] == ["radar_ok"]
     assert reports == [
-        {"t": 0, "targets": [far_fields]},
-        {"t": 500, "targets": [far_fields]},
+        {"t": 0, "targets": [_FAR_FIELDS]},
+        {"t": 500, "targets": [_FAR_FIELDS]},
     ]
-    assert boot.application._occupancy_state == module._OCCUPIED
+    assert boot.application._occupancy.occupancy == 1
     assert boot.application._radar_healthy is True
 
 
@@ -133,7 +130,7 @@ def test_repeated_readiness_failures_report_once_until_recovery(
     assert sleeps == [module._RADAR_RETRY_MS, module._RADAR_RETRY_MS]
     assert factory.outcomes == []  # every failure re-detected from scratch
     assert boot.application._radar_healthy is True
-    assert boot.application._occupancy_state == module._OCCUPIED
+    assert boot.application._occupancy.occupancy == 1
 
 
 def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
@@ -173,7 +170,7 @@ def test_read_error_and_timeout_recreate_radar_with_distinct_diagnostics(
 def test_failure_forces_occupied_and_ignores_close_errors(load_application, capsys):
     boot = load_application(commissioned=True)
     application = boot.application
-    application._apply_empty_report(now_ms=0)
+    application._apply_radar_report(occupied=False, now_ms=0)
     radar = FakeRadar(close_error=OSError("close failed"))
     capsys.readouterr()
 
@@ -186,7 +183,6 @@ def test_failure_forces_occupied_and_ignores_close_errors(load_application, caps
         {"diag": "report_timeout", "t": 44}
     ]
     assert radar.close_calls == 2
-    assert application._occupancy_state == boot.module._OCCUPIED
-    assert application._hold_started_ms is None
+    assert application._occupancy.occupancy == 1
     assert application._radar_healthy is False
-    assert application._pixel.writes[-1] == boot.module._RADAR_FAILED_COLOR
+    assert application._status._pixel.writes[-1] == boot.status_module._RADAR_FAILED_COLOR

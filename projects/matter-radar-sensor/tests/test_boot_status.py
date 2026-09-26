@@ -1,7 +1,6 @@
-"""Boot, Matter setup, and status-pixel contract tests."""
+"""Boot guards, stable Matter endpoints, and the boot status."""
 
 import json
-from types import SimpleNamespace
 
 import machine
 import neopixel
@@ -18,93 +17,34 @@ def test_unsupported_board_fails_before_hardware_setup(load_firmware):
     assert neopixel.NeoPixel.instances == []
 
 
-def test_boot_builds_routes_and_stable_matter_endpoints(load_application):
-    boot = load_application()
-    module = boot.module
-    application = boot.application
+def test_boot_creates_persistent_endpoints_in_order_and_publishes_occupied(load_application):
+    application = load_application().application
 
-    assert module.Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21) == module.BOARD
-    assert machine.pin_constructions == [(21, machine.Pin.OUT)]
-    assert application._pixel.writes == [module._BOOT_COLOR]
-    assert boot.server.port == 80
-    assert boot.server.pages == [("/", b"dashboard", "gzip")]
-    assert boot.server.streams[0][0] == "/ws"
-    assert json.loads(boot.server.broadcast.greeting) == {
-        "event": "connected",
-        "port": "radar uart1",
-    }
-    assert application._occupancy.id == 1
-    assert application._occupancy.type == matter.EndpointType.OCCUPANCY_SENSOR
-    assert application._hold_control.id == 2
-    assert application._hold_control.type == matter.EndpointType.DIMMABLE_LIGHT
+    assert (application._occupancy.id, application._occupancy.type) == (
+        1,
+        matter.EndpointType.OCCUPANCY_SENSOR,
+    )
+    assert (application._hold_control.id, application._hold_control.type) == (
+        2,
+        matter.EndpointType.DIMMABLE_LIGHT,
+    )
     assert application._occupancy.occupancy == 1
-    assert application._hold_control.on is False
     assert application._published_occupancy is True
 
 
-def test_commissioned_boot_restores_product_status(load_application):
-    boot = load_application(commissioned=True)
+def test_boot_registers_the_dashboard_page_and_stream(load_application):
+    server = load_application().server
 
-    assert boot.application._commissioned is True
-    assert boot.application._pixel.writes[-1] == boot.module._OCCUPIED_COLOR
+    assert server.port == 80
+    assert server.pages == [("/", b"dashboard", "gzip")]
+    assert server.streams[0][0] == "/ws"
+    assert json.loads(server.broadcast.greeting) == {"event": "connected", "port": "radar uart1"}
 
 
 @pytest.mark.parametrize(
-    ("state", "expected"),
-    [
-        (matter.Commissioning.STARTED, "_COMMISSIONING_SESSION_COLOR"),
-        (matter.Commissioning.OPENED, "_COMMISSIONING_WINDOW_COLOR"),
-        (matter.Commissioning.FAILED, "_COMMISSIONING_FAILED_COLOR"),
-    ],
+    ("commissioned", "color"), [(False, "_BOOT_COLOR"), (True, "_OCCUPIED_COLOR")]
 )
-def test_active_commissioning_states_have_priority(load_application, state, expected):
-    boot = load_application(commissioned=True)
-    boot.application._radar_healthy = False
-    boot.application._on_commissioning(SimpleNamespace(state=state))
+def test_boot_status_reflects_restored_pairing(load_application, commissioned, color):
+    boot = load_application(commissioned=commissioned)
 
-    assert boot.application._pixel.writes[-1] == getattr(boot.module, expected)
-
-
-def test_closed_session_stays_active_until_completion(load_application):
-    boot = load_application()
-    application = boot.application
-
-    application._on_commissioning(SimpleNamespace(state=matter.Commissioning.STARTED))
-    application._on_commissioning(SimpleNamespace(state=matter.Commissioning.CLOSED))
-    application._on_commissioning(SimpleNamespace(state=matter.Commissioning.COMPLETE))
-
-    assert application._commissioned is True
-    assert application._commissioning_session_active is False
-    assert application._pixel.writes[-2:] == [
-        boot.module._COMMISSIONING_SESSION_COLOR,
-        boot.module._OCCUPIED_COLOR,
-    ]
-
-
-def test_closed_uncommissioned_window_is_amber(load_application):
-    boot = load_application()
-
-    boot.application._on_commissioning(SimpleNamespace(state=matter.Commissioning.OPENED))
-    boot.application._on_commissioning(SimpleNamespace(state=matter.Commissioning.CLOSED))
-
-    assert boot.application._pixel.writes[-1] == boot.module._COMMISSIONING_STOPPED_COLOR
-
-
-def test_product_status_prioritizes_radar_then_occupancy(load_application):
-    boot = load_application(commissioned=True)
-    application = boot.application
-    application._pixel.writes.clear()
-
-    application._radar_healthy = False
-    application._update_status_pixel()
-    application._update_status_pixel()
-    application._radar_healthy = True
-    application._update_status_pixel()
-    application._occupancy_state = boot.module._VACANT
-    application._update_status_pixel()
-
-    assert application._pixel.writes == [
-        boot.module._RADAR_FAILED_COLOR,
-        boot.module._OCCUPIED_COLOR,
-        boot.module._VACANT_COLOR,
-    ]
+    assert boot.application._status._pixel.writes[-1] == getattr(boot.status_module, color)

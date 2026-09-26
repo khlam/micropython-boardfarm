@@ -1,9 +1,10 @@
 """Shared deterministic runtime for the matter-radar-sensor firmware tests."""
 
+import importlib
 import os
 import pathlib
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import ClassVar
 
 import _matter
@@ -32,7 +33,6 @@ class FakeTime:
         """Start at tick zero with no scripted readings."""
         self.ticks = 0
         self.script = []
-        self.diff_calls = []
 
     def ticks_ms(self) -> int:
         """Return the next scripted tick or the current tick."""
@@ -42,7 +42,6 @@ class FakeTime:
 
     def ticks_diff(self, newer: int, older: int) -> int:
         """Return MicroPython's signed wrap-safe tick difference."""
-        self.diff_calls.append((newer, older))
         return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
 
 
@@ -91,7 +90,8 @@ def _reset_state(*, commissioned: bool = False) -> None:
     matter_node._active_node[0] = None
     matter_emit._sinks.clear()
     FakeServer.instances.clear()
-    sys.modules.pop(_MODULE_NAME, None)
+    for name in (_MODULE_NAME, "status", "reports"):
+        sys.modules.pop(name, None)
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +101,32 @@ def reset_runtime(monkeypatch):
     _reset_state()
     yield
     _reset_state()
+
+
+def _install_firmware_path(monkeypatch) -> None:
+    """Make the firmware directory and its generated dashboard page importable."""
+    monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
+    monkeypatch.setitem(
+        sys.modules,
+        "dashboard_page",
+        SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
+    )
+
+
+@pytest.fixture
+def firmware_module(monkeypatch):
+    """Return an importer for one firmware module running on the wrap-safe fake clock."""
+    clock = FakeTime()
+
+    def load(name: str) -> ModuleType:
+        _install_firmware_path(monkeypatch)
+        module = importlib.import_module(name)
+        if hasattr(module, "time"):
+            monkeypatch.setattr(module, "time", clock)
+        return module
+
+    load.time = clock
+    return load
 
 
 @pytest.fixture
@@ -115,13 +141,9 @@ def load_firmware(monkeypatch):
         _reset_state(commissioned=commissioned)
 
         clock = FakeTime()
+        _install_firmware_path(monkeypatch)
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
         monkeypatch.setitem(sys.modules, "time", clock)
-        monkeypatch.setitem(
-            sys.modules,
-            "dashboard_page",
-            SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
-        )
         monkeypatch.setitem(sys.modules, "httpd", SimpleNamespace(Server=FakeServer))
 
         module = load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
@@ -142,6 +164,7 @@ def load_application(load_firmware):
             application=application,
             time=firmware.time,
             server=FakeServer.instances[-1],
+            status_module=sys.modules["status"],
         )
 
     return load
