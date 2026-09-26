@@ -45,7 +45,7 @@ def test_secondary_address_auto_detected():
 
 
 @pytest.mark.parametrize(
-    "who, kind",
+    ("who", "kind"),
     [(0x70, "MPU6500"), (0x71, "MPU9250")],
 )
 def test_who_am_i_dispatch_variants(who, kind):
@@ -56,7 +56,7 @@ def test_who_am_i_dispatch_variants(who, kind):
 
 def test_unknown_who_am_i_raises():
     _register_fake(who_am_i=0xAA)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="Unknown IMU WHO_AM_I=0xaa"):
         MPU6050(sda=0, scl=1)
 
 

@@ -18,7 +18,7 @@ def _make_gps(uart_lines):
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    ("raw", "expected"),
     [
         (None, None),
         (b"junk data\r\n", None),

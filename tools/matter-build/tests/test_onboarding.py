@@ -133,7 +133,7 @@ def test_onboarding_accepts_matching_codes(identity):
 
 
 @pytest.mark.parametrize(
-    "field, value",
+    ("field", "value"),
     [
         ("vendor_id", 0xFFF2),
         ("product_id", 0x8002),

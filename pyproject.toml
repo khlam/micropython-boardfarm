@@ -256,6 +256,7 @@ select = [
   "ICN",      # import-conventions
   "INP",      # implicit-namespace-package
   "PIE",      # misc misuse
+  "PT",       # flake8-pytest-style
   "T20",      # raw print() outside emit() corrupts the JSON stream parsed by viz
   "Q",        # quotes
   "RET",      # return-statement hygiene

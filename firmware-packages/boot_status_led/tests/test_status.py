@@ -23,7 +23,7 @@ def _reset_stubs():
 
 
 @pytest.mark.parametrize(
-    "chip,backend_mod",
+    ("chip", "backend_mod"),
     [
         ("RP2040", "boot_status_led.rp2040"),
         ("RP2350", "boot_status_led.rp2350"),
@@ -75,7 +75,7 @@ def test_esp32s3_backend_scales_brightness():
 
 
 @pytest.mark.parametrize(
-    "transition,expected",
+    ("transition", "expected"),
     [
         ("boot", (255, 255, 255)),
         ("i2c_init", (0, 255, 255)),

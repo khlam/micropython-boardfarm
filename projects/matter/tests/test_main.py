@@ -175,7 +175,7 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main)
 
 
 @pytest.mark.parametrize(
-    "state_code,expected",
+    ("state_code", "expected"),
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),
@@ -215,7 +215,7 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
 
 
 @pytest.mark.parametrize(
-    "state_code,expected",
+    ("state_code", "expected"),
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),

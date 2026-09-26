@@ -8,11 +8,6 @@ _FIVE_MINUTES_MS = 300_000
 _TEN_MINUTES_MS = 600_000
 
 
-@pytest.fixture
-def reports(firmware_module):
-    return firmware_module("reports")
-
-
 @pytest.mark.parametrize(
     ("x_mm", "y_mm", "expected"),
     [(0, 0, False), (6, 7, False), (6, 8, True), (10, 0, True), (-10, 0, True)],
@@ -133,3 +128,8 @@ def test_throttle_interval_survives_tick_wrap(reports, firmware_module):
 
     assert throttle.due(("moved",), 399) is False
     assert throttle.due(("moved",), 400) is True
+
+
+@pytest.fixture
+def reports(firmware_module):
+    return firmware_module("reports")

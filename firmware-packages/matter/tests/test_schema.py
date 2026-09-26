@@ -15,7 +15,7 @@ from matter.schema import (
 
 
 @pytest.mark.parametrize(
-    "endpoint_type,expected",
+    ("endpoint_type", "expected"),
     [
         (
             EndpointType.ON_OFF_LIGHT,
@@ -56,7 +56,7 @@ def test_public_ids_match_paths():
 
 
 @pytest.mark.parametrize(
-    "cluster,attribute",
+    ("cluster", "attribute"),
     [
         (True, Attributes.ON_OFF),
         (Clusters.ON_OFF, False),
@@ -105,7 +105,7 @@ def test_integer_attribute_requires_plain_int(value):
 
 
 @pytest.mark.parametrize(
-    "path,minimum,maximum",
+    ("path", "minimum", "maximum"),
     [
         (Paths.LEVEL, 0, 254),
         (Paths.HUE, 0, 254),
@@ -121,7 +121,7 @@ def test_integer_attributes_accept_inclusive_bounds(path, minimum, maximum):
 
 
 @pytest.mark.parametrize(
-    "path,value",
+    ("path", "value"),
     [
         (Paths.LEVEL, -1),
         (Paths.LEVEL, 255),

@@ -14,7 +14,7 @@ def test_public_module_exports_color_helpers(color_module):
     ]
 
 
-@pytest.mark.parametrize("on,level", [(False, 254), (True, 0)])
+@pytest.mark.parametrize(("on", "level"), [(False, 254), (True, 0)])
 def test_off_or_zero_level_is_black(color_module, on, level):
     endpoint = _endpoint(on=on, level=level)
 
@@ -22,7 +22,7 @@ def test_off_or_zero_level_is_black(color_module, on, level):
 
 
 @pytest.mark.parametrize(
-    "hue,dominant",
+    ("hue", "dominant"),
     [(0, 0), (43, 1), (85, 1), (128, 2), (170, 2), (212, 0)],
 )
 def test_hue_saturation_covers_every_sector(color_module, hue, dominant):
@@ -50,7 +50,7 @@ def test_enhanced_hue_mode_and_fractional_level(color_module):
 
 
 @pytest.mark.parametrize(
-    "x,y,expected",
+    ("x", "y", "expected"),
     [
         (20494, 21561, (255, 255, 255)),
         (0, 0, (0, 0, 0)),
@@ -64,7 +64,7 @@ def test_xy_rendering(color_module, x, y, expected):
 
 
 @pytest.mark.parametrize(
-    "temperature,expected",
+    ("temperature", "expected"),
     [(250, (255, 206, 166)), (153, (255, 254, 250)), (500, (255, 137, 14))],
 )
 def test_temperature_rendering_is_bounded(color_module, temperature, expected):
@@ -77,7 +77,7 @@ def test_temperature_rendering_is_bounded(color_module, temperature, expected):
 
 
 @pytest.mark.parametrize(
-    "color,expected",
+    ("color", "expected"),
     [
         ((0, 0, 0), (0, 0, 0)),
         ((255, 255, 255), (0, 0, 254)),

@@ -64,7 +64,7 @@ def test_checksum_valid_rejects_invalid(line: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "sentence,lat,lon",
+    ("sentence", "lat", "lon"),
     [
         (_GPGGA, pytest.approx(48.1173, abs=1e-4), pytest.approx(11.5167, abs=1e-4)),
         (_GPGGA_SOUTH_WEST, pytest.approx(-33.866, abs=1e-4), pytest.approx(-70.61, abs=1e-4)),
@@ -95,7 +95,7 @@ def test_parse_gga_returns_empty(parts: list) -> None:
 
 
 @pytest.mark.parametrize(
-    "sentence,expected_count,expected_dop",
+    ("sentence", "expected_count", "expected_dop"),
     [
         (
             _GPGSA,
@@ -123,7 +123,9 @@ def test_parse_gsv_full_sentence() -> None:
     assert len(signals) == 4
     assert total_in_view["GP"] == 9
     for sat in signals.values():
-        assert "prn" in sat and "snr" in sat and "sys" in sat
+        assert "prn" in sat
+        assert "snr" in sat
+        assert "sys" in sat
         assert sat["sys"] == "GP"
 
 
@@ -138,7 +140,8 @@ def test_parse_gsv_repeated_epoch_overwrites_not_appends() -> None:
 
 def test_parse_gsv_short_sentence_returns_empty() -> None:
     signals, total = nmea.parse_gsv(["$GPGSV", "3"])
-    assert signals == {} and total == {}
+    assert signals == {}
+    assert total == {}
 
 
 # ---------------------------------------------------------------------------
@@ -204,27 +207,34 @@ def test_parse_sentence_gsa_fills_in_use_and_dop_slots() -> None:
     _, in_use, _, dop, position, parsed = nmea.parse_sentence(_GPGSA)
     assert len(in_use) == 12
     assert dop["hdop"] == pytest.approx(1.0)
-    assert position == {} and parsed == {}
+    assert position == {}
+    assert parsed == {}
 
 
 def test_parse_sentence_gsv_fills_signals_slot() -> None:
     signals, _, total_in_view, dop, position, parsed = nmea.parse_sentence(_GPGSV)
     assert len(signals) == 4
     assert total_in_view["GP"] == 9
-    assert dop == {} and position == {} and parsed == {}
+    assert dop == {}
+    assert position == {}
+    assert parsed == {}
 
 
 def test_parse_sentence_zda_fills_parsed_slot() -> None:
     signals, in_use, _total, _dop, position, parsed = nmea.parse_sentence(_GPZDA)
     assert parsed == {"date": "2025-06-01", "utc": "13:14:15Z"}
-    assert signals == {} and in_use == set() and position == {}
+    assert signals == {}
+    assert in_use == set()
+    assert position == {}
 
 
 def test_parse_sentence_rmc_fills_parsed_slot() -> None:
     signals, in_use, _total, _dop, position, parsed = nmea.parse_sentence(_GPRMC_VALID)
     assert parsed["utc"] == "12:35:19Z"
     assert parsed["date"] == "2094-03-23"
-    assert signals == {} and in_use == set() and position == {}
+    assert signals == {}
+    assert in_use == set()
+    assert position == {}
 
 
 def test_parse_sentence_unknown_tag_returns_all_empty() -> None:
@@ -249,7 +259,7 @@ def test_apply_parsed_captures_utc() -> None:
 
 
 @pytest.mark.parametrize(
-    "new_date,cached,expected",
+    ("new_date", "cached", "expected"),
     [
         ("2025-06-01", None, "2025-06-01"),  # new date when none cached
         ("2025-06-01", "2025-06-01", "2025-06-01"),  # same date unchanged
@@ -279,7 +289,7 @@ def test_build_utc_full_combines_date_and_time() -> None:
 
 
 @pytest.mark.parametrize(
-    "utc_time,cached_date",
+    ("utc_time", "cached_date"),
     [
         (None, "2025-06-01"),
         ("13:14:15Z", None),

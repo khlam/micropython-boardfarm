@@ -5,26 +5,19 @@ from types import SimpleNamespace
 import neopixel
 import pytest
 
-import matter
-
-_C = matter.Commissioning
-
-
-@pytest.fixture
-def status(firmware_module):
-    return firmware_module("status")
+from matter import Commissioning
 
 
 @pytest.mark.parametrize(
     ("commissioning", "session_active", "commissioned", "healthy", "occupied", "color"),
     [
-        (_C.FAILED, True, True, False, True, "_COMMISSIONING_FAILED_COLOR"),
-        (_C.OPENED, False, True, False, True, "_COMMISSIONING_WINDOW_COLOR"),
-        (_C.CLOSED, True, False, True, True, "_COMMISSIONING_SESSION_COLOR"),
-        (_C.CLOSED, False, False, True, True, "_COMMISSIONING_STOPPED_COLOR"),
+        (Commissioning.FAILED, True, True, False, True, "_COMMISSIONING_FAILED_COLOR"),
+        (Commissioning.OPENED, False, True, False, True, "_COMMISSIONING_WINDOW_COLOR"),
+        (Commissioning.CLOSED, True, False, True, True, "_COMMISSIONING_SESSION_COLOR"),
+        (Commissioning.CLOSED, False, False, True, True, "_COMMISSIONING_STOPPED_COLOR"),
         (None, False, False, False, False, "_BOOT_COLOR"),
-        (_C.CLOSED, False, True, False, True, "_RADAR_FAILED_COLOR"),
-        (_C.CLOSED, False, True, True, True, "_OCCUPIED_COLOR"),
+        (Commissioning.CLOSED, False, True, False, True, "_RADAR_FAILED_COLOR"),
+        (Commissioning.CLOSED, False, True, True, True, "_OCCUPIED_COLOR"),
         (None, False, True, True, False, "_VACANT_COLOR"),
     ],
 )
@@ -40,19 +33,15 @@ def test_status_color_priority(
     ) == getattr(status, color)
 
 
-def _pixel(status):
-    pixel = neopixel.NeoPixel(None, 1)
-    return status.StatusPixel(pixel), pixel
-
-
-def _event(state):
-    return SimpleNamespace(state=state)
-
-
 def test_session_stays_active_through_a_closed_window_until_completion(status):
     status_pixel, pixel = _pixel(status)
 
-    for state in (_C.OPENED, _C.STARTED, _C.CLOSED, _C.COMPLETE):
+    for state in (
+        Commissioning.OPENED,
+        Commissioning.STARTED,
+        Commissioning.CLOSED,
+        Commissioning.COMPLETE,
+    ):
         status_pixel.on_commissioning(_event(state))
 
     assert pixel.writes == [
@@ -66,7 +55,7 @@ def test_session_stays_active_through_a_closed_window_until_completion(status):
 def test_failure_ends_the_session_and_shows_until_the_next_event(status):
     status_pixel, pixel = _pixel(status)
 
-    for state in (_C.STARTED, _C.FAILED, _C.OPENED):
+    for state in (Commissioning.STARTED, Commissioning.FAILED, Commissioning.OPENED):
         status_pixel.on_commissioning(_event(state))
 
     assert pixel.writes[-2:] == [
@@ -84,3 +73,17 @@ def test_pixel_is_written_only_when_its_color_changes(status):
     status_pixel.update_product(occupied=True, healthy=True)
 
     assert pixel.writes == [status._BOOT_COLOR, status._OCCUPIED_COLOR]
+
+
+@pytest.fixture
+def status(firmware_module):
+    return firmware_module("status")
+
+
+def _pixel(status):
+    pixel = neopixel.NeoPixel(None, 1)
+    return status.StatusPixel(pixel), pixel
+
+
+def _event(state):
+    return SimpleNamespace(state=state)

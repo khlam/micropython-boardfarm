@@ -151,7 +151,7 @@ def test_node_cannot_start_twice():
 
 
 @pytest.mark.parametrize(
-    "method,args",
+    ("method", "args"),
     [
         ("open_commissioning_window", ()),
         ("fabrics", ()),
@@ -223,7 +223,7 @@ def test_factory_reset_is_forwarded():
 
 
 @pytest.mark.parametrize(
-    "state_code,expected",
+    ("state_code", "expected"),
     [
         (0, CommissioningEvent(Commissioning.SESSION, Commissioning.STARTED)),
         (1, CommissioningEvent(Commissioning.SESSION, Commissioning.COMPLETE)),

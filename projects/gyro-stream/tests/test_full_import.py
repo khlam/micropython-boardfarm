@@ -27,7 +27,7 @@ _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 PRIMARY = 0x68
 
 
-@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
+@pytest.mark.parametrize(("machine_str", "board_name"), BOARD_CHIPS)
 def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
     fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))

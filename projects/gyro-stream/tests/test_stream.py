@@ -69,7 +69,7 @@ def test_read_err_recovery_resumes_streaming():
     main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK, OSError, _OK])
     lines = run_stream(main_ns, imu)
-    assert samples(lines) and len(samples(lines)) == 2
+    assert len(samples(lines)) == 2
     assert "read_err" in diags(lines)
     assert main_ns.status.calls == ["streaming", "read_err", "streaming"]
 

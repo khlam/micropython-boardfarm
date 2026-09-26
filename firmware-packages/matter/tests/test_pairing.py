@@ -11,7 +11,7 @@ _KEY = "correct-horse-battery-staple"
 
 
 @pytest.mark.parametrize(
-    "key, passcode, discriminator",
+    ("key", "passcode", "discriminator"),
     [
         ("correct-horse-battery-staple", 53230365, 3681),
         ("9f3a1c7e2b8d4f60a5e9c1b7d3f8a204", 41461148, 2126),
@@ -27,7 +27,7 @@ def test_fixed_pairing_vectors(key, passcode, discriminator):
 
 
 @pytest.mark.parametrize(
-    "key, message",
+    ("key", "message"),
     [
         (b"correct-horse-battery-staple", "must be a string"),
         (42, "must be a string"),

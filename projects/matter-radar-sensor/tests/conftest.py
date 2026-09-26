@@ -50,18 +50,6 @@ class FakeTime:
         return (ticks + delta) % self._PERIOD
 
 
-def _reset_state(*, commissioned: bool = False) -> None:
-    """Reset every process-wide fake used by the firmware module."""
-    machine.reset()
-    neopixel.reset()
-    _matter.reset()
-    _matter.seed_fabrics([_FABRIC] if commissioned else [])
-    matter_node._active_node[0] = None
-    matter_emit._sinks.clear()
-    for name in (_MODULE_NAME, "webserver", "status", "reports"):
-        sys.modules.pop(name, None)
-
-
 @pytest.fixture(autouse=True)
 def reset_runtime(monkeypatch):
     """Reset process-wide MCU and Matter fakes around every test."""
@@ -70,16 +58,6 @@ def reset_runtime(monkeypatch):
     _reset_state()
     yield
     _reset_state()
-
-
-def _install_firmware_path(monkeypatch) -> None:
-    """Make the firmware directory and its generated dashboard page importable."""
-    monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
-    monkeypatch.setitem(
-        sys.modules,
-        "dashboard_page",
-        SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
-    )
 
 
 @pytest.fixture
@@ -137,3 +115,25 @@ def load_application(load_firmware):
         )
 
     return load
+
+
+def _reset_state(*, commissioned: bool = False) -> None:
+    """Reset every process-wide fake used by the firmware module."""
+    machine.reset()
+    neopixel.reset()
+    _matter.reset()
+    _matter.seed_fabrics([_FABRIC] if commissioned else [])
+    matter_node._active_node[0] = None
+    matter_emit._sinks.clear()
+    for name in (_MODULE_NAME, "webserver", "status", "reports"):
+        sys.modules.pop(name, None)
+
+
+def _install_firmware_path(monkeypatch) -> None:
+    """Make the firmware directory and its generated dashboard page importable."""
+    monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
+    monkeypatch.setitem(
+        sys.modules,
+        "dashboard_page",
+        SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
+    )

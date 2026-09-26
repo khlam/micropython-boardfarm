@@ -13,11 +13,6 @@ _UPGRADE = {
 }
 
 
-@pytest.fixture
-def web(firmware_module):
-    return firmware_module("webserver")
-
-
 @pytest.mark.parametrize(
     ("line", "valid"),
     [
@@ -131,17 +126,17 @@ def test_accepts_close_payloads(web, payload):
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "message"),
     [
-        b"\x03",  # half a code
-        b"\x00\x01",  # unassigned code
-        b"\x03\xed",  # 1005 is reserved for "no status"
-        b"\x13\x88",  # 5000 is outside the private range
-        b"\x03\xe8\xff",  # invalid UTF-8 reason
+        (b"\x03", "invalid close payload"),  # half a code
+        (b"\x00\x01", "invalid close code"),  # unassigned code
+        (b"\x03\xed", "invalid close code"),  # 1005 is reserved for "no status"
+        (b"\x13\x88", "invalid close code"),  # 5000 is outside the private range
+        (b"\x03\xe8\xff", "can't decode"),  # invalid UTF-8 reason
     ],
 )
-def test_rejects_close_payloads(web, payload):
-    with pytest.raises(ValueError):
+def test_rejects_close_payloads(web, payload, message):
+    with pytest.raises(ValueError, match=message):
         web.check_close_payload(payload)
 
 
@@ -181,3 +176,8 @@ def test_token_bucket_refills_across_tick_wrap(web, firmware_module):
 )
 def test_only_memory_and_descriptor_exhaustion_are_resource_failures(web, exception, reason):
     assert web.resource_failure(exception) == reason
+
+
+@pytest.fixture
+def web(firmware_module):
+    return firmware_module("webserver")

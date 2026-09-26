@@ -32,7 +32,7 @@ class _StopMainError(Exception):
     """Raised by the fake radar's second read_latest() to escape stream()."""
 
 
-@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
+@pytest.mark.parametrize(("machine_str", "board_name"), BOARD_CHIPS)
 def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, board_name):
     fake_status = FakeStatus()
     closed = []

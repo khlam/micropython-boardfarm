@@ -40,7 +40,7 @@ def test_missing_device_raises_device_not_found():
 
 def test_unknown_chip_id_raises():
     _register_fake(chip_id=0xAA)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="Unknown QMC5883P CHIP_ID=0xaa"):
         QMC5883P(sda=0, scl=1)
 
 

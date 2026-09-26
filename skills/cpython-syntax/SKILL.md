@@ -1,6 +1,6 @@
 ---
 name: cpython-syntax
-description: Python naming, layout, typing, API shape, and docstring conventions, plus host-side CPython rules for paths, logging, threading, and boundary validation. Use when writing or reviewing Python under cpython-packages/, tools/, or any project viz/ service.
+description: Python naming, layout, typing, API shape, and docstring conventions, plus host-side CPython rules for paths, logging, threading, and boundary validation. Use when writing or reviewing Python under cpython-packages/, tools/, any project viz/ service, or any tests/ directory.
 ---
 
 # Python

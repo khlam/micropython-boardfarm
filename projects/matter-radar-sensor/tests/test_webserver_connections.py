@@ -264,7 +264,8 @@ def test_admission_ceiling_rate_and_slot_cleanup(web):
         second = web.accept(b"")
         excess = web.accept(b"")
         assert len(web.server._connections) == 2
-        assert excess.closed and not excess.read_sizes
+        assert excess.closed
+        assert not excess.read_sizes
         first.eof = second.eof = True
         await web.pump()
         for _ in range(2):
@@ -290,7 +291,9 @@ def test_low_heap_stops_work_and_requires_cleanup_before_recovery(web, monkeypat
         web.advance(100)
         web.server._step(web.clock.ticks_ms())
         assert web.server.state == "cooldown"
-        assert sock.closed and other.closed and web.listener.closed
+        assert sock.closed
+        assert other.closed
+        assert web.listener.closed
         web.server._suspend("memory")
         assert web.server._retry_ms == 5000
         await web.pump()
@@ -305,7 +308,8 @@ def test_low_heap_stops_work_and_requires_cleanup_before_recovery(web, monkeypat
         web.advance(1)
         monkeypatch.setattr(web.module.gc, "mem_free", lambda: 98303)
         web.server._step(web.clock.ticks_ms())
-        assert web.server._retry_ms == 10000 and not resumes
+        assert web.server._retry_ms == 10000
+        assert not resumes
         monkeypatch.setattr(web.module.gc, "mem_free", lambda: 98304)
         monkeypatch.setattr(web.module.socket, "socket", Listener)
         web.advance(10000)
@@ -392,7 +396,8 @@ def test_cancellation_before_handler_runs_and_backoff_cap(web):
     async def run():
         sock = web.accept()
         await web.close()
-        assert sock.closed and not sock.read_sizes
+        assert sock.closed
+        assert not sock.read_sizes
         assert not web.server._connections
         for _ in range(8):
             web.server.state = "running"
