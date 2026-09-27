@@ -1,58 +1,65 @@
 ---
 name: testing
-description: Use to plan, write, review, and iteratively fuzz-test focused unit behavior until it is sufficiently covered without creating redundant tests or preserving dead code.
+description: Use when writing table-driven unit tests, behavioral fuzz tests, and at most 3 end-to-end smoke tests per project or package.
 ---
+
+# Writing tests
+
+Write tests only after the user confirms the feature is final (AGENTS.md). The language
+skill gives the syntax; for Python, see `cpython-syntax` § Tests.
+
+## What a test should be
+
+Every test is exactly one of three kinds, labeled in its name and with the framework's tag
+so readers can tell them apart. Make tests table-driven wherever cases share a contract: one
+test with a case table beats several near-identical tests.
+
+**Unit.** Asserts one public entry point's output, state change, or error across a table of
+input classes: typical, each boundary, each error path, and the failure classes in
+`coding-conventions` § Tests. Two rows with the same input class and outcome are one row.
+
+**Behavioral fuzz.** Asserts an invariant (round-trip, bounds, monotonicity, no errors
+beyond the documented ones) over many generated inputs plus explicit boundary, malformed,
+and adversarial cases. Generation uses a fixed seed so every run is identical. Many cases
+per input class are the point, not redundancy.
+
+**Smoke.** Drives the real caller path end-to-end (a project's entry point, or a package
+through the code that calls it) from input at the outer boundary to final output. Only the
+hardware or network boundary is replaced with a double; everything between runs for real. It
+asserts a result known to be correct independently of the code, such as a spec test vector,
+a datasheet example, or a hand-verified output, and names that source. It always runs in CI,
+never skipped or conditional. Each project and each package holds at most 3; pick the
+results whose breakage would matter most.
+
+A test is **bad** when it:
+
+- asserts on private internals, or on test doubles rather than the behavior;
+- repeats another test's input class and outcome;
+- exercises dead or unreachable code;
+- exists only for line or branch coverage;
+- depends on timing, test order, or shared state.
 
 ## Workflow
 
-1. **Define the behavior**
-   - State the feature’s observable behavior, invariants, important side effects, and existing behavior that must remain unchanged.
-   - Identify the real entry points and code paths currently reachable by the feature.
-   - Explicitly exclude dead, unreachable, deprecated, or unused code unless the task is to revive it.
+1. **Define the behavior.** State observable behavior, invariants, side effects, and the
+   reachable entry points. Skip dead or unreachable code.
+2. **Build the behavior map.** For each public entry point, list input classes with their
+   expected outputs, state changes, and errors, plus interactions between inputs that change
+   behavior. Resolve unclear contracts with the user before inventing expectations.
+3. **Map existing tests** onto the behavior map. Extend an existing case table or fuzz
+   generator rather than adding a new test for behavior that is already partly covered.
+4. **Pick the next gap.** Prioritize boundaries, error paths, state transitions, and
+   invariants. State what failure the test would catch that existing tests would not.
+5. **Write it** as one of the three kinds, black-box, through the public interface.
+6. **Run** the smallest relevant set, then the full suite (AGENTS.md § Run tests). For a
+   failure, decide whether it is a real bug, a wrong assumption, or a brittle test. Never
+   weaken an assertion before confirming the intended contract.
+7. **Repeat** steps 4–6 until every remaining gap is equivalent to covered behavior,
+   covered by a higher-level test, or too speculative to justify.
 
-2. **Build the behavior map**
-   - For each relevant function, enumerate meaningful input classes or parameter ranges.
-   - For each class, record expected outputs, state changes, errors/throws, and important boundary conditions.
-   - Include interactions between inputs when they can change behavior.
-   - Mark assumptions that are unclear; resolve the contract before inventing tests.
+## Report
 
-3. **Audit the existing tests**
-   - Locate tests covering the same behavior or nearby logic.
-   - Map each test to one or more behavior-map cases.
-   - Identify gaps, redundant tests, brittle implementation-coupled assertions, and tests that only exercise unreachable/dead code.
-   - Preserve existing tests that provide distinct behavioral value; do not duplicate coverage just to increase test count.
-
-4. **Choose the next test target**
-   - Select the highest-value uncovered behavior: prioritize boundaries, error paths, state transitions, combinations, invariants, and regression-prone logic.
-   - Prefer a small number of representative cases over exhaustive enumeration when behavior is equivalent.
-   - Add a test only when it distinguishes a meaningful behavior, catches a plausible regression, or validates an important invariant.
-   - Before adding it, state **what failure the test would catch** and why existing tests would not catch it.
-
-5. **Write focused tests**
-   - Keep tests black-box where practical; assert observable behavior rather than implementation details.
-   - Use parameterization/property-based generation where many inputs share the same contract.
-   - For fuzzing, generate inputs from the behavior map and include explicit boundary, malformed, adversarial, and representative cases.
-   - Avoid tests whose only purpose is line/branch coverage.
-
-6. **Run and interpret**
-   - Run the smallest relevant test set, then the broader suite.
-   - For failures, determine whether the cause is a real behavior bug, an invalid assumption, a brittle test, or dead/unreachable code.
-   - Fix the smallest justified thing. Never weaken a test merely to make it pass without first validating the intended contract.
-
-7. **Repeat**
-   - Rebuild the gap list after every meaningful change.
-   - Repeat Steps 4–6 until the remaining uncovered cases are either:
-     - unreachable/dead,
-     - equivalent to already-covered behavior,
-     - protected by stronger higher-level tests, or
-     - too speculative to justify a test.
-
-8. **Stop with evidence**
-   - Stop when additional tests have no clear behavioral value.
-   - Report:
-     - behaviors covered,
-     - meaningful cases intentionally left untested and why,
-     - bugs/regressions found,
-     - redundant/dead tests or code removed,
-     - and why further testing is unlikely to add useful signal.
-   - Prefer removing obsolete tests over keeping tests solely because they already exist.
+- behaviors covered, by kind;
+- cases deliberately left untested, and why;
+- bugs found;
+- bad tests and dead code seen (removing them is `simplify-diff-to-main`'s job).

@@ -1,11 +1,10 @@
 ---
 name: cpython-syntax
-description: Python naming, layout, typing, API shape, and docstring conventions, plus host-side CPython rules for paths, logging, threading, and boundary validation. Use when writing or reviewing Python under cpython-packages/, tools/, any project viz/ service, or any tests/ directory.
+description: CPython conventions. Use when writing or reviewing Python under cpython-packages/, tools/, any project viz/ service, or any tests/ directory.
 ---
 
 # Python
 
-For Python, `pyproject.toml` is authoritative. Ruff currently enforces 4-space indentation, double quotes, 100-character lines, LF endings, absolute imports, and Google-style docstrings.
 
 ## Naming and layout
 
@@ -59,6 +58,18 @@ Document what is not obvious from the signature, especially:
 * retry behavior;
 * important exceptions;
 * non-obvious invariants.
+
+## Tests
+
+Tests use pytest. The `testing` skill's three kinds map to:
+
+| Kind | Name | Marker |
+| --- | --- | --- |
+| Unit | `test_<behavior>` | none |
+| Behavioral fuzz | `test_fuzz_<invariant>` | `@pytest.mark.fuzz` |
+| Smoke | `test_smoke_<result>` | `@pytest.mark.smoke`; the docstring cites the source of the expected result |
+
+Never put `skip`, `skipif`, or `xfail` on a smoke test. Build case tables with `@pytest.mark.parametrize`. Generate fuzz cases with `random.Random(<fixed seed>)` at module level and pass them through `parametrize`; do not add Hypothesis. The markers are registered in the root [pyproject.toml](../../pyproject.toml), and `--strict-markers` fails the run on an unregistered one.
 
 # CPython
 

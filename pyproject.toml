@@ -38,6 +38,11 @@ pythonpath = [
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
 ]
+addopts = "--strict-markers"
+markers = [
+    "fuzz: behavioral fuzz test over seeded generated inputs",
+    "smoke: end-to-end check of a known-correct result through a real caller",
+]
 
 [tool.uv.workspace]
 members = [
