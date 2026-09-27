@@ -68,7 +68,8 @@ Replacement module behavior:
 - `micropython.py` exposes `const(x)` as an identity function.
 - `matter_native.py` stands in for the compiled ESP-Matter bridge that the
   `matter` package calls. `reset(persisted=...)` seeds values the stack
-  restores at `start()`, `fail_next(operation)` makes the next call to that
+  restores at `start()`, `reset(generation=...)` starts the revision sequence
+  near its wrap, `fail_next(operation)` makes the next call to that
   operation raise `OSError`, and `inject_remote_write(...)` /
   `inject_commissioning_event(...)` play the controller. Like the native
   bridge, it keeps only the newest record per attribute path and orders

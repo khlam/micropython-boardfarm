@@ -6,6 +6,7 @@ import errno
 
 _EVENT_ATTRIBUTE = 0
 _EVENT_COMMISSIONING = 1
+_COMMISSIONING_WINDOW_OPENED = 3
 _IDENTIFY_CLUSTER = 0x0003
 _IDENTIFY_TIME_ATTRIBUTE = 0x0000
 _ON_OFF_CLUSTER = 0x0006
@@ -71,17 +72,21 @@ class _State:
         self.generation = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
-        self.commissioning_windows: list[int] = []
-        self.factory_reset_requested = False
         self.network_address: str | None = None
 
 
 _state = _State()
-commissioning_windows = _state.commissioning_windows
 
 
-def reset(*, persisted: dict | None = None) -> None:
-    """Reset runtime state and optionally seed the persisted attribute mirror."""
+def reset(*, persisted: dict | None = None, generation: int = 0) -> None:
+    """Reset runtime state, optionally seeding persistence and the revision counter.
+
+    Args:
+        persisted: Attribute values the stack restores at ``start()``, keyed by
+            ``(endpoint_id, cluster_id, attribute_id)``.
+        generation: Revision the wrapping sequence continues from, so a test can
+            reach the ``uint32`` wrap the way the native C test does.
+    """
     _state.node_created = False
     _state.started = False
     _state.next_endpoint_id = 1
@@ -93,11 +98,9 @@ def reset(*, persisted: dict | None = None) -> None:
     _state.snapshot_records.clear()
     _state.commissioning_session = None
     _state.commissioning_window = None
-    _state.generation = 0
+    _state.generation = generation
     _state.failures.clear()
     _state.fabrics.clear()
-    _state.commissioning_windows.clear()
-    _state.factory_reset_requested = False
     _state.network_address = None
 
 
@@ -201,11 +204,7 @@ def inject_remote_write(
 def inject_commissioning_event(state_code: int) -> None:
     """Inject one native commissioning transition for host tests."""
     _require_started()
-    record = (_next_revision(), state_code)
-    if 0 <= state_code <= 2:
-        _state.commissioning_session = record
-    elif 3 <= state_code <= 4:
-        _state.commissioning_window = record
+    _record_commissioning(state_code)
 
 
 def generation() -> int:
@@ -230,11 +229,11 @@ def snapshot() -> tuple[int, tuple]:
     return (_state.generation, tuple(records))
 
 
-def open_commissioning_window(timeout_s: int) -> None:
-    """Record a successfully requested commissioning window."""
+def open_commissioning_window(_timeout_s: int) -> None:
+    """Open a commissioning window, which CHIP reports as WINDOW_OPENED."""
     _raise_failure("open_commissioning_window")
     _require_started()
-    _state.commissioning_windows.append(timeout_s)
+    _record_commissioning(_COMMISSIONING_WINDOW_OPENED)
 
 
 def fabrics() -> tuple:
@@ -256,8 +255,10 @@ def remove_fabric(index: int) -> None:
     for position, fabric in enumerate(_state.fabrics):
         if fabric[0] == index:
             _state.fabrics.pop(position)
+            # callbacks.cpp answers kFabricRemoved by reopening the window of a
+            # node left with no fabric, and that opening is reported like any other.
             if not _state.fabrics:
-                _state.commissioning_windows.append(300)
+                _record_commissioning(_COMMISSIONING_WINDOW_OPENED)
             return
     raise OSError(errno.ENOENT, "fabric does not exist")
 
@@ -274,15 +275,18 @@ def set_network_address(address: str | None) -> None:
 
 
 def factory_reset() -> None:
-    """Record that the platform accepted a factory-reset request."""
+    """Accept a factory-reset request, as the platform does before rebooting."""
     _raise_failure("factory_reset")
     _require_started()
-    _state.factory_reset_requested = True
 
 
-def factory_reset_was_requested() -> bool:
-    """Return whether host code requested a factory reset."""
-    return _state.factory_reset_requested
+def _record_commissioning(state_code: int) -> None:
+    """Retain a transition in its lifecycle's slot, replacing the older state."""
+    record = (_next_revision(), state_code)
+    if 0 <= state_code <= 2:
+        _state.commissioning_session = record
+    elif 3 <= state_code <= 4:
+        _state.commissioning_window = record
 
 
 def _next_revision() -> int:
