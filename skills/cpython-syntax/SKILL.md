@@ -28,7 +28,7 @@ when callers need to act on them.
 
 ## Tests
 
-Tests use pytest. The `testing` skill's three kinds map to:
+The `testing` skill's three kinds map to:
 
 | Kind | Name | Marker |
 | --- | --- | --- |
@@ -37,7 +37,6 @@ Tests use pytest. The `testing` skill's three kinds map to:
 | Smoke | `test_smoke_<result>` | `@pytest.mark.smoke`; the docstring cites the source of the expected result |
 
 Every test is a `@pytest.mark.parametrize` case table, even with one row. Generate fuzz
-cases with `random.Random(<fixed seed>)` at module level and pass them through
-`parametrize`. Never put `skip`, `skipif`, or `xfail` on a smoke test. The markers are
-registered in the root [pyproject.toml](../../pyproject.toml), and `--strict-markers` fails
-the run on an unregistered one.
+cases with `random.Random(<fixed seed>)` at module level. Never put `skip`, `skipif`, or
+`xfail` on a smoke test. Markers are registered in the root
+[pyproject.toml](../../pyproject.toml).
