@@ -47,6 +47,6 @@ Report concisely:
 
 - **What changed**
 - **Why it is simpler**
-- **Validation**
+- **Tests impact**
 - **Diff impact**
 - **Remaining complexity**
