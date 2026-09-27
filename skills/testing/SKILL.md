@@ -1,21 +1,21 @@
 ---
 name: testing
-description: Use when writing table-driven tests, and at most 3 end-to-end smoke tests per project or package.
+description: Use when writing table-driven tests.
 ---
 
 # Writing tests
 
 Write tests only after the user confirms the feature is final.
 
-Test observable behavior through the public interface. Every test is one of three kinds,
-named and tagged as such:
+Every test is table-driven, even with a single row. Design towards extending an existing
+case table or generator before adding a new test.
 
-- **Unit.** One table-driven test per public entry point, one row per input class:
-  typical, each boundary, each error path.
-- **Behavioral fuzz.** Asserts an invariant (round-trip, bounds, no undocumented errors) given inputs.
-- **Smoke.** At most 3 per project or package. Runs the real caller path end-to-end mocking at hardware or network boundary, and asserts a result known independently of the code (spec test vector, datasheet example), naming its source.
+Test observable behavior through the public interface. Every test is one of three kinds:
 
-Extend an existing case table or generator before adding a new test.
+- **Unit.** One test per public entry point, one row per input class: typical, each boundary, each error path.
+- **Behavioral fuzz.** Asserts an invariant (round-trip, bounds, no undocumented errors) across generated inputs.
+- **Smoke.** At most 3 per project or package. Runs caller path end-to-end mocking only the hardware or network boundary, and asserts a result known independently of the code (spec test vector, datasheet example), naming its source.
+
 
 Don't write tests that:
 
