@@ -3,61 +3,28 @@ name: cpython-syntax
 description: CPython conventions. Use when writing or reviewing Python under cpython-packages/, tools/, any project viz/ service, or any tests/ directory.
 ---
 
-# Python
+# CPython
 
+## Layout
 
-## Naming and layout
+Order a file: module docstring, imports, constants, public API, private helpers. In test
+files, tests come before fixtures.
 
-Use:
-
-* `snake_case` for modules, functions, methods, variables, and attributes;
-* `CapWords` for classes and exceptions;
-* `UPPER_SNAKE_CASE` for constants;
-* `_leading_underscore` for private implementation details.
-
-Use the usual file order:
-
-```text
-module docstring
-imports
-constants
-public API
-private helpers
-```
-
-In test files, test functions come before fixtures.
-
-Use absolute imports. Do not use wildcard imports.
-
-## Types and APIs
-
-Production code should use useful type annotations and satisfy the configured type checker.
-
-Keep APIs simple. Do not introduce a config object for a few obvious arguments:
-
-```python
-MPU6050(sda=8, scl=9, bus_id=0)
-```
-
-Use a config object or enum when options become numerous, shared, or mutually dependent. Prefer named modes over interacting boolean flags.
-
-Pydantic is appropriate for CPython APIs that need validation or serialization. It is not required for firmware.
+## APIs
+Use Pydantic where an API needs validation or serialization.
 
 ## Docstrings
+Google style.
 
-Production modules, classes, functions, and methods should use Google-style docstrings.
+## Host code
+Validate external input at the boundary: serial, HTTP, WebSocket, configuration, and file
+data.
 
-One-line summary, then `Args:` / `Returns:` / `Raises:` only when they add something. Tests are exempt (`D100`/`D103` in [pyproject.toml](../../pyproject.toml)).
+Make thread and async ownership explicit; share work through queues or other clear
+synchronization boundaries.
 
-Document what is not obvious from the signature, especially:
-
-* units;
-* hardware side effects;
-* ownership;
-* blocking behavior;
-* retry behavior;
-* important exceptions;
-* non-obvious invariants.
+Use standard logging for diagnostics. For batch work, return structured partial failures
+when callers need to act on them.
 
 ## Tests
 
@@ -69,16 +36,8 @@ Tests use pytest. The `testing` skill's three kinds map to:
 | Behavioral fuzz | `test_fuzz_<invariant>` | `@pytest.mark.fuzz` |
 | Smoke | `test_smoke_<result>` | `@pytest.mark.smoke`; the docstring cites the source of the expected result |
 
-Never put `skip`, `skipif`, or `xfail` on a smoke test. Build case tables with `@pytest.mark.parametrize`. Generate fuzz cases with `random.Random(<fixed seed>)` at module level and pass them through `parametrize`; do not add Hypothesis. The markers are registered in the root [pyproject.toml](../../pyproject.toml), and `--strict-markers` fails the run on an unregistered one.
-
-# CPython
-
-Host code may use the full configured Python version and declared dependencies.
-
-Prefer `pathlib` for paths and standard logging for diagnostics.
-
-Make thread and async ownership explicit. Use queues or other clear synchronization boundaries for shared work.
-
-Validate external input at the boundary, including serial, HTTP, WebSocket, configuration, and file data.
-
-For host-side batch work, consider returning structured partial failures when callers need to act on them programmatically.
+Every test is a `@pytest.mark.parametrize` case table, even with one row. Generate fuzz
+cases with `random.Random(<fixed seed>)` at module level and pass them through
+`parametrize`. Never put `skip`, `skipif`, or `xfail` on a smoke test. The markers are
+registered in the root [pyproject.toml](../../pyproject.toml), and `--strict-markers` fails
+the run on an unregistered one.
