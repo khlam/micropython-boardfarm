@@ -208,8 +208,7 @@ class WebServer:
                     return False
                 peer = self._viewer.request.sock[0]
                 peer.close()
-                if peer.task is not None:
-                    await peer.task
+                await peer.task
             self._viewer = websocket
             return True
 
@@ -304,8 +303,7 @@ class _SocketServer:
     async def _join(self, peer: object) -> None:
         """Join even a task cancelled before its first scheduled turn."""
         try:
-            if peer.task is not None:
-                await peer.task
+            await peer.task
         except asyncio.CancelledError:
             pass
         finally:
@@ -356,12 +354,9 @@ class _SocketServer:
             self._connections.append(peer)
             peer.task = _start_task(self._serve(peer, address))
         except (OSError, MemoryError):
-            if peer is not None:
-                if peer in self._connections:
-                    self._connections.remove(peer)
-                peer.close()
-            else:
-                sock.close()
+            if peer in self._connections:
+                self._connections.remove(peer)
+            _close_quietly(sock)
             raise
 
     async def _serve(self, peer: object, address: tuple) -> None:
@@ -416,14 +411,11 @@ class _SocketServer:
         listener = self._listener
         self._listener = None
         if listener is not None:
-            try:  # noqa: SIM105 - contextlib is unavailable on MicroPython.
-                listener.close()
-            except (OSError, MemoryError):
-                pass
+            _close_quietly(listener)
         current = asyncio.current_task()
         for peer in self._connections:
             peer.close()
-            if peer.task is not None and peer.task is not current:
+            if peer.task is not current:
                 peer.task.cancel()
                 peer.finished = True
 
@@ -562,10 +554,7 @@ class _Connection:
         sock = self.socket
         self.socket = None
         if sock is not None:
-            try:  # noqa: SIM105 - contextlib is unavailable on MicroPython.
-                sock.close()
-            except (OSError, MemoryError):
-                pass
+            _close_quietly(sock)
 
 
 class _WebSocket(WebSocket):
@@ -609,6 +598,14 @@ class _WebSocket(WebSocket):
             if opcode == self.PING:
                 await self.send(payload, self.PONG)
             await asyncio.sleep_ms(10)
+
+
+def _close_quietly(sock: object) -> None:
+    """Close a socket during cleanup, where a close failure must not replace the cause."""
+    try:  # noqa: SIM105 - contextlib is unavailable on MicroPython.
+        sock.close()
+    except (OSError, MemoryError):
+        pass
 
 
 def _start_task(coroutine: object) -> asyncio.Task:

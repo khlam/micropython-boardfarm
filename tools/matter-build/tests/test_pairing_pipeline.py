@@ -75,7 +75,21 @@ def test_offline_qr_matches_firmware(monkeypatch, tmp_path, capsys):
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_compilation_is_board_free_and_removes_stale_codes(pipeline, monkeypatch):
+def test_flash_cli_provisions_the_named_port_with_the_given_key(pipeline, monkeypatch, capsys):
+    _identity, _args, outputs, calls = pipeline
+    port = "socket://host:5555"
+    monkeypatch.setattr(sys, "argv", ["build.py", "--flash", "--port", port, "--passcode", _KEY])
+    monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
+    monkeypatch.setattr(build, "_OWNER_REFERENCE", outputs)
+
+    assert build.main() == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "Matter flash complete"
+    ((command, _image),) = calls
+    assert command[command.index("--port") + 1] == port
+    assert _published_pairing(outputs)[0]["passcode"] == _KEY
+
+
+def test_compilation_is_board_free_and_removes_stale_codes(pipeline, monkeypatch, capsys):
     identity, _args, outputs, calls = pipeline
     monkeypatch.setattr(sys, "argv", ["build.py"])
     monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
@@ -94,6 +108,7 @@ def test_compilation_is_board_free_and_removes_stale_codes(pipeline, monkeypatch
     monkeypatch.setattr(build, "_merge_image", merge)
     monkeypatch.setattr(build, "_mint_credentials", unexpected)
     assert build.main() == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "Matter firmware ready to provision"
     assert {path.name for path in outputs.iterdir()} == {build._MERGED_NAME}
     assert not calls
 

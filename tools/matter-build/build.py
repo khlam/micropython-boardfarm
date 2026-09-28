@@ -163,7 +163,7 @@ def main() -> int:
             _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
             _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
             merged = _merge_image(_BUILD_CACHE, identity, artifact_root=staging_root)
-            _validate_merged_image(merged, None, None, identity)
+            _validate_merged_image(merged, b"\xff" * identity.factory_size, identity)
             _publish(merged, None, {})
         _hand_outputs_to_owner()
     sys.stdout.write(
@@ -212,7 +212,8 @@ def _flash_board(staging_root: Path, identity: _BuildIdentity, args: argparse.Na
     merged.write_bytes(
         _provision_image((_OUTPUT_DIR / _MERGED_NAME).read_bytes(), factory.read_bytes(), identity)
     )
-    _validate_merged_image(merged, factory, qr, identity)
+    _validate_merged_image(merged, factory.read_bytes(), identity)
+    _validate_qr(qr)
     _validate_factory_identity(
         nvs_partition_read.read_factory_partition(factory, nvs_partition_gen.NAMESPACE),
         pairing["discriminator"],
@@ -606,31 +607,29 @@ def _validate_onboarding(
         raise ValueError("manual pairing code does not match QR payload")
 
 
-def _validate_merged_image(
-    merged_path: Path, factory_path: Path | None, qr_path: Path | None, identity: _BuildIdentity
-) -> None:
-    """Check image size, the factory partition, and a provisioned image's QR.
+def _validate_merged_image(merged_path: Path, factory: bytes, identity: _BuildIdentity) -> None:
+    """Check image size and that the image carries exactly this factory partition.
 
     The merged image is padded to the whole flash, so anything else means the
-    merge did not produce the layout the board is about to be written with.
+    merge did not produce the layout the board is about to be written with. A
+    compiled image carries an erased partition, a provisioned one the board's own.
     """
     merged = merged_path.read_bytes()
     start = identity.factory_offset
     end = start + identity.factory_size
     if len(merged) != identity.flash_size:
         raise ValueError(f"merged image must be exactly {identity.flash_size:#x} bytes")
-    if factory_path is None:
-        if merged[start:end] != b"\xff" * identity.factory_size:
-            raise ValueError("unprovisioned image must have an empty factory partition")
-        return
-    factory = factory_path.read_bytes()
     if len(factory) != identity.factory_size:
         raise ValueError(f"factory partition must be exactly {identity.factory_size:#x} bytes")
     if merged[start:end] != factory:
         raise ValueError(
-            f"merged image does not carry the generated factory partition at {start:#x}"
+            f"merged image does not carry the expected factory partition at {start:#x}"
         )
-    if qr_path is None or not qr_path.is_file() or qr_path.stat().st_size == 0:
+
+
+def _validate_qr(qr_path: Path) -> None:
+    """Check that the rendered QR image exists and is not empty."""
+    if not qr_path.is_file() or qr_path.stat().st_size == 0:
         raise ValueError("QR image is missing or empty")
 
 

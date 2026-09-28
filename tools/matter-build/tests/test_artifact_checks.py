@@ -9,6 +9,7 @@ import fcntl
 import multiprocessing
 import os
 import pathlib
+from contextlib import nullcontext as returns
 
 import build
 import pytest
@@ -16,54 +17,66 @@ import pytest
 _FLASH_SIZE = 512
 _FACTORY_OFFSET = 128
 _FACTORY_SIZE = 64
+_FACTORY = bytes(range(_FACTORY_SIZE))
+_ERASED = b"\xff" * _FACTORY_SIZE
 _MANUAL = "34970112332"
 _PAYLOAD = "MT:-24J0AFN00KA0648G00"
 _SETUP = {"manual_pairing_code": _MANUAL, "setup_payload": _PAYLOAD}
 
+_WRONG_IMAGE_SIZE = pytest.raises(ValueError, match="merged image must be exactly")
+_OTHER_PARTITION = pytest.raises(ValueError, match="does not carry the expected factory partition")
+_MISSING_QR = pytest.raises(ValueError, match="QR image is missing or empty")
 
-def test_accepts_an_image_carrying_its_factory_partition(image, identity):
-    build._validate_merged_image(image.merged, image.factory, image.qr, identity)
+
+def _image(factory, size=_FLASH_SIZE):
+    """Return a miniature flash image of ``size`` bytes carrying ``factory`` at its offset."""
+    merged = bytearray(size)
+    merged[_FACTORY_OFFSET : _FACTORY_OFFSET + _FACTORY_SIZE] = factory
+    return bytes(merged)
 
 
 @pytest.mark.parametrize(
-    "size",
+    ("merged", "factory", "outcome"),
     [
-        pytest.param(0, id="empty"),
-        pytest.param(_FLASH_SIZE + 1, id="larger than flash"),
-        pytest.param(_FLASH_SIZE - 1, id="not padded to flash"),
+        pytest.param(_image(_FACTORY), _FACTORY, returns(), id="provisioned"),
+        pytest.param(_image(_ERASED), _ERASED, returns(), id="compiled"),
+        pytest.param(b"", _FACTORY, _WRONG_IMAGE_SIZE, id="empty"),
+        pytest.param(_image(_FACTORY, _FLASH_SIZE + 1), _FACTORY, _WRONG_IMAGE_SIZE, id="larger"),
+        pytest.param(_image(_FACTORY, _FLASH_SIZE - 1), _FACTORY, _WRONG_IMAGE_SIZE, id="smaller"),
+        pytest.param(
+            _image(_FACTORY),
+            _FACTORY[:-1],
+            pytest.raises(ValueError, match="factory partition must be exactly"),
+            id="short-factory-partition",
+        ),
+        pytest.param(
+            _image(_FACTORY), bytes(reversed(_FACTORY)), _OTHER_PARTITION, id="other-credentials"
+        ),
+        pytest.param(_image(_FACTORY), _ERASED, _OTHER_PARTITION, id="compiled-with-credentials"),
     ],
 )
-def test_rejects_an_image_of_the_wrong_size(image, identity, size):
-    image.merged.write_bytes(b"\x00" * size)
-    with pytest.raises(ValueError, match="merged image must be exactly"):
-        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
+def test_validate_merged_image(tmp_path, identity, merged, factory, outcome):
+    """An image passes only at the flash size and carrying exactly the expected partition."""
+    path = tmp_path / build._MERGED_NAME
+    path.write_bytes(merged)
+    with outcome:
+        build._validate_merged_image(path, factory, identity)
 
 
-def test_rejects_a_factory_partition_of_the_wrong_size(image, identity):
-    image.factory.write_bytes(b"\xaa" * (_FACTORY_SIZE - 1))
-    with pytest.raises(ValueError, match="factory partition must be exactly"):
-        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
-
-
-def test_rejects_an_image_missing_the_factory_partition(image, identity):
-    # The image is intact and correctly sized, but was merged with other credentials.
-    merged = bytearray(image.merged.read_bytes())
-    merged[_FACTORY_OFFSET] ^= 0xFF
-    image.merged.write_bytes(bytes(merged))
-    with pytest.raises(ValueError, match="does not carry the generated factory partition"):
-        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
-
-
-def test_rejects_a_missing_qr_image(image, identity):
-    image.qr.unlink()
-    with pytest.raises(ValueError, match="QR image is missing or empty"):
-        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
-
-
-def test_rejects_an_empty_qr_image(image, identity):
-    image.qr.write_bytes(b"")
-    with pytest.raises(ValueError, match="QR image is missing or empty"):
-        build._validate_merged_image(image.merged, image.factory, image.qr, identity)
+@pytest.mark.parametrize(
+    ("content", "outcome"),
+    [
+        pytest.param(b"\x89PNG\r\n\x1a\n", returns(), id="rendered"),
+        pytest.param(None, _MISSING_QR, id="missing"),
+        pytest.param(b"", _MISSING_QR, id="empty"),
+    ],
+)
+def test_validate_qr(tmp_path, content, outcome):
+    qr = tmp_path / "qrcode.png"
+    if content is not None:
+        qr.write_bytes(content)
+    with outcome:
+        build._validate_qr(qr)
 
 
 def test_publish_installs_a_complete_generation_readable(image, outputs):
@@ -200,6 +213,31 @@ def test_write_setup_names_both_codes(outputs):
     assert setup.stat().st_mode & 0o777 == build._ARTIFACT_MODE
 
 
+@pytest.mark.parametrize(
+    ("names", "handed_over"),
+    [
+        pytest.param({build._MERGED_NAME}, True, id="compiled-firmware"),
+        pytest.param(build._OUTPUT_NAMES, True, id="flashed-firmware-with-pairing"),
+        pytest.param({build._MERGED_NAME, build._QR_NAME}, False, id="partial-pairing"),
+    ],
+)
+def test_hand_outputs_to_owner(outputs, monkeypatch, names, handed_over):
+    """Only a complete generation is handed over, directory included, to the source owner."""
+    for name in names:
+        (outputs / name).write_bytes(b"artifact")
+    owner = outputs.stat()
+    chowned = []
+    monkeypatch.setattr(build, "_OWNER_REFERENCE", outputs)
+    monkeypatch.setattr(build.os, "chown", lambda path, uid, gid: chowned.append((path, uid, gid)))
+
+    outcome = returns() if handed_over else pytest.raises(ValueError, match="expected firmware")
+    with outcome:
+        build._hand_outputs_to_owner()
+
+    handed = [outputs, *sorted(outputs / name for name in names)] if handed_over else []
+    assert chowned == [(path, owner.st_uid, owner.st_gid) for path in handed]
+
+
 def _seed_generation(outputs):
     """Write and return the public bytes of one complete current generation."""
     contents = {
@@ -254,19 +292,13 @@ def _publish_in_process(
 
 
 class _Image:
-    """The three files a finished build hands to the artifact checks."""
+    """The two files a finished flash hands to publication."""
 
     def __init__(self, root: pathlib.Path) -> None:
-        """Write a merged image carrying its factory partition at the right offset."""
-        factory_bytes = bytes(range(256))[:_FACTORY_SIZE]
-        merged = bytearray(b"\x00" * _FLASH_SIZE)
-        merged[_FACTORY_OFFSET : _FACTORY_OFFSET + _FACTORY_SIZE] = factory_bytes
-
+        """Write a provisioned merged image and its QR image."""
         self.merged = root / build._MERGED_NAME
-        self.factory = root / "factory-partition.bin"
         self.qr = root / "device-qrcode.png"
-        self.merged.write_bytes(bytes(merged))
-        self.factory.write_bytes(factory_bytes)
+        self.merged.write_bytes(_image(_FACTORY))
         self.qr.write_bytes(b"\x89PNG\r\n\x1a\n")
 
 
@@ -285,7 +317,7 @@ def identity():
 
 @pytest.fixture
 def image(tmp_path):
-    """A consistent merged image, factory partition and QR file under tmp_path."""
+    """A consistent merged image and QR file under tmp_path."""
     source = tmp_path / "build"
     source.mkdir()
     return _Image(source)

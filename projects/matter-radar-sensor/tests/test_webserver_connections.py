@@ -45,10 +45,13 @@ def _request_of(total):
         (b"GET / nonsense\r\n\r\n", b"400"),
         (_GET[:-2] + b"host: duplicate\r\n\r\n", b"400"),
         (_GET[:-2] + b"Content-Length: 999999999\r\n\r\nbody", b"400"),
+        (_UPGRADE.replace(b"Version: 13", b"Version: 12"), b"400"),
         (b"", None),
     ],
 )
 def test_http_input_bounds(web, data, status):
+    """Each request gets one bounded response and closes, and none claims the viewer."""
+
     async def run():
         sock = web.accept(data)
         if not data:
@@ -57,6 +60,7 @@ def test_http_input_bounds(web, data, status):
         if status is not None:
             assert sock.outgoing.split(b" ")[1] == status
             assert b"Connection: close\r\n" in sock.outgoing
+        assert not web.webserver._viewer
         assert sock.closed
         assert sock.consumed <= 2048
         assert max(sock.read_sizes) == 1
@@ -121,17 +125,6 @@ def test_invalid_close_not_echoed(web):
         await web.pump()
         assert sock.closed
         assert not sock.outgoing
-        await web.close()
-
-    asyncio.run(run())
-
-
-def test_bad_upgrade_never_claims_the_viewer(web):
-    async def run():
-        sock = web.accept(_UPGRADE.replace(b"Version: 13", b"Version: 12"))
-        await web.pump()
-        assert b"400" in sock.outgoing
-        assert not web.webserver._viewer
         await web.close()
 
     asyncio.run(run())
@@ -450,14 +443,20 @@ def test_suspension_joins_partial_writes_and_lock_waiters(web):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("close_error", [None, OSError(errno.EIO)], ids=["closes", "close-fails"])
 @pytest.mark.parametrize("stage", ["connection", "handler"])
-def test_allocation_failure_during_admission_closes_unowned_socket(web, monkeypatch, stage):
+def test_allocation_failure_during_admission_closes_unowned_socket(
+    web, monkeypatch, stage, close_error
+):
+    """The socket is released, and a failing close never replaces the memory failure."""
+
     def fail(*_args):
         raise MemoryError
 
     async def run():
         supervisor = asyncio.create_task(web.server.run())
         sock = Socket(_GET)
+        sock.close_error = close_error
         with monkeypatch.context() as patch:
             if stage == "connection":
                 patch.setattr(web.module, "_Connection", fail)
@@ -467,7 +466,7 @@ def test_allocation_failure_during_admission_closes_unowned_socket(web, monkeypa
             await web.pump()
         assert sock.closed
         assert not web.server._connections
-        assert web.server.state == "cooldown"
+        assert (web.server.state, web.server.reason) == ("cooldown", "memory")
         supervisor.cancel()
         with pytest.raises(asyncio.CancelledError):
             await supervisor
@@ -592,6 +591,7 @@ class Socket:
         self.eof = False
         self.read_error = None
         self.write_error = None
+        self.close_error = None
         self.write_limit = 512
         self.read_sizes = []
         self.consumed = 0
@@ -625,8 +625,10 @@ class Socket:
         return count
 
     def close(self):
-        """Record socket release."""
+        """Record socket release, then raise any injected close failure."""
         self.closed = True
+        if self.close_error:
+            raise self.close_error
 
 
 class Listener:
