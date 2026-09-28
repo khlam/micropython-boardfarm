@@ -17,8 +17,15 @@ from qmc5883p import QMC5883P, DeviceNotFoundError
 ADDR = 0x2C
 
 
-def _register_fake(**kwargs):
-    """Reset machine state and register a FakeQMC5883P at 0x2C."""
+def _register_fake(**kwargs: int) -> FakeQMC5883P:
+    """Reset machine state and register a FakeQMC5883P at 0x2C.
+
+    Args:
+        **kwargs: FakeQMC5883P constructor arguments.
+
+    Returns:
+        The registered fake.
+    """
     machine.reset()
     dev = FakeQMC5883P(**kwargs)
     machine.register_device(ADDR, dev)
@@ -26,6 +33,7 @@ def _register_fake(**kwargs):
 
 
 def test_chip_id_accepted():
+    """The expected CHIP_ID at 0x2C is accepted and the address recorded."""
     _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     assert mag.address == ADDR
@@ -39,6 +47,7 @@ def test_missing_device_raises_device_not_found():
 
 
 def test_unknown_chip_id_raises():
+    """An unrecognised CHIP_ID raises, naming the value read."""
     _register_fake(chip_id=0xAA)
     with pytest.raises(OSError, match="Unknown QMC5883P CHIP_ID=0xaa"):
         QMC5883P(sda=0, scl=1)
@@ -74,6 +83,7 @@ def test_read_polls_until_drdy():
 
 
 def test_last_status_exposes_ovl():
+    """After a read with the field saturated, last_status carries the OVL bit."""
     fake_mag = _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     fake_mag.set_overflow(True)
@@ -82,6 +92,7 @@ def test_last_status_exposes_ovl():
 
 
 def test_last_status_clear_without_ovl():
+    """After a read within range, last_status has the OVL bit clear."""
     _register_fake()
     mag = QMC5883P(sda=0, scl=1)
     mag.read()
