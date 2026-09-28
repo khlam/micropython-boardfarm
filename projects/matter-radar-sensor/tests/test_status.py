@@ -33,36 +33,39 @@ def test_status_color_priority(
     ) == getattr(status, color)
 
 
-def test_session_stays_active_through_a_closed_window_until_completion(status):
+@pytest.mark.parametrize(
+    "timeline",
+    [
+        pytest.param(
+            [
+                (Commissioning.OPENED, "_COMMISSIONING_WINDOW_COLOR"),
+                (Commissioning.STARTED, "_COMMISSIONING_SESSION_COLOR"),
+                (Commissioning.CLOSED, "_COMMISSIONING_SESSION_COLOR"),
+                (Commissioning.COMPLETE, "_OCCUPIED_COLOR"),
+            ],
+            id="session-stays-active-through-a-closed-window-until-completion",
+        ),
+        pytest.param(
+            [
+                (Commissioning.STARTED, "_COMMISSIONING_SESSION_COLOR"),
+                (Commissioning.FAILED, "_COMMISSIONING_FAILED_COLOR"),
+                (Commissioning.OPENED, "_COMMISSIONING_WINDOW_COLOR"),
+                (Commissioning.CLOSED, "_COMMISSIONING_STOPPED_COLOR"),
+            ],
+            id="failure-ends-the-session-and-shows-until-the-next-event",
+        ),
+    ],
+)
+def test_commissioning_events_drive_the_pixel(status, timeline):
+    """Each commissioning event of an unpaired node leaves the pixel its color."""
     status_pixel, pixel = _pixel(status)
 
-    for state in (
-        Commissioning.OPENED,
-        Commissioning.STARTED,
-        Commissioning.CLOSED,
-        Commissioning.COMPLETE,
-    ):
+    colors = []
+    for state, _color in timeline:
         status_pixel.on_commissioning(_event(state))
+        colors.append(pixel.writes[-1])
 
-    assert pixel.writes == [
-        status._BOOT_COLOR,
-        status._COMMISSIONING_WINDOW_COLOR,
-        status._COMMISSIONING_SESSION_COLOR,
-        status._OCCUPIED_COLOR,
-    ]
-
-
-def test_failure_ends_the_session_and_shows_until_the_next_event(status):
-    status_pixel, pixel = _pixel(status)
-
-    for state in (Commissioning.STARTED, Commissioning.FAILED, Commissioning.OPENED):
-        status_pixel.on_commissioning(_event(state))
-
-    assert pixel.writes[-2:] == [
-        status._COMMISSIONING_FAILED_COLOR,
-        status._COMMISSIONING_WINDOW_COLOR,
-    ]
-    assert status_pixel._commissioning_session_active is False
+    assert colors == [getattr(status, color) for _state, color in timeline]
 
 
 def test_pixel_is_written_only_when_its_color_changes(status):

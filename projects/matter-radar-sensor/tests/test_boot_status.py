@@ -1,10 +1,12 @@
 """Boot guards, stable Matter endpoints, and the boot status."""
 
 import machine
+import matter_native
 import neopixel
 import pytest
 
 import matter
+from matter.schema import Paths
 
 
 def test_unsupported_board_fails_before_hardware_setup(load_firmware):
@@ -27,7 +29,7 @@ def test_boot_creates_persistent_endpoints_in_order_and_publishes_occupied(load_
         matter.EndpointType.DIMMABLE_LIGHT,
     )
     assert application._occupancy.occupancy == 1
-    assert application._published_occupancy is True
+    assert matter_native.attribute_get(application._occupancy.id, *Paths.OCCUPANCY) == 1
 
 
 @pytest.mark.parametrize(

@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from micropython_stubs.testing import json_lines
+
 _GET = b"GET / HTTP/1.1\r\nHost: board\r\n\r\n"
 _UPGRADE = (
     b"GET /ws HTTP/1.1\r\nHost: board\r\nUpgrade: websocket\r\n"
@@ -21,10 +23,18 @@ _FAILURES = [
 ]
 
 
+def _request_of(total):
+    """Return a GET of ``total`` bytes whose every line stays within the line limit."""
+    prefix = _GET[:-2] + b"".join(b"X-%d: " % i + b"a" * 230 + b"\r\n" for i in range(8))
+    return prefix + b"Z: " + b"a" * (total - len(prefix) - 7) + b"\r\n\r\n"
+
+
 @pytest.mark.parametrize(
     ("data", "status"),
     [
         (_GET, b"200"),
+        (_request_of(2048), b"200"),
+        (_request_of(2049), b"400"),
         (_GET.replace(b"/ ", b"/missing "), b"404"),
         (_GET.replace(b"GET", b"POST"), b"405"),
         (_GET[:-2] + b"X: " + b"a" * 251 + b"\r\n\r\n", b"200"),
@@ -52,20 +62,6 @@ def test_http_input_bounds(web, data, status):
         assert max(sock.read_sizes) == 1
         if b"body" in data:
             assert sock.incoming.endswith(b"body")
-        await web.close()
-
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("total", [2048, 2049])
-def test_total_request_boundary(web, total):
-    prefix = _GET[:-2] + b"".join(b"X-%d: " % i + b"a" * 230 + b"\r\n" for i in range(8))
-    data = prefix + b"Z: " + b"a" * (total - len(prefix) - 7) + b"\r\n\r\n"
-
-    async def run():
-        sock = web.accept(data)
-        await web.pump()
-        assert sock.outgoing.split(b" ")[1] == (b"200" if total == 2048 else b"400")
         await web.close()
 
     asyncio.run(run())
@@ -205,23 +201,29 @@ def test_control_rate_and_refill_across_wrap(web):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("kind", ["request", "frame", "write"])
-def test_absolute_and_stalled_deadlines_across_wrap(web, kind):
+@pytest.mark.parametrize(
+    ("kind", "limit_ms"),
+    [("request", 2000), ("frame", 1000), ("write", 1000), ("lifetime", 10 * 60 * 1000)],
+)
+def test_absolute_and_stalled_deadlines_across_wrap(web, kind, limit_ms):
     web.clock.ticks = web.clock._PERIOD - 100
 
     async def run():
-        if kind == "frame":
+        if kind == "request":
+            sock = web.accept(b"G")
+        elif kind == "write":
+            sock = web.accept(_GET)
+            sock.write_limit = 0
+        else:
             sock = await web.upgrade()
+        if kind == "frame":
+            # An idle viewer has no frame deadline until a frame begins.
             web.advance(20000)
             await web.pump()
             assert not sock.closed
             sock.incoming.extend(b"\x89")
-        else:
-            sock = web.accept(b"G" if kind == "request" else _GET)
-            if kind == "write":
-                sock.write_limit = 0
         await web.pump(15)
-        web.advance({"request": 1999, "frame": 999, "write": 999}[kind])
+        web.advance(limit_ms - 1)
         if kind == "request":
             sock.incoming.extend(b"E")
         await web.pump(1)
@@ -347,6 +349,28 @@ def test_resource_failures_and_peer_errors(web, exception, state, where):
         await web.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("exception", [pytest.param(TypeError("route bug"), id="type-error")])
+def test_unexpected_route_error_stays_within_the_json_protocol(web, capsys, exception):
+    async def fail(_request):
+        raise exception
+
+    web.webserver._app.get("/fail")(fail)
+
+    async def run():
+        sock = web.accept(_GET.replace(b"/ ", b"/fail "))
+        await web.pump()
+        assert sock.outgoing.split(b" ")[1] == b"500"
+        assert web.server.state == "running"
+        await web.close()
+
+    capsys.readouterr()
+    asyncio.run(run())
+
+    assert json_lines(capsys.readouterr().out) == [
+        {"event": "error", "component": "dashboard", "message": str(exception)}
+    ]
 
 
 def test_partial_writes_serialize_ping_and_telemetry(web):
@@ -591,9 +615,11 @@ class Socket:
         return data
 
     def send(self, data):
-        """Record a partial write or raise an injected failure."""
+        """Record a partial write, report would-block when nothing fits, or raise a failure."""
         if self.write_error:
             raise self.write_error
+        if not self.write_limit:
+            raise OSError(errno.EAGAIN)
         count = min(len(data), self.write_limit)
         self.outgoing.extend(data[:count])
         return count

@@ -6,6 +6,8 @@ import pytest
 
 _FIVE_MINUTES_MS = 300_000
 _TEN_MINUTES_MS = 600_000
+# An Occupancy step that forces occupied instead of applying a report.
+_FORCE = None
 
 
 @pytest.mark.parametrize(
@@ -24,110 +26,113 @@ def test_hold_control_maps_level_to_zero_through_ten_minutes(reports, on, level,
     assert reports.hold_ms(on=on, level=level) == expected
 
 
-def test_zero_hold_clears_on_the_first_empty_report(reports):
+@pytest.mark.parametrize(
+    "steps",
+    [
+        pytest.param([(False, 100, 0, False)], id="zero-hold-clears-on-the-first-empty-report"),
+        pytest.param(
+            [
+                (False, 100, _FIVE_MINUTES_MS, True),
+                (False, 100 + _FIVE_MINUTES_MS - 1, _FIVE_MINUTES_MS, True),
+                (False, 100 + _FIVE_MINUTES_MS, _FIVE_MINUTES_MS, False),
+            ],
+            id="hold-is-anchored-to-the-first-empty-report",
+        ),
+        pytest.param(
+            [
+                (False, 10, _FIVE_MINUTES_MS + 1, True),
+                (False, 10 + _FIVE_MINUTES_MS, _FIVE_MINUTES_MS, False),
+            ],
+            id="shortened-hold-measures-from-the-original-start",
+        ),
+        pytest.param(
+            [
+                (False, 10, _FIVE_MINUTES_MS + 1, True),
+                (False, 10 + _FIVE_MINUTES_MS, _TEN_MINUTES_MS, True),
+            ],
+            id="lengthened-hold-measures-from-the-original-start",
+        ),
+        pytest.param(
+            [(False, 10, _FIVE_MINUTES_MS + 1, True), (False, 10 + _FIVE_MINUTES_MS, 0, False)],
+            id="hold-removed-mid-hold-clears",
+        ),
+        pytest.param(
+            [
+                (False, 0, 1_000, True),
+                (True, 900, 1_000, True),
+                (False, 1_000, 1_000, True),
+                (False, 1_999, 1_000, True),
+            ],
+            id="target-during-hold-restarts-the-next-hold",
+        ),
+        pytest.param(
+            [(False, 0, 1_000, True), (_FORCE, None, None, True), (False, 1_000, 1_000, True)],
+            id="forcing-occupied-cancels-the-hold",
+        ),
+        pytest.param(
+            [(False, 0, 0, False), (False, 1, _TEN_MINUTES_MS, False), (True, 2, 0, True)],
+            id="vacancy-stays-until-a-target-returns",
+        ),
+        pytest.param(
+            [(False, -1_000, 2_000, True), (False, 999, 2_000, True), (False, 1_000, 2_000, False)],
+            id="hold-measures-elapsed-time-across-tick-wrap",
+        ),
+    ],
+)
+def test_occupancy_hold(reports, firmware_module, steps):
+    """Each step applies a report ``(occupied, now_ms, hold_ms)`` or forces occupied.
+
+    A step ends with whether occupancy holds afterwards. A negative ``now_ms``
+    sits that far before the tick counter wraps.
+    """
+    period = firmware_module.time._PERIOD
     occupancy = reports.Occupancy()
 
-    occupancy.report(occupied=False, now_ms=100, hold_ms=0)
+    observed = []
+    for occupied, now_ms, hold_ms, _expected in steps:
+        if occupied is _FORCE:
+            occupancy.force_occupied()
+        else:
+            occupancy.report(occupied=occupied, now_ms=now_ms % period, hold_ms=hold_ms)
+        observed.append(occupancy.occupied)
 
-    assert occupancy.occupied is False
-
-
-def test_hold_is_anchored_to_the_first_empty_report(reports):
-    occupancy = reports.Occupancy()
-
-    occupancy.report(occupied=False, now_ms=100, hold_ms=_FIVE_MINUTES_MS)
-    occupancy.report(occupied=False, now_ms=100 + _FIVE_MINUTES_MS - 1, hold_ms=_FIVE_MINUTES_MS)
-    assert occupancy.occupied is True
-
-    occupancy.report(occupied=False, now_ms=100 + _FIVE_MINUTES_MS, hold_ms=_FIVE_MINUTES_MS)
-    assert occupancy.occupied is False
+    assert observed == [step[-1] for step in steps]
 
 
 @pytest.mark.parametrize(
-    ("new_hold_ms", "expected"),
-    [(_FIVE_MINUTES_MS, False), (_TEN_MINUTES_MS, True), (0, False)],
+    "steps",
+    [
+        pytest.param(
+            [
+                (("far",), 0, True),
+                (("moved",), 499, False),  # inside the interval
+                (("far",), 500, False),  # interval passed, but unchanged
+                (("moved",), 999, False),  # the unchanged report restarted the interval
+                (("moved",), 1_000, True),
+            ],
+            id="changed-targets-at-most-once-per-interval",
+        ),
+        pytest.param(
+            [(("far",), 0, True), ((), 500, True), ((), 1_000, False)],
+            id="empty-scene-after-targets-is-sent-once",
+        ),
+        pytest.param(
+            [(("far",), -100, True), (("moved",), 399, False), (("moved",), 400, True)],
+            id="interval-survives-tick-wrap",
+        ),
+    ],
 )
-def test_changing_the_hold_mid_hold_keeps_the_original_start(reports, new_hold_ms, expected):
-    occupancy = reports.Occupancy()
-    occupancy.report(occupied=False, now_ms=10, hold_ms=_TEN_MINUTES_MS // 2 + 1)
+def test_report_throttle(reports, firmware_module, steps):
+    """Each step offers ``(targets, now_ms)`` and ends with whether it is due.
 
-    occupancy.report(occupied=False, now_ms=10 + _FIVE_MINUTES_MS, hold_ms=new_hold_ms)
-
-    assert occupancy.occupied is expected
-
-
-def test_target_during_hold_restarts_the_next_hold(reports):
-    occupancy = reports.Occupancy()
-    occupancy.report(occupied=False, now_ms=0, hold_ms=1_000)
-
-    occupancy.report(occupied=True, now_ms=900, hold_ms=1_000)
-    occupancy.report(occupied=False, now_ms=1_000, hold_ms=1_000)
-    occupancy.report(occupied=False, now_ms=1_999, hold_ms=1_000)
-
-    assert occupancy.occupied is True
-
-
-def test_forcing_occupied_cancels_the_hold(reports):
-    occupancy = reports.Occupancy()
-    occupancy.report(occupied=False, now_ms=0, hold_ms=1_000)
-
-    occupancy.force_occupied()
-    occupancy.report(occupied=False, now_ms=1_000, hold_ms=1_000)
-
-    assert occupancy.occupied is True
-
-
-def test_vacancy_stays_until_a_target_returns(reports):
-    occupancy = reports.Occupancy()
-    occupancy.report(occupied=False, now_ms=0, hold_ms=0)
-
-    occupancy.report(occupied=False, now_ms=1, hold_ms=_TEN_MINUTES_MS)
-    assert occupancy.occupied is False
-
-    occupancy.report(occupied=True, now_ms=2, hold_ms=0)
-    assert occupancy.occupied is True
-
-
-def test_hold_measures_elapsed_time_across_tick_wrap(reports, firmware_module):
-    period = firmware_module.time._PERIOD
-    occupancy = reports.Occupancy()
-
-    occupancy.report(occupied=False, now_ms=period - 1_000, hold_ms=2_000)
-    occupancy.report(occupied=False, now_ms=999, hold_ms=2_000)
-    assert occupancy.occupied is True
-
-    occupancy.report(occupied=False, now_ms=1_000, hold_ms=2_000)
-    assert occupancy.occupied is False
-
-
-def test_throttle_sends_changed_targets_at_most_once_per_interval(reports):
-    throttle = reports.ReportThrottle()
-    first, moved = ("far",), ("moved",)
-
-    assert [
-        throttle.due(first, 0),
-        throttle.due(moved, 499),  # inside the interval
-        throttle.due(first, 500),  # interval passed, but unchanged
-        throttle.due(moved, 999),  # the unchanged report restarted the interval
-        throttle.due(moved, 1_000),
-    ] == [True, False, False, False, True]
-
-
-def test_throttle_sends_an_empty_scene_after_targets(reports):
-    throttle = reports.ReportThrottle()
-    throttle.due(("far",), 0)
-
-    assert throttle.due((), 500) is True
-    assert throttle.due((), 1_000) is False
-
-
-def test_throttle_interval_survives_tick_wrap(reports, firmware_module):
+    A negative ``now_ms`` sits that far before the tick counter wraps.
+    """
     period = firmware_module.time._PERIOD
     throttle = reports.ReportThrottle()
-    throttle.due(("far",), period - 100)
 
-    assert throttle.due(("moved",), 399) is False
-    assert throttle.due(("moved",), 400) is True
+    due = [throttle.due(targets, now_ms % period) for targets, now_ms, _expected in steps]
+
+    assert due == [step[-1] for step in steps]
 
 
 @pytest.fixture
