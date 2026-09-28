@@ -72,20 +72,10 @@ RUN uv export --frozen --only-group firmware --no-emit-workspace -o /requirement
 RUN python - <<'STAGE'
 from pathlib import Path
 from shutil import copy2
-import importlib.metadata
 
 source = Path("/installed")
 target = Path("/firmware-dependencies/microdot")
 target.mkdir(parents=True)
 for name in ("__init__.py", "microdot.py", "websocket.py", "helpers.py"):
     copy2(source / "microdot" / name, target / name)
-metadata = Path("/firmware-dependency-metadata")
-metadata.mkdir()
-dist = next(importlib.metadata.distributions(path=[str(source)]))
-(metadata / "microdot.version").write_text(dist.version + "\n")
-licenses = [file for file in dist.files if "LICENSE" in str(file).upper()]
-if not licenses:
-    raise RuntimeError("Microdot license missing")
-for index, file in enumerate(licenses):
-    copy2(dist.locate_file(file), metadata / ("microdot.LICENSE." + str(index)))
 STAGE
