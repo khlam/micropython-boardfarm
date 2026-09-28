@@ -3,6 +3,7 @@
 import asyncio
 import errno
 import time
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -23,8 +24,15 @@ _FAILURES = [
 ]
 
 
-def _request_of(total):
-    """Return a GET of ``total`` bytes whose every line stays within the line limit."""
+def _request_of(total: int) -> bytes:
+    """Return a GET of ``total`` bytes whose every line stays within the line limit.
+
+    Args:
+        total: The request's length in bytes.
+
+    Returns:
+        The encoded request.
+    """
     prefix = _GET[:-2] + b"".join(b"X-%d: " % i + b"a" * 230 + b"\r\n" for i in range(8))
     return prefix + b"Z: " + b"a" * (total - len(prefix) - 7) + b"\r\n\r\n"
 
@@ -49,8 +57,14 @@ def _request_of(total):
         (b"", None),
     ],
 )
-def test_http_input_bounds(web, data, status):
-    """Each request gets one bounded response and closes, and none claims the viewer."""
+def test_http_input_bounds(web: "Harness", data: bytes, status: bytes | None):
+    """Each request gets one bounded response and closes, and none claims the viewer.
+
+    Args:
+        web: Drives the dashboard server.
+        data: Everything the peer sends before closing.
+        status: The response's status code, or None when the peer sends nothing.
+    """
 
     async def run():
         sock = web.accept(data)
@@ -71,7 +85,13 @@ def test_http_input_bounds(web, data, status):
     asyncio.run(run())
 
 
-def test_only_one_request_per_socket(web):
+def test_only_one_request_per_socket(web: "Harness"):
+    """A second request pipelined on the same socket is left unread.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = web.accept(_GET + _GET)
         await web.pump()
@@ -83,7 +103,14 @@ def test_only_one_request_per_socket(web):
 
 
 @pytest.mark.parametrize("header", [b"\x81\x80", b"\x89\xfe"])
-def test_websocket_rejects_before_payload(web, header):
+def test_websocket_rejects_before_payload(web: "Harness", header: bytes):
+    """An unsupported frame header closes the viewer before its payload is read.
+
+    Args:
+        web: Drives the dashboard server.
+        header: A frame header the viewer must not accept.
+    """
+
     async def run():
         sock = await web.upgrade()
         before = sock.consumed
@@ -99,7 +126,14 @@ def test_websocket_rejects_before_payload(web, header):
 
 
 @pytest.mark.parametrize("payload", [b"", b"a" * 125])
-def test_ping_echo_and_valid_close(web, payload):
+def test_ping_echo_and_valid_close(web: "Harness", payload: bytes):
+    """A ping is answered with its payload, and a valid close is echoed and ends the viewer.
+
+    Args:
+        web: Drives the dashboard server.
+        payload: The ping's payload.
+    """
+
     async def run():
         sock = await web.upgrade()
         sock.incoming.extend(masked(payload))
@@ -118,7 +152,13 @@ def test_ping_echo_and_valid_close(web, payload):
     asyncio.run(run())
 
 
-def test_invalid_close_not_echoed(web):
+def test_invalid_close_not_echoed(web: "Harness"):
+    """A close with an invalid payload ends the viewer without an echo.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = await web.upgrade()
         sock.incoming.extend(masked(b"\x03\xe8\xff", 8))
@@ -130,7 +170,13 @@ def test_invalid_close_not_echoed(web):
     asyncio.run(run())
 
 
-def test_single_viewer_and_queue_limits(web):
+def test_single_viewer_and_queue_limits(web: "Harness"):
+    """A second viewer is refused, and the viewer's queue keeps only small, recent reports.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = await web.upgrade()
         second = web.accept(_UPGRADE)
@@ -156,7 +202,13 @@ def test_single_viewer_and_queue_limits(web):
     asyncio.run(run())
 
 
-def test_takeover_replaces_the_open_viewer(web):
+def test_takeover_replaces_the_open_viewer(web: "Harness"):
+    """A takeover upgrade closes the open viewer and becomes the viewer.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         first = await web.upgrade()
         second = web.accept(_UPGRADE.replace(b"/ws ", b"/ws?takeover=1 "))
@@ -172,7 +224,12 @@ def test_takeover_replaces_the_open_viewer(web):
     asyncio.run(run())
 
 
-def test_control_rate_and_refill_across_wrap(web):
+def test_control_rate_and_refill_across_wrap(web: "Harness"):
+    """Control frames beyond the token budget close the viewer, refilling across tick wrap.
+
+    Args:
+        web: Drives the dashboard server.
+    """
     web.clock.ticks = web.clock._PERIOD - 100
 
     async def run():
@@ -198,7 +255,14 @@ def test_control_rate_and_refill_across_wrap(web):
     ("kind", "limit_ms"),
     [("request", 2000), ("frame", 1000), ("write", 1000), ("lifetime", 10 * 60 * 1000)],
 )
-def test_absolute_and_stalled_deadlines_across_wrap(web, kind, limit_ms):
+def test_absolute_and_stalled_deadlines_across_wrap(web: "Harness", kind: str, limit_ms: int):
+    """Each deadline closes its connection exactly at its limit, even across tick wrap.
+
+    Args:
+        web: Drives the dashboard server.
+        kind: Which deadline the connection runs into.
+        limit_ms: How long that deadline allows.
+    """
     web.clock.ticks = web.clock._PERIOD - 100
 
     async def run():
@@ -231,7 +295,13 @@ def test_absolute_and_stalled_deadlines_across_wrap(web, kind, limit_ms):
 
 
 @pytest.mark.parametrize("data", [_GET, _UPGRADE])
-def test_response_deadline_despite_write_progress(web, data):
+def test_response_deadline_despite_write_progress(web: "Harness", data: bytes):
+    """A response trickling out a byte at a time is still cut off at its deadline.
+
+    Args:
+        web: Drives the dashboard server.
+        data: The request whose response is written slowly.
+    """
     web.clock.ticks = web.clock._PERIOD - 100
 
     async def run():
@@ -253,7 +323,13 @@ def test_response_deadline_despite_write_progress(web, data):
     asyncio.run(run())
 
 
-def test_admission_ceiling_rate_and_slot_cleanup(web):
+def test_admission_ceiling_rate_and_slot_cleanup(web: "Harness"):
+    """Admission caps open connections and the accept rate, and frees slots as peers leave.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         first = web.accept(b"")
         second = web.accept(b"")
@@ -277,7 +353,16 @@ def test_admission_ceiling_rate_and_slot_cleanup(web):
     asyncio.run(run())
 
 
-def test_low_heap_stops_work_and_requires_cleanup_before_recovery(web, monkeypatch):
+def test_low_heap_stops_work_and_requires_cleanup_before_recovery(
+    web: "Harness", monkeypatch: pytest.MonkeyPatch
+):
+    """Low heap suspends the server; it resumes only after backoff and with headroom.
+
+    Args:
+        web: Drives the dashboard server.
+        monkeypatch: Scripts free heap and records listener creation.
+    """
+
     async def run():
         sock = await web.upgrade()
         other = web.accept(b"")
@@ -320,7 +405,18 @@ def test_low_heap_stops_work_and_requires_cleanup_before_recovery(web, monkeypat
 
 @pytest.mark.parametrize(("exception", "state"), _FAILURES)
 @pytest.mark.parametrize("where", ["read", "write", "route"])
-def test_resource_failures_and_peer_errors(web, exception, state, where):
+def test_resource_failures_and_peer_errors(
+    web: "Harness", exception: Exception, state: str, where: str
+):
+    """A failure anywhere in a request closes its connection; only resource failures suspend.
+
+    Args:
+        web: Drives the dashboard server.
+        exception: The failure injected.
+        state: The server's lifecycle state afterwards.
+        where: Whether the socket read, the socket write, or the route raises.
+    """
+
     async def fail(_request):
         raise exception
 
@@ -343,7 +439,17 @@ def test_resource_failures_and_peer_errors(web, exception, state, where):
 
 
 @pytest.mark.parametrize("exception", [pytest.param(TypeError("route bug"), id="type-error")])
-def test_unexpected_route_error_stays_within_the_json_protocol(web, capsys, exception):
+def test_unexpected_route_error_stays_within_the_json_protocol(
+    web: "Harness", capsys: pytest.CaptureFixture[str], exception: Exception
+):
+    """A route bug answers 500 and is reported as one JSON error line, not a traceback.
+
+    Args:
+        web: Drives the dashboard server.
+        capsys: Captures the error line.
+        exception: The bug the route raises.
+    """
+
     async def fail(_request):
         raise exception
 
@@ -364,7 +470,13 @@ def test_unexpected_route_error_stays_within_the_json_protocol(web, capsys, exce
     ]
 
 
-def test_partial_writes_serialize_ping_and_telemetry(web):
+def test_partial_writes_serialize_ping_and_telemetry(web: "Harness"):
+    """A pong and a report written a byte at a time never interleave.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = await web.upgrade()
         sock.write_limit = 1
@@ -380,7 +492,14 @@ def test_partial_writes_serialize_ping_and_telemetry(web):
 
 
 @pytest.mark.parametrize("blocked_by", ["lock", "slow_peer"])
-def test_websocket_write_deadline_includes_lock_wait(web, blocked_by):
+def test_websocket_write_deadline_includes_lock_wait(web: "Harness", blocked_by: str):
+    """A write's deadline counts time spent waiting for the write lock.
+
+    Args:
+        web: Drives the dashboard server.
+        blocked_by: Whether a held lock or a slow peer stalls the pong.
+    """
+
     async def run():
         sock = await web.upgrade()
         peer = web.server._connections[0]
@@ -407,7 +526,13 @@ def test_websocket_write_deadline_includes_lock_wait(web, blocked_by):
     asyncio.run(run())
 
 
-def test_cancellation_before_handler_runs_and_backoff_cap(web):
+def test_cancellation_before_handler_runs_and_backoff_cap(web: "Harness"):
+    """A connection closed before its handler starts is released, and backoff caps at a minute.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = web.accept()
         await web.close()
@@ -422,7 +547,13 @@ def test_cancellation_before_handler_runs_and_backoff_cap(web):
     asyncio.run(run())
 
 
-def test_suspension_joins_partial_writes_and_lock_waiters(web):
+def test_suspension_joins_partial_writes_and_lock_waiters(web: "Harness"):
+    """Suspension ends a stalled writer and its lock waiters, leaving no task behind.
+
+    Args:
+        web: Drives the dashboard server.
+    """
+
     async def run():
         sock = await web.upgrade()
         sock.write_limit = 1
@@ -444,9 +575,16 @@ def test_suspension_joins_partial_writes_and_lock_waiters(web):
 @pytest.mark.parametrize("close_error", [None, OSError(errno.EIO)], ids=["closes", "close-fails"])
 @pytest.mark.parametrize("stage", ["connection", "handler"])
 def test_allocation_failure_during_admission_closes_unowned_socket(
-    web, monkeypatch, stage, close_error
+    web: "Harness", monkeypatch: pytest.MonkeyPatch, stage: str, close_error: OSError | None
 ):
-    """The socket is released, and a failing close never replaces the memory failure."""
+    """The socket is released, and a failing close never replaces the memory failure.
+
+    Args:
+        web: Drives the dashboard server.
+        monkeypatch: Makes the chosen admission stage run out of memory.
+        stage: Whether building the connection or starting its handler fails.
+        close_error: What closing the socket raises, or None to close cleanly.
+    """
 
     def fail(*_args):
         raise MemoryError
@@ -477,9 +615,21 @@ def test_allocation_failure_during_admission_closes_unowned_socket(
 )
 @pytest.mark.parametrize("operation", ["bind", "accept"])
 def test_listener_failure_recovers_and_releases_the_listener(
-    web, monkeypatch, operation, exception, reason
+    web: "Harness",
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    exception: Exception,
+    reason: str,
 ):
-    """A listener that fails to bind or to accept is closed, and a new one listens later."""
+    """A listener that fails to bind or to accept is closed, and a new one listens later.
+
+    Args:
+        web: Drives the dashboard server.
+        monkeypatch: Makes the listener operation fail, then restores a working listener.
+        operation: The listener method that raises.
+        exception: What it raises.
+        reason: The cooldown reason the server records.
+    """
     listener = Listener()
 
     def fail(*_args):
@@ -514,8 +664,16 @@ def test_listener_failure_recovers_and_releases_the_listener(
         pytest.param(_UPGRADE, True, id="viewer"),
     ],
 )
-def test_cancelled_supervisor_closes_and_joins_open_connections(web, data, viewing):
-    """Cancelling the server ends every open handler before it reports stopped."""
+def test_cancelled_supervisor_closes_and_joins_open_connections(
+    web: "Harness", data: bytes, viewing: bool
+):
+    """Cancelling the server ends every open handler before it reports stopped.
+
+    Args:
+        web: Drives the dashboard server.
+        data: What the open connection has sent.
+        viewing: Whether that connection is the WebSocket viewer.
+    """
 
     async def run():
         supervisor = asyncio.create_task(web.server.run())
@@ -538,7 +696,15 @@ def test_cancelled_supervisor_closes_and_joins_open_connections(web, data, viewi
 
 
 @pytest.mark.parametrize(("exception", "state"), _FAILURES)
-def test_sender_failure_releases_viewer_and_queue(web, exception, state):
+def test_sender_failure_releases_viewer_and_queue(web: "Harness", exception: Exception, state: str):
+    """A failed report write drops the viewer and its queue; only resource failures suspend.
+
+    Args:
+        web: Drives the dashboard server.
+        exception: What the viewer's socket write raises.
+        state: The server's lifecycle state afterwards.
+    """
+
     async def run():
         sock = await web.upgrade()
         sock.write_error = exception
@@ -554,7 +720,15 @@ def test_sender_failure_releases_viewer_and_queue(web, exception, state):
     asyncio.run(run())
 
 
-def test_real_socket_reconnect_churn(load_application, monkeypatch):
+def test_real_socket_reconnect_churn(
+    load_application: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch
+):
+    """Alternating real HTTP and WebSocket clients each connect cleanly and leave nothing behind.
+
+    Args:
+        load_application: Boots the firmware application.
+        monkeypatch: Runs the webserver on the real clock.
+    """
     boot = load_application()
     real_time = SimpleNamespace(
         ticks_ms=lambda: int(time.monotonic() * 1000),
@@ -604,7 +778,18 @@ def test_real_socket_reconnect_churn(load_application, monkeypatch):
 
 
 @pytest.fixture
-def web(load_application, monkeypatch):
+def web(
+    load_application: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch
+) -> "Harness":
+    """A harness around a running dashboard server with a fake listener.
+
+    Args:
+        load_application: Boots the firmware application.
+        monkeypatch: Makes the server's sleeps yield once instead of waiting.
+
+    Returns:
+        The harness.
+    """
     boot = load_application()
 
     async def sleep_ms(_delay):
@@ -617,8 +802,12 @@ def web(load_application, monkeypatch):
 class Socket:
     """Nonblocking socket with bounded reads and injected failures."""
 
-    def __init__(self, data) -> None:
-        """Initialize the peer buffers and fault controls."""
+    def __init__(self, data: bytes) -> None:
+        """Initialize the peer buffers and fault controls.
+
+        Args:
+            data: Everything the peer has sent so far.
+        """
         self.incoming = bytearray(data)
         self.outgoing = bytearray()
         self.closed = False
@@ -630,12 +819,27 @@ class Socket:
         self.read_sizes = []
         self.consumed = 0
 
-    def setblocking(self, value):
-        """Require nonblocking access."""
+    def setblocking(self, value: bool):
+        """Require nonblocking access.
+
+        Args:
+            value: The blocking mode requested; must be False.
+        """
         assert value is False
 
-    def recv(self, count):
-        """Consume no more than the requested bytes."""
+    def recv(self, count: int) -> bytes:
+        """Consume no more than the requested bytes.
+
+        Args:
+            count: The most bytes to return.
+
+        Returns:
+            The bytes read, or ``b""`` once the socket is closed or at EOF.
+
+        Raises:
+            self.read_error: The injected read failure, when armed.
+            OSError: EAGAIN when no data is waiting.
+        """
         self.read_sizes.append(count)
         if self.read_error:
             raise self.read_error
@@ -648,8 +852,19 @@ class Socket:
         self.consumed += len(data)
         return data
 
-    def send(self, data):
-        """Record a partial write, report would-block when nothing fits, or raise a failure."""
+    def send(self, data: bytes) -> int:
+        """Record a partial write, report would-block when nothing fits, or raise a failure.
+
+        Args:
+            data: The bytes to write.
+
+        Returns:
+            How many bytes were written, at most ``write_limit``.
+
+        Raises:
+            self.write_error: The injected write failure, when armed.
+            OSError: EAGAIN when ``write_limit`` is zero.
+        """
         if self.write_error:
             raise self.write_error
         if not self.write_limit:
@@ -659,7 +874,11 @@ class Socket:
         return count
 
     def close(self):
-        """Record socket release, then raise any injected close failure."""
+        """Record socket release, then raise any injected close failure.
+
+        Raises:
+            self.close_error: The injected close failure, when armed.
+        """
         self.closed = True
         if self.close_error:
             raise self.close_error
@@ -673,22 +892,45 @@ class Listener:
         self.pending = []
         self.closed = False
 
-    def setsockopt(self, *_args):
-        """Allow listener option setup."""
+    def setsockopt(self, *_args: int):
+        """Allow listener option setup.
 
-    def setblocking(self, value):
-        """Require nonblocking admission."""
+        Args:
+            *_args: The socket option level, name, and value.
+        """
+
+    def setblocking(self, value: bool):
+        """Require nonblocking admission.
+
+        Args:
+            value: The blocking mode requested; must be False.
+        """
         assert value is False
 
-    def bind(self, _address):
-        """Allow address binding."""
+    def bind(self, _address: tuple):
+        """Allow address binding.
 
-    def listen(self, backlog):
-        """Check the bounded listen backlog."""
+        Args:
+            _address: The address to bind.
+        """
+
+    def listen(self, backlog: int):
+        """Check the bounded listen backlog.
+
+        Args:
+            backlog: The backlog requested; must be 2.
+        """
         assert backlog == 2
 
-    def accept(self):
-        """Return one waiting peer or report would-block."""
+    def accept(self) -> tuple[Socket, tuple[str, int]]:
+        """Return one waiting peer or report would-block.
+
+        Returns:
+            The next waiting socket and its peer address.
+
+        Raises:
+            OSError: EAGAIN when no peer is waiting.
+        """
         if not self.pending:
             raise OSError(errno.EAGAIN)
         return self.pending.pop(0), ("peer", 123)
@@ -701,8 +943,12 @@ class Listener:
 class Harness:
     """Drive the application's real Microdot routes with manual time."""
 
-    def __init__(self, boot) -> None:
-        """Use application routes with a fake listener."""
+    def __init__(self, boot: SimpleNamespace) -> None:
+        """Use application routes with a fake listener.
+
+        Args:
+            boot: The loaded application, its modules, and its fake clock.
+        """
         self.clock = boot.time
         self.webserver = boot.application._webserver
         self.module = boot.webserver_module
@@ -711,25 +957,44 @@ class Harness:
         self.server._listener = self.listener
         self.server.state = "running"
 
-    def advance(self, milliseconds):
-        """Move the device clock, including tick wrap."""
+    def advance(self, milliseconds: int):
+        """Move the device clock, including tick wrap.
+
+        Args:
+            milliseconds: How far to move it.
+        """
         self.clock.ticks = self.clock.ticks_add(self.clock.ticks, milliseconds)
 
-    def accept(self, data=_GET):
-        """Pass one socket through actual admission checks."""
+    def accept(self, data: bytes = _GET) -> Socket:
+        """Pass one socket through actual admission checks.
+
+        Args:
+            data: Everything the peer sends first.
+
+        Returns:
+            The peer's socket, admitted or closed by admission.
+        """
         sock = Socket(data)
         self.listener.pending.append(sock)
         self.server._step(self.clock.ticks_ms())
         return sock
 
-    async def pump(self, turns=200):
-        """Run peer tasks and reap completed handlers."""
+    async def pump(self, turns: int = 200):
+        """Run peer tasks and reap completed handlers.
+
+        Args:
+            turns: How many times to yield to the event loop.
+        """
         for _ in range(turns):
             await asyncio.sleep(0)
             await self.server._reap()
 
-    async def upgrade(self):
-        """Complete a handshake and consume the application greeting."""
+    async def upgrade(self) -> Socket:
+        """Complete a handshake and consume the application greeting.
+
+        Returns:
+            The viewer's socket, with its outgoing buffer cleared.
+        """
         sock = self.accept(_UPGRADE)
         await self.pump()
         assert b"101 Switching Protocols" in sock.outgoing
@@ -743,7 +1008,16 @@ class Harness:
         await self.pump()
 
 
-def masked(payload=b"", opcode=9):
+def masked(payload: bytes = b"", opcode: int = 9) -> bytes:
+    """Encode one final, masked client frame.
+
+    Args:
+        payload: The frame's payload, at most 125 bytes.
+        opcode: The frame's opcode; the default is a ping.
+
+    Returns:
+        The encoded frame.
+    """
     key = b"\x01\x02\x03\x04"
     return (
         bytes((128 | opcode, 128 | len(payload)))

@@ -1,6 +1,7 @@
 """Status pixel priority and commissioning-session tracking."""
 
-from types import SimpleNamespace
+from collections.abc import Callable
+from types import ModuleType, SimpleNamespace
 
 import neopixel
 import pytest
@@ -22,8 +23,25 @@ from matter import Commissioning
     ],
 )
 def test_status_color_priority(
-    status, commissioning, session_active, commissioned, healthy, occupied, color
+    status: ModuleType,
+    commissioning: str | None,
+    session_active: bool,
+    commissioned: bool,
+    healthy: bool,
+    occupied: bool,
+    color: str,
 ):
+    """Each row's highest-priority condition decides the pixel color.
+
+    Args:
+        status: The firmware status module.
+        commissioning: The last commissioning state, or None before any event.
+        session_active: Whether a commissioning session is in progress.
+        commissioned: Whether the node holds a fabric.
+        healthy: Whether the radar is reporting.
+        occupied: Whether the room reads as occupied.
+        color: Name of the status module constant expected.
+    """
     assert status.status_color(
         commissioning=commissioning,
         session_active=session_active,
@@ -56,8 +74,13 @@ def test_status_color_priority(
         ),
     ],
 )
-def test_commissioning_events_drive_the_pixel(status, timeline):
-    """Each commissioning event of an unpaired node leaves the pixel its color."""
+def test_commissioning_events_drive_the_pixel(status: ModuleType, timeline: list[tuple[str, str]]):
+    """Each commissioning event of an unpaired node leaves the pixel its color.
+
+    Args:
+        status: The firmware status module.
+        timeline: Each event's state, paired with the color constant it leaves.
+    """
     status_pixel, pixel = _pixel(status)
 
     colors = []
@@ -68,7 +91,12 @@ def test_commissioning_events_drive_the_pixel(status, timeline):
     assert colors == [getattr(status, color) for _state, color in timeline]
 
 
-def test_pixel_is_written_only_when_its_color_changes(status):
+def test_pixel_is_written_only_when_its_color_changes(status: ModuleType):
+    """A product update that leaves the color unchanged doesn't rewrite the pixel.
+
+    Args:
+        status: The firmware status module.
+    """
     status_pixel, pixel = _pixel(status)
     status_pixel.set_commissioned(value=True)
 
@@ -79,7 +107,15 @@ def test_pixel_is_written_only_when_its_color_changes(status):
 
 
 @pytest.fixture
-def status(firmware_module):
+def status(firmware_module: Callable[[str], ModuleType]) -> ModuleType:
+    """The firmware status module, imported fresh.
+
+    Args:
+        firmware_module: Imports the module from the firmware directory.
+
+    Returns:
+        The status module.
+    """
     return firmware_module("status")
 
 

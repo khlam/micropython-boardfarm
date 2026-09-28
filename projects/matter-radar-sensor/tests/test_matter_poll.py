@@ -1,6 +1,9 @@
 """Matter polling supervision, fail-safe occupancy, and commissioning status."""
 
 import asyncio
+from collections.abc import Callable
+from types import SimpleNamespace
+from typing import Any
 
 import matter_native
 import pytest
@@ -12,18 +15,30 @@ _POLL_ERROR = {"diag": "matter_poll_err", "err": "[Errno 5] injected snapshot fa
 _WINDOW_OPENED = 3
 
 
-def _poll_fails(application):
-    """Fail the next poll: a controller write makes it fetch a snapshot, which fails."""
+def _poll_fails(application: Any):
+    """Fail the next poll: a controller write makes it fetch a snapshot, which fails.
+
+    Args:
+        application: The firmware application whose hold light is written.
+    """
     matter_native.inject_remote_write(application._hold_control.id, *Paths.ON_OFF, False)
     matter_native.fail_next("snapshot")
 
 
-def _poll_succeeds(_application):
-    """Leave the next poll with nothing to fail."""
+def _poll_succeeds(_application: Any):
+    """Leave the next poll with nothing to fail.
+
+    Args:
+        _application: The firmware application, left untouched.
+    """
 
 
-def _window_opens(_application):
-    """Open a commissioning window before the next poll."""
+def _window_opens(_application: Any):
+    """Open a commissioning window before the next poll.
+
+    Args:
+        _application: The firmware application, left untouched.
+    """
     matter_native.inject_commissioning_event(_WINDOW_OPENED)
 
 
@@ -53,11 +68,26 @@ def _window_opens(_application):
         ),
     ],
 )
-def test_matter_poll(load_application, monkeypatch, capsys, polls, diags, color, occupancy):
+def test_matter_poll(
+    load_application: Callable[..., SimpleNamespace],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    polls: list[Callable[[Any], None]],
+    diags: list[dict[str, str]],
+    color: str,
+    occupancy: tuple[int, int],
+):
     """Each entry in ``polls`` stages one loop iteration of a vacant, commissioned sensor.
 
-    ``color`` is the status pixel after the loop. ``occupancy`` is the published
-    value after the loop, then after one more empty radar report.
+    Args:
+        load_application: Boots the firmware application.
+        monkeypatch: Replaces the loop's sleep with the next staged poll.
+        capsys: Captures the diagnostic lines the loop emits.
+        polls: One staging step per loop iteration.
+        diags: The diagnostic lines the loop emits, in order.
+        color: Name of the status constant the pixel shows after the loop.
+        occupancy: The published value after the loop, then after one more empty
+            radar report.
     """
     boot = load_application(commissioned=True)
     application = boot.application

@@ -1,6 +1,8 @@
 """On-device dashboard polling, startup, and failure-isolation tests."""
 
 import asyncio
+from collections.abc import Callable
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import matter_native
@@ -23,8 +25,15 @@ _LOOKUP_ERROR = {
 }
 
 
-def _ready(address):
-    """Return the announcement of a dashboard listening at ``address``."""
+def _ready(address: str) -> dict[str, str]:
+    """Return the announcement of a dashboard listening at ``address``.
+
+    Args:
+        address: The IP address the dashboard serves on.
+
+    Returns:
+        The ready event the firmware emits.
+    """
     return {"event": "dashboard", "state": "ready", "url": f"http://{address}/"}
 
 
@@ -97,13 +106,25 @@ def _ready(address):
         ),
     ],
 )
-def test_address_check(load_application, capsys, steps, lines, serving):
+def test_address_check(
+    load_application: Callable[..., SimpleNamespace],
+    capsys: pytest.CaptureFixture[str],
+    steps: list[tuple[str, str | None, object, str]],
+    lines: list[dict[str, str]],
+    serving: bool,
+):
     """Each address check reports the server and address once per change.
 
-    A step sets the server's lifecycle state and reason and the address Matter
-    returns, then expects the delay before the next check. ``serving`` is
-    whether the checks started the server's background task. No step touches
-    occupancy or the status pixel.
+    No step touches occupancy or the status pixel.
+
+    Args:
+        load_application: Boots the firmware application.
+        capsys: Captures the lines the checks emit.
+        steps: Each sets the server's lifecycle state and reason and the address
+            Matter returns (or ``_LOOKUP_FAILS``), then names the webserver
+            constant expected as the delay before the next check.
+        lines: Every JSON line the checks emit, in order.
+        serving: Whether the checks started the server's background task.
     """
     boot = load_application(commissioned=True)
     application = boot.application
@@ -131,8 +152,14 @@ def test_address_check(load_application, capsys, steps, lines, serving):
 
 
 def test_dashboard_supervisor_sheds_work_when_reporting_runs_out_of_memory(
-    load_application, monkeypatch
+    load_application: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch
 ):
+    """A MemoryError while reporting cools the server down and retries after a delay.
+
+    Args:
+        load_application: Boots the firmware application.
+        monkeypatch: Swaps in the failing address update and a recording sleep.
+    """
     boot = load_application()
     web = boot.application._webserver
     update = Mock(side_effect=[MemoryError(), StopLoopError()])

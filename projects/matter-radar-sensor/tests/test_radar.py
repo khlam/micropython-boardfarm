@@ -1,6 +1,7 @@
 """Radar supervision, recovery, filtering, and telemetry tests."""
 
 import asyncio
+from collections.abc import Callable, Iterable
 from types import SimpleNamespace
 
 import pytest
@@ -21,22 +22,45 @@ _READY = {"diag": "radar_ok", "model": "LD2450"}
 class FakeRadar:
     """Script reports, closure, and close errors for an already-detected radar."""
 
-    def __init__(self, *, reports=(), close_error=None, model="LD2450") -> None:
-        """Store the scripted outcomes."""
+    def __init__(
+        self,
+        *,
+        reports: Iterable[tuple | Exception | None] = (),
+        close_error: Exception | None = None,
+        model: str = "LD2450",
+    ) -> None:
+        """Store the scripted outcomes.
+
+        Args:
+            reports: What each read_latest() call returns or raises, in order.
+            close_error: What close() raises, or None to close cleanly.
+            model: The model name detection reports.
+        """
         self.reports = list(reports)
         self.close_error = close_error
         self.model = model
         self.close_calls = 0
 
-    async def read_latest(self):
-        """Return or raise the next scripted report outcome."""
+    async def read_latest(self) -> tuple | None:
+        """Return or raise the next scripted report outcome.
+
+        Returns:
+            The next scripted targets, or None for a report timeout.
+
+        Raises:
+            outcome: The next scripted outcome, when it is an exception.
+        """
         outcome = self.reports.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
 
     def close(self) -> None:
-        """Record closure and raise its scripted failure."""
+        """Record closure and raise its scripted failure.
+
+        Raises:
+            self.close_error: The scripted close error, when there is one.
+        """
         self.close_calls += 1
         if self.close_error is not None:
             raise self.close_error
@@ -45,13 +69,27 @@ class FakeRadar:
 class FakeDetect:
     """Stand in for radar.detect(), returning or raising one outcome at a time."""
 
-    def __init__(self, outcomes) -> None:
-        """Store detection outcomes and arguments."""
+    def __init__(self, outcomes: Iterable[FakeRadar | Exception]) -> None:
+        """Store detection outcomes and arguments.
+
+        Args:
+            outcomes: The radar each call detects, or the exception it raises, in order.
+        """
         self.outcomes = list(outcomes)
         self.calls = []
 
-    async def __call__(self, **kwargs) -> tuple:
-        """Return the next detected (model, driver) pair, or raise its failure."""
+    async def __call__(self, **kwargs: int) -> tuple:
+        """Return the next detected (model, driver) pair, or raise its failure.
+
+        Args:
+            **kwargs: The bus arguments, recorded for the test to check.
+
+        Returns:
+            The detected radar's model name and the radar itself.
+
+        Raises:
+            outcome: The next scripted outcome, when it is an exception.
+        """
         self.calls.append(kwargs)
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
@@ -123,15 +161,29 @@ class FakeDetect:
     ],
 )
 def test_run_radar(
-    load_application, monkeypatch, capsys, detections, ticks, lines, closes, product
+    load_application: Callable[..., SimpleNamespace],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    detections: list[dict[str, object] | Exception],
+    ticks: list[int],
+    lines: list[dict[str, object]],
+    closes: list[int],
+    product: tuple[int, str],
 ):
     """Drive the radar task of a vacant, commissioned sensor through scripted detections.
 
-    A dict detects a radar with those keyword arguments; an exception is what
-    detection raises. ``ticks`` scripts report times, and ``closes`` counts how
-    often each detected radar was closed. ``product`` is the published occupancy
-    and the status pixel's color afterwards. Every failure waits one retry
-    period and re-detects on the board's pins.
+    Every failure waits one retry period and re-detects on the board's pins.
+
+    Args:
+        load_application: Boots the firmware application.
+        monkeypatch: Swaps in the fake detect() and a recording sleep.
+        capsys: Captures the telemetry and diagnostic lines.
+        detections: A dict detects a radar with those FakeRadar keyword
+            arguments; an exception is what detection raises.
+        ticks: Scripted clock readings, one per report.
+        lines: Every JSON line the task emits, in order.
+        closes: How often each detected radar was closed.
+        product: The published occupancy and the status color constant afterwards.
     """
     boot = load_application(commissioned=True)
     module = boot.module

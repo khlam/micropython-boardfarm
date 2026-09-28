@@ -1,7 +1,10 @@
 """HTTP and WebSocket input limits, admission rates, and failure classes."""
 
 import errno
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as returns
+from types import ModuleType
 
 import pytest
 
@@ -14,8 +17,15 @@ _UPGRADE = {
 }
 
 
-def _rejects(message):
-    """Expect the ValueError a malformed input raises, naming its rule."""
+def _rejects(message: str) -> AbstractContextManager:
+    """Expect the ValueError a malformed input raises, naming its rule.
+
+    Args:
+        message: Pattern the error message must match.
+
+    Returns:
+        A context that fails unless its body raises that ValueError.
+    """
     return pytest.raises(ValueError, match=message)
 
 
@@ -32,7 +42,14 @@ def _rejects(message):
         (b"GET / HTTP/2\r\n", _rejects("invalid request line")),
     ],
 )
-def test_request_line(web, line, outcome):
+def test_request_line(web: ModuleType, line: bytes, outcome: AbstractContextManager):
+    """Only a CRLF-terminated ``METHOD /path HTTP/1.x`` request line is accepted.
+
+    Args:
+        web: The firmware webserver module.
+        line: The raw request line.
+        outcome: Passes, or expects the ValueError naming the broken rule.
+    """
     with outcome:
         web.check_request_line(line)
 
@@ -57,7 +74,18 @@ def test_request_line(web, line, outcome):
         (b"Transfer-Encoding: chunked\r\n", set(), _rejects("bodies are unsupported")),
     ],
 )
-def test_header_line(web, line, seen, outcome):
+def test_header_line(
+    web: ModuleType, line: bytes, seen: set[bytes], outcome: AbstractContextManager
+):
+    """A well-formed, first-seen header returns its lowercased name; bodies are refused.
+
+    Args:
+        web: The firmware webserver module.
+        line: The raw header line.
+        seen: Lowercased header names already received.
+        outcome: Yields the expected name, or expects the ValueError naming the
+            broken rule.
+    """
     with outcome as name:
         assert web.check_header_line(line, seen) == name
 
@@ -78,8 +106,14 @@ def test_header_line(web, line, seen, outcome):
         ({"Sec-WebSocket-Key": None}, False),
     ],
 )
-def test_valid_upgrade(web, changes, valid):
-    """A None value removes that header."""
+def test_valid_upgrade(web: ModuleType, changes: dict[str, str | None], valid: bool):
+    """Only a complete RFC 6455 upgrade with a 16-byte base64 key is valid.
+
+    Args:
+        web: The firmware webserver module.
+        changes: Edits to a valid upgrade's headers; a None value removes that header.
+        valid: Whether the edited headers form a valid upgrade.
+    """
     headers = {**_UPGRADE, **changes}
     headers = {name: value for name, value in headers.items() if value is not None}
     assert web.valid_upgrade(headers) is valid
@@ -105,7 +139,14 @@ def test_valid_upgrade(web, changes, valid):
         (b"\x89\xff", _rejects("unsupported WebSocket frame")),  # 64-bit length
     ],
 )
-def test_control_header(web, header, outcome):
+def test_control_header(web: ModuleType, header: bytes, outcome: AbstractContextManager):
+    """Only final, masked close/ping/pong frames of at most 125 bytes are accepted.
+
+    Args:
+        web: The firmware webserver module.
+        header: The frame's first two bytes.
+        outcome: Passes, or expects the ValueError for an unsupported frame.
+    """
     with outcome:
         web.check_control_header(header)
 
@@ -126,7 +167,14 @@ def test_control_header(web, header, outcome):
         (b"\x03\xe8\xff", _rejects("can't decode")),  # invalid UTF-8 reason
     ],
 )
-def test_close_payload(web, payload, outcome):
+def test_close_payload(web: ModuleType, payload: bytes, outcome: AbstractContextManager):
+    """A close payload is empty, or a sendable close code and a UTF-8 reason.
+
+    Args:
+        web: The firmware webserver module.
+        payload: The unmasked close frame payload.
+        outcome: Passes, or expects the ValueError naming the broken rule.
+    """
     with outcome:
         web.check_close_payload(payload)
 
@@ -143,8 +191,25 @@ def test_close_payload(web, payload, outcome):
     ],
 )
 def test_token_bucket_refills_whole_periods_up_to_the_cap(
-    web, firmware_module, tokens, token_ms, now_ms, period_ms, expected
+    web: ModuleType,
+    firmware_module: Callable[[str], ModuleType],
+    tokens: int,
+    token_ms: int,
+    now_ms: int,
+    period_ms: int,
+    expected: tuple[int, int],
 ):
+    """Each whole elapsed period adds a token up to the cap, advancing the anchor.
+
+    Args:
+        web: The firmware webserver module.
+        firmware_module: Supplies the fake clock's wrap period.
+        tokens: Tokens held before the refill.
+        token_ms: When the bucket last refilled.
+        now_ms: The current tick.
+        period_ms: Milliseconds per token.
+        expected: The tokens and anchor after the refill.
+    """
     token_ms %= firmware_module.time._PERIOD
 
     assert web.refill_tokens(tokens, token_ms, now_ms, period_ms) == expected
@@ -163,10 +228,27 @@ def test_token_bucket_refills_whole_periods_up_to_the_cap(
         (ValueError(), None),
     ],
 )
-def test_only_memory_and_descriptor_exhaustion_are_resource_failures(web, exception, reason):
+def test_only_memory_and_descriptor_exhaustion_are_resource_failures(
+    web: ModuleType, exception: Exception, reason: str | None
+):
+    """Heap, buffer, and descriptor exhaustion are resource failures; nothing else is.
+
+    Args:
+        web: The firmware webserver module.
+        exception: The failure to classify.
+        reason: The cooldown reason it maps to, or None when it isn't a resource failure.
+    """
     assert web.resource_failure(exception) == reason
 
 
 @pytest.fixture
-def web(firmware_module):
+def web(firmware_module: Callable[[str], ModuleType]) -> ModuleType:
+    """The firmware webserver module, imported fresh.
+
+    Args:
+        firmware_module: Imports the module from the firmware directory.
+
+    Returns:
+        The webserver module.
+    """
     return firmware_module("webserver")

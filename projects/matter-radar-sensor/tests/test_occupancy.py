@@ -1,5 +1,8 @@
 """Occupancy publication through Matter and the hold control endpoint."""
 
+from collections.abc import Callable
+from types import SimpleNamespace
+
 import matter_native
 import pytest
 
@@ -13,7 +16,12 @@ _PUBLISH_ERROR = {
 }
 
 
-def test_hold_control_endpoint_sets_the_hold(load_application):
+def test_hold_control_endpoint_sets_the_hold(load_application: Callable[..., SimpleNamespace]):
+    """The hold light's level sets how long occupancy is held after the radar clears.
+
+    Args:
+        load_application: Boots the firmware application.
+    """
     boot = load_application(commissioned=True)
     application = boot.application
     application._hold_control.set(on=True, level=127)
@@ -36,9 +44,19 @@ def test_hold_control_endpoint_sets_the_hold(load_application):
     ],
 )
 def test_failed_publication_is_retried_on_the_next_report(
-    load_application, capsys, occupied, published
+    load_application: Callable[..., SimpleNamespace],
+    capsys: pytest.CaptureFixture[str],
+    occupied: bool,
+    published: int,
 ):
-    """A failed clear leaves Matter occupied until the next report publishes its state."""
+    """A failed clear leaves Matter occupied until the next report publishes its state.
+
+    Args:
+        load_application: Boots the firmware application.
+        capsys: Captures the error line the failed publish emits.
+        occupied: What the radar reports after the failed clear.
+        published: The occupancy Matter holds after that report.
+    """
     application = load_application().application
     endpoint = application._occupancy
     matter_native.fail_next("attributes_publish")
