@@ -472,9 +472,9 @@ def _merge_image(
     """Combine the IDF build into a reusable image with an empty factory partition.
 
     Runs from the IDF build directory because @flash_args names the bootloader,
-    partition table and application by paths relative to it. The merged image can
-    be staged outside the persistent compilation tree so published artifacts do
-    not become build-cache state.
+    partition table and application by paths relative to it. The merged image is
+    staged outside the persistent compilation tree so published artifacts do not
+    become build-cache state.
     """
     merged = artifact_root / _MERGED_NAME
     _run(

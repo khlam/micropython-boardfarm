@@ -509,6 +509,36 @@ def test_listener_failure_recovers_and_releases_the_listener(
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    ("data", "viewing"),
+    [
+        pytest.param(_GET[:5], False, id="partial-request"),
+        pytest.param(_UPGRADE, True, id="viewer"),
+    ],
+)
+def test_cancelled_supervisor_closes_and_joins_open_connections(web, data, viewing):
+    """Cancelling the server ends every open handler before it reports stopped."""
+
+    async def run():
+        supervisor = asyncio.create_task(web.server.run())
+        sock = Socket(data)
+        web.listener.pending.append(sock)
+        await web.pump()
+        assert web.server._connections
+        assert bool(web.webserver._viewer) is viewing
+        supervisor.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await supervisor
+        assert sock.closed
+        assert web.listener.closed
+        assert not web.server._connections
+        assert not web.webserver._viewer
+        assert web.server.state == "stopped"
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(("exception", "state"), _FAILURES)
 def test_sender_failure_releases_viewer_and_queue(web, exception, state):
     async def run():

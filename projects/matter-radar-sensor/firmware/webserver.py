@@ -464,10 +464,8 @@ class _Connection:
                 raise ValueError("too many headers")
             self.names.add(check_header_line(line, self.names))
 
-    async def read(self, count: int) -> bytes:
-        """Validate control framing before Microdot reads any mask or payload."""
-        if not self.websocket or count != 2:
-            raise ValueError("unsupported read")
+    async def read(self, _count: int) -> bytes:
+        """Read the two-byte control-frame header, validated before any mask or payload."""
         self.frame_ms = None
         first = await self._receive(1)
         self.frame_ms = time.ticks_ms()
@@ -482,9 +480,7 @@ class _Connection:
         return header
 
     async def readexactly(self, count: int) -> bytes:
-        """Read only the bounded mask or payload of an accepted control frame."""
-        if not self.websocket or not 0 <= count <= 125:
-            raise ValueError("unsupported payload read")
+        """Read a control frame's mask or payload, bounded to 125 bytes by its header check."""
         result = bytearray()
         while len(result) < count:
             result.extend(await self._receive(count - len(result)))
