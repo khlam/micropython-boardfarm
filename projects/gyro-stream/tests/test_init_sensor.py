@@ -10,6 +10,7 @@ driver, so it is covered by the mpu6050 package tests, not here.
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 from typing import ClassVar
 
 from micropython_stubs.testing import ScriptedFake, firmware_namespace
@@ -23,19 +24,29 @@ PRIMARY = 0x68
 
 
 class _FakeIMU(ScriptedFake):
-    """MPU6050 stand-in (see ScriptedFake): records addr/kind/saturation on success."""
+    """MPU6050 stand-in (see ScriptedFake): records addr/kind/saturation on success.
+
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+        bus_id: I2C bus, ignored.
+    """
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, sda, scl, bus_id=0) -> None:
+    def __init__(self, *, sda: int, scl: int, bus_id: int = 0) -> None:
         super().__init__()
         self.addr = PRIMARY
         self.kind = "MPU6050"
         self.last_saturated = False
 
 
-def _make_init_ns():
-    """Create AST-loaded namespace with _FakeIMU injected."""
+def _make_init_ns() -> SimpleNamespace:
+    """Create AST-loaded namespace with _FakeIMU injected.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     _FakeIMU.script = []
     return firmware_namespace(
         _FIRMWARE,
@@ -49,6 +60,7 @@ def _make_init_ns():
 
 
 def test_init_sensor_happy_path():
+    """A present IMU is returned after one i2c_init status."""
     init_ns = _make_init_ns()
     imu = init_ns.ns["init_sensor"]()
     assert imu.addr == PRIMARY
@@ -56,6 +68,7 @@ def test_init_sensor_happy_path():
 
 
 def test_init_sensor_retries_when_device_missing():
+    """A missing IMU shows no_device and is retried until it appears."""
     init_ns = _make_init_ns()
     _FakeIMU.script = [DeviceNotFoundError("no device"), None]
     init_ns.ns["init_sensor"]()
@@ -63,6 +76,7 @@ def test_init_sensor_retries_when_device_missing():
 
 
 def test_init_sensor_handles_init_err():
+    """An IMU that fails init shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeIMU.script = [OSError("scripted WHO_AM_I fail"), None]
     init_ns.ns["init_sensor"]()

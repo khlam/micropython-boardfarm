@@ -28,7 +28,16 @@ PRIMARY = 0x68
 
 
 @pytest.mark.parametrize(("machine_str", "board_name"), BOARD_CHIPS)
-def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
+def test_main_executes_init_then_streams_one_sample(
+    monkeypatch: pytest.MonkeyPatch, machine_str: str, board_name: str
+):
+    """Importing main.py on each board inits the IMU and streams a sample.
+
+    Args:
+        monkeypatch: Fakes the board name and installs the stub modules.
+        machine_str: The machine name the board reports.
+        board_name: The BOARD entry main.py should select for it.
+    """
     fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
@@ -54,9 +63,15 @@ class _StopMainError(Exception):
 
 
 class _FakeIMU:
-    """Stub MPU6050 that opens its own bus; second read_all() raises to escape stream()."""
+    """Stub MPU6050 that opens its own bus; second read_all() raises to escape stream().
 
-    def __init__(self, *, sda, scl, bus_id=0) -> None:
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+        bus_id: I2C bus, ignored.
+    """
+
+    def __init__(self, *, sda: int, scl: int, bus_id: int = 0) -> None:
         self.addr = PRIMARY
         self.kind = "MPU6050"
         self.last_saturated = False
