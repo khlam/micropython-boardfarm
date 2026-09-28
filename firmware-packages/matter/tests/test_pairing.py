@@ -68,9 +68,9 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
             returns(
                 {
                     "key": "correct-horse-battery-staple",
-                    "passcode": 53230365,
-                    "discriminator": 3681,
-                    "manual_pairing_code": "34790132484",
+                    "passcode": 78288405,
+                    "discriminator": 3008,
+                    "manual_pairing_code": "25480547786",
                 }
             ),
             id="vector-words",
@@ -82,9 +82,9 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
             returns(
                 {
                     "key": "9f3a1c7e2b8d4f60a5e9c1b7d3f8a204",
-                    "passcode": 41461148,
-                    "discriminator": 2126,
-                    "manual_pairing_code": "20962825305",
+                    "passcode": 69149971,
+                    "discriminator": 769,
+                    "manual_pairing_code": "05864342209",
                 }
             ),
             id="vector-hex",
@@ -96,9 +96,9 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
             returns(
                 {
                     "key": "Tr0ub4dor&3-horses-stapled!!",
-                    "passcode": 38916892,
-                    "discriminator": 2957,
-                    "manual_pairing_code": "25404423759",
+                    "passcode": 80825200,
+                    "discriminator": 2677,
+                    "manual_pairing_code": "23569649338",
                 }
             ),
             id="vector-symbols",
@@ -112,9 +112,9 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
             returns(
                 {
                     "key": "αβγδεζηθικλμνξοπρστυφχψω",
-                    "passcode": 60099989,
-                    "discriminator": 2355,
-                    "manual_pairing_code": "21986136684",
+                    "passcode": 10846537,
+                    "discriminator": 3144,
+                    "manual_pairing_code": "30032906625",
                 }
             ),
             id="accepts-24-characters",

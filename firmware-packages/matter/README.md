@@ -45,7 +45,7 @@ alone, so a key gives the same codes on every board. It returns the resolved
 base a key on a board MAC, a serial number, or a vault, build that string before
 calling.
 
-The algorithm hashes `b"matter-pairing-v2\x00" + passcode.encode()` with SHA-256.
+The algorithm hashes `passcode.encode()` with SHA-256.
 The first four digest bytes, read big-endian, map to `1..99999999`; forbidden
 Matter passcodes advance to the next allowed value, wrapping to 1. The low 12
 bits of the next two bytes form the discriminator.

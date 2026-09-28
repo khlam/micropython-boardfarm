@@ -77,7 +77,7 @@ def generate_pairing(passcode: str | None = None) -> dict:
         raise ValueError(
             f"passcode must span at least {_MIN_PASSCODE_DISTINCT} distinct characters"
         )
-    digest = hashlib.sha256(b"matter-pairing-v2\x00" + passcode.encode()).digest()
+    digest = hashlib.sha256(passcode.encode()).digest()
     setup_passcode = int.from_bytes(digest[:4], "big") % _MAX_PASSCODE + 1
     while setup_passcode in _INVALID_PASSCODES:
         setup_passcode = setup_passcode % _MAX_PASSCODE + 1
