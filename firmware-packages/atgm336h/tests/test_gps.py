@@ -10,8 +10,15 @@ _GPGGA = b"$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n
 _GPGSV = b"$GPGSV,2,1,08,01,40,083,46,02,17,308,41,12,07,344,39,14,22,228,45*75\r\n"
 
 
-def _make_gps(uart_lines):
-    """Create a GPS instance with pre-fed UART data (first line consumed by probe)."""
+def _make_gps(uart_lines: list[bytes]) -> GPS:
+    """Create a GPS instance with pre-fed UART data (first line consumed by probe).
+
+    Args:
+        uart_lines: The lines the UART delivers, in order.
+
+    Returns:
+        The GPS, past its presence probe.
+    """
     machine.reset()
     machine.feed_uart(uart_lines)
     return GPS(bus_id=0, tx=0, rx=1)
@@ -29,8 +36,13 @@ def _make_gps(uart_lines):
         (_GPGSV, _GPGSV.decode().strip()),
     ],
 )
-def test_readline_parses(raw, expected):
-    """readline() decodes, strips, and validates the NMEA ``$`` prefix."""
+def test_readline_parses(raw: bytes | None, expected: str | None):
+    """readline() decodes, strips, and validates the NMEA ``$`` prefix.
+
+    Args:
+        raw: The line the UART delivers after the probe, or None for no line.
+        expected: The sentence readline() returns, or None when there is none.
+    """
     probe_line = [_GPRMC]
     data_line = [] if raw is None else [raw]
     gps = _make_gps(probe_line + data_line)
