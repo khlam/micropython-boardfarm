@@ -10,6 +10,7 @@ import math
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 from typing import ClassVar
 
 from micropython_stubs.testing import ScriptedFake, firmware_namespace
@@ -23,18 +24,29 @@ ADDR = 0x2C
 
 
 class _FakeMag(ScriptedFake):
-    """QMC5883P stand-in (see ScriptedFake): records address + status on success."""
+    """QMC5883P stand-in (see ScriptedFake): records address + status on success.
+
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+        bus_id: I2C bus, ignored.
+        address: The address the stand-in reports.
+    """
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, sda, scl, bus_id=0, address=ADDR) -> None:
+    def __init__(self, *, sda: int, scl: int, bus_id: int = 0, address: int = ADDR) -> None:
         super().__init__()
         self.address = address
         self.last_status = 0
 
 
-def _make_init_ns():
-    """Create AST-loaded namespace with _FakeMag injected."""
+def _make_init_ns() -> SimpleNamespace:
+    """Create AST-loaded namespace with _FakeMag injected.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     _FakeMag.script = []
     from smoothing import simple_moving_average
 
@@ -52,6 +64,7 @@ def _make_init_ns():
 
 
 def test_init_sensor_happy_path():
+    """A present magnetometer is returned after one i2c_init status."""
     init_ns = _make_init_ns()
     mag = init_ns.ns["init_sensor"]()
     assert mag.address == ADDR
@@ -59,6 +72,7 @@ def test_init_sensor_happy_path():
 
 
 def test_init_sensor_retries_when_device_missing():
+    """A missing magnetometer shows no_device and is retried until it appears."""
     init_ns = _make_init_ns()
     _FakeMag.script = [DeviceNotFoundError("no device"), None]
     init_ns.ns["init_sensor"]()
@@ -66,6 +80,7 @@ def test_init_sensor_retries_when_device_missing():
 
 
 def test_init_sensor_handles_init_err():
+    """A magnetometer that fails init shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeMag.script = [OSError("scripted chip-ID fail"), None]
     init_ns.ns["init_sensor"]()

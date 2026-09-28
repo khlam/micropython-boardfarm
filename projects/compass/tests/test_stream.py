@@ -10,6 +10,7 @@ import math
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 
 from micropython_stubs.testing import (
     StopLoopError,
@@ -28,8 +29,12 @@ _TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 _OK = (100, -50, 200)
 
 
-def _make_main_ns():
-    """Create a fresh AST-loaded main.py namespace with fakes."""
+def _make_main_ns() -> SimpleNamespace:
+    """Create a fresh AST-loaded main.py namespace with fakes.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     from smoothing import simple_moving_average
 
     return firmware_namespace(
@@ -46,6 +51,7 @@ def _make_main_ns():
 
 
 def test_one_sample_per_loop_with_8_keys():
+    """Each read emits one sample carrying raw and smoothed axes plus the heading."""
     main_ns = _make_main_ns()
     mag = _FakeMag(script=[_OK])
     sample_lines = samples(run_stream(main_ns, mag))
@@ -66,6 +72,7 @@ def test_smoothed_equals_raw_until_window_fills():
 
 
 def test_heading_normalised_to_circle():
+    """The heading lies in [0, 360) degrees."""
     main_ns = _make_main_ns()
     mag = _FakeMag(script=[_OK])
     sample = samples(run_stream(main_ns, mag))[0]
@@ -92,6 +99,7 @@ def test_ovl_falling_then_rising_emits_two():
 
 
 def test_read_err_recovery_resumes_streaming():
+    """A failed read reports read_err, and streaming resumes on the next good read."""
     main_ns = _make_main_ns()
     mag = _FakeMag(script=[_OK, OSError, _OK])
     lines = run_stream(main_ns, mag)
@@ -103,12 +111,15 @@ def test_read_err_recovery_resumes_streaming():
 class _FakeMag:
     """Scripted QMC5883P.
 
-    `script` items: 3-tuple = read() return; exception class = raise.
-    `ovl_script` is consumed in lockstep — each entry sets last_status's OVL bit
-    *after* the read returns. Exhausting `script` raises StopLoopError.
+    Exhausting `script` raises StopLoopError.
+
+    Args:
+        script: Each item is a 3-tuple read() returns, or an exception class it raises.
+        ovl_script: Consumed in lockstep with `script`; each entry sets
+            last_status's OVL bit *after* the read returns. None never overflows.
     """
 
-    def __init__(self, script, ovl_script=None) -> None:
+    def __init__(self, script: list, ovl_script: list[bool] | None = None) -> None:
         self._script = list(script)
         self._ovl = list(ovl_script or [False] * len(script))
         self.last_status = 0
