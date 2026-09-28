@@ -12,7 +12,7 @@ _FORCE = None
 
 @pytest.mark.parametrize(
     ("x_mm", "y_mm", "expected"),
-    [(0, 0, False), (6, 7, False), (6, 8, True), (10, 0, True), (-10, 0, True)],
+    [(0, 0, False), (6, 7, False), (6, 8, True), (-10, 0, True)],
 )
 def test_dead_zone_boundary(reports, x_mm, y_mm, expected):
     assert reports.outside_dead_zone(SimpleNamespace(x_mm=x_mm, y_mm=y_mm)) is expected

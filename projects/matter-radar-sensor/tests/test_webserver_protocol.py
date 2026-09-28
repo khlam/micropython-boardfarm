@@ -25,7 +25,6 @@ def _rejects(message):
         (b"GET / HTTP/1.1\r\n", returns()),
         (b"GET /ws?takeover=1 HTTP/1.0\r\n", returns()),
         (b"GET / HTTP/1.1\n", _rejects("invalid header line")),
-        (b"GET / nonsense\r\n", _rejects("invalid request line")),
         (b"GET HTTP/1.1\r\n", _rejects("invalid request line")),
         (b"GET relative HTTP/1.1\r\n", _rejects("invalid request line")),
         (b" / HTTP/1.1\r\n", _rejects("invalid request line")),

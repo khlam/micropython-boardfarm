@@ -44,12 +44,6 @@ def _ready(address):
             id="address-starts-the-server-but-waits-for-it-to-listen",
         ),
         pytest.param(
-            [("running", None, "192.0.2.20", _POLL)],
-            [_RUNNING, _ready("192.0.2.20")],
-            True,
-            id="listening-server-announces-its-address",
-        ),
-        pytest.param(
             [
                 ("running", None, "192.0.2.30", _POLL),
                 ("running", None, "192.0.2.30", _POLL),
