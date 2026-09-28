@@ -29,7 +29,16 @@ TOF_ADDRESS = 0x29
 
 
 @pytest.mark.parametrize(("machine_str", "board_name"), BOARD_CHIPS)
-def test_main_executes_init_then_streams_one_sample(monkeypatch, machine_str, board_name):
+def test_main_executes_init_then_streams_one_sample(
+    monkeypatch: pytest.MonkeyPatch, machine_str: str, board_name: str
+):
+    """Importing main.py on each board inits the ToF sensor and streams a distance.
+
+    Args:
+        monkeypatch: Fakes the board name and installs the stub modules.
+        machine_str: The machine name the board reports.
+        board_name: The BOARD entry main.py should select for it.
+    """
     fake_status = FakeStatus()
     monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_str))
     for name, module in _build_stubs(fake_status).items():
@@ -56,9 +65,14 @@ class _StopMainError(Exception):
 
 
 class _FakeVL53L0X:
-    """Stub VL53L0X that opens its own bus; second read() raises to escape stream()."""
+    """Stub VL53L0X that opens its own bus; second read() raises to escape stream().
 
-    def __init__(self, *, sda, scl) -> None:
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+    """
+
+    def __init__(self, *, sda: int, scl: int) -> None:
         self.address = TOF_ADDRESS
         self._calls = 0
 
@@ -75,8 +89,15 @@ class _FakeVL53L0X:
         return 500
 
 
-def _build_stubs(status_stub):
-    """Build SimpleNamespace stubs matching main.py's module-level imports."""
+def _build_stubs(status_stub: FakeStatus) -> dict[str, object]:
+    """Build SimpleNamespace stubs matching main.py's module-level imports.
+
+    Args:
+        status_stub: Stands in for the boot status LED module.
+
+    Returns:
+        Each stub keyed by the module name it replaces.
+    """
     # main() now builds VL53L0X(sda=, scl=) directly — the driver owns the bus,
     # scan, and soft reset — so the project no longer imports i2c_bus; the
     # vl53l0x stub exposes the driver class and its DeviceNotFoundError.
