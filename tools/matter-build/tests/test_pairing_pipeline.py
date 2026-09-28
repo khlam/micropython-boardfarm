@@ -15,6 +15,10 @@ from matter import generate_pairing
 _KEY = "correct-horse-battery-staple"
 _BOARD = Path(__file__).parent / "fixtures"
 
+# The board identity, flash arguments, outputs directory, and every recorded
+# esptool run with the image it wrote.
+_Pipeline = tuple[build._BuildIdentity, argparse.Namespace, Path, list[tuple[list[str], bytes]]]
+
 
 @pytest.mark.parametrize(
     ("port", "before", "after"),
@@ -24,7 +28,14 @@ _BOARD = Path(__file__).parent / "fixtures"
         ("rfc2217://host:5555", "no_reset", "no_reset"),
     ],
 )
-def test_esptool_resets_only_local_boards(port, before, after):
+def test_esptool_resets_only_local_boards(port: str, before: str, after: str):
+    """A locally attached board is reset around flashing; one reached over the network isn't.
+
+    Args:
+        port: The serial port or network URL flashed.
+        before: The reset mode esptool uses before flashing.
+        after: The reset mode esptool uses after flashing.
+    """
     flash = build._flash_command(port, Path("image.bin"))
 
     assert flash[flash.index("--before") + 1] == before
@@ -33,6 +44,7 @@ def test_esptool_resets_only_local_boards(port, before, after):
 
 
 def test_provisioning_replaces_only_the_factory_partition():
+    """Provisioning overwrites the factory partition and leaves every other byte alone."""
     identity = build.board_to_identity(_BOARD, build.DISCOVERY_MODE)
     start, size = identity.factory_offset, identity.factory_size
     image = bytes(index % 251 for index in range(identity.flash_size))
@@ -44,7 +56,16 @@ def test_provisioning_replaces_only_the_factory_partition():
     assert provisioned[start + size :] == image[start + size :]
 
 
-def test_offline_qr_matches_firmware(monkeypatch, tmp_path, capsys):
+def test_offline_qr_matches_firmware(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    """The offline pairing tool derives the same codes from a key as the firmware does.
+
+    Args:
+        monkeypatch: Sets the tool's command line.
+        tmp_path: Receives the QR image.
+        capsys: Captures the setup fields the tool prints.
+    """
     output = tmp_path / "pairing.png"
     monkeypatch.setattr(
         sys,
@@ -71,7 +92,16 @@ def test_offline_qr_matches_firmware(monkeypatch, tmp_path, capsys):
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_flash_cli_provisions_the_named_port_with_the_given_key(pipeline, monkeypatch, capsys):
+def test_flash_cli_provisions_the_named_port_with_the_given_key(
+    pipeline: _Pipeline, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """``--flash`` writes to the named port and publishes pairing codes for the given key.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        monkeypatch: Sets the command line and the board and output locations.
+        capsys: Captures the completion message.
+    """
     _identity, _args, outputs, calls = pipeline
     port = "socket://host:5555"
     monkeypatch.setattr(sys, "argv", ["build.py", "--flash", "--port", port, "--passcode", _KEY])
@@ -85,7 +115,16 @@ def test_flash_cli_provisions_the_named_port_with_the_given_key(pipeline, monkey
     assert _published_pairing(outputs)[0]["passcode"] == _KEY
 
 
-def test_compilation_is_board_free_and_removes_stale_codes(pipeline, monkeypatch, capsys):
+def test_compilation_is_board_free_and_removes_stale_codes(
+    pipeline: _Pipeline, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """Compiling mints no credentials, flashes nothing, and leaves only the merged image.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        monkeypatch: Sets the command line and stubs out the firmware build.
+        capsys: Captures the completion message.
+    """
     identity, _args, outputs, calls = pipeline
     monkeypatch.setattr(sys, "argv", ["build.py"])
     monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
@@ -109,7 +148,16 @@ def test_compilation_is_board_free_and_removes_stale_codes(pipeline, monkeypatch
     assert not calls
 
 
-def test_explicit_passcode_reproduces_pairing_codes(pipeline, tmp_path, monkeypatch):
+def test_explicit_passcode_reproduces_pairing_codes(
+    pipeline: _Pipeline, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Flashing twice with the same key publishes the same codes and writes the merged image.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        tmp_path: Holds each flash's working directory.
+        monkeypatch: Fails the test if a random passcode is drawn.
+    """
     identity, args, outputs, calls = pipeline
     args.passcode = _KEY
 
@@ -133,7 +181,16 @@ def test_explicit_passcode_reproduces_pairing_codes(pipeline, tmp_path, monkeypa
     assert image[: identity.factory_offset] == b"\xff" * identity.factory_offset
 
 
-def test_blank_passcode_produces_random_pairing_codes(pipeline, tmp_path, monkeypatch):
+def test_blank_passcode_produces_random_pairing_codes(
+    pipeline: _Pipeline, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Each flash without a key draws a fresh random one and publishes different codes.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        tmp_path: Holds each flash's working directory.
+        monkeypatch: Counts the random passcode draws.
+    """
     identity, args, outputs, _calls = pipeline
     draw_passcode = pairing._random_passcode
     draws = []
@@ -153,7 +210,13 @@ def test_blank_passcode_produces_random_pairing_codes(pipeline, tmp_path, monkey
         assert setups[0][field] != setups[1][field]
 
 
-def test_flash_refuses_a_wrong_size_image(pipeline, tmp_path):
+def test_flash_refuses_a_wrong_size_image(pipeline: _Pipeline, tmp_path: Path):
+    """A merged image that isn't exactly the flash size is refused before esptool runs.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        tmp_path: The flash's working directory.
+    """
     identity, args, outputs, calls = pipeline
     (outputs / build._MERGED_NAME).write_bytes(b"invalid")
 
@@ -162,7 +225,16 @@ def test_flash_refuses_a_wrong_size_image(pipeline, tmp_path):
     assert not calls
 
 
-def test_failed_flash_preserves_published_artifacts(pipeline, tmp_path, monkeypatch):
+def test_failed_flash_preserves_published_artifacts(
+    pipeline: _Pipeline, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A flash that fails leaves the previously published outputs untouched.
+
+    Args:
+        pipeline: The prepared outputs and recorded esptool runs.
+        tmp_path: The flash's working directory.
+        monkeypatch: Makes esptool fail.
+    """
     identity, args, outputs, _calls = pipeline
     before = {path.name: path.read_bytes() for path in outputs.iterdir()}
 
@@ -176,7 +248,17 @@ def test_failed_flash_preserves_published_artifacts(pipeline, tmp_path, monkeypa
 
 
 @pytest.fixture
-def pipeline(tmp_path, monkeypatch):
+def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
+    """An outputs directory holding a blank merged image and stale pairing codes.
+
+    Args:
+        tmp_path: Holds the outputs directory and project metadata.
+        monkeypatch: Points build at them, reads factory data from its CSV, and
+            records esptool runs instead of flashing.
+
+    Returns:
+        The board identity, flash arguments, outputs directory, and recorded runs.
+    """
     identity = build.board_to_identity(_BOARD, build.DISCOVERY_MODE)
     outputs = tmp_path / "outputs"
     outputs.mkdir()
@@ -204,8 +286,15 @@ def pipeline(tmp_path, monkeypatch):
     return identity, args, outputs, calls
 
 
-def _published_pairing(outputs):
-    """Return the published setup fields and QR bytes from the latest flash."""
+def _published_pairing(outputs: Path) -> tuple[dict[str, str], bytes]:
+    """Return the published setup fields and QR bytes from the latest flash.
+
+    Args:
+        outputs: The outputs directory.
+
+    Returns:
+        The setup fields, keyed by name, and the QR image.
+    """
     setup = dict(
         line.split("=", 1) for line in (outputs / build._SETUP_NAME).read_text().splitlines()
     )

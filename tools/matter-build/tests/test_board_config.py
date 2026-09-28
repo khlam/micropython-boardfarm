@@ -15,7 +15,12 @@ _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _REAL_BOARD = pathlib.Path("/projects/matter/native/board/ESP32_S3_MATTER")
 
 
-def test_sdkconfig_keeps_only_key_value_lines(fixture_config):
+def test_sdkconfig_keeps_only_key_value_lines(fixture_config: dict[str, str]):
+    """Only KEY=value lines become settings; comments, blanks, and bare tokens are dropped.
+
+    Args:
+        fixture_config: The parsed fixture sdkconfig.
+    """
     assert fixture_config["CONFIG_DEVICE_VENDOR_ID"] == "0xFFF1"
     assert fixture_config["CONFIG_ESPTOOLPY_FLASHSIZE_4MB"] == "y"
     # Comments, blank lines and bare tokens carry no "=" and are dropped.
@@ -23,16 +28,27 @@ def test_sdkconfig_keeps_only_key_value_lines(fixture_config):
     assert "NOT_A_SETTING" not in fixture_config
 
 
-def test_sdkconfig_strips_indentation(fixture_config):
+def test_sdkconfig_strips_indentation(fixture_config: dict[str, str]):
+    """An indented setting is read under its unindented key.
+
+    Args:
+        fixture_config: The parsed fixture sdkconfig.
+    """
     assert fixture_config["CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL"] == '"fctry"'
 
 
-def test_required_reports_the_missing_key(fixture_config):
+def test_required_reports_the_missing_key(fixture_config: dict[str, str]):
+    """A required setting that is absent raises, naming the key.
+
+    Args:
+        fixture_config: The parsed fixture sdkconfig.
+    """
     with pytest.raises(ValueError, match="CONFIG_NOPE"):
         build._required(fixture_config, "CONFIG_NOPE")
 
 
 def test_partitions_finds_the_factory_row():
+    """The factory partition's offset and size are read from its row."""
     assert build._partitions_to_factory(_FIXTURES / "partitions.csv", "fctry") == (
         0x3D0000,
         0x6000,
@@ -40,16 +56,23 @@ def test_partitions_finds_the_factory_row():
 
 
 def test_partitions_rejects_a_row_without_offset_and_size():
+    """A partition row that leaves offset and size implicit is rejected."""
     with pytest.raises(ValueError, match="no explicit offset and size"):
         build._partitions_to_factory(_FIXTURES / "partitions.csv", "nvs_keys")
 
 
 def test_partitions_rejects_a_missing_row():
+    """A partition label with no row raises, naming the label."""
     with pytest.raises(ValueError, match="has no 'absent' row"):
         build._partitions_to_factory(_FIXTURES / "partitions.csv", "absent")
 
 
-def test_partitions_ignores_the_comment_row(tmp_path):
+def test_partitions_ignores_the_comment_row(tmp_path: pathlib.Path):
+    """A commented-out row is not a partition, even when its label matches.
+
+    Args:
+        tmp_path: Holds the partition table.
+    """
     # The header names the columns, so a label matching a commented-out row must
     # not be picked up from it.
     table = tmp_path / "partitions.csv"
@@ -58,16 +81,27 @@ def test_partitions_ignores_the_comment_row(tmp_path):
         build._partitions_to_factory(table, "fctry")
 
 
-def test_flash_size_reads_the_enabled_key(fixture_config):
+def test_flash_size_reads_the_enabled_key(fixture_config: dict[str, str]):
+    """The flash size comes from whichever FLASHSIZE key is enabled.
+
+    Args:
+        fixture_config: The parsed fixture sdkconfig.
+    """
     assert build._config_to_flash_size(fixture_config) == 4 * 1024 * 1024
 
 
 def test_flash_size_ignores_a_disabled_key():
+    """A FLASHSIZE key set to n doesn't count as a flash size."""
     with pytest.raises(ValueError, match="no CONFIG_ESPTOOLPY_FLASHSIZE"):
         build._config_to_flash_size({"CONFIG_ESPTOOLPY_FLASHSIZE_8MB": "n"})
 
 
-def test_pyproject_reads_the_model_name(tmp_path):
+def test_pyproject_reads_the_model_name(tmp_path: pathlib.Path):
+    """The model name is the project name in pyproject.toml.
+
+    Args:
+        tmp_path: Holds the pyproject.toml.
+    """
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text('[project]\nname = "Color Light"\n', encoding="utf-8")
 
@@ -82,7 +116,13 @@ def test_pyproject_reads_the_model_name(tmp_path):
         '[tool.example]\nname = "Color Light"\n',
     ],
 )
-def test_pyproject_rejects_an_invalid_model_name(tmp_path, contents):
+def test_pyproject_rejects_an_invalid_model_name(tmp_path: pathlib.Path, contents: str):
+    """An empty, non-string, or missing project name is rejected.
+
+    Args:
+        tmp_path: Holds the pyproject.toml.
+        contents: The pyproject.toml text.
+    """
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text(contents, encoding="utf-8")
 
@@ -91,6 +131,7 @@ def test_pyproject_rejects_an_invalid_model_name(tmp_path, contents):
 
 
 def test_board_to_identity_reads_the_fixture_board():
+    """The fixture board's IDs, factory partition, and flash size form its identity."""
     identity = build.board_to_identity(_FIXTURES, discovery_mode=2)
     assert identity == build._BuildIdentity(
         vendor_id=0xFFF1,
@@ -103,6 +144,7 @@ def test_board_to_identity_reads_the_fixture_board():
 
 
 def test_board_to_identity_matches_the_real_board_config():
+    """The shipped ESP32-S3 board config still yields the identity the tests assume."""
     # Pins the shipped ESP32-S3 board config: a change to its VID/PID, factory
     # partition placement or flash size has to be a deliberate edit here too.
     identity = build.board_to_identity(_REAL_BOARD, discovery_mode=build.DISCOVERY_MODE)
@@ -117,6 +159,10 @@ def test_board_to_identity_matches_the_real_board_config():
 
 
 @pytest.fixture
-def fixture_config():
-    """Parsed fixture sdkconfig, shared by the parser and lookup tests."""
+def fixture_config() -> dict[str, str]:
+    """Parsed fixture sdkconfig, shared by the parser and lookup tests.
+
+    Returns:
+        Each setting's raw value, keyed by name.
+    """
     return build._sdkconfig_to_values(_FIXTURES / "sdkconfig.board")

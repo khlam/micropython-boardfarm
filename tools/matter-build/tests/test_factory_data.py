@@ -3,6 +3,7 @@
 import base64
 import csv
 import json
+import pathlib
 import subprocess
 import sys
 
@@ -18,7 +19,15 @@ _SALT = base64.b64encode(b"a per-device salt").decode()
 _VERIFIER = base64.b64encode(bytes(97)).decode()
 
 
-def test_reads_the_factory_namespace_through_the_idf_nvs_tool(monkeypatch, tmp_path):
+def test_reads_the_factory_namespace_through_the_idf_nvs_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+):
+    """The partition is dumped with the IDF NVS tool and only the named namespace kept.
+
+    Args:
+        monkeypatch: Replaces the NVS tool run with canned JSON.
+        tmp_path: Holds the partition image.
+    """
     partition = tmp_path / "factory-partition.bin"
     partition.write_bytes(b"")
     calls = []
@@ -54,7 +63,18 @@ def test_reads_the_factory_namespace_through_the_idf_nvs_tool(monkeypatch, tmp_p
     ]
 
 
-def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, monkeypatch):
+def test_mints_matching_credentials_and_factory_identity(
+    identity: build._BuildIdentity, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Minting writes a factory partition, QR, and payload that agree with the pairing.
+
+    The partition holds a SPAKE2+ verifier for the passcode, never the passcode itself.
+
+    Args:
+        identity: The board's build identity.
+        tmp_path: The artifact root.
+        monkeypatch: Makes the salt deterministic.
+    """
     pairing = generate_pairing("correct-horse-battery-staple")
     discriminator = pairing["discriminator"]
     passcode = pairing["passcode"]
@@ -101,23 +121,44 @@ def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, mon
     assert "passcode" not in rows
 
 
-def test_accepts_factory_data_matching_the_pairing_code(identity):
+def test_accepts_factory_data_matching_the_pairing_code(identity: build._BuildIdentity):
+    """Factory data matching the pairing code and the board's identity passes.
+
+    Args:
+        identity: The board's build identity.
+    """
     build._validate_factory_identity(factory_values(), _DISCRIMINATOR, identity)
 
 
-def test_rejects_a_discriminator_from_another_device(identity):
+def test_rejects_a_discriminator_from_another_device(identity: build._BuildIdentity):
+    """Factory data whose discriminator differs from the pairing code's is rejected.
+
+    Args:
+        identity: The board's build identity.
+    """
     with pytest.raises(ValueError, match="factory discriminator does not match"):
         build._validate_factory_identity(factory_values(), _DISCRIMINATOR + 1, identity)
 
 
 @pytest.mark.parametrize("field", ["vendor-id", "product-id"])
-def test_rejects_factory_data_built_for_another_product(identity, field):
+def test_rejects_factory_data_built_for_another_product(identity: build._BuildIdentity, field: str):
+    """Factory data with another product's vendor or product ID is rejected.
+
+    Args:
+        identity: The board's build identity.
+        field: The ID changed.
+    """
     values = factory_values(**{field: 0x1234})
     with pytest.raises(ValueError, match="VID/PID does not match"):
         build._validate_factory_identity(values, _DISCRIMINATOR, identity)
 
 
-def test_rejects_a_plaintext_passcode(identity):
+def test_rejects_a_plaintext_passcode(identity: build._BuildIdentity):
+    """Factory data carrying the passcode itself is rejected.
+
+    Args:
+        identity: The board's build identity.
+    """
     # A passcode in factory data would let anyone reading the flash commission it.
     values = factory_values(passcode=20202021)
     with pytest.raises(ValueError, match="no plaintext passcode"):
@@ -126,19 +167,32 @@ def test_rejects_a_plaintext_passcode(identity):
 
 @pytest.mark.parametrize("field", ["salt", "verifier"])
 @pytest.mark.parametrize("value", [None, 1234])
-def test_rejects_missing_verifier_material(identity, field, value):
+def test_rejects_missing_verifier_material(
+    identity: build._BuildIdentity, field: str, value: int | None
+):
+    """Factory data without a string salt and verifier is rejected.
+
+    Args:
+        identity: The board's build identity.
+        field: The verifier field changed.
+        value: None drops the field; an int stores the wrong type.
+    """
     values = factory_values(**{field: value})
     with pytest.raises(ValueError, match="must contain a verifier"):
         build._validate_factory_identity(values, _DISCRIMINATOR, identity)
 
 
-def factory_values(**overrides):
+def factory_values(**overrides: object) -> dict[str, object]:
     """Return a factory-data dict the checks accept, before any override is applied.
 
-    A key set to None is removed rather than stored, so a test can drop a field as
-    easily as it can corrupt one.
+    Args:
+        **overrides: Fields to replace. A key set to None is removed rather than
+            stored, so a test can drop a field as easily as it can corrupt one.
+
+    Returns:
+        The factory data.
     """
-    values = {
+    values: dict[str, object] = {
         "discriminator": _DISCRIMINATOR,
         "vendor-id": 0xFFF1,
         "product-id": 0x8001,
@@ -150,8 +204,12 @@ def factory_values(**overrides):
 
 
 @pytest.fixture
-def identity():
-    """A build identity matching the published CHIP test device."""
+def identity() -> build._BuildIdentity:
+    """A build identity matching the published CHIP test device.
+
+    Returns:
+        The identity.
+    """
     return build._BuildIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
