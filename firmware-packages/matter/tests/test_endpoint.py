@@ -9,7 +9,7 @@ from collections.abc import Callable
 import matter_native
 import pytest
 
-from matter import Attributes, Clusters, ColorMode, EndpointType, Node, WriteEvent
+from matter import Attributes, Clusters, ColorMode, Endpoint, EndpointType, Node, WriteEvent
 
 _ENDPOINT_TYPES = (
     EndpointType.ON_OFF_LIGHT,
@@ -110,7 +110,16 @@ _FUZZ_RUNS = [
         (EndpointType.OCCUPANCY_SENSOR, "on", _NOT_SUPPORTED),
     ],
 )
-def test_named_property_reads_schema_default_and_is_read_only(endpoint_type, name, expected):
+def test_named_property_reads_schema_default_and_is_read_only(
+    endpoint_type: int, name: str, expected: object
+):
+    """A named property reads its schema default and refuses assignment.
+
+    Args:
+        endpoint_type: The kind of endpoint created.
+        name: The property read.
+        expected: Its default, or the exception an unsupported property raises.
+    """
     _node, endpoint = _endpoint(endpoint_type)
 
     # The interpreter words this message, differently on MicroPython, so only
@@ -132,7 +141,14 @@ def test_named_property_reads_schema_default_and_is_read_only(endpoint_type, nam
         (Clusters.ON_OFF, None, TypeError("attribute must be int")),
     ],
 )
-def test_get_reads_attribute_by_path(cluster, attribute, expected):
+def test_get_reads_attribute_by_path(cluster: object, attribute: object, expected: object):
+    """get() reads a supported attribute by path and rejects unsupported or non-int paths.
+
+    Args:
+        cluster: The cluster ID passed to get().
+        attribute: The attribute ID passed to get().
+        expected: The value read, or the exception get() raises.
+    """
     _node, endpoint = _endpoint(EndpointType.ON_OFF_LIGHT)
 
     _assert_outcome(lambda: endpoint.get(cluster, attribute), expected)
@@ -355,7 +371,12 @@ def test_get_reads_attribute_by_path(cluster, attribute, expected):
     ],
     ids=lambda case: case.scenario,
 )
-def test_set_validates_mirrors_and_publishes_batch(case):
+def test_set_validates_mirrors_and_publishes_batch(case: _SetCase):
+    """set() validates the whole batch before mirroring and publishing any of it.
+
+    Args:
+        case: One set() scenario; see ``_SetCase``.
+    """
     node, endpoint = _endpoint(case.endpoint_type)
     if case.started:
         node.start()
@@ -378,7 +399,12 @@ def test_set_validates_mirrors_and_publishes_batch(case):
 
 @pytest.mark.fuzz
 @pytest.mark.parametrize("draws", _FUZZ_RUNS)
-def test_fuzz_set_reads_back_or_changes_nothing(draws):
+def test_fuzz_set_reads_back_or_changes_nothing(draws: list[tuple[int, str, object]]):
+    """Each set() either reads back exactly or is rejected and changes no endpoint.
+
+    Args:
+        draws: Random (endpoint type, property name, value) writes, applied in order.
+    """
     node = Node()
     endpoints = {kind: node.create_endpoint(kind) for kind in _ENDPOINT_TYPES}
     node.start()
@@ -398,14 +424,28 @@ def test_fuzz_set_reads_back_or_changes_nothing(draws):
         assert {kind: _properties(endpoint) for kind, endpoint in endpoints.items()} == expected
 
 
-def _endpoint(endpoint_type):
-    """Create one endpoint on a fresh, unstarted node."""
+def _endpoint(endpoint_type: int) -> tuple[Node, Endpoint]:
+    """Create one endpoint on a fresh, unstarted node.
+
+    Args:
+        endpoint_type: The kind of endpoint to create.
+
+    Returns:
+        The node and its endpoint.
+    """
     node = Node()
     return node, node.create_endpoint(endpoint_type)
 
 
-def _properties(endpoint):
-    """Return every named property the endpoint exposes, keyed by name."""
+def _properties(endpoint: Endpoint) -> dict[str, object]:
+    """Return every named property the endpoint exposes, keyed by name.
+
+    Args:
+        endpoint: The endpoint to read.
+
+    Returns:
+        Each supported property's current value.
+    """
     values = {}
     for name in _PATHS:
         with contextlib.suppress(ValueError):

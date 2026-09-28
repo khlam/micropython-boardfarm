@@ -2,6 +2,8 @@
 
 import random
 import re
+from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as returns
 from types import SimpleNamespace
 
@@ -218,8 +220,22 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
         ),
     ],
 )
-def test_generate_pairing(monkeypatch, key, urandom_draws, sha256_digest, outcome):
-    """Each row pins the result fields its input determines; the returned key reproduces it all."""
+def test_generate_pairing(
+    monkeypatch: pytest.MonkeyPatch,
+    key: object,
+    urandom_draws: tuple[bytes, ...],
+    sha256_digest: bytes | None,
+    outcome: AbstractContextManager,
+):
+    """Each row pins the result fields its input determines; the returned key reproduces it all.
+
+    Args:
+        monkeypatch: Scripts the random draws and forces the digest.
+        key: The key passed to generate_pairing(); None draws a random one.
+        urandom_draws: What each ``os.urandom`` call returns, in order.
+        sha256_digest: The digest's leading bytes to force, or None to hash for real.
+        outcome: Yields the result fields expected, or expects the raise.
+    """
     _script_urandom(monkeypatch, urandom_draws)
     _force_sha256_digest(monkeypatch, sha256_digest)
     with outcome as expected:
@@ -230,8 +246,12 @@ def test_generate_pairing(monkeypatch, key, urandom_draws, sha256_digest, outcom
 
 @pytest.mark.fuzz
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS)
-def test_fuzz_valid_keys_yield_spec_valid_codes(seed):
-    """Any valid key yields a reproducible, allowed passcode and a decodable manual code."""
+def test_fuzz_valid_keys_yield_spec_valid_codes(seed: int):
+    """Any valid key yields a reproducible, allowed passcode and a decodable manual code.
+
+    Args:
+        seed: Seeds the random valid key.
+    """
     key = _random_key(seed, lengths=(24, 64), distinct_counts=(12, 40))
     result = matter.generate_pairing(key)
     code = result["manual_pairing_code"]
@@ -257,39 +277,76 @@ def test_fuzz_valid_keys_yield_spec_valid_codes(seed):
 )
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS)
 def test_fuzz_invalid_keys_raise_only_documented_errors(
-    seed, lengths, distinct_counts, convert, error
+    seed: int,
+    lengths: tuple[int, int],
+    distinct_counts: tuple[int, int],
+    convert: Callable[[str], str | bytes],
+    error: str,
 ):
-    """A key breaking one rule raises exactly ValueError naming that rule, whatever its text."""
+    """A key breaking one rule raises exactly ValueError naming that rule, whatever its text.
+
+    Args:
+        seed: Seeds the random key.
+        lengths: The inclusive range the key's length is drawn from.
+        distinct_counts: The inclusive range its distinct character count is drawn from.
+        convert: Turns the drawn key into the value passed to generate_pairing().
+        error: Pattern the ValueError's message must match.
+    """
     key = convert(_random_key(seed, lengths, distinct_counts))
     with pytest.raises(ValueError, match=error) as raised:
         matter.generate_pairing(key)
     assert raised.type is ValueError
 
 
-def _script_urandom(monkeypatch, draws):
-    """Make the pairing module's ``os.urandom`` return ``draws`` in order."""
+def _script_urandom(monkeypatch: pytest.MonkeyPatch, draws: Iterable[bytes]):
+    """Make the pairing module's ``os.urandom`` return ``draws`` in order.
+
+    Args:
+        monkeypatch: Replaces the pairing module's ``os``.
+        draws: What each call returns.
+    """
     remaining = iter(draws)
     monkeypatch.setattr(pairing, "os", SimpleNamespace(urandom=lambda _size: next(remaining)))
 
 
-def _force_sha256_digest(monkeypatch, digest):
-    """Make the pairing module's SHA-256 return ``digest`` zero-padded; ``None`` keeps it real."""
+def _force_sha256_digest(monkeypatch: pytest.MonkeyPatch, digest: bytes | None) -> None:
+    """Make the pairing module's SHA-256 return ``digest`` zero-padded; ``None`` keeps it real.
+
+    Args:
+        monkeypatch: Replaces the pairing module's ``hashlib``.
+        digest: The digest's leading bytes, or None to hash for real.
+    """
     if digest is None:
         return
     forced = SimpleNamespace(digest=lambda: digest.ljust(32, b"\x00"))
     monkeypatch.setattr(pairing, "hashlib", SimpleNamespace(sha256=lambda _data: forced))
 
 
-def _verhoeff_is_valid(code):
-    """Check the trailing Verhoeff check digit of ``code`` over all of its digits."""
+def _verhoeff_is_valid(code: str) -> bool:
+    """Check the trailing Verhoeff check digit of ``code`` over all of its digits.
+
+    Args:
+        code: Decimal digits ending in their check digit.
+
+    Returns:
+        Whether the check digit matches.
+    """
     checksum = 0
     for position, digit in enumerate(reversed(code)):
         checksum = _dihedral_product(checksum, _verhoeff_permute(position % 8, int(digit)))
     return checksum == 0
 
 
-def _dihedral_product(left, right):
-    """Multiply two elements of the dihedral group D5: 0-4 are rotations, 5-9 reflections."""
+def _dihedral_product(left: int, right: int) -> int:
+    """Multiply two elements of the dihedral group D5: 0-4 are rotations, 5-9 reflections.
+
+    Args:
+        left: The left element.
+        right: The right element.
+
+    Returns:
+        Their product.
+    """
     if left < 5 and right < 5:
         return (left + right) % 5
     if left < 5:
@@ -299,20 +356,34 @@ def _dihedral_product(left, right):
     return (left - right) % 5
 
 
-def _verhoeff_permute(times, digit):
-    """Apply Verhoeff's position permutation to ``digit`` ``times`` times."""
+def _verhoeff_permute(times: int, digit: int) -> int:
+    """Apply Verhoeff's position permutation to ``digit`` ``times`` times.
+
+    Args:
+        times: How often to apply the permutation.
+        digit: The digit permuted.
+
+    Returns:
+        The permuted digit.
+    """
     for _ in range(times):
         digit = _VERHOEFF_PERMUTATION[digit]
     return digit
 
 
-def _decode_manual_code(code):
+def _decode_manual_code(code: str) -> tuple[int, int, int]:
     """Decode an 11-digit manual pairing code to (digit-1 flags, short discriminator, passcode).
 
     Matter Core Specification layout: digit 1 holds the VID/PID-present flag in bit 2
     above the short discriminator's high two bits. Digits 2-6 hold its low two bits above
     the passcode's low 14 bits, digits 7-10 hold the passcode's remaining high bits, and
     digit 11 is the check digit.
+
+    Args:
+        code: The manual pairing code.
+
+    Returns:
+        The digit-1 flags, the short discriminator, and the passcode.
     """
     first, middle, high = int(code[0]), int(code[1:6]), int(code[6:10])
     short_discriminator = ((first & 0x3) << 2) | (middle >> 14)
@@ -320,8 +391,17 @@ def _decode_manual_code(code):
     return first >> 2, short_discriminator, passcode
 
 
-def _random_key(seed, lengths, distinct_counts):
-    """Build a key from ``seed`` with length and distinct count in the inclusive ranges given."""
+def _random_key(seed: int, lengths: tuple[int, int], distinct_counts: tuple[int, int]) -> str:
+    """Build a key from ``seed`` with length and distinct count in the inclusive ranges given.
+
+    Args:
+        seed: Seeds the draw, so the same seed builds the same key.
+        lengths: The inclusive range the key's length is drawn from.
+        distinct_counts: The inclusive range its distinct character count is drawn from.
+
+    Returns:
+        The key.
+    """
     rng = random.Random(seed)  # noqa: S311 - seeded fuzz input, not a secret
     length = rng.randint(*lengths)
     distinct = rng.randint(distinct_counts[0], min(distinct_counts[1], length))

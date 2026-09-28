@@ -24,7 +24,13 @@ from micropython_stubs.testing import json_lines
         ),
     ],
 )
-def test_emit_writes_one_json_line(capsys, obj):
+def test_emit_writes_one_json_line(capsys: pytest.CaptureFixture[str], obj: dict[str, object]):
+    """emit() writes the object as exactly one JSON line, even with newlines inside strings.
+
+    Args:
+        capsys: Captures stdout.
+        obj: The object to emit.
+    """
     emit(obj)
 
     out = capsys.readouterr().out
@@ -37,7 +43,17 @@ def test_emit_writes_one_json_line(capsys, obj):
     ("name", "state", "expected"),
     [("matter", "ready", {"event": "matter", "state": "ready"})],
 )
-def test_event_writes_named_transition(capsys, name, state, expected):
+def test_event_writes_named_transition(
+    capsys: pytest.CaptureFixture[str], name: str, state: str, expected: dict[str, str]
+):
+    """event() writes one line naming the component and its new state.
+
+    Args:
+        capsys: Captures stdout.
+        name: The component whose state changed.
+        state: Its new state.
+        expected: The line written.
+    """
     event(name, state)
 
     assert json_lines(capsys.readouterr().out) == [expected]
@@ -57,7 +73,17 @@ def test_event_writes_named_transition(capsys, name, state, expected):
         )
     ],
 )
-def test_error_writes_recoverable_fault(capsys, component, message, expected):
+def test_error_writes_recoverable_fault(
+    capsys: pytest.CaptureFixture[str], component: str, message: str, expected: dict[str, str]
+):
+    """error() writes one error line naming the component and the fault.
+
+    Args:
+        capsys: Captures stdout.
+        component: The component that failed.
+        message: What went wrong.
+        expected: The line written.
+    """
     error(component, message)
 
     assert json_lines(capsys.readouterr().out) == [expected]
@@ -78,7 +104,16 @@ def test_error_writes_recoverable_fault(capsys, component, message, expected):
         ),
     ],
 )
-def test_add_sink_receives_each_stdout_line(capsys, write, sink_names):
+def test_add_sink_receives_each_stdout_line(
+    capsys: pytest.CaptureFixture[str], write: Callable[[], None], sink_names: tuple[str, ...]
+):
+    """Every sink receives each written line, without its newline, in registration order.
+
+    Args:
+        capsys: Captures stdout.
+        write: Writes one line through the facade.
+        sink_names: One sink is registered per name, in order.
+    """
     delivered = []
     for sink_name in sink_names:
         add_sink(_recording_sink(delivered, sink_name))

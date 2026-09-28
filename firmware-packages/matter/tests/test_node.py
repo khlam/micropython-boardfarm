@@ -4,6 +4,7 @@ import errno
 import time
 from collections import namedtuple
 from contextlib import AbstractContextManager, nullcontext
+from typing import Any
 
 import matter_native
 import pytest
@@ -13,6 +14,7 @@ from matter import (
     Clusters,
     Commissioning,
     CommissioningEvent,
+    Endpoint,
     EndpointType,
     Fabric,
     Node,
@@ -80,11 +82,12 @@ _PollNode = namedtuple("_PollNode", ("endpoint_type", "generation", "started"), 
         ),
     ],
 )
-def test_node(attempts):
+def test_node(attempts: list[tuple[str | None, bool | AbstractContextManager]]):
     """Node() claims the one process-wide node only once native creation succeeds.
 
-    Each attempt names a native operation to fail first, then expects either an
-    unstarted node (``False``) or the raise.
+    Args:
+        attempts: Each names a native operation to fail first, then expects
+            either an unstarted node (``False``) or the raise.
     """
     for native_failure, expected in attempts:
         if native_failure is not None:
@@ -203,12 +206,21 @@ def test_node(attempts):
         ),
     ],
 )
-def test_create_endpoint(before, args, expected, then_write):
+def test_create_endpoint(
+    before: list[tuple],
+    args: tuple,
+    expected: Any,
+    then_write: tuple[int, int, object] | None,
+):
     """create_endpoint() returns a validated endpoint, or raises before exposing one.
 
-    Success rows list properties of the returned endpoint. ``then_write`` is a
-    controller write that poll() must still deliver to endpoint 1 once the node
-    starts, although create_endpoint() raised after native had created it.
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        args: Positional arguments to create_endpoint().
+        expected: Properties of the returned endpoint, or the raise.
+        then_write: A controller write that poll() must still deliver to
+            endpoint 1 once the node starts, although create_endpoint() raised
+            after native had created it; None to skip.
     """
     node = Node()
     _run(node, None, before)
@@ -293,11 +305,23 @@ def test_create_endpoint(before, args, expected, then_write):
         ),
     ],
 )
-def test_start(boot, expected, stdout, monkeypatch, capsys):
+def test_start(
+    boot: _Boot,
+    expected: tuple[dict[str, object], list[tuple]] | AbstractContextManager,
+    stdout: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
     """start() restores every mirror before reporting ready; a failed start changes nothing.
 
-    ``expected`` is the light's properties after start() with what the first
-    poll() returns, or the raise. Restore retries run without their pause.
+    Args:
+        boot: What flash holds, what the application pins, and the stimulus.
+        expected: The light's properties after start() with the writes the first
+            poll() returns, or the raise.
+        stdout: Every JSON line written.
+        monkeypatch: Removes the pause between restore retries, and applies
+            the stimulus.
+        capsys: Captures stdout.
     """
     monkeypatch.setattr(time, "sleep", lambda _seconds: None)
     matter_native.reset(persisted=boot.persisted)
@@ -457,12 +481,21 @@ def test_start(boot, expected, stdout, monkeypatch, capsys):
         ),
     ],
 )
-def test_poll(setup, steps, stdout, capsys):
+def test_poll(
+    setup: _PollNode,
+    steps: list[tuple],
+    stdout: list[dict[str, str]],
+    capsys: pytest.CaptureFixture[str],
+):
     """poll() delivers each retained change once, in revision order, as immutable events.
 
-    Steps run in order (see _run). A ``poll`` step lists the events it expects as
-    CommissioningEvents or ``(cluster, attribute, value)`` writes to the node's
-    endpoint. ``stdout`` is every JSON line written after start().
+    Args:
+        setup: The endpoint, starting revision, and whether the node starts.
+        steps: Run in order (see _run). A ``poll`` step lists the events it
+            expects as CommissioningEvents or ``(cluster, attribute, value)``
+            writes to the node's endpoint.
+        stdout: Every JSON line written after start().
+        capsys: Captures stdout.
     """
     matter_native.reset(generation=setup.generation)
     node = Node()
@@ -508,10 +541,17 @@ def test_poll(setup, steps, stdout, capsys):
         ),
     ],
 )
-def test_open_commissioning_window(before, args, expected):
+def test_open_commissioning_window(
+    before: list[tuple],
+    args: tuple,
+    expected: tuple[CommissioningEvent, ...] | AbstractContextManager,
+):
     """open_commissioning_window() opens a window the next poll() reports.
 
-    ``expected`` is what that poll() returns, or the raise.
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        args: Positional arguments to open_commissioning_window().
+        expected: What the next poll() returns, or the raise.
     """
     node = Node()
     _run(node, None, before)
@@ -540,8 +580,13 @@ def test_open_commissioning_window(before, args, expected):
         ),
     ],
 )
-def test_network_address(before, expected):
-    """network_address() returns the device's IPv4 address, or None off the network."""
+def test_network_address(before: list[tuple], expected: str | AbstractContextManager | None):
+    """network_address() returns the device's IPv4 address, or None off the network.
+
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        expected: The address returned, or the raise.
+    """
     node = Node()
     _run(node, None, before)
 
@@ -565,8 +610,13 @@ def test_network_address(before, expected):
         ),
     ],
 )
-def test_fabrics(before, expected):
-    """fabrics() returns one Fabric record per commissioned fabric."""
+def test_fabrics(before: list[tuple], expected: tuple[Fabric, ...] | AbstractContextManager):
+    """fabrics() returns one Fabric record per commissioned fabric.
+
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        expected: The fabrics returned, or the raise.
+    """
     node = Node()
     _run(node, None, before)
 
@@ -623,11 +673,18 @@ def test_fabrics(before, expected):
         ),
     ],
 )
-def test_remove_fabric(before, index, expected):
+def test_remove_fabric(
+    before: list[tuple],
+    index: int,
+    expected: tuple[tuple[Fabric, ...], tuple[CommissioningEvent, ...]] | AbstractContextManager,
+):
     """remove_fabric() drops one fabric; losing the last one reopens commissioning.
 
-    ``expected`` is the remaining fabrics with what the next poll() returns, or
-    the raise.
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        index: The fabric index removed.
+        expected: The remaining fabrics with what the next poll() returns, or
+            the raise.
     """
     node = Node()
     _run(node, None, before)
@@ -651,8 +708,13 @@ def test_remove_fabric(before, index, expected):
         ),
     ],
 )
-def test_factory_reset(before, expected):
-    """factory_reset() hands the request to native and surfaces its refusal."""
+def test_factory_reset(before: list[tuple], expected: AbstractContextManager | None):
+    """factory_reset() hands the request to native and surfaces its refusal.
+
+    Args:
+        before: Steps run on the fresh node first (see _run).
+        expected: None when the request is accepted, or the raise.
+    """
     node = Node()
     _run(node, None, before)
 
@@ -665,11 +727,16 @@ def test_factory_reset(before, expected):
     ("cluster", "attribute", "value"),
     [pytest.param(0x0006, 0x0000, True, id="on-off-cluster-on-off-attribute")],
 )
-def test_smoke_controller_write_turns_light_on(cluster, attribute, value):
+def test_smoke_controller_write_turns_light_on(cluster: int, attribute: int, value: bool):
     """A controller switching the light on reaches the README "Use" loop.
 
     The controller writes raw IDs from the Matter Application Cluster
     Specification: the On/Off cluster is 0x0006 and its OnOff attribute 0x0000.
+
+    Args:
+        cluster: The raw cluster ID the controller writes.
+        attribute: The raw attribute ID the controller writes.
+        value: The value written.
     """
     node = Node()
     light = node.create_endpoint(EndpointType.ON_OFF_LIGHT)
@@ -686,17 +753,29 @@ def test_smoke_controller_write_turns_light_on(cluster, attribute, value):
     assert hardware == [True]
 
 
-def _outcome(expected):
-    """Return the context a row's call runs in: its ``pytest.raises``, or none."""
+def _outcome(expected: object) -> AbstractContextManager:
+    """Return the context a row's call runs in: its ``pytest.raises``, or none.
+
+    Args:
+        expected: A row's expected result or ``pytest.raises``.
+
+    Returns:
+        The ``pytest.raises``, or a context that does nothing.
+    """
     return expected if isinstance(expected, AbstractContextManager) else nullcontext()
 
 
-def _run(node, endpoint, steps):
+def _run(node: Node, endpoint: Endpoint | None, steps: list[tuple]):
     """Apply scenario steps in order.
 
     ``start`` and ``set`` drive the node and its endpoint, while ``poll`` and
     ``mirror`` assert what the application observes. Any other step calls the
     fake-native test hook it names with the remaining values.
+
+    Args:
+        node: The node under test.
+        endpoint: Its endpoint, for steps that set or read one.
+        steps: Each a step name followed by its values.
     """
     for name, *args in steps:
         if name == "start":
@@ -712,8 +791,14 @@ def _run(node, endpoint, steps):
             getattr(matter_native, name)(*args)
 
 
-def _assert_poll(node, endpoint, expected):
-    """Assert poll() returns the expected events, each write applied and immutable."""
+def _assert_poll(node: Node, endpoint: Endpoint | None, expected: Any):
+    """Assert poll() returns the expected events, each write applied and immutable.
+
+    Args:
+        node: The node polled.
+        endpoint: The endpoint write specs refer to.
+        expected: Event specs (see _event), or the raise.
+    """
     with _outcome(expected):
         events = node.poll()
         assert events == tuple(_event(endpoint, spec) for spec in expected)
@@ -724,17 +809,31 @@ def _assert_poll(node, endpoint, expected):
                     event.value = None
 
 
-def _event(endpoint, spec):
-    """Build a row's expected event, binding a write spec to the row's endpoint."""
+def _event(
+    endpoint: Endpoint | None, spec: CommissioningEvent | tuple
+) -> CommissioningEvent | WriteEvent:
+    """Build a row's expected event, binding a write spec to the row's endpoint.
+
+    Args:
+        endpoint: The endpoint a write spec refers to.
+        spec: A CommissioningEvent, or a ``(cluster, attribute, value)`` write.
+
+    Returns:
+        The event poll() should return for the spec.
+    """
     return spec if isinstance(spec, CommissioningEvent) else WriteEvent(endpoint, *spec)
 
 
-def _stimulate(monkeypatch, node, stimulus):
+def _stimulate(monkeypatch: pytest.MonkeyPatch, node: Node, stimulus: tuple | None) -> None:
     """Apply one start() stimulus, if the row has one.
 
-    ``fail_always`` makes a native operation raise on every call, and
-    ``write_during_start`` has a controller write the light while the native
-    stack starts, before restore reads it back. Anything else is a _run step.
+    Args:
+        monkeypatch: Replaces the native operation the stimulus names.
+        node: The node about to start.
+        stimulus: ``fail_always`` makes a native operation raise on every call,
+            and ``write_during_start`` has a controller write the light while
+            the native stack starts, before restore reads it back. Anything
+            else is a _run step; None applies nothing.
     """
     if stimulus is None:
         return
@@ -754,6 +853,13 @@ def _stimulate(monkeypatch, node, stimulus):
         _run(node, None, [stimulus])
 
 
-def _fail_persistently(*_args):
-    """Raise a native failure that no retry outlasts."""
+def _fail_persistently(*_args: object):
+    """Raise a native failure that no retry outlasts.
+
+    Args:
+        *_args: The native operation's arguments, ignored.
+
+    Raises:
+        OSError: EIO, on every call.
+    """
     raise OSError(errno.EIO, "persistent native failure")
