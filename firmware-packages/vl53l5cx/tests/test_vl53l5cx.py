@@ -17,15 +17,32 @@ class _FakeVL53L5CX:
     """No-op register responder: present on the bus, returns zeros."""
 
     def read(self, _reg: int, nbytes: int) -> bytes:
-        """Return nbytes of zeros."""
+        """Return nbytes of zeros.
+
+        Args:
+            _reg: The first register read, ignored.
+            nbytes: How many bytes to return.
+
+        Returns:
+            ``nbytes`` zero bytes.
+        """
         return bytes(nbytes)
 
     def write(self, _reg: int, _data: bytes) -> None:
-        """Discard the write."""
+        """Discard the write.
+
+        Args:
+            _reg: The first register written, ignored.
+            _data: The bytes written, ignored.
+        """
 
 
 def _make_tof() -> VL53L5CX:
-    """Reset machine, register a fake at 0x29, return a ready VL53L5CX."""
+    """Reset machine, register a fake at 0x29, return a ready VL53L5CX.
+
+    Returns:
+        The sensor, sized for 32-byte data reads.
+    """
     machine.reset()
     machine.register_device(0x29, _FakeVL53L5CX())
     sensor = VL53L5CX(sda=0, scl=1)
@@ -40,14 +57,24 @@ def test_missing_device_raises_device_not_found():
         VL53L5CX(sda=0, scl=1)
 
 
-def test_read_returns_64_values(monkeypatch):
+def test_read_returns_64_values(monkeypatch: pytest.MonkeyPatch):
+    """read() returns one value per zone of the 8x8 grid.
+
+    Args:
+        monkeypatch: Supplies canned ranging data.
+    """
     tof = _make_tof()
     results = make_results([100] * 64, [5] * 64)
     monkeypatch.setattr(tof, "get_ranging_data", lambda: results)
     assert len(tof.read()) == 64
 
 
-def test_read_valid_status_5_gives_int(monkeypatch):
+def test_read_valid_status_5_gives_int(monkeypatch: pytest.MonkeyPatch):
+    """Zones with target status 5 read as their distance.
+
+    Args:
+        monkeypatch: Supplies canned ranging data.
+    """
     tof = _make_tof()
     results = make_results([500] * 64, [5] * 64)
     monkeypatch.setattr(tof, "get_ranging_data", lambda: results)
@@ -55,7 +82,12 @@ def test_read_valid_status_5_gives_int(monkeypatch):
     assert all(v == 500 for v in grid)
 
 
-def test_read_valid_status_9_gives_int(monkeypatch):
+def test_read_valid_status_9_gives_int(monkeypatch: pytest.MonkeyPatch):
+    """Zones with target status 9 read as their distance.
+
+    Args:
+        monkeypatch: Supplies canned ranging data.
+    """
     tof = _make_tof()
     results = make_results([300] * 64, [9] * 64)
     monkeypatch.setattr(tof, "get_ranging_data", lambda: results)
@@ -63,7 +95,12 @@ def test_read_valid_status_9_gives_int(monkeypatch):
     assert all(v == 300 for v in grid)
 
 
-def test_read_invalid_status_gives_none(monkeypatch):
+def test_read_invalid_status_gives_none(monkeypatch: pytest.MonkeyPatch):
+    """Zones with any other target status read as None.
+
+    Args:
+        monkeypatch: Supplies canned ranging data.
+    """
     tof = _make_tof()
     statuses = [0, 1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 13, 255]
     for bad_status in statuses:
@@ -73,7 +110,12 @@ def test_read_invalid_status_gives_none(monkeypatch):
         assert all(v is None for v in grid), f"status {bad_status} should produce None"
 
 
-def test_read_mixed_status_maps_individually(monkeypatch):
+def test_read_mixed_status_maps_individually(monkeypatch: pytest.MonkeyPatch):
+    """Each zone's own status decides whether that zone reads its distance or None.
+
+    Args:
+        monkeypatch: Supplies canned ranging data.
+    """
     tof = _make_tof()
     distances = list(range(64))
     statuses = [5 if i % 2 == 0 else 0 for i in range(64)]
@@ -88,6 +130,7 @@ def test_read_mixed_status_maps_individually(monkeypatch):
 
 
 def test_check_data_ready_true_on_new_streamcount():
+    """A new stream count means fresh data, and is remembered."""
     tof = _make_tof()
     tof._streamcount = 5
     buf = bytes([6, 0x5, 0x5, 0x10])
@@ -97,6 +140,7 @@ def test_check_data_ready_true_on_new_streamcount():
 
 
 def test_check_data_ready_false_same_streamcount():
+    """An unchanged stream count means no fresh data."""
     tof = _make_tof()
     tof._streamcount = 6
     buf = bytes([6, 0x5, 0x5, 0x10])
@@ -105,6 +149,7 @@ def test_check_data_ready_false_same_streamcount():
 
 
 def test_check_data_ready_false_count_255():
+    """A stream count of 255 marks the sensor not ready, even though it changed."""
     tof = _make_tof()
     tof._streamcount = 5
     buf = bytes([255, 0x5, 0x5, 0x10])
@@ -112,7 +157,12 @@ def test_check_data_ready_false_count_255():
     assert tof.check_data_ready() is False
 
 
-def test_start_sets_8x8_resolution(monkeypatch):
+def test_start_sets_8x8_resolution(monkeypatch: pytest.MonkeyPatch):
+    """start() selects the 8x8 grid and starts ranging once.
+
+    Args:
+        monkeypatch: Records the resolution set and the start_ranging() calls.
+    """
     tof = _make_tof()
     resolutions_set = []
     start_ranging_calls = []
@@ -141,7 +191,12 @@ def test_start_sets_8x8_resolution(monkeypatch):
     assert len(start_ranging_calls) == 1
 
 
-def test_stop_calls_stop_ranging(monkeypatch):
+def test_stop_calls_stop_ranging(monkeypatch: pytest.MonkeyPatch):
+    """stop() stops ranging.
+
+    Args:
+        monkeypatch: Records the stop_ranging() call.
+    """
     tof = _make_tof()
     called = []
     monkeypatch.setattr(tof, "stop_ranging", lambda: called.append(True))
