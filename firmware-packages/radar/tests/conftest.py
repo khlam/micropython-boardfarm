@@ -1,6 +1,7 @@
 """Shared fixtures for the report-stream and radar-driver host tests."""
 
 import asyncio
+from collections.abc import Callable, Iterator
 
 import machine
 import pytest
@@ -14,22 +15,34 @@ _GATE_COUNT = 16
 
 
 @pytest.fixture(autouse=True)
-def _reset_machine():
-    """Clear recorded UART/pin state before and after every test."""
+def _reset_machine() -> Iterator[None]:
+    """Clear recorded UART/pin state before and after every test.
+
+    Yields:
+        None: Control to the test between the two resets.
+    """
     machine.reset()
     yield
     machine.reset()
 
 
 @pytest.fixture(autouse=True)
-def _micropython_asyncio(monkeypatch):
-    """Install MicroPython-only asyncio names onto the real asyncio module."""
+def _micropython_asyncio(monkeypatch: pytest.MonkeyPatch):
+    """Install MicroPython-only asyncio names onto the real asyncio module.
+
+    Args:
+        monkeypatch: Undoes the installed names after the test.
+    """
     asyncio_extras.install(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
-def _fast_timeouts(monkeypatch):
-    """Shrink every driver's timeout constants so timeout paths run in milliseconds."""
+def _fast_timeouts(monkeypatch: pytest.MonkeyPatch):
+    """Shrink every driver's timeout constants so timeout paths run in milliseconds.
+
+    Args:
+        monkeypatch: Restores the real timeouts after the test.
+    """
     monkeypatch.setattr(ld2420_module, "_ACK_TIMEOUT_MS", 10)
     for driver_type in (LD2450, LD2420):
         monkeypatch.setattr(driver_type, "STARTUP_TIMEOUT_MS", 10)
@@ -37,39 +50,59 @@ def _fast_timeouts(monkeypatch):
 
 
 @pytest.fixture
-def stream():
-    """A constructed stream against the fake UART, closed after the test."""
+def stream() -> Iterator[Stream]:
+    """A constructed stream against the fake UART, closed after the test.
+
+    Yields:
+        Stream: The open stream.
+    """
     device = Stream(bus_id=0, tx=0, rx=1)
     yield device
     device.close()
 
 
 @pytest.fixture
-def ld2450():
-    """A constructed LD2450 driver against the fake UART, closed after the test."""
+def ld2450() -> Iterator[LD2450]:
+    """A constructed LD2450 driver against the fake UART, closed after the test.
+
+    Yields:
+        LD2450: The open driver.
+    """
     device = LD2450(bus_id=0, tx=0, rx=1)
     yield device
     device.close()
 
 
 @pytest.fixture
-def ld2420():
-    """A constructed LD2420 driver against the fake UART, closed after the test."""
+def ld2420() -> Iterator[LD2420]:
+    """A constructed LD2420 driver against the fake UART, closed after the test.
+
+    Yields:
+        LD2420: The open driver.
+    """
     device = LD2420(bus_id=0, tx=0, rx=1)
     yield device
     device.close()
 
 
 @pytest.fixture
-def build_ld2450_report():
-    """Return a builder assembling one 30-byte LD2450 report from up to three slots."""
+def build_ld2450_report() -> Callable[..., bytes]:
+    """Return a builder assembling one 30-byte LD2450 report from up to three slots.
+
+    Returns:
+        The report builder.
+    """
 
     def _build(*slots: tuple[int, int, int, int] | None) -> bytes:
         """Assemble one 30-byte report from up to three slots.
 
-        Each slot is an (x_mm, y_mm, speed_cm_s, resolution_mm) tuple or None
-        for an empty (all-zero) slot. Fewer than three slots pads the
-        remainder with empty slots.
+        Args:
+            *slots: Each an (x_mm, y_mm, speed_cm_s, resolution_mm) tuple, or None
+                for an empty (all-zero) slot. Fewer than three slots pads the
+                remainder with empty slots.
+
+        Returns:
+            The encoded 30-byte report frame.
         """
         padded = ([*slots, None, None, None])[:3]
         body = bytearray()
@@ -88,8 +121,12 @@ def build_ld2450_report():
 
 
 @pytest.fixture
-def build_ack():
-    """Return a builder assembling one LD2420 command ACK frame."""
+def build_ack() -> Callable[..., bytes]:
+    """Return a builder assembling one LD2420 command ACK frame.
+
+    Returns:
+        The ACK builder.
+    """
 
     def _build(command: int, *, status: int = 0, payload: bytes = b"") -> bytes:
         """Assemble the ACK the radar sends back for ``command``.
@@ -118,14 +155,25 @@ def build_ack():
 
 
 @pytest.fixture
-def configuration_acks(build_ack):
-    """The three success ACKs the LD2420 startup sequence expects, in order."""
+def configuration_acks(build_ack: Callable[..., bytes]) -> list[bytes]:
+    """The three success ACKs the LD2420 startup sequence expects, in order.
+
+    Args:
+        build_ack: Encodes each ACK.
+
+    Returns:
+        One encoded ACK per configuration command.
+    """
     return [build_ack(command) for command, _payload in ld2420_module._CONFIGURATION]
 
 
 @pytest.fixture
-def build_ld2420_report():
-    """Return a builder assembling one 45-byte LD2420 energy-mode report."""
+def build_ld2420_report() -> Callable[..., bytes]:
+    """Return a builder assembling one 45-byte LD2420 energy-mode report.
+
+    Returns:
+        The report builder.
+    """
 
     def _build(*, distance_cm: int = 0, present: bool = True, gates: tuple = ()) -> bytes:
         """Assemble one report from a presence flag and a distance.
@@ -148,22 +196,37 @@ def build_ld2420_report():
 
 
 @pytest.fixture
-def start_ready():
-    """Return a helper that configures a driver and hands it its first report."""
+def start_ready() -> Callable[[LD2420, bytes, list[bytes]], None]:
+    """Return a helper that configures a driver and hands it its first report.
 
-    def _start(device, report: bytes, acks: list) -> None:
-        """Bring ``device`` up on a loop of its own."""
+    Returns:
+        The bring-up helper.
+    """
+
+    def _start(device: LD2420, report: bytes, acks: list[bytes]) -> None:
+        """Bring ``device`` up on a loop of its own.
+
+        Args:
+            device: The driver to configure.
+            report: The first report delivered once configuration finishes.
+            acks: The replies to the driver's configuration commands, in order.
+        """
         asyncio.run(_bring_up(device, report, acks))
 
     return _start
 
 
-async def _bring_up(device, report: bytes, acks: list) -> None:
+async def _bring_up(device: LD2420, report: bytes, acks: list[bytes]) -> None:
     """Answer ``device``'s command sequence with ``acks``, then hand it ``report``.
 
     Bytes arriving while the driver still awaits a command ACK are consumed by
     the ACK reader, exactly as on hardware, so the first report has to be
     delivered once configuration has finished and the reader is parked.
+
+    Args:
+        device: The driver to configure.
+        report: The first report delivered once configuration finishes.
+        acks: The replies to the driver's configuration commands, in order.
     """
     machine.queue_uart_replies(list(acks))
     ready = asyncio.create_task(device.wait_ready())
@@ -174,5 +237,12 @@ async def _bring_up(device, report: bytes, acks: list) -> None:
 
 
 def _encode(value: int) -> int:
-    """Encode a signed value into the LD2450's sign-magnitude raw u16 format."""
+    """Encode a signed value into the LD2450's sign-magnitude raw u16 format.
+
+    Args:
+        value: The signed reading.
+
+    Returns:
+        The raw u16 the radar would send.
+    """
     return -value if value < 0 else value | 0x8000
