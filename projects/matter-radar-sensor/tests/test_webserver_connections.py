@@ -328,13 +328,11 @@ def test_resource_failures_and_peer_errors(web, exception, state, where):
         web.webserver._app.get("/fail")(fail)
 
     async def run():
-        sock = Socket(_GET.replace(b"/ ", b"/fail ") if where == "route" else _GET)
+        sock = web.accept(_GET.replace(b"/ ", b"/fail ") if where == "route" else _GET)
         if where == "read":
             sock.read_error = exception
         elif where == "write":
             sock.write_error = exception
-        web.listener.pending.append(sock)
-        web.server._step(web.clock.ticks_ms())
         await web.pump()
         assert sock.closed
         assert not web.server._connections

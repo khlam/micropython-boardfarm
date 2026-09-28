@@ -779,11 +779,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.8.0"
+version = "0.9.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.8.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.9.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.8.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.9.0-py3-none-any.whl" },
 ]
 
 [[package]]
