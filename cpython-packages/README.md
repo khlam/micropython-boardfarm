@@ -82,8 +82,8 @@ Replacement module behavior:
   namespace.
 
 Reset mutable test-module state in autouse fixtures with `machine.reset()`,
-`neopixel.reset()`, and `matter_native.reset()`. Add new top-level replacements by creating the module under
-`micropython_stubs/micropython_stubs/` and adding it to
+`neopixel.reset()`, and `matter_native.reset()`. Add new top-level replacements
+by creating the module under `micropython_stubs/micropython_stubs/` and adding it to
 `tool.hatch.build.targets.wheel.force-include` in
 [`micropython_stubs/pyproject.toml`](micropython_stubs/pyproject.toml). A name
 the stdlib already owns — `asyncio` — cannot be replaced that way, because the

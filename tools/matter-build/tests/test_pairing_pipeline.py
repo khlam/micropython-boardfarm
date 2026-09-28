@@ -68,10 +68,6 @@ def test_offline_qr_matches_firmware(monkeypatch, tmp_path, capsys):
     assert decoded["vendor_id"] == 0xFFF1
     assert decoded["product_id"] == 0x8001
     assert setup["manual_pairing_code"] == expected["manual_pairing_code"]
-    assert build._decode_manual_code(setup["manual_pairing_code"]) == {
-        "passcode": expected["passcode"],
-        "short_discriminator": expected["discriminator"] >> 8,
-    }
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 

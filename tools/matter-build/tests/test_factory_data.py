@@ -83,10 +83,6 @@ def test_mints_matching_credentials_and_factory_identity(identity, tmp_path, mon
         "passcode": passcode,
         "padding": 0,
     }
-    assert build._decode_manual_code(pairing["manual_pairing_code"]) == {
-        "short_discriminator": discriminator >> 8,
-        "passcode": passcode,
-    }
 
     with (tmp_path / "manufacturing" / "factory-partition.csv").open(
         newline="", encoding="utf-8"

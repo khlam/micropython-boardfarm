@@ -474,22 +474,28 @@ def test_allocation_failure_during_admission_closes_unowned_socket(
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("exception", [MemoryError(), OSError(errno.ENOBUFS)])
-def test_listener_failure_recovers_and_releases_partial_bind(web, monkeypatch, exception):
+@pytest.mark.parametrize(
+    ("exception", "reason"), [(MemoryError(), "memory"), (OSError(errno.ENOBUFS), "socket")]
+)
+@pytest.mark.parametrize("operation", ["bind", "accept"])
+def test_listener_failure_recovers_and_releases_the_listener(
+    web, monkeypatch, operation, exception, reason
+):
+    """A listener that fails to bind or to accept is closed, and a new one listens later."""
     listener = Listener()
 
-    def fail(_address):
+    def fail(*_args):
         raise exception
 
     async def run():
         web.server._close()
         web.server.state = "stopped"
         monkeypatch.setattr(web.module.socket, "socket", lambda: listener)
-        monkeypatch.setattr(listener, "bind", fail)
+        monkeypatch.setattr(listener, operation, fail)
         supervisor = asyncio.create_task(web.server.run())
         await web.pump()
         assert listener.closed
-        assert web.server.state == "cooldown"
+        assert (web.server.state, web.server.reason) == ("cooldown", reason)
         assert web.server._listener is None
         monkeypatch.setattr(web.module.socket, "socket", Listener)
         web.advance(5000)

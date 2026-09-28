@@ -32,7 +32,7 @@ flowchart TB
     module -.-> package -.-> app
 ```
 
-Applications import`matter`. `matter_native` are the C primitives.
+Applications import `matter`; `matter_native` holds the C primitives.
 
 ## Pairing
 

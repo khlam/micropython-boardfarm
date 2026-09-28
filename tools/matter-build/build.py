@@ -424,17 +424,15 @@ def _mint_credentials(
     pairing: dict,
 ) -> tuple[Path, Path, str]:
     """Generate one board's factory partition, QR payload, and QR image from its pairing."""
-    discriminator = pairing["discriminator"]
-    passcode = pairing["passcode"]
     outdir = build_root / "manufacturing"
     outdir.mkdir(parents=True, exist_ok=True)
     salt = secrets.token_bytes(_SPAKE2P_SALT_LEN)
-    verifier = spake2p.generate_verifier(passcode, salt, _SPAKE2P_ITERATION_COUNT)
+    verifier = spake2p.generate_verifier(pairing["passcode"], salt, _SPAKE2P_ITERATION_COUNT)
 
     factory = nvs_partition_gen.write_factory_partition(
         outdir,
         identity.factory_size,
-        discriminator=discriminator,
+        discriminator=pairing["discriminator"],
         iteration_count=_SPAKE2P_ITERATION_COUNT,
         salt=salt,
         verifier=verifier,
@@ -449,15 +447,20 @@ def _mint_credentials(
         ),
     )
 
+    qr = outdir / "qrcode.png"
+    return factory, qr, render_pairing_qr(identity, pairing, qr)
+
+
+def render_pairing_qr(identity: _BuildIdentity, pairing: dict, path: Path) -> str:
+    """Render the board's QR at path and return its payload, checked against the manual code."""
+    discriminator = pairing["discriminator"]
+    passcode = pairing["passcode"]
     payload = onboarding_codes.encode_qr_payload(
         identity.vendor_id, identity.product_id, discriminator, passcode, identity.discovery_mode
     )
     _validate_onboarding(payload, pairing["manual_pairing_code"], discriminator, passcode, identity)
-
-    qr = outdir / "qrcode.png"
-    qr_image.render(payload, qr)
-
-    return factory, qr, payload
+    qr_image.render(payload, path)
+    return payload
 
 
 def _merge_image(

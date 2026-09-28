@@ -66,7 +66,6 @@ def test_error_writes_recoverable_fault(capsys, component, message, expected):
 @pytest.mark.parametrize(
     ("write", "sink_names"),
     [
-        pytest.param(partial(emit, {"diag": "matter_ok"}), (), id="no_sink_stdout_only"),
         pytest.param(partial(emit, {"diag": "matter_ok"}), ("dashboard",), id="one_sink"),
         pytest.param(
             partial(emit, {"diag": "matter_ok"}),

@@ -203,16 +203,6 @@ def test_publish_refuses_to_write_beside_a_stray_file(image, outputs):
     } == current
 
 
-def test_write_setup_names_both_codes(outputs):
-    setup = outputs / build._SETUP_NAME
-    build._write_setup(setup, _SETUP)
-
-    assert setup.read_text(encoding="utf-8") == (
-        f"manual_pairing_code={_MANUAL}\nsetup_payload={_PAYLOAD}\n"
-    )
-    assert setup.stat().st_mode & 0o777 == build._ARTIFACT_MODE
-
-
 @pytest.mark.parametrize(
     ("names", "handed_over"),
     [

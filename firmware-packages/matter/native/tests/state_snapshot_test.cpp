@@ -300,6 +300,18 @@ const std::vector<CopyCase> COPY_CASES = {
     {"null generation", 1, 1, NullArgument::GENERATION, EINVAL},
 };
 
+// Record the first `count` table paths, each holding its own index.
+void record_table_paths(size_t count, const std::string &case_name, const std::string &label)
+{
+    for (size_t index = 0; index < count; ++index) {
+        const Path path = table_path(index);
+        if (!record_remote_attribute(path.endpoint_id, path.cluster_id, path.attribute_id,
+                                     static_cast<uint32_t>(index), MATTER_VALUE_UINT16)) {
+            fail(case_name, label + " refused " + describe(path));
+        }
+    }
+}
+
 // Apply one step and return the generation it must leave behind: one step per
 // accepted mutation, none for a refused record or clear.
 uint32_t apply_step(const Step &step, uint32_t generation, const std::string &case_name,
@@ -313,13 +325,7 @@ uint32_t apply_step(const Step &step, uint32_t generation, const std::string &ca
         set_state_generation_for_test(step.value);
         return step.value;
     case Op::FILL_ATTRIBUTE_TABLE:
-        for (size_t index = 0; index < MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS; ++index) {
-            const Path path = table_path(index);
-            if (!record_remote_attribute(path.endpoint_id, path.cluster_id, path.attribute_id,
-                                         static_cast<uint32_t>(index), MATTER_VALUE_UINT16)) {
-                fail(case_name, label + " fill refused " + describe(path));
-            }
-        }
+        record_table_paths(MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS, case_name, label + " fill");
         return generation + MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS;
     case Op::RECORD:
         check_equal(record_remote_attribute(step.path.endpoint_id, step.path.cluster_id,
@@ -420,13 +426,7 @@ void run_copy_case(const CopyCase &test_case)
 {
     const std::string case_name = std::string("copy_state_snapshot / ") + test_case.name;
     reset_state_snapshot();
-    for (size_t index = 0; index < test_case.retained; ++index) {
-        const Path path = table_path(index);
-        if (!record_remote_attribute(path.endpoint_id, path.cluster_id, path.attribute_id,
-                                     static_cast<uint32_t>(index), MATTER_VALUE_UINT16)) {
-            fail(case_name, "setup refused " + describe(path));
-        }
-    }
+    record_table_paths(test_case.retained, case_name, "setup");
 
     Snapshot snapshot;
     const int result = copy_state_snapshot(
