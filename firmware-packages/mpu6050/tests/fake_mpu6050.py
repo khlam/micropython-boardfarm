@@ -23,7 +23,11 @@ class FakeMPU6050:
     """In-memory MPU6050 register file + minimal behaviour for driver tests."""
 
     def __init__(self, who_am_i: int = 0x68) -> None:
-        """Initialise the register file with the requested chip id at WHO_AM_I."""
+        """Initialise the register file with the requested chip id at WHO_AM_I.
+
+        Args:
+            who_am_i: The chip id WHO_AM_I reports.
+        """
         self.regs = bytearray(256)
         self.regs[WHO_AM_I_REG] = who_am_i
         # Default sample: stationary, ~1 g on Z, 0 °/s, 0 raw temp.
@@ -55,10 +59,23 @@ class FakeMPU6050:
             self.regs[ACCEL_XOUT_REG + i] = b
 
     def read(self, reg: int, nbytes: int) -> bytes:
-        """Return `nbytes` from the register file starting at `reg`."""
+        """Return `nbytes` from the register file starting at `reg`.
+
+        Args:
+            reg: The first register read.
+            nbytes: How many consecutive registers to read.
+
+        Returns:
+            The register contents.
+        """
         return bytes(self.regs[reg : reg + nbytes])
 
     def write(self, reg: int, data: bytes) -> None:
-        """Write `data` to the register file. No side effects in this fake."""
+        """Write `data` to the register file. No side effects in this fake.
+
+        Args:
+            reg: The first register written.
+            data: The bytes written to consecutive registers.
+        """
         for i, b in enumerate(data):
             self.regs[reg + i] = b
