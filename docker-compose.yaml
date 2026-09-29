@@ -34,6 +34,7 @@ services:
       - ./firmware-packages:/firmware-packages:ro
       - ./projects:/projects:ro
       - ./cpython-packages/serial_over_web:/cpython-packages/serial_over_web:ro
+      - ./cpython-packages/matter_tools:/cpython-packages/matter_tools:ro
       - ./tools:/tools:ro
       # Linux-only optional Pylance venv.
       # - ./.venv:/work/.venv
