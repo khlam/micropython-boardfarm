@@ -22,6 +22,7 @@ exactly as on-device firmware does.
 | Package | What it does |
 |---|---|
 | [serial_over_web](serial_over_web/) | Shared FastAPI dashboard server. Tails `/dev/ttyACM0`, validates JSON lines, fans out over `/ws` WebSocket. Per-project static dashboards mount on top. |
+| [matter_tools](matter_tools/) | Compiles Matter firmware and provisions one board's pairing credentials inside the `Dockerfile.matter` stages. Its callers live in [`tools/matter-build/`](../tools/matter-build/). |
 | [micropython_stubs](micropython_stubs/) | Test replacements for the MicroPython modules firmware code imports (`machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`, `matter_native`). Lets host CPython pytest run MicroPython code on CPython by providing test versions of MicroPython-only modules. This enables testing firmware logic separately from firmware-and-hardware performance testing. |
 
 

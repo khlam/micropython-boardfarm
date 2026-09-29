@@ -76,7 +76,7 @@ one grows too large — each is then checked against the same budget independent
 Bump `max_bytes` deliberately when a size increase is justified.
 
 A Matter image is deterministically padded to the whole flash on every build
-regardless of application code size — `build.py`'s own `_validate_merged_image`
+regardless of application code size — `matter_tools.build.validate_merged_image`
 already requires exactly that size. This CI check exists for parity.
 
 ### Renovate

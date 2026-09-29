@@ -78,7 +78,7 @@ docker compose run --rm --build esp32-flash
 ```
 
 Add `--no-deps` to flash another board without recompiling. To choose a key, see
-[Pairing](../../firmware-packages/matter/README.md#pairing).
+[Pairing](../../cpython-packages/matter_tools/README.md#pairing).
 
 Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
 
@@ -230,4 +230,4 @@ node.factory_reset()
 
 A factory reset keeps the flashed pairing codes. If `outputs/` no longer holds
 them, regenerate them from the board's key (see
-[Pairing](../../firmware-packages/matter/README.md#pairing)).
+[Pairing](../../cpython-packages/matter_tools/README.md#pairing)).

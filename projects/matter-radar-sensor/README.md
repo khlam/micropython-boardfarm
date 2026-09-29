@@ -176,7 +176,7 @@ artifacts. Each flash then publishes that board's image, `app.esp32-s3.qr.png`, 
 setup text also records the board's `passcode` key, so keep it secret.
 
 Reboots keep the flashed credentials, but each flash draws a new key unless
-`PASSCODE` is set; see [Pairing](../../firmware-packages/matter/README.md#pairing).
+`PASSCODE` is set; see [Pairing](../../cpython-packages/matter_tools/README.md#pairing).
 Add `--no-deps` to flash another board without recompiling.
 
 Factory-reset through the interrupted REPL:
