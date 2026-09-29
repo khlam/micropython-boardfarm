@@ -4,6 +4,11 @@ services:
       file: ../../docker-compose.yaml
       service: firmware-dependencies
 
+  wheels:
+    extends:
+      file: ../../docker-compose.yaml
+      service: wheels
+
   esp32-compile:
     build:
       context: ../..
@@ -11,6 +16,7 @@ services:
       target: matter-toolchain
       additional_contexts:
         firmware-dependencies: service:firmware-dependencies
+        wheels: service:wheels
     volumes:
       # manifest.py hardcodes /firmware-packages and /firmware.
       - ../../firmware-packages:/firmware-packages:ro
@@ -30,6 +36,7 @@ services:
       target: matter-monitor
       additional_contexts:
         firmware-dependencies: service:firmware-dependencies
+        wheels: service:wheels
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
       - MONITOR_SECONDS=${MONITOR_SECONDS:-90}
@@ -51,6 +58,7 @@ services:
       target: matter-flash
       additional_contexts:
         firmware-dependencies: service:firmware-dependencies
+        wheels: service:wheels
     depends_on:
       esp32-compile:
         condition: service_completed_successfully
@@ -60,7 +68,6 @@ services:
       - MANUFACTURER=${MANUFACTURER:-}
       - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
-      - ../../firmware-packages:/firmware-packages:ro
       - ../../tools/matter-build:/matter-tools:ro
       - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro

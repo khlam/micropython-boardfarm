@@ -69,11 +69,18 @@ RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
       "qrcode[pil]==${QRCODE_VERSION}" \
       esp-idf-nvs-partition-gen==${ESP_IDF_NVS_PARTITION_GEN_VERSION}
 
+# The callers in /matter-tools import matter_tools. --no-deps keeps the pins
+# above authoritative; copying only this wheel keeps the layer cached until
+# matter_tools itself changes.
+COPY --from=wheels /wheels/matter_tools-*.whl /tmp/wheels/
+RUN IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh \
+ && python3 -m pip install --no-cache-dir --break-system-packages --no-deps /tmp/wheels/matter_tools-*.whl \
+ && rm -rf /tmp/wheels
+
 RUN mkdir -p /build-cache /outputs
 
 COPY --from=firmware-dependencies /firmware-dependencies /firmware-dependencies
 COPY manifest.py /manifest.py
-ENV PYTHONPATH=/firmware-packages/matter/matter
 
 ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
@@ -107,7 +114,7 @@ FROM matter-toolchain AS matter-flash
 
 ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
-  exec python3 /matter-tools/build.py --flash \
+  exec python3 /matter-tools/provision.py \
     --port \"${SERIAL_PORT:-/dev/ttyACM0}\" \
     --passcode \"${PASSCODE:-}\" \
     --manufacturer \"${MANUFACTURER:-}\" \
