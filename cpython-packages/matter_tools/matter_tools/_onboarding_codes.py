@@ -1,13 +1,13 @@
 """Encode a Matter QR setup payload for one device.
 
-The mirror image of build.py's `_decode_qr_payload`: same bit widths, same field
+The mirror image of provision.py's `_decode_qr_payload`: same bit widths, same field
 order, same Base38 alphabet, so a value encoded here and decoded there
 round-trips exactly. This project uses standard commissioning flow only.
 """
 
 from __future__ import annotations
 
-from spake2p import MAX_PASSCODE, MIN_PASSCODE
+from matter_tools._spake2p import MAX_PASSCODE, MIN_PASSCODE
 
 _BASE38 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
 _BASE38_CHARS_PER_CHUNK = {1: 2, 2: 4, 3: 5}

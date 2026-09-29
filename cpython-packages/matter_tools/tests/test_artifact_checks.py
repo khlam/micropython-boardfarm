@@ -1,4 +1,4 @@
-"""Host tests for build.py's image-shape checks and its /outputs publishing step.
+"""Host tests for matter_tools' image-shape checks and output publishing step.
 
 A merged image is a few megabytes of flash layout, so the fixtures here build a
 miniature one: the identity's flash size and factory offset are shrunk to a few
@@ -13,8 +13,9 @@ from contextlib import AbstractContextManager
 from contextlib import nullcontext as returns
 from multiprocessing.synchronize import Event
 
-import build
 import pytest
+
+from matter_tools import build, provision
 
 _FLASH_SIZE = 512
 _FACTORY_OFFSET = 128
@@ -67,7 +68,7 @@ def _image(factory: bytes, size: int = _FLASH_SIZE) -> bytes:
 )
 def test_validate_merged_image(
     tmp_path: pathlib.Path,
-    identity: build._BuildIdentity,
+    identity: build.BoardIdentity,
     merged: bytes,
     factory: bytes,
     outcome: AbstractContextManager,
@@ -81,10 +82,10 @@ def test_validate_merged_image(
         factory: The factory partition it should carry.
         outcome: Passes, or expects the ValueError naming the mismatch.
     """
-    path = tmp_path / build._MERGED_NAME
+    path = tmp_path / build.MERGED_NAME
     path.write_bytes(merged)
     with outcome:
-        build._validate_merged_image(path, factory, identity)
+        build.validate_merged_image(path, factory, identity)
 
 
 @pytest.mark.parametrize(
@@ -109,7 +110,7 @@ def test_validate_qr(
     if content is not None:
         qr.write_bytes(content)
     with outcome:
-        build._validate_qr(qr)
+        provision.validate_qr(qr)
 
 
 def test_publish_installs_a_complete_generation_readable(image: "_Image", outputs: pathlib.Path):
@@ -119,13 +120,13 @@ def test_publish_installs_a_complete_generation_readable(image: "_Image", output
         image: The files to publish.
         outputs: The empty outputs directory.
     """
-    build._publish(image.merged, image.qr, _SETUP)
+    build.publish(outputs, image.merged, image.qr, _SETUP)
 
-    merged = outputs / build._MERGED_NAME
-    setup = outputs / build._SETUP_NAME
+    merged = outputs / build.MERGED_NAME
+    setup = outputs / build.SETUP_NAME
     assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
     assert merged.read_bytes() == image.merged.read_bytes()
-    assert (outputs / build._QR_NAME).read_bytes() == image.qr.read_bytes()
+    assert (outputs / build.QR_NAME).read_bytes() == image.qr.read_bytes()
     assert setup.read_text(encoding="utf-8") == (
         f"manual_pairing_code={_MANUAL}\nsetup_payload={_PAYLOAD}\n"
     )
@@ -153,7 +154,7 @@ def test_publish_staging_failure_preserves_the_current_generation(
 
     monkeypatch.setattr(build, "_install", fail_while_staging_qr)
     with pytest.raises(OSError, match="simulated staging failure"):
-        build._publish(image.merged, image.qr, _SETUP)
+        build.publish(outputs, image.merged, image.qr, _SETUP)
 
     assert {path.name: path.read_bytes() for path in outputs.iterdir()} == current
 
@@ -181,12 +182,12 @@ def test_publish_cutover_failure_never_leaves_stale_pairing_material(
 
     monkeypatch.setattr(build, "_commit_staged", fail_while_replacing_qr)
     with pytest.raises(OSError, match="simulated cutover failure"):
-        build._publish(image.merged, image.qr, _SETUP)
+        build.publish(outputs, image.merged, image.qr, _SETUP)
 
-    assert (outputs / build._MERGED_NAME).read_bytes() == image.merged.read_bytes()
-    assert not (outputs / build._QR_NAME).exists()
-    assert not (outputs / build._SETUP_NAME).exists()
-    assert {path.name for path in outputs.iterdir()} == {build._MERGED_NAME}
+    assert (outputs / build.MERGED_NAME).read_bytes() == image.merged.read_bytes()
+    assert not (outputs / build.QR_NAME).exists()
+    assert not (outputs / build.SETUP_NAME).exists()
+    assert {path.name for path in outputs.iterdir()} == {build.MERGED_NAME}
 
 
 def test_publish_recovers_reserved_staging_files(image: "_Image", outputs: pathlib.Path):
@@ -199,7 +200,7 @@ def test_publish_recovers_reserved_staging_files(image: "_Image", outputs: pathl
     for name in build._STAGING_NAMES:
         (outputs / name).write_bytes(b"interrupted build")
 
-    build._publish(image.merged, image.qr, _SETUP)
+    build.publish(outputs, image.merged, image.qr, _SETUP)
 
     assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
 
@@ -255,9 +256,9 @@ def test_publish_serializes_live_generations(outputs: pathlib.Path, tmp_path: pa
     assert first.exitcode == 0
     assert second.exitcode == 0
     assert second_entered.is_set()
-    assert (outputs / build._MERGED_NAME).read_bytes() == b"second merged"
-    assert (outputs / build._QR_NAME).read_bytes() == b"second QR"
-    assert (outputs / build._SETUP_NAME).read_text(encoding="utf-8") == (
+    assert (outputs / build.MERGED_NAME).read_bytes() == b"second merged"
+    assert (outputs / build.QR_NAME).read_bytes() == b"second QR"
+    assert (outputs / build.SETUP_NAME).read_text(encoding="utf-8") == (
         "manual_pairing_code=second manual\nsetup_payload=second payload\n"
     )
 
@@ -272,7 +273,7 @@ def test_publish_refuses_to_write_beside_a_stray_file(image: "_Image", outputs: 
     current = _seed_generation(outputs)
     (outputs / "leftover.bin").write_bytes(b"")
     with pytest.raises(ValueError, match=r"unexpected output artifacts: leftover\.bin"):
-        build._publish(image.merged, image.qr, _SETUP)
+        build.publish(outputs, image.merged, image.qr, _SETUP)
     assert {
         path.name: path.read_bytes() for path in outputs.iterdir() if path.name != "leftover.bin"
     } == current
@@ -281,9 +282,9 @@ def test_publish_refuses_to_write_beside_a_stray_file(image: "_Image", outputs: 
 @pytest.mark.parametrize(
     ("names", "handed_over"),
     [
-        pytest.param({build._MERGED_NAME}, True, id="compiled-firmware"),
+        pytest.param({build.MERGED_NAME}, True, id="compiled-firmware"),
         pytest.param(build._OUTPUT_NAMES, True, id="flashed-firmware-with-pairing"),
-        pytest.param({build._MERGED_NAME, build._QR_NAME}, False, id="partial-pairing"),
+        pytest.param({build.MERGED_NAME, build.QR_NAME}, False, id="partial-pairing"),
     ],
 )
 def test_hand_outputs_to_owner(
@@ -301,12 +302,11 @@ def test_hand_outputs_to_owner(
         (outputs / name).write_bytes(b"artifact")
     owner = outputs.stat()
     chowned = []
-    monkeypatch.setattr(build, "_OWNER_REFERENCE", outputs)
     monkeypatch.setattr(build.os, "chown", lambda path, uid, gid: chowned.append((path, uid, gid)))
 
     outcome = returns() if handed_over else pytest.raises(ValueError, match="expected firmware")
     with outcome:
-        build._hand_outputs_to_owner()
+        build.hand_outputs_to_owner(outputs, outputs)
 
     handed = [outputs, *sorted(outputs / name for name in names)] if handed_over else []
     assert chowned == [(path, owner.st_uid, owner.st_gid) for path in handed]
@@ -322,9 +322,9 @@ def _seed_generation(outputs: pathlib.Path) -> dict[str, bytes]:
         Each artifact's contents, keyed by file name.
     """
     contents = {
-        build._MERGED_NAME: b"current merged image",
-        build._QR_NAME: b"current QR image",
-        build._SETUP_NAME: b"manual_pairing_code=current\n",
+        build.MERGED_NAME: b"current merged image",
+        build.QR_NAME: b"current QR image",
+        build.SETUP_NAME: b"manual_pairing_code=current\n",
     }
     for name, content in contents.items():
         (outputs / name).write_bytes(content)
@@ -371,7 +371,6 @@ def _publish_in_process(
         release: Waited on after the first file is staged, or None not to pause.
         started: Set just before publishing begins, or None.
     """
-    build._OUTPUT_DIR = outputs
     install = build._install
     first_install = True
 
@@ -388,7 +387,7 @@ def _publish_in_process(
     build._install = controlled_install
     if started is not None:
         started.set()
-    build._publish(merged, qr, {"manual_pairing_code": manual, "setup_payload": payload})
+    build.publish(outputs, merged, qr, {"manual_pairing_code": manual, "setup_payload": payload})
 
 
 class _Image:
@@ -400,20 +399,20 @@ class _Image:
         Args:
             root: The directory the two files are written to.
         """
-        self.merged = root / build._MERGED_NAME
+        self.merged = root / build.MERGED_NAME
         self.qr = root / "device-qrcode.png"
         self.merged.write_bytes(_image(_FACTORY))
         self.qr.write_bytes(b"\x89PNG\r\n\x1a\n")
 
 
 @pytest.fixture
-def identity() -> build._BuildIdentity:
+def identity() -> build.BoardIdentity:
     """A build identity shrunk to the miniature image the fixtures build.
 
     Returns:
         The identity.
     """
-    return build._BuildIdentity(
+    return build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=_FACTORY_OFFSET,
@@ -439,17 +438,15 @@ def image(tmp_path: pathlib.Path) -> _Image:
 
 
 @pytest.fixture
-def outputs(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
-    """Redirect the module's /outputs bind mount at an empty directory.
+def outputs(tmp_path: pathlib.Path) -> pathlib.Path:
+    """An empty directory standing in for the /outputs bind mount.
 
     Args:
         tmp_path: Holds the directory.
-        monkeypatch: Points build at it.
 
     Returns:
         The empty directory.
     """
     directory = tmp_path / "outputs"
     directory.mkdir()
-    monkeypatch.setattr(build, "_OUTPUT_DIR", directory)
     return directory

@@ -1,4 +1,4 @@
-"""Matter pairing generation from one secret key, shared by MicroPython and host tooling."""
+"""Matter pairing generation from one secret key."""
 
 import binascii
 import hashlib

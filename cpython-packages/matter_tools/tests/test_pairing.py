@@ -9,8 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import matter
-from matter import pairing
+from matter_tools import _pairing
 
 _ANY_VALID_KEY = "any-valid-key-0123456789"
 
@@ -40,7 +39,7 @@ _FORBIDDEN_SETUP_PASSCODES = (
 _VERHOEFF_PERMUTATION = (1, 5, 7, 6, 2, 8, 3, 0, 9, 4)
 
 # Printable ASCII, Latin-1, Greek, CJK, and emoji: one to four UTF-8 bytes per
-# character. Lone surrogates are left out because MicroPython strings cannot hold them.
+# character. Lone surrogates are left out because UTF-8 cannot encode them.
 _ALPHABET = [
     chr(code_point)
     for block in (
@@ -239,9 +238,9 @@ def test_generate_pairing(
     _script_urandom(monkeypatch, urandom_draws)
     _force_sha256_digest(monkeypatch, sha256_digest)
     with outcome as expected:
-        result = matter.generate_pairing(key)
+        result = _pairing.generate_pairing(key)
         assert {field: result[field] for field in expected} == expected
-        assert matter.generate_pairing(result["key"]) == result
+        assert _pairing.generate_pairing(result["key"]) == result
 
 
 @pytest.mark.fuzz
@@ -253,11 +252,11 @@ def test_fuzz_valid_keys_yield_spec_valid_codes(seed: int):
         seed: Seeds the random valid key.
     """
     key = _random_key(seed, lengths=(24, 64), distinct_counts=(12, 40))
-    result = matter.generate_pairing(key)
+    result = _pairing.generate_pairing(key)
     code = result["manual_pairing_code"]
 
     assert result["key"] == key
-    assert matter.generate_pairing(key) == result
+    assert _pairing.generate_pairing(key) == result
     assert 1 <= result["passcode"] <= 99999999
     assert result["passcode"] not in _FORBIDDEN_SETUP_PASSCODES
     assert 0 <= result["discriminator"] <= 0xFFF
@@ -294,7 +293,7 @@ def test_fuzz_invalid_keys_raise_only_documented_errors(
     """
     key = convert(_random_key(seed, lengths, distinct_counts))
     with pytest.raises(ValueError, match=error) as raised:
-        matter.generate_pairing(key)
+        _pairing.generate_pairing(key)
     assert raised.type is ValueError
 
 
@@ -306,7 +305,7 @@ def _script_urandom(monkeypatch: pytest.MonkeyPatch, draws: Iterable[bytes]):
         draws: What each call returns.
     """
     remaining = iter(draws)
-    monkeypatch.setattr(pairing, "os", SimpleNamespace(urandom=lambda _size: next(remaining)))
+    monkeypatch.setattr(_pairing, "os", SimpleNamespace(urandom=lambda _size: next(remaining)))
 
 
 def _force_sha256_digest(monkeypatch: pytest.MonkeyPatch, digest: bytes | None) -> None:
@@ -319,7 +318,7 @@ def _force_sha256_digest(monkeypatch: pytest.MonkeyPatch, digest: bytes | None) 
     if digest is None:
         return
     forced = SimpleNamespace(digest=lambda: digest.ljust(32, b"\x00"))
-    monkeypatch.setattr(pairing, "hashlib", SimpleNamespace(sha256=lambda _data: forced))
+    monkeypatch.setattr(_pairing, "hashlib", SimpleNamespace(sha256=lambda _data: forced))
 
 
 def _verhoeff_is_valid(code: str) -> bool:

@@ -1,4 +1,4 @@
-"""Host tests for build.py's board-configuration parsers.
+"""Host tests for matter_tools' board-configuration parsers.
 
 The parsers are what let every later check compare an artifact against the
 firmware's own view of itself, so they are exercised against fixture files that
@@ -8,8 +8,9 @@ config so a change there cannot silently drift away from what the tests assume.
 
 import pathlib
 
-import build
 import pytest
+
+from matter_tools import build, provision
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 _REAL_BOARD = pathlib.Path("/projects/matter/native/board/ESP32_S3_MATTER")
@@ -105,7 +106,7 @@ def test_pyproject_reads_the_model_name(tmp_path: pathlib.Path):
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text('[project]\nname = "Color Light"\n', encoding="utf-8")
 
-    assert build._pyproject_to_model(metadata) == "Color Light"
+    assert provision.pyproject_to_model(metadata) == "Color Light"
 
 
 @pytest.mark.parametrize(
@@ -127,13 +128,13 @@ def test_pyproject_rejects_an_invalid_model_name(tmp_path: pathlib.Path, content
     metadata.write_text(contents, encoding="utf-8")
 
     with pytest.raises(ValueError, match="must set a non-empty name"):
-        build._pyproject_to_model(metadata)
+        provision.pyproject_to_model(metadata)
 
 
 def test_board_to_identity_reads_the_fixture_board():
     """The fixture board's IDs, factory partition, and flash size form its identity."""
     identity = build.board_to_identity(_FIXTURES, discovery_mode=2)
-    assert identity == build._BuildIdentity(
+    assert identity == build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,
@@ -148,7 +149,7 @@ def test_board_to_identity_matches_the_real_board_config():
     # Pins the shipped ESP32-S3 board config: a change to its VID/PID, factory
     # partition placement or flash size has to be a deliberate edit here too.
     identity = build.board_to_identity(_REAL_BOARD, discovery_mode=build.DISCOVERY_MODE)
-    assert identity == build._BuildIdentity(
+    assert identity == build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,

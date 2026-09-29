@@ -15,7 +15,6 @@ narrow, native, and isolated from product-specific changes.
 
 from matter.endpoint import Endpoint, WriteEvent
 from matter.node import CommissioningEvent, Fabric, Node
-from matter.pairing import generate_pairing
 from matter.schema import (
     Attributes,
     Clusters,
@@ -35,5 +34,4 @@ __all__ = [
     "Fabric",
     "Node",
     "WriteEvent",
-    "generate_pairing",
 ]
