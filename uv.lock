@@ -615,16 +615,16 @@ wheels = [
 
 [[package]]
 name = "matter"
-version = "0.2.2"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter-0.2.2.tar.gz" }
+sdist = { path = "/wheels/matter-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/matter-0.2.2-py3-none-any.whl" },
+    { path = "/wheels/matter-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "matter-example"
-version = "0.2.3"
+version = "0.2.4"
 source = { virtual = "projects/matter" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -635,7 +635,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "matter-radar-sensor"
-version = "0.5.5"
+version = "0.5.6"
 source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
     { name = "microdot" },
@@ -646,6 +646,20 @@ dependencies = [
 requires-dist = [
     { name = "microdot", specifier = "==2.6.2" },
     { name = "micropython-boardfarm", editable = "." },
+]
+
+[[package]]
+name = "matter-tools"
+version = "0.1.0"
+source = { registry = "/wheels" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "esp-idf-nvs-partition-gen" },
+    { name = "qrcode", extra = ["pil"] },
+]
+sdist = { path = "/wheels/matter_tools-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/matter_tools-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -668,13 +682,14 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.22.5"
+version = "0.23.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "matter-tools" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "qmc5883p" },
@@ -700,18 +715,16 @@ lint = [
 test = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
-    { name = "cryptography" },
-    { name = "esp-idf-nvs-partition-gen" },
     { name = "httpx" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "matter-tools" },
     { name = "microdot" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
-    { name = "qrcode", extra = ["pil"] },
     { name = "radar" },
     { name = "serial-over-web" },
     { name = "smoothing" },
@@ -731,7 +744,8 @@ requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "matter", specifier = ">=0.2.1", index = "file:///wheels" },
+    { name = "matter", specifier = ">=0.3.0", index = "file:///wheels" },
+    { name = "matter-tools", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -755,18 +769,16 @@ lint = [
 test = [
     { name = "atgm336h", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
-    { name = "cryptography", specifier = ">=50.0.0" },
-    { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
+    { name = "matter-tools", index = "file:///wheels" },
     { name = "microdot", specifier = "==2.6.2" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
-    { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
     { name = "radar", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
