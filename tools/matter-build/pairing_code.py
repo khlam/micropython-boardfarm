@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 
 import build
-from pairing import generate_pairing
+
+from matter_tools.build import DISCOVERY_MODE, board_to_identity
+from matter_tools.provision import generate_pairing, render_pairing_qr
 
 
 def main() -> None:
@@ -16,8 +18,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     pairing = generate_pairing(args.passcode)
-    identity = build.board_to_identity(args.board_dir, build.DISCOVERY_MODE)
-    payload = build.render_pairing_qr(identity, pairing, args.output)
+    identity = board_to_identity(args.board_dir, DISCOVERY_MODE)
+    payload = render_pairing_qr(identity, pairing, args.output)
     sys.stdout.write(
         f"manual_pairing_code={pairing['manual_pairing_code']}\nsetup_payload={payload}\n"
     )

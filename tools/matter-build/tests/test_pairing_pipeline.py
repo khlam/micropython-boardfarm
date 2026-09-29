@@ -6,54 +6,28 @@ import sys
 from pathlib import Path
 
 import build
-import pairing
 import pairing_code
+import provision
 import pytest
 
-from matter import generate_pairing
+from matter_tools import _nvs_partition_read, _pairing
+from matter_tools.build import (
+    DISCOVERY_MODE,
+    MERGED_NAME,
+    QR_NAME,
+    SETUP_NAME,
+    BoardIdentity,
+    board_to_identity,
+)
+from matter_tools.provision import _decode_qr_payload, generate_pairing
 
 _KEY = "correct-horse-battery-staple"
-_BOARD = Path(__file__).parent / "fixtures"
+# The package's own board fixture, reached through the pytest container's mount.
+_BOARD = Path("/cpython-packages/matter_tools/tests/fixtures")
 
 # The board identity, flash arguments, outputs directory, and every recorded
 # esptool run with the image it wrote.
-_Pipeline = tuple[build._BuildIdentity, argparse.Namespace, Path, list[tuple[list[str], bytes]]]
-
-
-@pytest.mark.parametrize(
-    ("port", "before", "after"),
-    [
-        ("/dev/ttyACM0", "default_reset", "watchdog_reset"),
-        ("socket://host:5555", "no_reset", "no_reset"),
-        ("rfc2217://host:5555", "no_reset", "no_reset"),
-    ],
-)
-def test_esptool_resets_only_local_boards(port: str, before: str, after: str):
-    """A locally attached board is reset around flashing; one reached over the network isn't.
-
-    Args:
-        port: The serial port or network URL flashed.
-        before: The reset mode esptool uses before flashing.
-        after: The reset mode esptool uses after flashing.
-    """
-    flash = build._flash_command(port, Path("image.bin"))
-
-    assert flash[flash.index("--before") + 1] == before
-    assert flash[flash.index("--after") + 1] == after
-    assert flash[-4:] == ["write_flash", "-z", "0x0", "image.bin"]
-
-
-def test_provisioning_replaces_only_the_factory_partition():
-    """Provisioning overwrites the factory partition and leaves every other byte alone."""
-    identity = build.board_to_identity(_BOARD, build.DISCOVERY_MODE)
-    start, size = identity.factory_offset, identity.factory_size
-    image = bytes(index % 251 for index in range(identity.flash_size))
-
-    provisioned = build._provision_image(image, b"\xaa" * size, identity)
-
-    assert provisioned[:start] == image[:start]
-    assert provisioned[start : start + size] == b"\xaa" * size
-    assert provisioned[start + size :] == image[start + size :]
+_Pipeline = tuple[BoardIdentity, argparse.Namespace, Path, list[tuple[list[str], bytes]]]
 
 
 def test_offline_qr_matches_firmware(
@@ -83,7 +57,7 @@ def test_offline_qr_matches_firmware(
     pairing_code.main()
     setup = dict(line.split("=", 1) for line in capsys.readouterr().out.splitlines())
     expected = generate_pairing(_KEY)
-    decoded = build._decode_qr_payload(setup["setup_payload"])
+    decoded = _decode_qr_payload(setup["setup_payload"])
     assert decoded["passcode"] == expected["passcode"]
     assert decoded["discriminator"] == expected["discriminator"]
     assert decoded["vendor_id"] == 0xFFF1
@@ -92,10 +66,10 @@ def test_offline_qr_matches_firmware(
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_flash_cli_provisions_the_named_port_with_the_given_key(
+def test_provision_cli_flashes_the_named_port_with_the_given_key(
     pipeline: _Pipeline, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    """``--flash`` writes to the named port and publishes pairing codes for the given key.
+    """The provisioning caller writes to the named port and publishes codes for the given key.
 
     Args:
         pipeline: The prepared outputs and recorded esptool runs.
@@ -104,11 +78,11 @@ def test_flash_cli_provisions_the_named_port_with_the_given_key(
     """
     _identity, _args, outputs, calls = pipeline
     port = "socket://host:5555"
-    monkeypatch.setattr(sys, "argv", ["build.py", "--flash", "--port", port, "--passcode", _KEY])
+    monkeypatch.setattr(sys, "argv", ["provision.py", "--port", port, "--passcode", _KEY])
     monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
-    monkeypatch.setattr(build, "_OWNER_REFERENCE", outputs)
+    monkeypatch.setattr(build, "OWNER_REFERENCE", outputs)
 
-    assert build.main() == 0
+    assert provision.main() == 0
     assert capsys.readouterr().out.splitlines()[-1] == "Matter flash complete"
     ((command, _image),) = calls
     assert command[command.index("--port") + 1] == port
@@ -118,33 +92,28 @@ def test_flash_cli_provisions_the_named_port_with_the_given_key(
 def test_compilation_is_board_free_and_removes_stale_codes(
     pipeline: _Pipeline, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    """Compiling mints no credentials, flashes nothing, and leaves only the merged image.
+    """Compiling flashes nothing and leaves only the merged image.
 
     Args:
         pipeline: The prepared outputs and recorded esptool runs.
-        monkeypatch: Sets the command line and stubs out the firmware build.
+        monkeypatch: Stubs out the firmware build and points it at the board and cache.
         capsys: Captures the completion message.
     """
     identity, _args, outputs, calls = pipeline
-    monkeypatch.setattr(sys, "argv", ["build.py"])
     monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
     monkeypatch.setattr(build, "_BUILD_CACHE", outputs.parent / "cache")
-    monkeypatch.setattr(build, "_OWNER_REFERENCE", outputs)
-    monkeypatch.setattr(build, "_build_firmware", lambda *_args: None)
+    monkeypatch.setattr(build, "OWNER_REFERENCE", outputs)
+    monkeypatch.setattr(build, "build_firmware", lambda *_args, **_kwargs: None)
 
     def merge(_cache, _identity, *, artifact_root):
-        path = artifact_root / build._MERGED_NAME
+        path = artifact_root / MERGED_NAME
         path.write_bytes(b"\xff" * identity.flash_size)
         return path
 
-    def unexpected(*_args):
-        pytest.fail("compilation tried to generate board credentials")
-
-    monkeypatch.setattr(build, "_merge_image", merge)
-    monkeypatch.setattr(build, "_mint_credentials", unexpected)
+    monkeypatch.setattr(build, "merge_image", merge)
     assert build.main() == 0
     assert capsys.readouterr().out.splitlines()[-1] == "Matter firmware ready to provision"
-    assert {path.name for path in outputs.iterdir()} == {build._MERGED_NAME}
+    assert {path.name for path in outputs.iterdir()} == {MERGED_NAME}
     assert not calls
 
 
@@ -164,20 +133,20 @@ def test_explicit_passcode_reproduces_pairing_codes(
     def unexpected():
         pytest.fail("an explicit passcode drew a random one")
 
-    monkeypatch.setattr(pairing, "_random_passcode", unexpected)
+    monkeypatch.setattr(_pairing, "_random_passcode", unexpected)
     flashes = []
     for index in range(2):
-        build._flash_board(tmp_path / str(index), identity, args)
+        provision._provision_board(tmp_path / str(index), identity, args)
         flashes.append(_published_pairing(outputs))
     assert flashes[0] == flashes[1]
     setup, qr = flashes[0]
     expected = generate_pairing(_KEY)
     assert setup["passcode"] == _KEY
     assert setup["manual_pairing_code"] == expected["manual_pairing_code"]
-    assert build._decode_qr_payload(setup["setup_payload"])["passcode"] == expected["passcode"]
+    assert _decode_qr_payload(setup["setup_payload"])["passcode"] == expected["passcode"]
     assert qr.startswith(b"\x89PNG\r\n\x1a\n")
     _command, image = calls[-1]
-    assert (outputs / build._MERGED_NAME).read_bytes() == image
+    assert (outputs / MERGED_NAME).read_bytes() == image
     assert image[: identity.factory_offset] == b"\xff" * identity.factory_offset
 
 
@@ -192,17 +161,17 @@ def test_blank_passcode_produces_random_pairing_codes(
         monkeypatch: Counts the random passcode draws.
     """
     identity, args, outputs, _calls = pipeline
-    draw_passcode = pairing._random_passcode
+    draw_passcode = _pairing._random_passcode
     draws = []
 
     def counted_draw():
         draws.append(draw_passcode())
         return draws[-1]
 
-    monkeypatch.setattr(pairing, "_random_passcode", counted_draw)
+    monkeypatch.setattr(_pairing, "_random_passcode", counted_draw)
     setups = []
     for index in range(2):
-        build._flash_board(tmp_path / str(index), identity, args)
+        provision._provision_board(tmp_path / str(index), identity, args)
         setups.append(_published_pairing(outputs)[0])
     assert len(draws) == 2
     # Two independent 256-bit keys share a pairing code with negligible probability.
@@ -218,10 +187,10 @@ def test_flash_refuses_a_wrong_size_image(pipeline: _Pipeline, tmp_path: Path):
         tmp_path: The flash's working directory.
     """
     identity, args, outputs, calls = pipeline
-    (outputs / build._MERGED_NAME).write_bytes(b"invalid")
+    (outputs / MERGED_NAME).write_bytes(b"invalid")
 
     with pytest.raises(ValueError, match="merged image must be exactly"):
-        build._flash_board(tmp_path, identity, args)
+        provision._provision_board(tmp_path, identity, args)
     assert not calls
 
 
@@ -241,9 +210,9 @@ def test_failed_flash_preserves_published_artifacts(
     def fail(*_args):
         raise OSError("serial failure")
 
-    monkeypatch.setattr(build, "_run", fail)
+    monkeypatch.setattr(provision, "run", fail)
     with pytest.raises(OSError, match="serial failure"):
-        build._flash_board(tmp_path, identity, args)
+        provision._provision_board(tmp_path, identity, args)
     assert {path.name: path.read_bytes() for path in outputs.iterdir()} == before
 
 
@@ -253,22 +222,22 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
 
     Args:
         tmp_path: Holds the outputs directory and project metadata.
-        monkeypatch: Points build at them, reads factory data from its CSV, and
-            records esptool runs instead of flashing.
+        monkeypatch: Points the callers at them, reads factory data from its CSV,
+            and records esptool runs instead of flashing.
 
     Returns:
         The board identity, flash arguments, outputs directory, and recorded runs.
     """
-    identity = build.board_to_identity(_BOARD, build.DISCOVERY_MODE)
+    identity = board_to_identity(_BOARD, DISCOVERY_MODE)
     outputs = tmp_path / "outputs"
     outputs.mkdir()
-    (outputs / build._MERGED_NAME).write_bytes(b"\xff" * identity.flash_size)
-    (outputs / build._QR_NAME).write_bytes(b"previous QR")
-    (outputs / build._SETUP_NAME).write_text("previous setup")
+    (outputs / MERGED_NAME).write_bytes(b"\xff" * identity.flash_size)
+    (outputs / QR_NAME).write_bytes(b"previous QR")
+    (outputs / SETUP_NAME).write_text("previous setup")
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text('[project]\nname = "Test board"\n')
-    monkeypatch.setattr(build, "_OUTPUT_DIR", outputs)
-    monkeypatch.setattr(build, "_PROJECT_TOML", metadata)
+    monkeypatch.setattr(build, "OUTPUT_DIR", outputs)
+    monkeypatch.setattr(build, "PROJECT_TOML", metadata)
 
     def read_factory(path, _namespace):
         with path.with_suffix(".csv").open() as stream:
@@ -277,10 +246,10 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
                 for row in csv.DictReader(stream)
             }
 
-    monkeypatch.setattr(build.nvs_partition_read, "read_factory_partition", read_factory)
+    monkeypatch.setattr(_nvs_partition_read, "read_factory_partition", read_factory)
     calls = []
     monkeypatch.setattr(
-        build, "_run", lambda command: calls.append((command, Path(command[-1]).read_bytes()))
+        provision, "run", lambda command: calls.append((command, Path(command[-1]).read_bytes()))
     )
     args = argparse.Namespace(port="/dev/ttyACM0", passcode="", manufacturer="", serial_number="")
     return identity, args, outputs, calls
@@ -295,7 +264,5 @@ def _published_pairing(outputs: Path) -> tuple[dict[str, str], bytes]:
     Returns:
         The setup fields, keyed by name, and the QR image.
     """
-    setup = dict(
-        line.split("=", 1) for line in (outputs / build._SETUP_NAME).read_text().splitlines()
-    )
-    return setup, (outputs / build._QR_NAME).read_bytes()
+    setup = dict(line.split("=", 1) for line in (outputs / SETUP_NAME).read_text().splitlines())
+    return setup, (outputs / QR_NAME).read_bytes()
