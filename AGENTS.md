@@ -14,6 +14,12 @@ This is a shared-projects monorepo. When rules conflict, prefer:
 ### Host policy
 Never install anything on the host machine. Docker is the only required host tool. All toolchains, flashers, serial readers, tests, and helper scripts run inside Docker — invoke them via the project's `docker compose` services. If a workflow seems to require a host install (pip, brew, apt, pipx, esptool, MicroPython, etc.), wrap it in a Docker stage instead.
 
+### Permissions
+- Run without asking: `docker`, `git`, `make init|build-linters|skills|precommit`, `.githooks/*`, `skills/link-skills.sh`, read-only text tools, file edits.
+- Need approval: `git push`, `git reset --hard`, `git clean`, `git checkout --`, `git restore`, Docker push/prune.
+- Denied: host `python`, host installs. Instead run ad-hoc Python in a container: `docker compose run --rm -T --entrypoint python pytest - <<'EOF'`.
+- Call commands directly — no `bash -c` wrappers or `VAR=…`. Edit files with the edit tool .
+
 ### Safety & repo boundaries
 - Never read or write `projects/<project>/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
