@@ -23,9 +23,19 @@ _TEST_BOARD = Board(name="RP2040-Zero", uart_id=1, tx=4, rx=5)
 
 
 class _Target:
-    """Minimal stand-in for ld2450.Target — the five attributes _target_dict reads."""
+    """Minimal stand-in for ld2450.Target — the five attributes _target_dict reads.
 
-    def __init__(self, slot, x_mm, y_mm, speed_cm_s, resolution_mm) -> None:
+    Args:
+        slot: The radar's one-based target slot.
+        x_mm: Lateral offset.
+        y_mm: Range ahead of the radar.
+        speed_cm_s: Radial speed.
+        resolution_mm: Distance resolution.
+    """
+
+    def __init__(
+        self, slot: int, x_mm: int, y_mm: int, speed_cm_s: int, resolution_mm: int
+    ) -> None:
         self.slot = slot
         self.x_mm = x_mm
         self.y_mm = y_mm
@@ -34,9 +44,13 @@ class _Target:
 
 
 class _FakeRadar:
-    """Scripted LD2450 stand-in: read_latest() returns each script entry in turn."""
+    """Scripted LD2450 stand-in: read_latest() returns each script entry in turn.
 
-    def __init__(self, script) -> None:
+    Args:
+        script: Targets tuples or None to return, or exceptions to raise, in order.
+    """
+
+    def __init__(self, script: list) -> None:
         self._script = list(script)
 
     async def read_latest(self):
@@ -62,6 +76,7 @@ def _make_main_ns():
 
 
 def test_stream_emits_targets_with_t_field():
+    """A report with targets emits one line carrying t and the target list."""
     main_ns = _make_main_ns()
     target = _Target(1, 100, 200, 0, 50)
     radar = _FakeRadar([(target,)])
@@ -73,6 +88,7 @@ def test_stream_emits_targets_with_t_field():
 
 
 def test_stream_emits_empty_targets_list_for_no_active_targets():
+    """A report with no targets still emits a line, with an empty target list."""
     main_ns = _make_main_ns()
     radar = _FakeRadar([()])
     lines = run_async_stream(main_ns, radar)
@@ -82,6 +98,7 @@ def test_stream_emits_empty_targets_list_for_no_active_targets():
 
 
 def test_stream_latches_single_report_timeout_diag():
+    """Consecutive timeouts emit one report_timeout diag, cleared when reports resume."""
     main_ns = _make_main_ns()
     radar = _FakeRadar([None, None, None, ()])
     lines = run_async_stream(main_ns, radar)
@@ -91,6 +108,7 @@ def test_stream_latches_single_report_timeout_diag():
 
 
 def test_stream_read_err_emits_every_time_then_recovers():
+    """Every read error emits read_err, and streaming resumes after."""
     main_ns = _make_main_ns()
     radar = _FakeRadar([OSError("scripted"), OSError("scripted"), ()])
     lines = run_async_stream(main_ns, radar)

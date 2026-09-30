@@ -1,6 +1,6 @@
 [project]
 name = "led-effects"
-version = "0.1.0"
+version = "0.1.1"
 description = "WS2812B strip animation demo — cycles rainbow/hue/breathe/fade effects on RP2040, RP2350, and ESP32-S3."
 readme = "README.md"
 requires-python = ">=3.12"

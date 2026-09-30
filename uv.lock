@@ -182,7 +182,7 @@ wheels = [
 
 [[package]]
 name = "compass"
-version = "0.2.0"
+version = "0.2.1"
 source = { virtual = "projects/compass" }
 dependencies = [
     { name = "boot-status-led" },
@@ -344,7 +344,7 @@ wheels = [
 
 [[package]]
 name = "distance-stream"
-version = "0.4.0"
+version = "0.4.1"
 source = { virtual = "projects/distance-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -433,7 +433,7 @@ wheels = [
 
 [[package]]
 name = "gps-stream"
-version = "0.2.0"
+version = "0.2.1"
 source = { virtual = "projects/gps" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -444,7 +444,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "gyro-stream"
-version = "0.4.0"
+version = "0.4.1"
 source = { virtual = "projects/gyro-stream" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -473,15 +473,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
-]
-
-[[package]]
-name = "httpd"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/httpd-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/httpd-0.1.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -586,7 +577,7 @@ wheels = [
 
 [[package]]
 name = "ld2450-demo"
-version = "0.2.0"
+version = "0.2.1"
 source = { virtual = "projects/ld2450" }
 dependencies = [
     { name = "boot-status-led" },
@@ -601,7 +592,7 @@ requires-dist = [
 
 [[package]]
 name = "led-effects"
-version = "0.1.0"
+version = "0.1.1"
 source = { virtual = "projects/led-effects" }
 dependencies = [
     { name = "boot-status-led" },
@@ -624,16 +615,16 @@ wheels = [
 
 [[package]]
 name = "matter"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter-0.2.0.tar.gz" }
+sdist = { path = "/wheels/matter-0.3.0.tar.gz" }
 wheels = [
-    { path = "/wheels/matter-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/matter-0.3.0-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "matter-example"
-version = "0.2.0"
+version = "0.2.4"
 source = { virtual = "projects/matter" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -644,14 +635,32 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "matter-radar-sensor"
-version = "0.3.0"
+version = "0.5.6"
 source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
+    { name = "microdot" },
     { name = "micropython-boardfarm" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
+requires-dist = [
+    { name = "microdot", specifier = "==2.6.2" },
+    { name = "micropython-boardfarm", editable = "." },
+]
+
+[[package]]
+name = "matter-tools"
+version = "0.1.0"
+source = { registry = "/wheels" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "esp-idf-nvs-partition-gen" },
+    { name = "qrcode", extra = ["pil"] },
+]
+sdist = { path = "/wheels/matter_tools-0.1.0.tar.gz" }
+wheels = [
+    { path = "/wheels/matter_tools-0.1.0-py3-none-any.whl" },
+]
 
 [[package]]
 name = "mdurl"
@@ -663,15 +672,24 @@ wheels = [
 ]
 
 [[package]]
+name = "microdot"
+version = "2.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/fb/bd10145088c6da0abd8ea67d4255056354e8c7a7b976f5a0db3b707a33a3/microdot-2.6.2.tar.gz", hash = "sha256:7bb9a69fa97a47d8fe07e61d9dd405804744132ca52d26705cf1173431ff7f4b", size = 89402, upload-time = "2026-05-12T19:27:11.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/35/af2148cc9408b29b1e3bc44e4d64c56ed9565b2a8520cab864aff1cad1f4/microdot-2.6.2-py3-none-any.whl", hash = "sha256:206c52870e3b1d5e6d387802e2ed0afae8c4598c80542a21e3efe377efc128c8", size = 53247, upload-time = "2026-05-12T19:27:10.41Z" },
+]
+
+[[package]]
 name = "micropython-boardfarm"
-version = "0.19.1"
+version = "0.23.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
-    { name = "httpd" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "matter-tools" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "qmc5883p" },
@@ -683,6 +701,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+firmware = [
+    { name = "microdot" },
+]
 lint = [
     { name = "pydoclint" },
     { name = "ruff" },
@@ -694,18 +715,16 @@ lint = [
 test = [
     { name = "atgm336h" },
     { name = "boot-status-led" },
-    { name = "cryptography" },
-    { name = "esp-idf-nvs-partition-gen" },
-    { name = "httpd" },
     { name = "httpx" },
     { name = "i2c-bus" },
     { name = "matter" },
+    { name = "matter-tools" },
+    { name = "microdot" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "qmc5883p" },
-    { name = "qrcode", extra = ["pil"] },
     { name = "radar" },
     { name = "serial-over-web" },
     { name = "smoothing" },
@@ -724,9 +743,9 @@ viz = [
 requires-dist = [
     { name = "atgm336h", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "httpd", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
-    { name = "matter", specifier = ">=0.2.0", index = "file:///wheels" },
+    { name = "matter", specifier = ">=0.3.0", index = "file:///wheels" },
+    { name = "matter-tools", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.8.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "qmc5883p", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -738,6 +757,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+firmware = [{ name = "microdot", specifier = "==2.6.2" }]
 lint = [
     { name = "pydoclint", specifier = ">=0.8.4" },
     { name = "ruff", specifier = ">=0.15.15" },
@@ -749,18 +769,16 @@ lint = [
 test = [
     { name = "atgm336h", index = "file:///wheels" },
     { name = "boot-status-led", index = "file:///wheels" },
-    { name = "cryptography", specifier = ">=50.0.0" },
-    { name = "esp-idf-nvs-partition-gen", specifier = ">=0.3.0" },
-    { name = "httpd", index = "file:///wheels" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
+    { name = "matter-tools", index = "file:///wheels" },
+    { name = "microdot", specifier = "==2.6.2" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "qmc5883p", index = "file:///wheels" },
-    { name = "qrcode", extras = ["pil"], specifier = ">=8.2" },
     { name = "radar", index = "file:///wheels" },
     { name = "serial-over-web", index = "file:///wheels" },
     { name = "smoothing", index = "file:///wheels" },
@@ -773,11 +791,11 @@ viz = [{ name = "serial-over-web", index = "file:///wheels" }]
 
 [[package]]
 name = "micropython-stubs"
-version = "0.8.0"
+version = "0.9.0"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/micropython_stubs-0.8.0.tar.gz" }
+sdist = { path = "/wheels/micropython_stubs-0.9.0.tar.gz" }
 wheels = [
-    { path = "/wheels/micropython_stubs-0.8.0-py3-none-any.whl" },
+    { path = "/wheels/micropython_stubs-0.9.0-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -800,7 +818,7 @@ wheels = [
 
 [[package]]
 name = "multizone-ranging"
-version = "0.3.0"
+version = "0.3.1"
 source = { virtual = "projects/multizone-ranging" }
 dependencies = [
     { name = "micropython-boardfarm" },

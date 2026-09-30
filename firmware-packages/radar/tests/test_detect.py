@@ -1,6 +1,7 @@
 """Radar detection over a shared UART, and the one target shape every driver decodes into."""
 
 import asyncio
+from collections.abc import Callable
 
 import machine
 import pytest
@@ -12,16 +13,27 @@ _BUS = {"bus_id": 1, "tx": 5, "rx": 6}
 
 
 @pytest.fixture(autouse=True)
-def _patient_ld2420_probe(monkeypatch):
+def _patient_ld2420_probe(monkeypatch: pytest.MonkeyPatch):
     """Widen the one budget the conftest millisecond defaults are too tight for.
 
     The LD2420 probe only begins once the LD2450 has been ruled out, and the
     test feeds its first report after that.
+
+    Args:
+        monkeypatch: Restores the conftest's startup timeout after the test.
     """
     monkeypatch.setattr(LD2420, "STARTUP_TIMEOUT_MS", 500)
 
 
-def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(build_ld2450_report):
+def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(
+    build_ld2450_report: Callable[..., bytes],
+):
+    """An LD2450 report ends detection on the first probe, targets unchanged.
+
+    Args:
+        build_ld2450_report: Encodes the LD2450's first report.
+    """
+
     async def _run():
         machine.feed_uart_bytes(build_ld2450_report((100, 200, -5, 30)))
         model, device = await detect(**_BUS)
@@ -33,7 +45,16 @@ def test_ld2450_answers_first_and_its_targets_pass_through_unchanged(build_ld245
     assert len(machine.uart_constructions) == 1  # the LD2420 was never probed
 
 
-def test_ld2420_is_probed_after_the_ld2450_stays_silent(build_ld2420_report, configuration_acks):
+def test_ld2420_is_probed_after_the_ld2450_stays_silent(
+    build_ld2420_report: Callable[..., bytes], configuration_acks: list[bytes]
+):
+    """A silent LD2450 probe is released and the LD2420 is detected next.
+
+    Args:
+        build_ld2420_report: Encodes the LD2420's first report.
+        configuration_acks: Answers the LD2420's configuration commands.
+    """
+
     async def _run():
         machine.queue_uart_replies(configuration_acks)
         detecting = asyncio.create_task(detect(**_BUS))
@@ -49,6 +70,7 @@ def test_ld2420_is_probed_after_the_ld2450_stays_silent(build_ld2420_report, con
 
 
 def test_no_radar_answering_raises_and_releases_every_probe():
+    """With neither radar answering, detect() raises and releases both probes' UARTs."""
     with pytest.raises(NoRadarError):
         asyncio.run(detect(**_BUS))
 

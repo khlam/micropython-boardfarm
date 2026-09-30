@@ -1,4 +1,4 @@
-"""Host tests for build.py's QR and manual pairing-code decoders.
+"""Host tests for matter_tools.provision's QR and manual pairing-code decoders.
 
 Both decoders exist to check the manufacturing tool's output without reusing the
 tool's own encoder, so they are pinned against the published CHIP test-device
@@ -8,8 +8,9 @@ and then driven over their rejection paths with deliberately corrupted inputs.
 
 from dataclasses import replace
 
-import build
 import pytest
+
+from matter_tools import build, provision
 
 # The standard CHIP test device: VID 0xFFF1, PID 0x8001, discriminator 3840,
 # passcode 20202021, discovery mode 4.
@@ -20,7 +21,8 @@ _KNOWN_PASSCODE = 20202021
 
 
 def test_decodes_the_published_test_payload():
-    assert build._decode_qr_payload(_KNOWN_PAYLOAD) == {
+    """The published CHIP test-device QR payload decodes to its documented fields."""
+    assert provision._decode_qr_payload(_KNOWN_PAYLOAD) == {
         "version": 0,
         "vendor_id": 0xFFF1,
         "product_id": 0x8001,
@@ -33,6 +35,7 @@ def test_decodes_the_published_test_payload():
 
 
 def test_discovery_mode_advertises_ble_and_on_network():
+    """The minted QR advertises both BLE and on-network discovery."""
     # firmware-packages/matter/native's chip_operations.cpp
     # (open_commissioning_window) and callbacks.cpp (the automatic reopen once
     # the last fabric is removed) both reopen commissioning windows in
@@ -43,6 +46,7 @@ def test_discovery_mode_advertises_ble_and_on_network():
 
 
 def test_decodes_every_field_at_its_boundary():
+    """Every payload field decodes correctly at its maximum value."""
     fields = {
         "version": 0x7,
         "vendor_id": 0xFFFF,
@@ -53,77 +57,100 @@ def test_decodes_every_field_at_its_boundary():
         "passcode": 0x7FFFFFF,
         "padding": 0x0,
     }
-    assert build._decode_qr_payload(encode_qr_payload(**fields)) == fields
+    assert provision._decode_qr_payload(encode_qr_payload(**fields)) == fields
 
 
 def test_qr_payload_needs_the_matter_prefix():
+    """A payload without the MT: prefix is rejected."""
     with pytest.raises(ValueError, match="must start with MT:"):
-        build._decode_qr_payload(_KNOWN_PAYLOAD[1:])
+        provision._decode_qr_payload(_KNOWN_PAYLOAD[1:])
 
 
 def test_qr_payload_rejects_a_character_outside_base38():
+    """A character outside the base38 alphabet is rejected."""
     corrupted = _KNOWN_PAYLOAD[:5] + "*" + _KNOWN_PAYLOAD[6:]
     with pytest.raises(ValueError, match="invalid base38 character"):
-        build._decode_qr_payload(corrupted)
+        provision._decode_qr_payload(corrupted)
 
 
 @pytest.mark.parametrize("dropped", [1, 3])
-def test_qr_payload_rejects_a_truncated_final_chunk(dropped):
+def test_qr_payload_rejects_a_truncated_final_chunk(dropped: int):
+    """A final chunk of a length no byte count encodes to is rejected.
+
+    Args:
+        dropped: How many trailing characters are removed.
+    """
     # 5, 4 and 2 characters decode to 3, 2 and 1 bytes; a trailing 3 or 1 is not
     # a chunk at all. The payload is 19 characters, so dropping 1 or 3 leaves one.
     with pytest.raises(ValueError, match="invalid base38 chunk length"):
-        build._decode_qr_payload(_KNOWN_PAYLOAD[:-dropped])
+        provision._decode_qr_payload(_KNOWN_PAYLOAD[:-dropped])
 
 
 def test_qr_payload_rejects_a_chunk_that_overflows_its_bytes():
+    """A chunk whose value exceeds the bytes it encodes is rejected."""
     # "...." is 37 in every base38 digit, which exceeds three bytes.
     with pytest.raises(ValueError, match="base38 chunk overflows"):
-        build._decode_qr_payload("MT:.....")
+        provision._decode_qr_payload("MT:.....")
 
 
 def test_decodes_the_published_manual_code():
-    assert build._decode_manual_code(_KNOWN_MANUAL) == {
+    """The published CHIP test-device manual code decodes to its discriminator and passcode."""
+    assert provision._decode_manual_code(_KNOWN_MANUAL) == {
         "short_discriminator": _KNOWN_DISCRIMINATOR >> 8,
         "passcode": _KNOWN_PASSCODE,
     }
 
 
 def test_manual_code_ignores_grouping_dashes():
+    """Dashes grouping the digits don't change the decoded code."""
     grouped = f"{_KNOWN_MANUAL[:4]}-{_KNOWN_MANUAL[4:7]}-{_KNOWN_MANUAL[7:]}"
-    assert build._decode_manual_code(grouped) == build._decode_manual_code(_KNOWN_MANUAL)
+    assert provision._decode_manual_code(grouped) == provision._decode_manual_code(_KNOWN_MANUAL)
 
 
 @pytest.mark.parametrize("code", ["3497011233", "349701123321", "3497O112332"])
-def test_manual_code_needs_eleven_digits(code):
+def test_manual_code_needs_eleven_digits(code: str):
+    """A manual code that isn't exactly eleven digits is rejected.
+
+    Args:
+        code: Too short, too long, or holding a letter.
+    """
     with pytest.raises(ValueError, match="must contain 11 digits"):
-        build._decode_manual_code(code)
+        provision._decode_manual_code(code)
 
 
 def test_manual_code_rejects_the_custom_flow_bit():
+    """A manual code for a custom commissioning flow is rejected."""
     # Bit 2 of the leading digit marks a custom commissioning flow.
     body = str(int(_KNOWN_MANUAL[0]) | 0x4) + _KNOWN_MANUAL[1:10]
-    custom = body + build._verhoeff_check_digit(body)
+    custom = body + provision._verhoeff_check_digit(body)
     with pytest.raises(ValueError, match="only standard commissioning flow"):
-        build._decode_manual_code(custom)
+        provision._decode_manual_code(custom)
 
 
 def test_verhoeff_check_digit_matches_the_published_test_vector():
-    # Pins build._verhoeff_check_digit itself against the same published CHIP
+    """The check digit computed for the published code's body is its published last digit."""
+    # Pins provision._verhoeff_check_digit itself against the same published CHIP
     # test-device manual code the rest of this module anchors to, so a broken
     # table or digit-position offset shows up here rather than only inside a
     # decode that happens to also fail for some other reason.
-    assert build._verhoeff_check_digit(_KNOWN_MANUAL[:-1]) == _KNOWN_MANUAL[-1]
+    assert provision._verhoeff_check_digit(_KNOWN_MANUAL[:-1]) == _KNOWN_MANUAL[-1]
 
 
 def test_manual_code_rejects_a_corrupted_check_digit():
+    """A manual code whose check digit doesn't match its body is rejected."""
     corrupted_digit = str((int(_KNOWN_MANUAL[-1]) + 1) % 10)
     corrupted = _KNOWN_MANUAL[:-1] + corrupted_digit
     with pytest.raises(ValueError, match="check digit does not match"):
-        build._decode_manual_code(corrupted)
+        provision._decode_manual_code(corrupted)
 
 
-def test_onboarding_accepts_matching_codes(identity):
-    build._validate_onboarding(
+def test_onboarding_accepts_matching_codes(identity: build.BoardIdentity):
+    """A QR payload and manual code that agree with each other and the board pass.
+
+    Args:
+        identity: The board's build identity.
+    """
+    provision._validate_onboarding(
         _KNOWN_PAYLOAD,
         _KNOWN_MANUAL,
         _KNOWN_DISCRIMINATOR,
@@ -133,16 +160,25 @@ def test_onboarding_accepts_matching_codes(identity):
 
 
 @pytest.mark.parametrize(
-    "field, value",
+    ("field", "value"),
     [
         ("vendor_id", 0xFFF2),
         ("product_id", 0x8002),
         ("discovery_mode", 2),
     ],
 )
-def test_onboarding_rejects_a_payload_disagreeing_with_the_board(identity, field, value):
+def test_onboarding_rejects_a_payload_disagreeing_with_the_board(
+    identity: build.BoardIdentity, field: str, value: int
+):
+    """A QR payload whose IDs or discovery mode differ from the board's is rejected.
+
+    Args:
+        identity: The board's build identity, before the change.
+        field: The identity field changed.
+        value: Its new value.
+    """
     with pytest.raises(ValueError, match="do not match build identity"):
-        build._validate_onboarding(
+        provision._validate_onboarding(
             _KNOWN_PAYLOAD,
             _KNOWN_MANUAL,
             _KNOWN_DISCRIMINATOR,
@@ -151,9 +187,16 @@ def test_onboarding_rejects_a_payload_disagreeing_with_the_board(identity, field
         )
 
 
-def test_onboarding_rejects_a_discriminator_disagreeing_with_the_payload(identity):
+def test_onboarding_rejects_a_discriminator_disagreeing_with_the_payload(
+    identity: build.BoardIdentity,
+):
+    """A discriminator that differs from the QR payload's is rejected.
+
+    Args:
+        identity: The board's build identity.
+    """
     with pytest.raises(ValueError, match="do not match build identity"):
-        build._validate_onboarding(
+        provision._validate_onboarding(
             _KNOWN_PAYLOAD,
             _KNOWN_MANUAL,
             3841,
@@ -162,11 +205,16 @@ def test_onboarding_rejects_a_discriminator_disagreeing_with_the_payload(identit
         )
 
 
-def test_onboarding_rejects_a_manual_code_from_another_device(identity):
+def test_onboarding_rejects_a_manual_code_from_another_device(identity: build.BoardIdentity):
+    """A manual code minted for a different passcode than the QR payload's is rejected.
+
+    Args:
+        identity: The board's build identity.
+    """
     # A manual code minted for a different passcode, beside the right QR payload.
     other = encode_manual_code(_KNOWN_DISCRIMINATOR >> 8, 12345678)
     with pytest.raises(ValueError, match="manual pairing code does not match"):
-        build._validate_onboarding(
+        provision._validate_onboarding(
             _KNOWN_PAYLOAD,
             other,
             _KNOWN_DISCRIMINATOR,
@@ -217,7 +265,7 @@ def encode_qr_payload(
         block = raw[offset : offset + 3]
         value = int.from_bytes(block, "little")
         for _ in range({1: 2, 2: 4, 3: 5}[len(block)]):
-            characters.append(build._BASE38[value % 38])
+            characters.append(provision._BASE38[value % 38])
             value //= 38
     return "MT:" + "".join(characters)
 
@@ -236,13 +284,17 @@ def encode_manual_code(short_discriminator: int, passcode: int) -> str:
     chunk2 = ((short_discriminator & 0x3) << 14) | (passcode & 0x3FFF)
     chunk3 = passcode >> 14
     body = f"{chunk1:01d}{chunk2:05d}{chunk3:04d}"
-    return body + build._verhoeff_check_digit(body)
+    return body + provision._verhoeff_check_digit(body)
 
 
 @pytest.fixture
-def identity():
-    """A build identity matching the published CHIP test device."""
-    return build._BuildIdentity(
+def identity() -> build.BoardIdentity:
+    """A build identity matching the published CHIP test device.
+
+    Returns:
+        The identity.
+    """
+    return build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,

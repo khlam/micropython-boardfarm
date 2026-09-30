@@ -11,7 +11,7 @@ through :meth:`Endpoint._accept_remote` while
 
 from collections import namedtuple
 
-import _matter
+import matter_native
 
 from matter.emit import error as emit_error
 from matter.schema import SCHEMAS, Paths, attribute_path, validate_value
@@ -129,7 +129,7 @@ class Endpoint:
             raise OSError(22, "Matter node is not started")
         for cluster, attribute, value in updates:
             self._state[(cluster, attribute)] = value
-        _matter.attributes_publish(self.id, tuple(updates))
+        matter_native.attributes_publish(self.id, tuple(updates))
 
     def _restore(self) -> None:
         """Overwrite the Python copy with whatever native currently holds.
@@ -142,7 +142,7 @@ class Endpoint:
         """
         state = self._state
         for path in state:
-            value = _matter.attribute_get(self.id, path[0], path[1])
+            value = matter_native.attribute_get(self.id, path[0], path[1])
             try:
                 state[path] = validate_value(self._schema, path, value)
             except (TypeError, ValueError):

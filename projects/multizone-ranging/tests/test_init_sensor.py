@@ -10,6 +10,7 @@ retry (OSError from the constructor), and ValueError/RuntimeError from init()
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 from typing import ClassVar
 
 from micropython_stubs.testing import ScriptedFake, firmware_namespace
@@ -22,11 +23,16 @@ _TEST_BOARD = Board(name="RP2040-Zero", sda=0, scl=1)
 
 
 class _FakeVL53L5CX(ScriptedFake):
-    """VL53L5CX stand-in (see ScriptedFake): records init()/start() on success."""
+    """VL53L5CX stand-in (see ScriptedFake): records init()/start() on success.
+
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+    """
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, sda, scl) -> None:
+    def __init__(self, *, sda: int, scl: int) -> None:
         super().__init__()
         self.addr = 0x29
         self._inited = False
@@ -41,8 +47,12 @@ class _FakeVL53L5CX(ScriptedFake):
         self._freq = freq
 
 
-def _make_init_ns():
-    """Create AST-loaded namespace with _FakeVL53L5CX injected."""
+def _make_init_ns() -> SimpleNamespace:
+    """Create AST-loaded namespace with _FakeVL53L5CX injected.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     _FakeVL53L5CX.script = []
     return firmware_namespace(
         _FIRMWARE,
@@ -56,6 +66,7 @@ def _make_init_ns():
 
 
 def test_init_sensor_happy_path():
+    """A present sensor is initialised, started, and returned."""
     init_ns = _make_init_ns()
     tof = init_ns.ns["init_sensor"]()
     assert isinstance(tof, _FakeVL53L5CX)
@@ -65,6 +76,7 @@ def test_init_sensor_happy_path():
 
 
 def test_init_sensor_retries_when_device_missing():
+    """A missing sensor shows no_device and is retried until it appears."""
     init_ns = _make_init_ns()
     _FakeVL53L5CX.script = [DeviceNotFoundError("no device"), None]
     init_ns.ns["init_sensor"]()
@@ -72,6 +84,7 @@ def test_init_sensor_retries_when_device_missing():
 
 
 def test_init_sensor_retries_on_oserror():
+    """A bus fault during construction shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeVL53L5CX.script = [OSError("bus fault"), None]
     init_ns.ns["init_sensor"]()
@@ -79,6 +92,7 @@ def test_init_sensor_retries_on_oserror():
 
 
 def test_init_sensor_retries_on_value_error():
+    """A ValueError from init() shows init_err and is retried."""
     init_ns = _make_init_ns()
     call = {"n": 0}
 
@@ -95,6 +109,7 @@ def test_init_sensor_retries_on_value_error():
 
 
 def test_init_sensor_retries_on_runtime_error():
+    """A driver timeout from init() shows init_err and is retried."""
     init_ns = _make_init_ns()
     call = {"n": 0}
 
