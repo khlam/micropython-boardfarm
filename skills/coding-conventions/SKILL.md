@@ -1,6 +1,6 @@
 ---
 name: coding-conventions
-description: Conventions shared across every coding language. Pair with cpython-syntax, micropython-syntax, or c-syntax.
+description: Use whenever writing or reviewing code in any language. This skill outlines conventions shared across every coding language.
 ---
 
 # General principles

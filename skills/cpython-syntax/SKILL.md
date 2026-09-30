@@ -1,6 +1,6 @@
 ---
 name: cpython-syntax
-description: CPython conventions. Use when writing or reviewing Python under cpython-packages/, tools/, any project viz/ service, or any tests/ directory.
+description: Use when writing or reviewing CPython. This skill outlines CPython conventions.
 ---
 
 # CPython

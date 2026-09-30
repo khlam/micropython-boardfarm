@@ -1,6 +1,6 @@
 ---
 name: talking-to-a-user
-description: Write every user-facing message and documentation file for a reader whose only context is the previous replies or visible content. Use whenever composing any text the user will read or writing documentation files.
+description: Use whenever composing any text the user will read or when writing documentation. Write for a reader whose only context is the previous replies or visible/stated content.
 ---
 
 # Talking to a user

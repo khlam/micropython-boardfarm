@@ -1,6 +1,6 @@
 ---
 name: pr-template
-description: Fill the repo's PR description template from the branch's diff and return it as plain text for copy/paste.
+description: Use when the user asks for a PR description. Fill the repo's PR description template from the branch's diff and return it as plain text for copy/paste.
 ---
 
 # PR Template

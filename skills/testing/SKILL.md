@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Use when writing table-driven tests.
+description: Use when writing tests. Prefer table-driven tests.
 ---
 
 # Writing tests

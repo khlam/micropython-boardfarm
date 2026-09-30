@@ -1,6 +1,6 @@
 ---
 name: simplify-diff-to-main
-description: Review the current branch against main and repeatedly simplify its diff without changing intended behavior.
+description: Use on user request. Review the current branch against main and repeatedly simplify its diff without changing intended behavior.
 ---
 
 # Simplify Diff to Main

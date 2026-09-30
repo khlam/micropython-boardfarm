@@ -1,6 +1,6 @@
 ---
 name: new-skill
-description: How SKILL.md and AGENTS.md files are authored in this repo — user-prompted only, 600 words maximum, canonical under skills/, linked into both agent trees by script. Use before creating, editing, renaming, or deleting any skill or AGENTS.md file.
+description: Use before creating, editing, renaming, or deleting any skill or AGENTS.md file. How SKILL.md and AGENTS.md files are authored in this repo — user-prompted only, 600 words maximum.
 ---
 
 # Authoring skills and AGENTS.md
@@ -10,6 +10,10 @@ description: How SKILL.md and AGENTS.md files are authored in this repo — user
 `SKILL.md` and `AGENTS.md` files are created, edited, renamed, and deleted **only when
 the user explicitly asks for it**. If one seems warranted, suggest it and wait for an
 answer.
+
+## Trigger first
+
+The first sentence of every skill's frontmatter `description` is its trigger, e.g. "Use when writing or reviewing Python under tools/."
 
 ## 600 words maximum
 
