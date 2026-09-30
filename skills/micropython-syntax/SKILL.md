@@ -1,6 +1,6 @@
 ---
 name: micropython-syntax
-description: MicroPython runtime conventions for MCU firmware — no package manager, no import-time pin claims, const(), buffer reuse, sleep in polling loops, driver init order, and the JSON stdout contract. Use when writing or reviewing code under projects/*/firmware/ or firmware-packages/*/.
+description: Use when writing or reviewing code under projects/*/firmware/ or firmware-packages/*/. MicroPython runtime conventions for MCU firmware.
 ---
 
 # MicroPython
