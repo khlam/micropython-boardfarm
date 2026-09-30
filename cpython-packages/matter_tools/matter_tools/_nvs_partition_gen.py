@@ -24,12 +24,7 @@ _NVS_VERSION = 2  # multipage blob support enabled
 
 @dataclass(frozen=True)
 class DeviceIdentity:
-    """The device-label fields written into the factory partition verbatim.
-
-    Grouped separately from the per-build commissioning secrets (discriminator,
-    salt, verifier) because these come from the project's static constants
-    rather than being minted fresh each run.
-    """
+    """The device-label fields written into the factory partition verbatim."""
 
     vendor_id: int
     vendor_name: str
@@ -58,7 +53,7 @@ def write_factory_partition(
         discriminator: 12-bit commissioning discriminator.
         iteration_count: SPAKE2+ PBKDF2 iteration count.
         salt: SPAKE2+ salt, 16 to 32 bytes.
-        verifier: The 97-byte SPAKE2+ verifier from spake2p.generate_verifier.
+        verifier: The 97-byte SPAKE2+ verifier from _spake2p.generate_verifier.
         identity: The device's vendor/product/hardware/serial labels.
 
     Returns:

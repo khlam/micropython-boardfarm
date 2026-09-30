@@ -45,7 +45,7 @@ parallel after the guards pass.
 | **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), and locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff. All other jobs depend on this. |
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up matter-native-test` — the host C++ unit test for the coalesced Matter state snapshot policy — then `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
-| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and mint fresh Matter commissioning credentials on every build. |
+| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and compile without pairing credentials. |
 | **vuln-check** | `uv-secure` scans [uv.lock](uv.lock) (image built via `docker buildx bake scan-uv-secure`); fails only when a vulnerable dependency has a fixed release available. |
 | **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `scan-viz`, `scan-pytest`, and `scan-uv-secure` bake images (`docker buildx bake`). Report-only — does not fail the build. |
 | **all-checks-pass** | Aggregates the results of the above into a single required status. |
@@ -75,7 +75,7 @@ one grows too large — each is then checked against the same budget independent
 Bump `max_bytes` deliberately when a size increase is justified.
 
 A Matter image is deterministically padded to the whole flash on every build
-regardless of application code size — `build.py`'s own `_validate_merged_image`
+regardless of application code size — `matter_tools.build.validate_merged_image`
 already requires exactly that size. This CI check exists for parity.
 
 ### Renovate

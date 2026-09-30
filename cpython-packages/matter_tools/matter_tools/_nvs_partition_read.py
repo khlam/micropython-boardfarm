@@ -1,7 +1,7 @@
 """Read a factory NVS partition back into a dict for post-mint validation.
 
 ESP-IDF's documented NVS reader is invoked through its CLI and emits the
-minimal JSON shape `build._validate_factory_identity` consumes: integer fields
+minimal JSON shape `provision._validate_factory_identity` consumes: integer fields
 decode to Python ints and string fields to Python strings.
 """
 

@@ -1,5 +1,12 @@
 ---
 services:
+  firmware-dependencies:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+      target: firmware-dependencies
+    command: ["true"]
+
   # Builds the internal-package wheels; pytest/typecheck/uv consume them as the
   # file:// index via `additional_contexts: wheels: service:wheels`. Compose
   # builds this dependency first, so the consuming commands need no extra steps.
@@ -27,6 +34,7 @@ services:
       - ./firmware-packages:/firmware-packages:ro
       - ./projects:/projects:ro
       - ./cpython-packages/serial_over_web:/cpython-packages/serial_over_web:ro
+      - ./cpython-packages/matter_tools:/cpython-packages/matter_tools:ro
       - ./tools:/tools:ro
       # Linux-only optional Pylance venv.
       # - ./.venv:/work/.venv

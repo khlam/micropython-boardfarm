@@ -1,4 +1,4 @@
-# MicroPython user C module manifest for the _matter bridge.
+# MicroPython user C module manifest for the matter_native bridge.
 #
 # ports/esp32 compiles these sources into its main component so the QSTR and
 # MP_REGISTER_MODULE scanners see them. The bridge symbols themselves live in
