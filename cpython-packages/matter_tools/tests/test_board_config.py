@@ -140,7 +140,7 @@ def test_board_to_identity_reads_the_fixture_board():
         factory_offset=0x3D0000,
         factory_size=0x6000,
         flash_size=4 * 1024 * 1024,
-        discovery_mode=build.DISCOVERY_MODE,
+        discovery_mode=build._DISCOVERY_MODE,
     )
 
 

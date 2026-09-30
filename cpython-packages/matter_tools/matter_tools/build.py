@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
-    "DISCOVERY_MODE",
     "IDF_TARGET",
     "MERGED_NAME",
     "QR_NAME",
@@ -55,7 +54,7 @@ SETUP_NAME = "app.esp32-s3.setup.txt"
 # supplied at flash time -- see provision.mint_credentials.
 _DISCOVERY_BLE = 2
 _DISCOVERY_ON_NETWORK = 4
-DISCOVERY_MODE = _DISCOVERY_BLE | _DISCOVERY_ON_NETWORK
+_DISCOVERY_MODE = _DISCOVERY_BLE | _DISCOVERY_ON_NETWORK
 
 _BOARD_NAME = "ESP32_S3_MATTER"
 _ARTIFACT_MODE = 0o644
@@ -96,7 +95,7 @@ def board_to_identity(board_dir: Path) -> BoardIdentity:
         factory_offset=offset,
         factory_size=size,
         flash_size=_config_to_flash_size(config),
-        discovery_mode=DISCOVERY_MODE,
+        discovery_mode=_DISCOVERY_MODE,
     )
 
 
