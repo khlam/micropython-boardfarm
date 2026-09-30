@@ -28,7 +28,6 @@ from matter_tools.build import (
 
 BOARD_DIR = Path("/matter-board/ESP32_S3_MATTER")
 OUTPUT_DIR = Path("/outputs")
-PROJECT_TOML = Path("/project/pyproject.toml")
 # The bind-mounted source whose owner receives the published artifacts.
 OWNER_REFERENCE = Path("/firmware")
 

@@ -236,7 +236,7 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text('[project]\nname = "Test board"\n')
     monkeypatch.setattr(build, "OUTPUT_DIR", outputs)
-    monkeypatch.setattr(build, "PROJECT_TOML", metadata)
+    monkeypatch.setattr(provision, "_PROJECT_TOML", metadata)
 
     def read_factory(path, _namespace):
         with path.with_suffix(".csv").open() as stream:

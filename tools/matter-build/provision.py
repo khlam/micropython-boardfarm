@@ -34,6 +34,8 @@ from matter_tools.provision import (
     validate_qr,
 )
 
+_PROJECT_TOML = Path("/project/pyproject.toml")
+
 
 def main() -> int:
     """Provision, validate, flash, publish, and return an exit status.
@@ -83,7 +85,7 @@ def _provision_board(staging_root: Path, identity: BoardIdentity, args: argparse
         identity,
         args.manufacturer or DEFAULT_MANUFACTURER,
         args.serial_number or default_serial_number(),
-        pyproject_to_model(build.PROJECT_TOML),
+        pyproject_to_model(_PROJECT_TOML),
         pairing,
     )
     partition = factory.read_bytes()

@@ -24,7 +24,6 @@ services:
       - ../../tools/matter-build:/matter-tools:ro
       - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro
-      - ./pyproject.toml:/project/pyproject.toml:ro
       # build.py freezes this page so the board serves the dashboard itself.
       - ./viz:/viz:ro
       - ./outputs:/outputs

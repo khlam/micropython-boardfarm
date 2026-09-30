@@ -23,7 +23,6 @@ services:
       - ../../tools/matter-build:/matter-tools:ro
       - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro
-      - ./pyproject.toml:/project/pyproject.toml:ro
       - ./outputs:/outputs
       - matter-build-cache:/build-cache
 
