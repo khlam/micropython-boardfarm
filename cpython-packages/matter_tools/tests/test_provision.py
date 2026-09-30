@@ -34,7 +34,7 @@ def test_esptool_resets_only_local_boards(port: str, before: str, after: str):
 
 def test_provisioning_replaces_only_the_factory_partition():
     """Provisioning overwrites the factory partition and leaves every other byte alone."""
-    identity = build.board_to_identity(_BOARD, build.DISCOVERY_MODE)
+    identity = build.board_to_identity(_BOARD)
     start, size = identity.factory_offset, identity.factory_size
     image = bytes(index % 251 for index in range(identity.flash_size))
 

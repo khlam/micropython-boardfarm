@@ -17,7 +17,6 @@ import tempfile
 from pathlib import Path
 
 from matter_tools.build import (
-    DISCOVERY_MODE,
     board_to_identity,
     build_firmware,
     hand_outputs_to_owner,
@@ -52,7 +51,7 @@ def main() -> int:
     Returns:
         The process exit status.
     """
-    identity = board_to_identity(BOARD_DIR, DISCOVERY_MODE)
+    identity = board_to_identity(BOARD_DIR)
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         staging_root = Path(scratch)
         _BUILD_CACHE.mkdir(parents=True, exist_ok=True)

@@ -133,14 +133,14 @@ def test_pyproject_rejects_an_invalid_model_name(tmp_path: pathlib.Path, content
 
 def test_board_to_identity_reads_the_fixture_board():
     """The fixture board's IDs, factory partition, and flash size form its identity."""
-    identity = build.board_to_identity(_FIXTURES, discovery_mode=2)
+    identity = build.board_to_identity(_FIXTURES)
     assert identity == build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,
         factory_size=0x6000,
         flash_size=4 * 1024 * 1024,
-        discovery_mode=2,
+        discovery_mode=build.DISCOVERY_MODE,
     )
 
 
@@ -148,7 +148,7 @@ def test_board_to_identity_matches_the_real_board_config():
     """The shipped ESP32-S3 board config still yields the identity the tests assume."""
     # Pins the shipped ESP32-S3 board config: a change to its VID/PID, factory
     # partition placement or flash size has to be a deliberate edit here too.
-    identity = build.board_to_identity(_REAL_BOARD, discovery_mode=build.DISCOVERY_MODE)
+    identity = build.board_to_identity(_REAL_BOARD)
     assert identity == build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,

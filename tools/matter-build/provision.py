@@ -14,7 +14,6 @@ from pathlib import Path
 import build
 
 from matter_tools.build import (
-    DISCOVERY_MODE,
     MERGED_NAME,
     BoardIdentity,
     board_to_identity,
@@ -46,7 +45,7 @@ def main() -> int:
         The process exit status.
     """
     args = _parse_args()
-    identity = board_to_identity(build.BOARD_DIR, DISCOVERY_MODE)
+    identity = board_to_identity(build.BOARD_DIR)
     with tempfile.TemporaryDirectory(prefix="matter-provision.") as scratch:
         _provision_board(Path(scratch), identity, args)
         hand_outputs_to_owner(build.OUTPUT_DIR, build.OWNER_REFERENCE)

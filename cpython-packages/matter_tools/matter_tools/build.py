@@ -85,7 +85,7 @@ class BoardIdentity:
     discovery_mode: int
 
 
-def board_to_identity(board_dir: Path, discovery_mode: int) -> BoardIdentity:
+def board_to_identity(board_dir: Path) -> BoardIdentity:
     """Read the device's identity and flash layout out of its board configuration."""
     config = _sdkconfig_to_values(board_dir / "sdkconfig.board")
     label = _required(config, "CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL").strip('"')
@@ -96,7 +96,7 @@ def board_to_identity(board_dir: Path, discovery_mode: int) -> BoardIdentity:
         factory_offset=offset,
         factory_size=size,
         flash_size=_config_to_flash_size(config),
-        discovery_mode=discovery_mode,
+        discovery_mode=DISCOVERY_MODE,
     )
 
 

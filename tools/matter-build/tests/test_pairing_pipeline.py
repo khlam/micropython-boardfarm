@@ -12,7 +12,6 @@ import pytest
 
 from matter_tools import _nvs_partition_read, _pairing
 from matter_tools.build import (
-    DISCOVERY_MODE,
     MERGED_NAME,
     QR_NAME,
     SETUP_NAME,
@@ -228,7 +227,7 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
     Returns:
         The board identity, flash arguments, outputs directory, and recorded runs.
     """
-    identity = board_to_identity(_BOARD, DISCOVERY_MODE)
+    identity = board_to_identity(_BOARD)
     outputs = tmp_path / "outputs"
     outputs.mkdir()
     (outputs / MERGED_NAME).write_bytes(b"\xff" * identity.flash_size)
