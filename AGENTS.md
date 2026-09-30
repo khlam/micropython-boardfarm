@@ -14,6 +14,12 @@ This is a shared-projects monorepo. When rules conflict, prefer:
 ### Host policy
 Never install anything on the host machine. Docker is the only required host tool. All toolchains, flashers, serial readers, tests, and helper scripts run inside Docker — invoke them via the project's `docker compose` services. If a workflow seems to require a host install (pip, brew, apt, pipx, esptool, MicroPython, etc.), wrap it in a Docker stage instead.
 
+### Permissions
+- Run without asking: `docker`, `git`, `make init|build-linters|skills|precommit`, `.githooks/*`, `skills/link-skills.sh`, read-only text tools, file edits.
+- Need approval: `git push`, `git reset --hard`, `git clean`, `git checkout --`, `git restore`, Docker push/prune.
+- Denied: host `python`, host installs. Instead run ad-hoc Python in a container: `docker compose run --rm -T --entrypoint python pytest - <<'EOF'`.
+- Call commands directly — no `bash -c` wrappers or `VAR=…`. Edit files with the edit tool .
+
 ### Safety & repo boundaries
 - Never read or write `projects/<project>/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
@@ -29,22 +35,6 @@ Going forward, do not write tests until after the user confirms a feature is fin
 | --- | --- |
 | MCU | MicroPython on the chip. Code lives in `projects/<project>/firmware/` and `firmware-packages/<pkg>/<pkg>/`. |
 | host | CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host. |
-
-### Routing
-Before changing anything, identify the area you're touching:
-
-| Area | Path | Key files |
-| --- | --- | --- |
-| Entry point, viz backend + dashboard, compose, firmware outputs | `projects/` | [projects/AGENTS.md](projects/AGENTS.md) |
-| LED state machine, I²C bus, ToF/IMU/radar drivers, web server, Matter interface | `firmware-packages/` | [firmware-packages/AGENTS.md](firmware-packages/AGENTS.md) |
-| Shared host-test stubs | `cpython-packages/` | [cpython-packages/AGENTS.md](cpython-packages/AGENTS.md) |
-| Matter build tooling | `tools/` | [tools/AGENTS.md](tools/AGENTS.md) |
-| Firmware compile | repo root | `Dockerfile.firmware` — stages: `pi-compile`, `esp32-compile`, `esp32-flash` |
-| Matter compile | repo root | `Dockerfile.matter` — pinned native tests, ESP-Matter/MicroPython compile, commissioning artifacts, and flash-at-0x0 |
-| Host tests | repo root | `Dockerfile.tests` — stage: `pytest` |
-| Host runtime | repo root | `Dockerfile.host` — stages: `viz`, `uv-runner` |
-| Image build graph | repo root | `docker-bake.hcl` — bake targets for the lint/typecheck + CVE-scan images; wires the wheels build context (`contexts = { wheels = "target:wheels" }`) |
-| CI & local checks | repo root | [CI.md](CI.md) |
 
 ### Conventions
 Skills: `coding-conventions` (every language), then `cpython-syntax`, `micropython-syntax`, or `c-syntax`.

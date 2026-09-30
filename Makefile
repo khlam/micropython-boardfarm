@@ -2,12 +2,15 @@ SHELL := /bin/bash
 
 LINT_IMAGES := local/ruff:latest local/pydoclint:latest local/typecheck:latest
 
-.PHONY: init build-linters precommit remove-ci
+.PHONY: init build-linters skills precommit
 
 build-linters:
 	@docker buildx bake -f docker-bake.hcl ruff pydoclint typecheck
 
-init: build-linters
+skills:
+	@./skills/link-skills.sh
+
+init: build-linters skills
 	@set -euo pipefail; \
 	repo_root="$$(git rev-parse --show-toplevel 2>/dev/null || true)"; \
 	if [[ -z "$$repo_root" ]]; then \
@@ -68,27 +71,3 @@ precommit:
 		docker run --rm -v "$$repo_root/firmware-packages":/work/firmware-packages:ro -v "$$repo_root/cpython-packages":/work/cpython-packages:ro -v "$$repo_root/projects":/work/projects:ro -v "$$repo_root/tools":/work/tools:ro "$$image_typecheck" || fail=1; \
 		exit "$$fail"; \
 	fi
-
-# Strip the CI / pre-commit / linting scaffolding so a fork can wire up its own.
-# Deletes the GitHub Actions config, the pre-commit hook, the CI-only guard and
-# linter scripts, the linter Dockerfile, the bake file, and the standalone lint
-# configs.
-# pyproject.toml lint tables are left in place (inert without the tools; remove
-# by hand if wanted).
-# Deletions hit the working tree only (not `git rm`) so you review and stage them.
-# Finally self-cleans: drops the now-dead init/precommit/remove-ci targets by
-# overwriting this Makefile with a stub (safe — make already parsed the recipe).
-remove-ci:
-	@set -uo pipefail; \
-	repo_root="$$(git rev-parse --show-toplevel)"; \
-	cd "$$repo_root"; \
-	echo "Removing CI / pre-commit / linting files..."; \
-	rm -rf .github; \
-	rm -f .githooks/pre-commit .githooks/.initialized \
-	      .githooks/run-linters.sh .githooks/check_version_bumps.sh; \
-	rm -f Dockerfile.linters docker-bake.hcl .hadolint.yaml .yamllint.yaml \
-	      .vulture_allowlist.py .vulture_source_only_allowlist.py; \
-	git config --local --unset core.hooksPath 2>/dev/null || true; \
-	printf '%s\n%s\n' 'SHELL := /bin/bash' '# CI tooling removed via `make remove-ci`.' > Makefile; \
-	echo "Done. Removed CI / pre-commit / linting scaffolding."; \
-	echo "Review with 'git status' and commit when ready."
