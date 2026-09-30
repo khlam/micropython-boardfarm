@@ -52,7 +52,6 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 |---|---|
 | `make init` | Install the git pre-commit hook (points `core.hooksPath` at `.githooks/`). Run once after cloning. 🧰 |
 | `make precommit` | Run the local gate on staged Python: auto-fix with `ruff`, then verify `ruff` + `pydoclint` + `ty`. Runs automatically on commit. 🔧 |
-| `make remove-ci` | DELETE the CI / pre-commit / linting files (keeps the build/test guard script). 🚀 |
 
 **Requirements**
 - [Docker](https://docs.docker.com/engine/install/) — every toolchain, flasher, serial reader, and test runs inside a container
