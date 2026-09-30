@@ -87,13 +87,12 @@ def _provision_board(staging_root: Path, identity: BoardIdentity, args: argparse
         pyproject_to_model(build.PROJECT_TOML),
         pairing,
     )
+    partition = factory.read_bytes()
     merged = staging_root / MERGED_NAME
     merged.write_bytes(
-        provision_image(
-            (build.OUTPUT_DIR / MERGED_NAME).read_bytes(), factory.read_bytes(), identity
-        )
+        provision_image((build.OUTPUT_DIR / MERGED_NAME).read_bytes(), partition, identity)
     )
-    validate_merged_image(merged, factory.read_bytes(), identity)
+    validate_merged_image(merged, partition, identity)
     validate_qr(qr)
     validate_factory_partition(factory, pairing["discriminator"], identity)
     run(flash_command(args.port, merged))
