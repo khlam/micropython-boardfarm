@@ -1,6 +1,6 @@
 ---
 name: c-syntax
-description: C and C++ conventions for native and performance-sensitive embedded code — indentation, braces, naming, fixed-width integers, and the MicroPython native boundary. Use when writing or reviewing C/C++ under firmware-packages/*/native/ or any MicroPython native module.
+description: Use when writing or reviewing C/C++ under firmware-packages/*/native/ or any MicroPython native module. C and C++ conventions for native and performance-sensitive embedded code — indentation, braces, naming, fixed-width integers, and the MicroPython native boundary.
 ---
 
 # C and C++

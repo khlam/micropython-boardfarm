@@ -10,20 +10,6 @@ Keep independent failure domains independent. A dashboard or Matter publication 
 
 `<project>` denotes any subdirectory under `projects/` — list it with `ls projects/` to see what's currently present, and substitute the real name when running commands.
 
-## Routing
-
-Before changing anything, identify the area you're touching:
-
-| Area | Path | Key files |
-| --- | --- | --- |
-| Entry point | `projects/<project>/firmware/` | `main.py` — BOARD pin table, sensor init/retry, JSON streaming loop |
-| Matter occupancy sensor | `projects/matter-radar-sensor/` | `firmware/main.py` — calls `radar.detect()` for whichever radar is wired to the shared UART, then translates its target reports into a read-only Occupancy Sensor endpoint, with a second virtual Dimmable Light endpoint whose level maps linearly to the 0–10 minute hold after the last target; also serves its own dashboard over `httpd` once Matter has a network address |
-| Viz backend | `projects/<project>/viz/` | `app.py` — serial reader + WebSocket broadcaster on `/ws` |
-| Viz dashboard | `projects/<project>/viz/static/` | `index.html` — Plotly line chart + numeric readout |
-| Project compose | `projects/<project>/` | `docker-compose.yaml` — `build.context: ../..` → repo root |
-| RP firmware output | `projects/<project>/outputs/` | `app.rp2040.rp2350.uf2` — Universal UF2 for RP2040 + RP2350 |
-| ESP32 firmware output | `projects/<project>/outputs/` | `app.esp32-s3.bin` — ESP-IDF `.bin`, flashed by `esp32-flash` service |
-
 ## Universal UF2 vs ESP32 bin †
 
 | Artifact | Detail |

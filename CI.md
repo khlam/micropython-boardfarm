@@ -13,9 +13,9 @@ the heavier, repo-wide gates run only in CI.
 
 | Target | Purpose |
 |---|---|
-| `make init` | Point git's `core.hooksPath` at [.githooks/](.githooks/) and make the `pre-commit` hook executable. Run once after cloning. |
+| `make init` | Build the linter images, sync the skill links, then point git's `core.hooksPath` at [.githooks/](.githooks/) and make the `pre-commit` hook executable. Run once after cloning. |
+| `make skills` | Re-link the canonical skills under [skills/](skills/) into both agent trees via [skills/link-skills.sh](skills/link-skills.sh). Run after adding, renaming, or removing a skill — CI fails if the links are stale. |
 | `make precommit` | The self-contained local gate. Auto-fixes staged Python in place (`ruff format`, `ruff check --fix`, then re-stages), then verifies `ruff` + `pydoclint` + `ty`. Invoked automatically by the `.githooks/pre-commit` hook on every commit. |
-| `make remove-ci` | Delete the CI / pre-commit / linting scaffolding for a clean slate. See [Removing the CI](#removing-the-ci). |
 
 ## Local pre-commit flow
 
@@ -42,7 +42,7 @@ parallel after the guards pass.
 
 | Job | What it does |
 |---|---|
-| **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), and locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff. All other jobs depend on this. |
+| **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff — and checks the skill links and the 600-word `SKILL.md` / `AGENTS.md` cap. All other jobs depend on this. |
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up matter-native-test` — the host C++ unit test for the coalesced Matter state snapshot policy — then `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
 | **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and mint fresh Matter commissioning credentials on every build. |
@@ -128,30 +128,3 @@ Standalone linter configs live at the repo root:
 | [.vulture_allowlist.py](.vulture_allowlist.py) | vulture — names that look unused but are load-bearing |
 | [.vulture_source_only_allowlist.py](.vulture_source_only_allowlist.py) | vulture source-only pass — names that are tested but deliberately uncalled by source |
 | `[tool.ruff]` / `[tool.ty.*]` / `[tool.pydoclint]` / `[tool.vulture]` in [pyproject.toml](pyproject.toml) | ruff, ty, pydoclint, vulture config |
-
-## Removing the CI
-
-`make remove-ci` strips the CI / pre-commit / linting scaffolding so you can fork the
-project and wire up your own. It deletes from the working tree only (not `git rm`), so
-you review and stage the deletions yourself.
-
-**Deleted:**
-
-- [.github/](.github/) — the entire directory: `ci.yml`, `renovate.yml`,
-  `renovate.json`, `CODEOWNERS`, and the pull-request template.
-- `.githooks/pre-commit`, `.githooks/.initialized`
-- `.githooks/run-linters.sh`, `.githooks/check_version_bumps.sh`
-- [Dockerfile.linters](Dockerfile.linters), [docker-bake.hcl](docker-bake.hcl)
-- [.hadolint.yaml](.hadolint.yaml), [.yamllint.yaml](.yamllint.yaml),
-  [.vulture_allowlist.py](.vulture_allowlist.py)
-
-It also runs `git config --local --unset core.hooksPath` so git stops looking for the
-deleted hook, and overwrites the `Makefile` with a minimal stub (dropping the now-dead
-`init` / `precommit` / `remove-ci` targets).
-
-**Kept on purpose:**
-
-- **Lint config in [pyproject.toml](pyproject.toml)** — the `[tool.ruff]`, `[tool.ty]`,
-  `[tool.pydoclint]`, `[tool.vulture]` tables and the `lint` / `typecheck`
-  dependency-groups are left untouched (the `typecheck` group is shared with the `test`
-  group). They sit inert without the tools; remove them by hand if you want a full purge.
