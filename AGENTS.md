@@ -54,23 +54,3 @@ docker compose up pytest --build --exit-code-from pytest                        
 docker compose up pytest --build --exit-code-from pytest -- /projects/distance-stream/tests  # one project
 docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/vl53l0x/tests # one package
 ```
-
-## Dependencies and checks
-
-Firmware dependencies must be MicroPython-compatible and included in the firmware build. Don't add dependencies without tests + `uv lock`.
-
-CPython dependencies belong in the appropriate `pyproject.toml`.
-
-Initialize tooling with:
-
-```sh
-make init
-```
-
-Before committing Python changes:
-
-```sh
-make precommit
-```
-
-Do not silence formatter, linter, type-checker, or test failures with broad ignores. Any ignore should be narrow and intentional.
