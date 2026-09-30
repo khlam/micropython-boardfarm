@@ -14,11 +14,10 @@ def main() -> None:
     """Render a QR for the selected project's board configuration."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--passcode", required=True, help="the flashed board's pairing key")
-    parser.add_argument("--board-dir", type=Path, default=build.BOARD_DIR)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     pairing = generate_pairing(args.passcode)
-    identity = board_to_identity(args.board_dir)
+    identity = board_to_identity(build.BOARD_DIR)
     payload = render_pairing_qr(identity, pairing, args.output)
     sys.stdout.write(
         f"manual_pairing_code={pairing['manual_pairing_code']}\nsetup_payload={payload}\n"

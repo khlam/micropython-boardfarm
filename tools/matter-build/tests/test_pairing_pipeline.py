@@ -35,24 +35,15 @@ def test_offline_qr_matches_firmware(
     """The offline pairing tool derives the same codes from a key as the firmware does.
 
     Args:
-        monkeypatch: Sets the tool's command line.
+        monkeypatch: Sets the tool's command line and board location.
         tmp_path: Receives the QR image.
         capsys: Captures the setup fields the tool prints.
     """
     output = tmp_path / "pairing.png"
     monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "pairing_code.py",
-            "--passcode",
-            _KEY,
-            "--board-dir",
-            str(_BOARD),
-            "--output",
-            str(output),
-        ],
+        sys, "argv", ["pairing_code.py", "--passcode", _KEY, "--output", str(output)]
     )
+    monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
     pairing_code.main()
     setup = dict(line.split("=", 1) for line in capsys.readouterr().out.splitlines())
     expected = generate_pairing(_KEY)
