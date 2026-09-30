@@ -282,7 +282,7 @@ def _decode_manual_code(code: str) -> dict[str, int]:
 def _verhoeff_check_digit(body: str) -> str:
     """Recompute the Verhoeff check digit a manual code's leading digits require.
 
-    Kept independent of the encoder in _pairing.py.
+    Kept independent of _onboarding_codes._verhoeff_check_digit.
 
     Args:
         body: The 10 decimal digits preceding the check digit.

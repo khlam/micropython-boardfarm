@@ -69,13 +69,6 @@ WORKDIR /workspace
 COPY pyproject.toml uv.lock ./
 RUN uv export --frozen --only-group firmware --no-emit-workspace -o /requirements.txt \
  && uv pip install --require-hashes --no-deps --target /installed -r /requirements.txt
-RUN python - <<'STAGE'
-from pathlib import Path
-from shutil import copy2
-
-source = Path("/installed")
-target = Path("/firmware-dependencies/microdot")
-target.mkdir(parents=True)
-for name in ("__init__.py", "microdot.py", "websocket.py", "helpers.py"):
-    copy2(source / "microdot" / name, target / name)
-STAGE
+WORKDIR /installed/microdot
+RUN mkdir -p /firmware-dependencies/microdot \
+ && cp -p __init__.py microdot.py websocket.py helpers.py /firmware-dependencies/microdot/

@@ -3,34 +3,12 @@
 import hashlib
 import os
 
+from matter_tools._onboarding_codes import encode_manual_code
 from matter_tools._spake2p import INVALID_PASSCODES, MAX_PASSCODE
 
 _KEY_BYTES = 32
 _MIN_PASSCODE_LEN = 24
 _MIN_PASSCODE_DISTINCT = 12
-_VERHOEFF_D = (
-    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
-    (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
-    (2, 3, 4, 0, 1, 7, 8, 9, 5, 6),
-    (3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
-    (4, 0, 1, 2, 3, 9, 5, 6, 7, 8),
-    (5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
-    (6, 5, 9, 8, 7, 1, 0, 4, 3, 2),
-    (7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
-    (8, 7, 6, 5, 9, 3, 2, 1, 0, 4),
-    (9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
-)
-_VERHOEFF_P = (
-    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
-    (1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
-    (5, 8, 0, 3, 7, 9, 6, 1, 4, 2),
-    (8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
-    (9, 4, 5, 3, 1, 2, 6, 8, 7, 0),
-    (4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
-    (2, 7, 9, 3, 8, 0, 6, 4, 1, 5),
-    (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
-)
-_VERHOEFF_INV = (0, 4, 3, 2, 1, 5, 6, 7, 8, 9)
 
 
 def generate_pairing(passcode: str | None = None) -> dict:
@@ -73,7 +51,7 @@ def generate_pairing(passcode: str | None = None) -> dict:
         "key": passcode,
         "passcode": setup_passcode,
         "discriminator": discriminator,
-        "manual_pairing_code": _encode_manual_code(discriminator, setup_passcode),
+        "manual_pairing_code": encode_manual_code(discriminator, setup_passcode),
     }
 
 
@@ -85,17 +63,3 @@ def _random_passcode() -> str:
         # characters for generate_pairing to accept it.
         if len(set(passcode)) >= _MIN_PASSCODE_DISTINCT:
             return passcode
-
-
-def _encode_manual_code(discriminator: int, passcode: int) -> str:
-    """Encode the standard Matter manual code, including its Verhoeff digit."""
-    short_discriminator = discriminator >> 8
-    chunk1 = (short_discriminator >> 2) & 0x3
-    chunk2 = ((short_discriminator & 0x3) << 14) | (passcode & 0x3FFF)
-    chunk3 = passcode >> 14
-    body = f"{chunk1:01d}{chunk2:05d}{chunk3:04d}"
-    checksum = 0
-    for position, digit in enumerate(reversed(body)):
-        permutation = _VERHOEFF_P[(position + 1) % len(_VERHOEFF_P)][int(digit)]
-        checksum = _VERHOEFF_D[checksum][permutation]
-    return body + str(_VERHOEFF_INV[checksum])
