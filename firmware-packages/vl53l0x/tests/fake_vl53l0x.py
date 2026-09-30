@@ -56,15 +56,27 @@ class FakeVL53L0X:
         self._reset_write_count = 0
 
     def set_distance(self, mm: int) -> None:
-        """Set the simulated big-endian 16-bit distance reading at 0x1E/0x1F."""
+        """Set the simulated big-endian 16-bit distance reading at 0x1E/0x1F.
+
+        Args:
+            mm: The distance the chip reports.
+        """
         self.regs[0x1E] = (mm >> 8) & 0xFF
         self.regs[0x1F] = mm & 0xFF
 
     def read(self, reg: int, nbytes: int) -> bytes:
         """Return `nbytes` from the register file starting at `reg`.
 
-        Raises OSError if soft_reset_behavior is "error" and we're polling
-        the model ID during soft-reset.
+        Args:
+            reg: The first register read.
+            nbytes: How many consecutive registers to read.
+
+        Returns:
+            The register contents.
+
+        Raises:
+            OSError: soft_reset_behavior is "error" and the model ID is polled
+                during soft-reset.
         """
         # Simulate OSError during soft-reset polling for "error" behavior
         if self._soft_reset_behavior == "error" and self._in_soft_reset and reg == 0xC0:
@@ -73,7 +85,11 @@ class FakeVL53L0X:
         return bytes(self.regs[reg : reg + nbytes])
 
     def _handle_soft_reset_write(self, data: bytes) -> None:
-        """Track soft-reset sequence for model ID availability."""
+        """Track soft-reset sequence for model ID availability.
+
+        Args:
+            data: The byte written to SOFT_RESET.
+        """
         if data == b"\x00":
             self._in_soft_reset = True
             self._reset_write_count = 0
@@ -84,7 +100,12 @@ class FakeVL53L0X:
                 self.regs[0xC0] = 0x00  # Not booted
 
     def write(self, reg: int, data: bytes) -> None:
-        """Write `data` to the register file, applying behavioural side-effects."""
+        """Write `data` to the register file, applying behavioural side-effects.
+
+        Args:
+            reg: The first register written.
+            data: The bytes written to consecutive registers.
+        """
         # Handle soft-reset sequence tracking (0xBF)
         if reg == 0xBF:
             self._handle_soft_reset_write(data)

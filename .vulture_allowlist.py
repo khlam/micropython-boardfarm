@@ -14,3 +14,10 @@ kwargs  # noqa: F821
 
 # utime.sleep_ms keeps the `ms` parameter for API parity; the stub is a no-op.
 ms  # noqa: F821
+
+# Test fakes for the I2C drivers and serial.Serial accept the keyword arguments
+# the code under test passes them by name, whether or not the fake needs them.
+sda  # noqa: F821
+scl  # noqa: F821
+baud  # noqa: F821
+timeout  # noqa: F821

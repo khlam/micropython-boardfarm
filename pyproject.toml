@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.22.0"
+version = "0.23.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -259,6 +259,7 @@ select = [
   "ICN",      # import-conventions
   "INP",      # implicit-namespace-package
   "PIE",      # misc misuse
+  "PT",       # flake8-pytest-style
   "T20",      # raw print() outside emit() corrupts the JSON stream parsed by viz
   "Q",        # quotes
   "RET",      # return-statement hygiene
@@ -296,7 +297,7 @@ unfixable = ["T201", "T203", "ERA001"]
 "tools/*/*" = ["INP001"]
 "**/{tests}/*" = [
   "PLR2004", "S101", "TID252",
-  "PLC2701", "D100", "D103", "ANN201", "ANN202",
+  "PLC2701", "ANN201", "ANN202",
   "PLC0415",
   "ANN001", "ARG001", "ARG002",
   "FBT001",

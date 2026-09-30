@@ -15,8 +15,16 @@ from fake_mpu6050 import FakeMPU6050
 from mpu6050 import MPU6050, DeviceNotFoundError
 
 
-def _register_fake(addr=0x68, **kwargs):
-    """Reset machine state and register a FakeMPU6050 at addr."""
+def _register_fake(addr: int = 0x68, **kwargs: int) -> FakeMPU6050:
+    """Reset machine state and register a FakeMPU6050 at addr.
+
+    Args:
+        addr: The I2C address the fake answers on.
+        **kwargs: FakeMPU6050 constructor arguments.
+
+    Returns:
+        The registered fake.
+    """
     machine.reset()
     dev = FakeMPU6050(**kwargs)
     machine.register_device(addr, dev)
@@ -24,6 +32,7 @@ def _register_fake(addr=0x68, **kwargs):
 
 
 def test_who_am_i_dispatch_mpu6050():
+    """A WHO_AM_I of 0x68 at the primary address identifies an MPU6050."""
     _register_fake(who_am_i=0x68)
     imu = MPU6050(sda=0, scl=1)
     assert imu.kind == "MPU6050"
@@ -45,18 +54,25 @@ def test_secondary_address_auto_detected():
 
 
 @pytest.mark.parametrize(
-    "who, kind",
+    ("who", "kind"),
     [(0x70, "MPU6500"), (0x71, "MPU9250")],
 )
-def test_who_am_i_dispatch_variants(who, kind):
+def test_who_am_i_dispatch_variants(who: int, kind: str):
+    """Each family member's WHO_AM_I identifies it by name.
+
+    Args:
+        who: The WHO_AM_I value the chip reports.
+        kind: The model name the driver reports for it.
+    """
     _register_fake(who_am_i=who)
     imu = MPU6050(sda=0, scl=1)
     assert imu.kind == kind
 
 
 def test_unknown_who_am_i_raises():
+    """An unrecognised WHO_AM_I raises, naming the value read."""
     _register_fake(who_am_i=0xAA)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="Unknown IMU WHO_AM_I=0xaa"):
         MPU6050(sda=0, scl=1)
 
 
@@ -93,6 +109,7 @@ def test_temperature_transfer_mpu6500():
 
 
 def test_saturation_flag_clear():
+    """A sample with every axis inside the int16 rails leaves the saturation flag clear."""
     fake_imu = _register_fake(who_am_i=0x68)
     imu = MPU6050(sda=0, scl=1)
     fake_imu.set_sample(0, 0, 0, 0, 0, 0, 0)
@@ -111,7 +128,12 @@ def test_saturation_flag_clear():
         {"gz": -32768},
     ],
 )
-def test_saturation_flag_set_on_int16_rail(axis_kwargs):
+def test_saturation_flag_set_on_int16_rail(axis_kwargs: dict[str, int]):
+    """Any one axis on an int16 rail sets the saturation flag.
+
+    Args:
+        axis_kwargs: The one axis pinned to a rail; the rest read zero.
+    """
     fake_imu = _register_fake(who_am_i=0x68)
     imu = MPU6050(sda=0, scl=1)
     sample = {"ax": 0, "ay": 0, "az": 0, "gx": 0, "gy": 0, "gz": 0, "temp_raw": 0}

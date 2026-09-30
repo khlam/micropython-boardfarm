@@ -32,15 +32,30 @@ class _StopMainError(Exception):
     """Raised by the fake radar's second read_latest() to escape stream()."""
 
 
-@pytest.mark.parametrize("machine_str,board_name", BOARD_CHIPS)
-def test_main_executes_init_then_streams_one_frame(monkeypatch, machine_str, board_name):
+@pytest.mark.parametrize(("machine_str", "board_name"), BOARD_CHIPS)
+def test_main_executes_init_then_streams_one_frame(
+    monkeypatch: pytest.MonkeyPatch, machine_str: str, board_name: str
+):
+    """Importing main.py on each board inits the radar, streams a frame, and closes it.
+
+    Args:
+        monkeypatch: Fakes the board name and installs the stub modules.
+        machine_str: The machine name the board reports.
+        board_name: The BOARD entry main.py should select for it.
+    """
     fake_status = FakeStatus()
     closed = []
 
     class _FakeLD2450:
-        """Stub LD2450 that opens its own UART; second read_latest() escapes stream()."""
+        """Stub LD2450 that opens its own UART; second read_latest() escapes stream().
 
-        def __init__(self, *, bus_id, tx, rx) -> None:
+        Args:
+            bus_id: UART bus, ignored.
+            tx: TX pin, ignored.
+            rx: RX pin, ignored.
+        """
+
+        def __init__(self, *, bus_id: int, tx: int, rx: int) -> None:
             self._calls = 0
 
         async def wait_ready(self) -> None:

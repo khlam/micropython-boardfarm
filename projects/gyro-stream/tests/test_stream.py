@@ -7,6 +7,7 @@ rising edges of last_saturated), and read_err → streaming recovery.
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 
 from micropython_stubs.testing import (
     StopLoopError,
@@ -25,8 +26,12 @@ _TEST_BOARD = Board(name="RP2040-Zero", i2c_id=0, sda=0, scl=1)
 _OK = (0.01, -0.02, 0.99, 0.1, -0.05, 0.0, 24.7)
 
 
-def _make_main_ns():
-    """Create a fresh AST-loaded main.py namespace with fakes."""
+def _make_main_ns() -> SimpleNamespace:
+    """Create a fresh AST-loaded main.py namespace with fakes.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     return firmware_namespace(
         _FIRMWARE,
         _KEEP_FUNCS,
@@ -39,6 +44,7 @@ def _make_main_ns():
 
 
 def test_one_sample_per_loop_with_full_8_keys():
+    """Each read emits one sample carrying time, six axes, and temperature."""
     main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK])
     sample_lines = samples(run_stream(main_ns, imu))
@@ -66,10 +72,11 @@ def test_saturation_falling_edge_emits_nothing():
 
 
 def test_read_err_recovery_resumes_streaming():
+    """A failed read reports read_err, and streaming resumes on the next good read."""
     main_ns = _make_main_ns()
     imu = _FakeIMU(script=[_OK, OSError, _OK])
     lines = run_stream(main_ns, imu)
-    assert samples(lines) and len(samples(lines)) == 2
+    assert len(samples(lines)) == 2
     assert "read_err" in diags(lines)
     assert main_ns.status.calls == ["streaming", "read_err", "streaming"]
 
@@ -77,12 +84,15 @@ def test_read_err_recovery_resumes_streaming():
 class _FakeIMU:
     """Scripted MPU6050.
 
-    `script` items: 7-tuple = read_all() return; exception class = raise.
-    `sat_script` is consumed in lockstep — each entry sets last_saturated
-    *after* the read returns. Exhausting `script` raises StopLoopError.
+    Exhausting `script` raises StopLoopError.
+
+    Args:
+        script: Each item is a 7-tuple read_all() returns, or an exception class it raises.
+        sat_script: Consumed in lockstep with `script`; each entry sets
+            last_saturated *after* the read returns. None never saturates.
     """
 
-    def __init__(self, script, sat_script=None) -> None:
+    def __init__(self, script: list, sat_script: list[bool] | None = None) -> None:
         self._script = list(script)
         self._sat = list(sat_script or [False] * len(script))
         self.last_saturated = False

@@ -10,6 +10,7 @@ import asyncio
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 from typing import ClassVar
 
 from micropython_stubs.testing import firmware_namespace
@@ -26,11 +27,16 @@ class _FakeLD2450:
 
     Unlike a ScriptedFake, the fault fires from wait_ready() rather than
     __init__ — matching the real driver, whose constructor never raises.
+
+    Args:
+        bus_id: The UART bus, recorded.
+        tx: The TX pin, recorded.
+        rx: The RX pin, recorded.
     """
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, bus_id, tx, rx) -> None:
+    def __init__(self, *, bus_id: int, tx: int, rx: int) -> None:
         self.bus_id = bus_id
         self.tx = tx
         self.rx = rx
@@ -42,8 +48,12 @@ class _FakeLD2450:
                 raise outcome
 
 
-def _make_init_ns():
-    """Create AST-loaded namespace with _FakeLD2450 injected."""
+def _make_init_ns() -> SimpleNamespace:
+    """Create AST-loaded namespace with _FakeLD2450 injected.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     _FakeLD2450.script = []
     return firmware_namespace(
         _FIRMWARE,
@@ -58,6 +68,7 @@ def _make_init_ns():
 
 
 def test_init_sensor_happy_path():
+    """A ready radar is built on the board's UART pins and returned."""
     init_ns = _make_init_ns()
     radar = asyncio.run(init_ns.ns["init_sensor"]())
     assert isinstance(radar, _FakeLD2450)
@@ -68,6 +79,7 @@ def test_init_sensor_happy_path():
 
 
 def test_init_sensor_retries_when_device_missing():
+    """A silent radar shows no_device and is retried until it reports."""
     init_ns = _make_init_ns()
     _FakeLD2450.script = [DeviceNotFoundError("no device")]
     asyncio.run(init_ns.ns["init_sensor"]())
@@ -75,6 +87,7 @@ def test_init_sensor_retries_when_device_missing():
 
 
 def test_init_sensor_retries_on_oserror():
+    """A UART fault while waiting shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeLD2450.script = [OSError("bus fault")]
     asyncio.run(init_ns.ns["init_sensor"]())

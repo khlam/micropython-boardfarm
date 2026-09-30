@@ -23,14 +23,23 @@ def _reset_stubs():
 
 
 @pytest.mark.parametrize(
-    "chip,backend_mod",
+    ("chip", "backend_mod"),
     [
         ("RP2040", "boot_status_led.rp2040"),
         ("RP2350", "boot_status_led.rp2350"),
         ("ESP32S3", "boot_status_led.esp32s3"),
     ],
 )
-def test_status_dispatch_picks_correct_backend(chip, backend_mod, monkeypatch):
+def test_status_dispatch_picks_correct_backend(
+    chip: str, backend_mod: str, monkeypatch: pytest.MonkeyPatch
+):
+    """Importing the status module binds the backend matching the board's chip.
+
+    Args:
+        chip: The machine name the board reports.
+        backend_mod: The backend module expected.
+        monkeypatch: Fakes the board's machine name.
+    """
     _reset_stubs()
 
     class _Uname:
@@ -42,6 +51,7 @@ def test_status_dispatch_picks_correct_backend(chip, backend_mod, monkeypatch):
 
 
 def test_rp2040_backend_scales_brightness():
+    """The RP2040 backend writes each colour scaled to 10% brightness."""
     _reset_stubs()
     os.uname = type("U", (), {"machine": "RP2040 with RP2040"})
     status_module = importlib.import_module("boot_status_led.status")
@@ -52,6 +62,7 @@ def test_rp2040_backend_scales_brightness():
 
 
 def test_rp2350_backend_collapses_to_on_off():
+    """The RP2350's plain LED is on for green and off for every other colour."""
     _reset_stubs()
     os.uname = type("U", (), {"machine": "RP2350 with RP2350"})
     status_module = importlib.import_module("boot_status_led.status")
@@ -65,6 +76,7 @@ def test_rp2350_backend_collapses_to_on_off():
 
 
 def test_esp32s3_backend_scales_brightness():
+    """The ESP32-S3 backend writes each colour scaled to 10% brightness."""
     _reset_stubs()
     os.uname = type("U", (), {"machine": "Generic ESP32S3 module with ESP32S3"})
     status_module = importlib.import_module("boot_status_led.status")
@@ -75,7 +87,7 @@ def test_esp32s3_backend_scales_brightness():
 
 
 @pytest.mark.parametrize(
-    "transition,expected",
+    ("transition", "expected"),
     [
         ("boot", (255, 255, 255)),
         ("i2c_init", (0, 255, 255)),
@@ -84,7 +96,13 @@ def test_esp32s3_backend_scales_brightness():
         ("uart_init", (0, 0, 255)),
     ],
 )
-def test_named_transitions_write_expected_colour(transition, expected):
+def test_named_transitions_write_expected_colour(transition: str, expected: tuple[int, int, int]):
+    """Each named transition shows its documented colour.
+
+    Args:
+        transition: The status function called.
+        expected: Its colour at full brightness.
+    """
     _reset_stubs()
     os.uname = type("U", (), {"machine": "RP2040 with RP2040"})
     status_module = importlib.import_module("boot_status_led.status")

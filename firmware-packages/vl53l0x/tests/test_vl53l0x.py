@@ -15,8 +15,15 @@ from fake_vl53l0x import FakeVL53L0X
 from vl53l0x import VL53L0X, DeviceNotFoundError
 
 
-def _register_fake(**kwargs):
-    """Reset machine state and register a FakeVL53L0X at 0x29."""
+def _register_fake(**kwargs: int | str) -> FakeVL53L0X:
+    """Reset machine state and register a FakeVL53L0X at 0x29.
+
+    Args:
+        **kwargs: FakeVL53L0X constructor arguments.
+
+    Returns:
+        The registered fake.
+    """
     machine.reset()
     dev = FakeVL53L0X(**kwargs)
     machine.register_device(0x29, dev)
@@ -24,6 +31,7 @@ def _register_fake(**kwargs):
 
 
 def test_driver_inits_with_skip_spad_info():
+    """Init completes at the default address when SPAD info is skipped."""
     _register_fake()
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
 
@@ -39,6 +47,7 @@ def test_missing_device_raises_device_not_found():
 
 
 def test_read_returns_simulated_distance():
+    """read() returns the distance the chip currently reports, in millimetres."""
     fake_tof = _register_fake()
     tof = VL53L0X(sda=0, scl=1, skip_spad_info=True, interrupt_status_mask=0x07)
     tof.start()

@@ -15,6 +15,7 @@ behaviors of the read-error branch plus the out-of-range gap branch:
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 
 from micropython_stubs.testing import StopLoopError, firmware_namespace, run_stream
 from vl53l0x import DeviceNotFoundError
@@ -25,8 +26,12 @@ Board = namedtuple("Board", ("name", "sda", "scl"))
 _TEST_BOARD = Board(name="RP2040-Zero", sda=0, scl=1)
 
 
-def _make_main_ns():
-    """Create a fresh AST-loaded main.py namespace with fakes."""
+def _make_main_ns() -> SimpleNamespace:
+    """Create a fresh AST-loaded main.py namespace with fakes.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     from smoothing import median
 
     return firmware_namespace(
@@ -42,6 +47,7 @@ def _make_main_ns():
 
 
 def test_read_err_calls_stop_then_start_in_order():
+    """A read error stops then restarts ranging."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[OSError])
     run_stream(main_ns, tof)
@@ -49,18 +55,21 @@ def test_read_err_calls_stop_then_start_in_order():
 
 
 def test_read_err_resets_filter_state():
+    """The first good sample after a read error isn't blended with earlier ones."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[100, 100, 100, OSError, 500])
     assert _distances(run_stream(main_ns, tof)) == [100, 100, 100, 500]
 
 
 def test_inner_stop_start_failure_is_swallowed():
+    """A failing stop() during recovery doesn't end the stream."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[OSError, 200], stop_raises=OSError)
     assert _distances(run_stream(main_ns, tof)) == [200]
 
 
 def test_status_transitions_around_read_err():
+    """The status LED goes read_err on a fault and back to streaming after."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[OSError, 100])
     run_stream(main_ns, tof)
@@ -68,12 +77,14 @@ def test_status_transitions_around_read_err():
 
 
 def test_out_of_range_emits_null_and_clears_state():
+    """An out-of-range reading emits null, and the next sample isn't blended across it."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[100, 8190, 200])
     assert _distances(run_stream(main_ns, tof)) == [100, None, 200]
 
 
 def test_emits_raw_alongside_smoothed():
+    """Each sample also carries the raw reading, null when out of range."""
     main_ns = _make_main_ns()
     tof = _FakeTof(script=[100, 8190, 200])
     lines = run_stream(main_ns, tof)
@@ -88,13 +99,15 @@ def _distances(lines):
 class _FakeTof:
     """Scripted VL53L0X stand-in.
 
-    `script` is a list of items consumed in order on each read() call:
-      - an int  -> returned as the sample
-      - an exception *class* (OSError / RuntimeError) -> raised
     When the script is exhausted, read() raises StopLoopError to end the loop.
+
+    Args:
+        script: Items consumed in order on each read() call: an int is returned
+            as the sample, and an exception *class* (OSError / RuntimeError) is raised.
+        stop_raises: An exception class stop() raises, or None to stop cleanly.
     """
 
-    def __init__(self, script, *, stop_raises=None) -> None:
+    def __init__(self, script: list, *, stop_raises: type[Exception] | None = None) -> None:
         self._script = list(script)
         self.calls: list[str] = []
         self._stop_raises = stop_raises

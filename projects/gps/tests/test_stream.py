@@ -18,6 +18,7 @@ import os
 import pathlib
 import sys
 from collections import namedtuple
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,8 +44,12 @@ _GPGSV = "$GPGSV,3,1,09,01,40,083,46,02,17,308,41,12,07,344,39,14,22,228,45*75"
 _TEST_WINDOW_MS = 2
 
 
-def _make_main_ns():
-    """Create a fresh AST-loaded main.py namespace with fakes."""
+def _make_main_ns() -> SimpleNamespace:
+    """Create a fresh AST-loaded main.py namespace with fakes.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     return firmware_namespace(
         _FIRMWARE,
         _KEEP_FUNCS,
@@ -75,7 +80,14 @@ class _CapturingEmit:
         self._stop = stop_after
 
     def __call__(self, obj: dict) -> None:
-        """Record obj and raise _StopLoopError once the threshold is reached."""
+        """Record obj and raise _StopLoopError once the threshold is reached.
+
+        Args:
+            obj: The object the firmware emits.
+
+        Raises:
+            _StopLoopError: The threshold is reached.
+        """
         self.calls.append(dict(obj))
         if len(self.calls) >= self._stop:
             raise _StopLoopError
@@ -94,12 +106,25 @@ class _FakeGPS:
         self._queue: list[str] = list(sentences)
 
     def readline(self) -> str | None:
-        """Pop and return the next queued sentence, or None when empty."""
+        """Pop and return the next queued sentence, or None when empty.
+
+        Returns:
+            The next sentence, or None once the queue is empty.
+        """
         return self._queue.pop(0) if self._queue else None
 
 
-def _run(main_ns: object, sentences: list[str], stop_after: int = 1) -> list[dict]:
-    """Exercise stream() for `stop_after` emit() calls and return the recorded objects."""
+def _run(main_ns: SimpleNamespace, sentences: list[str], stop_after: int = 1) -> list[dict]:
+    """Exercise stream() for `stop_after` emit() calls and return the recorded objects.
+
+    Args:
+        main_ns: The firmware namespace whose stream() runs.
+        sentences: The sentences the GPS delivers.
+        stop_after: How many emit() calls end the run.
+
+    Returns:
+        Every object emitted.
+    """
     stream = main_ns.ns["stream"]
     cap = _CapturingEmit(stop_after)
     main_ns.ns["emit"] = cap
@@ -110,6 +135,7 @@ def _run(main_ns: object, sentences: list[str], stop_after: int = 1) -> list[dic
 
 
 def test_stream_emits_parsed_position() -> None:
+    """A window with a GGA emits a batch carrying its position and window length."""
     main_ns = _make_main_ns()
     calls = _run(main_ns, [_GPGGA])
     assert calls[0]["lat"] is not None
@@ -118,6 +144,7 @@ def test_stream_emits_parsed_position() -> None:
 
 
 def test_stream_batch_parses_multiple_sentence_types() -> None:
+    """Sentences of different types in one window merge into one batch."""
     main_ns = _make_main_ns()
     main_ns.ns["WINDOW_MS"] = 20
     cap = _CapturingEmit(1)
@@ -129,12 +156,14 @@ def test_stream_batch_parses_multiple_sentence_types() -> None:
 
 
 def test_stream_emits_no_data_when_gps_silent() -> None:
+    """A window with no sentences emits a no_data diag."""
     main_ns = _make_main_ns()
     calls = _run(main_ns, [])
     assert calls[0]["diag"] == "no_data"
 
 
 def test_stream_batch_has_required_keys() -> None:
+    """Every batch carries the full set of fix, satellite, and signal keys."""
     main_ns = _make_main_ns()
     calls = _run(main_ns, [_GPGGA])
     batch = calls[0]

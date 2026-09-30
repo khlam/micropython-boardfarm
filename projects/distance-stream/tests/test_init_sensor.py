@@ -10,6 +10,7 @@ handshake now lives in the driver and is covered by the vl53l0x package tests.
 import os
 import pathlib
 from collections import namedtuple
+from types import SimpleNamespace
 from typing import ClassVar
 
 from micropython_stubs.testing import ScriptedFake, firmware_namespace
@@ -23,11 +24,16 @@ TOF_ADDRESS = 0x29
 
 
 class _FakeVL53L0X(ScriptedFake):
-    """VL53L0X stand-in (see ScriptedFake): records budget + start on success."""
+    """VL53L0X stand-in (see ScriptedFake): records budget + start on success.
+
+    Args:
+        sda: SDA pin, ignored.
+        scl: SCL pin, ignored.
+    """
 
     script: ClassVar[list] = []
 
-    def __init__(self, *, sda, scl) -> None:
+    def __init__(self, *, sda: int, scl: int) -> None:
         super().__init__()
         self.address = TOF_ADDRESS
         self._budget = None
@@ -40,8 +46,12 @@ class _FakeVL53L0X(ScriptedFake):
         self._started = True
 
 
-def _make_init_ns():
-    """Create AST-loaded namespace with _FakeVL53L0X injected."""
+def _make_init_ns() -> SimpleNamespace:
+    """Create AST-loaded namespace with _FakeVL53L0X injected.
+
+    Returns:
+        The firmware functions and the fake status they report to.
+    """
     _FakeVL53L0X.script = []
     from smoothing import median
 
@@ -58,6 +68,7 @@ def _make_init_ns():
 
 
 def test_init_sensor_happy_path():
+    """A present sensor gets its timing budget, starts ranging, and is returned."""
     init_ns = _make_init_ns()
     tof = init_ns.ns["init_sensor"]()
     assert isinstance(tof, _FakeVL53L0X)
@@ -67,6 +78,7 @@ def test_init_sensor_happy_path():
 
 
 def test_init_sensor_retries_when_device_missing():
+    """A missing sensor shows no_device and is retried until it appears."""
     init_ns = _make_init_ns()
     _FakeVL53L0X.script = [DeviceNotFoundError("no device"), None]
     init_ns.ns["init_sensor"]()
@@ -74,6 +86,7 @@ def test_init_sensor_retries_when_device_missing():
 
 
 def test_init_sensor_handles_init_err():
+    """A sensor that fails init with OSError shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeVL53L0X.script = [OSError("first attempt fails"), None]
     init_ns.ns["init_sensor"]()
@@ -81,6 +94,7 @@ def test_init_sensor_handles_init_err():
 
 
 def test_init_sensor_handles_runtime_error_during_init():
+    """A driver poll timeout during init shows init_err and is retried."""
     init_ns = _make_init_ns()
     _FakeVL53L0X.script = [RuntimeError("driver poll timeout"), None]
     init_ns.ns["init_sensor"]()

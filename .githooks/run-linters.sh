@@ -28,10 +28,12 @@ bake=(docker buildx bake -f docker-bake.hcl)
 
 # Bucket each input file by type so each linter only receives the files it understands.
 py_files=()
+test_py_files=()
 dockerfiles=()
 yaml_files=()
 for f in "$@"; do
   case "$f" in
+    */tests/*.py)                                                           py_files+=("$f"); test_py_files+=("$f") ;;
     *.py)                                                                   py_files+=("$f") ;;
     Dockerfile|Dockerfile.*|*/Dockerfile|*/Dockerfile.*|*.dockerfile|*.Dockerfile) dockerfiles+=("$f") ;;
     *.yml|*.yaml)                                                           yaml_files+=("$f") ;;
@@ -65,6 +67,15 @@ if (( ${#py_files[@]} > 0 )); then
   echo "[lint] pydoclint (${#py_files[@]} file(s))"
   docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
     --style=google --allow-init-docstring=True -- "${py_files[@]}" || fail=1
+
+  # Tests also need their Args/Returns/Yields sections; a summary alone passes
+  # the check above.
+  if (( ${#test_py_files[@]} > 0 )); then
+    echo "[lint] pydoclint strict (${#test_py_files[@]} test file(s))"
+    docker run --rm -v "$PWD":/work -w /work "$IMAGE_TAG_PYDOCLINT" \
+      --style=google --allow-init-docstring=True --skip-checking-short-docstrings=False \
+      -- "${test_py_files[@]}" || fail=1
+  fi
 
   # ty type-checks the whole source tree, not just the changed files,
   # so it always runs once rather than per-file.

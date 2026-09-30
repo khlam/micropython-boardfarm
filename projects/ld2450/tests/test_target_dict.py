@@ -16,9 +16,19 @@ _KEEP_FUNCS = {"_target_dict"}
 
 
 class _Target:
-    """Minimal stand-in for ld2450.Target — the five attributes _target_dict reads."""
+    """Minimal stand-in for ld2450.Target — the five attributes _target_dict reads.
 
-    def __init__(self, slot, x_mm, y_mm, speed_cm_s, resolution_mm) -> None:
+    Args:
+        slot: The radar's one-based target slot.
+        x_mm: Lateral offset.
+        y_mm: Range ahead of the radar.
+        speed_cm_s: Radial speed.
+        resolution_mm: Distance resolution.
+    """
+
+    def __init__(
+        self, slot: int, x_mm: int, y_mm: int, speed_cm_s: int, resolution_mm: int
+    ) -> None:
         self.slot = slot
         self.x_mm = x_mm
         self.y_mm = y_mm
@@ -40,6 +50,7 @@ def _target_dict(target):
 
 
 def test_target_dict_has_the_documented_schema():
+    """The target's fields plus its distance and bearing, and nothing else."""
     result = _target_dict(_Target(1, 100, 200, 0, 50))
     assert set(result.keys()) == {
         "slot",
@@ -53,16 +64,19 @@ def test_target_dict_has_the_documented_schema():
 
 
 def test_target_dict_distance_is_rounded_hypotenuse():
+    """The distance is the straight-line range from x and y."""
     result = _target_dict(_Target(1, 300, 400, 0, 0))
     assert result["distance_mm"] == 500  # 3-4-5 triangle
 
 
 def test_target_dict_straight_ahead_is_zero_degrees():
+    """A target directly ahead is at zero degrees."""
     result = _target_dict(_Target(1, 0, 100, 0, 0))
     assert result["angle_deg"] == 0
 
 
 def test_target_dict_all_four_quadrant_signs():
+    """Left is negative, right positive, and targets behind lie beyond ±90 degrees."""
     front_left = _target_dict(_Target(1, -50, 50, 0, 0))["angle_deg"]
     front_right = _target_dict(_Target(1, 50, 50, 0, 0))["angle_deg"]
     back_left = _target_dict(_Target(1, -50, -50, 0, 0))["angle_deg"]
@@ -74,6 +88,7 @@ def test_target_dict_all_four_quadrant_signs():
 
 
 def test_target_dict_origin_does_not_raise():
+    """A target at the radar itself reads as zero distance and zero degrees."""
     result = _target_dict(_Target(1, 0, 0, 0, 0))
     assert result["distance_mm"] == 0
     assert result["angle_deg"] == 0
