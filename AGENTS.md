@@ -18,6 +18,7 @@ Never install anything on the host machine. Docker is the only required host too
 - Never read or write `projects/<project>/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
 - Avoid destructive git operations and unrelated reversions.
+- No AI attribution.
 
 ### Testing policy
 Going forward, do not write tests until after the user confirms a feature is final.
