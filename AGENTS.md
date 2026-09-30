@@ -14,12 +14,6 @@ This is a shared-projects monorepo. When rules conflict, prefer:
 ### Host policy
 Never install anything on the host machine. Docker is the only required host tool. All toolchains, flashers, serial readers, tests, and helper scripts run inside Docker — invoke them via the project's `docker compose` services. If a workflow seems to require a host install (pip, brew, apt, pipx, esptool, MicroPython, etc.), wrap it in a Docker stage instead.
 
-### Permissions
-- Run without asking: `docker`, `git`, `make init|build-linters|skills|precommit`, `.githooks/*`, `skills/link-skills.sh`, read-only text tools, file edits.
-- Need approval: `git push`, `git reset --hard`, `git clean`, `git checkout --`, `git restore`, Docker push/prune.
-- Denied: host `python`, host installs. Instead run ad-hoc Python in a container: `docker compose run --rm -T --entrypoint python pytest - <<'EOF'`.
-- Call commands directly — no `bash -c` wrappers or `VAR=…`. Edit files with the edit tool .
-
 ### Safety & repo boundaries
 - Never read or write `projects/<project>/outputs/` files directly — they are build artifacts.
 - No shell scripts at the repo root; dispatch logic lives inside each Docker stage's `ENTRYPOINT` (heredoc for the firmware-compile stages in `Dockerfile.firmware`, plain exec form for `pytest` in `Dockerfile.tests`).
@@ -27,30 +21,3 @@ Never install anything on the host machine. Docker is the only required host too
 
 ### Testing policy
 Going forward, do not write tests until after the user confirms a feature is final.
-
-## Navigate the repo
-
-### Terminology
-| Term | Meaning |
-| --- | --- |
-| MCU | MicroPython on the chip. Code lives in `projects/<project>/firmware/` and `firmware-packages/<pkg>/<pkg>/`. |
-| host | CPython in Docker. Runs the dashboard, build toolchains, and pytest. [micropython_stubs](cpython-packages/micropython_stubs/) lets pytest exercise MCU code on the host. |
-
-### Conventions
-Skills: `coding-conventions` (every language), then `cpython-syntax`, `micropython-syntax`, or `c-syntax`.
-
-## Commands (copy/paste, run from `projects/<project>/`)
-
-#### Compile firmware
-```
-docker compose up --build pi-compile         # RP2040 + RP2350 → ./outputs/app.rp2040.rp2350.uf2
-docker compose up --build esp32-compile      # ESP32-S3 → ./outputs/app.esp32-s3.bin (no board needed)
-docker compose run --rm --build esp32-flash  # ESP32-S3 → compiles then flashes $SERIAL_PORT (default /dev/ttyACM0)
-```
-
-#### Run tests (run from the repo root — the `pytest` service lives in the root `docker-compose.yaml`, not the per-project ones)
-```
-docker compose up pytest --build --exit-code-from pytest                                     # everything
-docker compose up pytest --build --exit-code-from pytest -- /projects/distance-stream/tests  # one project
-docker compose up pytest --build --exit-code-from pytest -- /firmware-packages/vl53l0x/tests # one package
-```
