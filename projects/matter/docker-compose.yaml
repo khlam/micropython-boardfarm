@@ -68,7 +68,6 @@ services:
       - SERIAL_NUMBER=${SERIAL_NUMBER:-}
     volumes:
       - ../../tools/matter-build:/matter-tools:ro
-      - ./firmware:/firmware:ro
       - ./native/board:/matter-board:ro
       - ./pyproject.toml:/project/pyproject.toml:ro
       - ./outputs:/outputs
