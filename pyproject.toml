@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.20.0"
+version = "0.23.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -9,7 +9,6 @@ requires-python = ">=3.12"
 dependencies = [
     "boot_status_led>=0.2.0",
     "atgm336h>=0.1.0",
-    "httpd>=0.1.0",
     "i2c_bus>=0.2.0",
     "radar>=0.1.0",
     "mpu6050>=0.1.0",
@@ -19,12 +18,13 @@ dependencies = [
     "vl53l5cx>=0.1.1",
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.8.0",
-    "matter>=0.2.0",
+    "matter>=0.3.0",
+    "matter_tools>=0.1.0",
 ]
 
 # Puts each package's tests/ on sys.path so sibling helpers (fake_mpu6050.py, fake_vl53l0x.py) import without conftest sys.path hacks.
-# tools/matter-build is there for the opposite reason: build.py is a bind-mounted
-# script rather than an installed package, so its tests need the directory itself.
+# tools/matter-build is there for the opposite reason: its callers are bind-mounted
+# scripts rather than an installed package, so their tests need the directory itself.
 [tool.pytest.ini_options]
 pythonpath = [
     "/tools/matter-build",
@@ -35,6 +35,11 @@ pythonpath = [
     "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
+]
+addopts = "--strict-markers"
+markers = [
+    "fuzz: behavioral fuzz test over seeded generated inputs",
+    "smoke: end-to-end check of a known-correct result through a real caller",
 ]
 
 [tool.uv.workspace]
@@ -58,7 +63,6 @@ serial_over_web = { index = "internal" }
 micropython_stubs = { index = "internal" }
 boot_status_led = { index = "internal" }
 atgm336h = { index = "internal" }
-httpd = { index = "internal" }
 i2c_bus = { index = "internal" }
 radar = { index = "internal" }
 mpu6050 = { index = "internal" }
@@ -67,8 +71,10 @@ smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
 matter = { index = "internal" }
+matter_tools = { index = "internal" }
 
 [dependency-groups]
+firmware = ["microdot==2.6.2"]
 viz = [
     "serial_over_web",
 ]
@@ -84,12 +90,12 @@ lint = [
     "uv-secure>=0.17.2",
 ]
 test = [
+    {include-group = "firmware"},
     {include-group = "viz"},
     {include-group = "typecheck"},
     "micropython_stubs",
     "boot_status_led",
     "atgm336h",
-    "httpd",
     "i2c_bus",
     "radar",
     "mpu6050",
@@ -98,12 +104,10 @@ test = [
     "vl53l0x",
     "vl53l5cx",
     "matter",
+    "matter_tools",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "httpx>=0.28.1",
-    "cryptography>=50.0.0",
-    "qrcode[pil]>=8.2",
-    "esp-idf-nvs-partition-gen>=0.3.0",
 ]
 
 # Packages install from wheels into site-packages, so measure them by import
@@ -125,7 +129,6 @@ source = [
 source_pkgs = [
   "boot_status_led",
   "atgm336h",
-  "httpd",
   "i2c_bus",
   "radar",
   "mpu6050",
@@ -134,6 +137,7 @@ source_pkgs = [
   "vl53l0x",
   "vl53l5cx",
   "matter",
+  "matter_tools",
   "serial_over_web",
 ]
 omit = [
@@ -165,8 +169,8 @@ exclude = '\.venv|firmware-packages/vl53l0x/vl53l0x/vl53l0x\.py|firmware-package
 min_confidence = 70
 exclude = ["firmware-packages/vl53l0x/vl53l0x/vl53l0x.py", "manifest.py"]
 
-# tools/matter-build runs as scripts from a bind mount, so build.py imports its
-# siblings by bare name off sys.path[0]. Nothing installs them, so ty needs the
+# tools/matter-build runs as scripts from a bind mount, so its callers import each
+# other by bare name off sys.path[0]. Nothing installs them, so ty needs the
 # directory named explicitly to resolve those imports.
 [tool.ty.environment]
 extra-paths = ["tools/matter-build"]
@@ -295,6 +299,7 @@ unfixable = ["T201", "T203", "ERA001"]
   "PLC2701", "D100", "D103", "ANN201", "ANN202",
   "PLC0415",
   "ANN001", "ARG001", "ARG002",
+  "FBT001",
   "S102",
   "SLF001",
   "INP001",
@@ -311,7 +316,6 @@ ban-relative-imports = "all"
 known-first-party = [
   "boot_status_led",
   "atgm336h",
-  "httpd",
   "i2c_bus",
   "radar",
   "mpu6050",
@@ -322,6 +326,7 @@ known-first-party = [
   "serial_over_web",
   "micropython_stubs",
   "matter",
+  "matter_tools",
 ]
 
 [tool.ruff.lint.mccabe]

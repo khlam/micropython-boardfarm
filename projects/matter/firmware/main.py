@@ -6,11 +6,11 @@ and the functions below in scope, so a serial session can drive the light and
 administer the node.
 
 Calls into `matter.Node`, `Node.start`, or an `Endpoint` attribute leave this
-file for compiled code: `matter/` (Python) calls the `_matter` C module
+file for compiled code: `matter/` (Python) calls the `matter_native` C module
 (`native/micropython/matter_module.c`), which calls the C++ bridge in
 `native/src/`, which drives ESP-Matter/CHIP. Comments below name the native
-file each call lands in next. Full call-path diagrams:
-`firmware-packages/matter/ARCHITECTURE.md`.
+file each call lands in next. Call-path diagrams:
+`firmware-packages/matter/README.md`.
 """
 
 import os
@@ -75,9 +75,8 @@ def set_color(color: tuple) -> None:
         color: Red, green, and blue channel values in the range 0-255.
     """
     render(color)
-    # Below: Endpoint.set -> _matter.attributes_publish -> request.cpp
-    # matter_attributes_publish -- a bounded round trip onto the CHIP task
-    # (ARCHITECTURE.md "Local publication").
+    # Below: Endpoint.set -> matter_native.attributes_publish -> request.cpp
+    # matter_attributes_publish -- a bounded round trip onto the CHIP task.
     publish_triple(endpoint, color)
     lit = endpoint.level != 0
     if endpoint.on != lit:
@@ -142,10 +141,9 @@ pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), BOARD.pix
 # White is the only state known before the stack starts.
 render(BOOT_COLOR)
 
-# Node() -> matter/node.py Node.__init__ -> _matter.node_create() ->
+# Node() -> matter/node.py Node.__init__ -> matter_native.node_create() ->
 # stack.cpp matter_node_create() -> esp_matter::node::create(). Runs directly
-# on this task -- there's no CHIP task yet to schedule onto (ARCHITECTURE.md
-# "Startup and restoration").
+# on this task -- there's no CHIP task yet to schedule onto.
 node = matter.Node()
 
 # create_endpoint() crosses into stack.cpp the same way: matter_endpoint_create(),
@@ -155,7 +153,7 @@ node = matter.Node()
 # pinning one now would overwrite what persistence is about to restore.
 endpoint = node.create_endpoint(matter.EndpointType.EXTENDED_COLOR_LIGHT)
 
-# start() -> _matter.start() -> stack.cpp matter_stack_start() ->
+# start() -> matter_native.start() -> stack.cpp matter_stack_start() ->
 # esp_matter::start(): the CHIP task comes up here. After this line, native
 # calls schedule a Request onto that task and block on a semaphore
 # (native/src/request.cpp) instead of running directly.

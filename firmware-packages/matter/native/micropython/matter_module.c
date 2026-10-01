@@ -1,7 +1,7 @@
 // Copyright 2026 micropython-boardfarm contributors
 // SPDX-License-Identifier: MIT
 //
-// `_matter` exposes protocol primitives only. The frozen `matter` package owns
+// `matter_native` exposes protocol primitives only. The frozen `matter` package owns
 // endpoint state, event routing, and every application decision.
 #include "matter/bridge.h"
 
@@ -267,10 +267,10 @@ static mp_obj_t network_address(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(network_address_obj, network_address);
 
-// The whole `_matter` surface. Anything not named here is unreachable from
+// The whole `matter_native` surface. Anything not named here is unreachable from
 // Python, which is what keeps the frozen package the only public API.
 static const mp_rom_map_elem_t native_module_globals_table[] = {
-    {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR__matter)},
+    {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_matter_native)},
     {MP_ROM_QSTR(MP_QSTR_node_create), MP_ROM_PTR(&node_create_obj)},
     {MP_ROM_QSTR(MP_QSTR_endpoint_create), MP_ROM_PTR(&endpoint_create_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_set_initial), MP_ROM_PTR(&attribute_set_initial_obj)},
@@ -292,4 +292,4 @@ const mp_obj_module_t native_module = {
     .globals = (mp_obj_dict_t *)&native_module_globals,
 };
 
-MP_REGISTER_MODULE(MP_QSTR__matter, native_module);
+MP_REGISTER_MODULE(MP_QSTR_matter_native, native_module);
