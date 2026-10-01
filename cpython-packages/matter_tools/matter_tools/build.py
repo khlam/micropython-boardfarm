@@ -261,7 +261,6 @@ def publish(output_dir: Path, merged: Path, qr: Path | None, setup: dict[str, st
         if unexpected:
             raise ValueError("unexpected output artifacts: " + ", ".join(unexpected))
 
-        destinations = {name: output_dir / name for name in _OUTPUT_NAMES}
         staged = {name: output_dir / f".matter-build.{name}.new" for name in _OUTPUT_NAMES}
         for path in staged.values():
             path.unlink(missing_ok=True)
@@ -272,11 +271,11 @@ def publish(output_dir: Path, merged: Path, qr: Path | None, setup: dict[str, st
                 _install(qr, staged[QR_NAME])
                 _write_setup(staged[SETUP_NAME], setup)
 
-            destinations[SETUP_NAME].unlink(missing_ok=True)
-            destinations[QR_NAME].unlink(missing_ok=True)
+            (output_dir / SETUP_NAME).unlink(missing_ok=True)
+            (output_dir / QR_NAME).unlink(missing_ok=True)
             names = (MERGED_NAME,) if qr is None else (MERGED_NAME, QR_NAME, SETUP_NAME)
             for name in names:
-                _commit_staged(staged[name], destinations[name])
+                _commit_staged(staged[name], output_dir / name)
         finally:
             for path in staged.values():
                 path.unlink(missing_ok=True)
