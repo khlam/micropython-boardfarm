@@ -96,7 +96,7 @@ def firmware_module(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], ModuleTy
         monkeypatch: Puts the firmware directory on the path and swaps in the clock.
 
     Returns:
-        The importer; its ``time`` attribute is the shared fake clock.
+        The importer.
     """
     clock = FakeTime()
 
@@ -107,7 +107,6 @@ def firmware_module(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], ModuleTy
             monkeypatch.setattr(module, "time", clock)
         return module
 
-    load.time = clock
     return load
 
 

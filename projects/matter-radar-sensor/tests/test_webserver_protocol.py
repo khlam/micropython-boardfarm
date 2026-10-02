@@ -192,7 +192,6 @@ def test_close_payload(web: ModuleType, payload: bytes, outcome: AbstractContext
 )
 def test_token_bucket_refills_whole_periods_up_to_the_cap(
     web: ModuleType,
-    firmware_module: Callable[[str], ModuleType],
     tokens: int,
     token_ms: int,
     now_ms: int,
@@ -202,15 +201,14 @@ def test_token_bucket_refills_whole_periods_up_to_the_cap(
     """Each whole elapsed period adds a token up to the cap, advancing the anchor.
 
     Args:
-        web: The firmware webserver module.
-        firmware_module: Supplies the fake clock's wrap period.
+        web: The firmware webserver module, running on the fake clock.
         tokens: Tokens held before the refill.
         token_ms: When the bucket last refilled.
         now_ms: The current tick.
         period_ms: Milliseconds per token.
         expected: The tokens and anchor after the refill.
     """
-    token_ms %= firmware_module.time._PERIOD
+    token_ms %= web.time._PERIOD
 
     assert web.refill_tokens(tokens, token_ms, now_ms, period_ms) == expected
 

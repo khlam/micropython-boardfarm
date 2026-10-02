@@ -99,19 +99,16 @@ def test_hold_control_maps_level_to_zero_through_ten_minutes(
     ],
 )
 def test_occupancy_hold(
-    reports: ModuleType,
-    firmware_module: Callable[[str], ModuleType],
-    steps: list[tuple[bool | None, int | None, int | None, bool]],
+    reports: ModuleType, steps: list[tuple[bool | None, int | None, int | None, bool]]
 ):
     """Each step applies a report ``(occupied, now_ms, hold_ms)`` or forces occupied.
 
     Args:
-        reports: The firmware reports module.
-        firmware_module: Supplies the fake clock's wrap period.
+        reports: The firmware reports module, running on the fake clock.
         steps: Each ends with whether occupancy holds afterwards. A negative
             ``now_ms`` sits that far before the tick counter wraps.
     """
-    period = firmware_module.time._PERIOD
+    period = reports.time._PERIOD
     occupancy = reports.Occupancy()
 
     observed = []
@@ -148,20 +145,15 @@ def test_occupancy_hold(
         ),
     ],
 )
-def test_report_throttle(
-    reports: ModuleType,
-    firmware_module: Callable[[str], ModuleType],
-    steps: list[tuple[tuple[str, ...], int, bool]],
-):
+def test_report_throttle(reports: ModuleType, steps: list[tuple[tuple[str, ...], int, bool]]):
     """Each step offers ``(targets, now_ms)`` and ends with whether it is due.
 
     Args:
-        reports: The firmware reports module.
-        firmware_module: Supplies the fake clock's wrap period.
+        reports: The firmware reports module, running on the fake clock.
         steps: The offers in order. A negative ``now_ms`` sits that far before
             the tick counter wraps.
     """
-    period = firmware_module.time._PERIOD
+    period = reports.time._PERIOD
     throttle = reports.ReportThrottle()
 
     due = [throttle.due(targets, now_ms % period) for targets, now_ms, _expected in steps]

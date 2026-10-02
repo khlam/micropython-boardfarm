@@ -63,14 +63,12 @@ def test_provision_cli_flashes_the_named_port_with_the_given_key(
 
     Args:
         pipeline: The prepared outputs and recorded esptool runs.
-        monkeypatch: Sets the command line and the board and output locations.
+        monkeypatch: Sets the command line.
         capsys: Captures the completion message.
     """
     _identity, _args, outputs, calls = pipeline
     port = "socket://host:5555"
     monkeypatch.setattr(sys, "argv", ["provision.py", "--port", port, "--passcode", _KEY])
-    monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
-    monkeypatch.setattr(build, "OWNER_REFERENCE", outputs)
 
     assert provision.main() == 0
     assert capsys.readouterr().out.splitlines()[-1] == "Matter flash complete"
@@ -86,13 +84,11 @@ def test_compilation_is_board_free_and_removes_stale_codes(
 
     Args:
         pipeline: The prepared outputs and recorded esptool runs.
-        monkeypatch: Stubs out the firmware build and points it at the board and cache.
+        monkeypatch: Stubs out the firmware build and points it at a cache.
         capsys: Captures the completion message.
     """
     identity, _args, outputs, calls = pipeline
-    monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
     monkeypatch.setattr(build, "_BUILD_CACHE", outputs.parent / "cache")
-    monkeypatch.setattr(build, "OWNER_REFERENCE", outputs)
     monkeypatch.setattr(build, "build_firmware", lambda *_args, **_kwargs: None)
 
     def merge(_cache, _identity, *, artifact_root):
@@ -212,8 +208,8 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
 
     Args:
         tmp_path: Holds the outputs directory and project metadata.
-        monkeypatch: Points the callers at them, reads factory data from its CSV,
-            and records esptool runs instead of flashing.
+        monkeypatch: Points the callers at them and the fixture board, reads
+            factory data from its CSV, and records esptool runs instead of flashing.
 
     Returns:
         The board identity, flash arguments, outputs directory, and recorded runs.
@@ -226,7 +222,9 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Pipeline:
     (outputs / SETUP_NAME).write_text("previous setup")
     metadata = tmp_path / "pyproject.toml"
     metadata.write_text('[project]\nname = "Test board"\n')
+    monkeypatch.setattr(build, "BOARD_DIR", _BOARD)
     monkeypatch.setattr(build, "OUTPUT_DIR", outputs)
+    monkeypatch.setattr(build, "OWNER_REFERENCE", outputs)
     monkeypatch.setattr(provision, "_PROJECT_TOML", metadata)
 
     def read_factory(path, _namespace):

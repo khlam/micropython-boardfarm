@@ -778,25 +778,16 @@ def test_real_socket_reconnect_churn(
 
 
 @pytest.fixture
-def web(
-    load_application: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch
-) -> "Harness":
+def web(load_application: Callable[..., SimpleNamespace]) -> "Harness":
     """A harness around a running dashboard server with a fake listener.
 
     Args:
         load_application: Boots the firmware application.
-        monkeypatch: Makes the server's sleeps yield once instead of waiting.
 
     Returns:
         The harness.
     """
-    boot = load_application()
-
-    async def sleep_ms(_delay):
-        await asyncio.sleep(0)
-
-    monkeypatch.setattr(asyncio, "sleep_ms", sleep_ms)
-    return Harness(boot)
+    return Harness(load_application())
 
 
 class Socket:
