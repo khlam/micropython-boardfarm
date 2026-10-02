@@ -4,9 +4,8 @@ import io
 import os
 import pathlib
 import sys
-from collections.abc import Callable, Iterable, Iterator
 from contextlib import redirect_stdout
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import machine
 import matter_native
@@ -21,16 +20,8 @@ _MAIN = _FIRMWARE / "main.py"
 _MAIN_MODULE = "matter_project_main"
 
 
-def _reset_state(
-    *, persisted: dict[tuple[int, int, int], object] | None = None, fabrics: Iterable[tuple] = ()
-) -> None:
-    """Reset every process-wide fake used by the firmware import.
-
-    Args:
-        persisted: Attribute values flash holds, keyed by (endpoint, cluster,
-            attribute); None for empty flash.
-        fabrics: The fabrics the node is commissioned into.
-    """
+def _reset_state(*, persisted=None, fabrics=()) -> None:
+    """Reset every process-wide fake used by the firmware import."""
     machine.reset()
     neopixel.reset()
     matter_native.reset(persisted=persisted)
@@ -41,27 +32,16 @@ def _reset_state(
 
 
 @pytest.fixture(autouse=True)
-def reset_runtime() -> Iterator[None]:
-    """Reset process-wide MCU and Matter fakes around every test.
-
-    Yields:
-        None: Control to the test between the two resets.
-    """
+def reset_runtime():
+    """Reset process-wide MCU and Matter fakes around every test."""
     _reset_state()
     yield
     _reset_state()
 
 
 @pytest.fixture
-def color_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
-    """Import a fresh copy of the project's public color module.
-
-    Args:
-        monkeypatch: Puts the firmware directory on the import path.
-
-    Yields:
-        ModuleType: The color module, dropped from the import cache afterwards.
-    """
+def color_module(monkeypatch):
+    """Import a fresh copy of the project's public color module."""
     monkeypatch.syspath_prepend(str(_FIRMWARE))
     module = __import__("color")
     yield module
@@ -70,15 +50,8 @@ def color_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def load_main(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamespace]:
-    """Return a factory that executes the real firmware module once.
-
-    Args:
-        monkeypatch: Fakes the board name, clock, import path, and native start.
-
-    Returns:
-        The factory, returning the module, its fake clock, and its startup lines.
-    """
+def load_main(monkeypatch):
+    """Return a factory that executes the real firmware module once."""
 
     def load(
         *,

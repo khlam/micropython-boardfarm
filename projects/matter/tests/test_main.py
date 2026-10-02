@@ -1,8 +1,5 @@
 """End-to-end tests for the Matter example firmware boot and events."""
 
-from collections.abc import Callable
-from types import SimpleNamespace
-
 import machine
 import matter_native
 import neopixel
@@ -15,14 +12,7 @@ from micropython_stubs.testing import StopLoopError, json_lines
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 
-def test_supported_boot_builds_pixel_and_reports_ready(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A supported board claims its pixel pin, shows the boot color, and reports ready.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_supported_boot_builds_pixel_and_reports_ready(load_main):
     boot = load_main()
 
     assert boot.module.BOARD.name == "ESP32-S3-Zero"
@@ -35,17 +25,8 @@ def test_supported_boot_builds_pixel_and_reports_ready(
 
 
 def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
-    load_main: Callable[..., SimpleNamespace],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    load_main, monkeypatch, capsys
 ):
-    """Consecutive poll failures are reported once per failure period; the pixel is untouched.
-
-    Args:
-        load_main: Boots the firmware.
-        monkeypatch: Scripts poll() outcomes and stops the loop.
-        capsys: Captures the error lines.
-    """
     boot = load_main()
     module = boot.module
     pixel_writes = list(module.pixel.writes)
@@ -71,18 +52,7 @@ def test_poll_loop_reports_each_failure_period_once_and_preserves_pixel(
     ]
 
 
-def test_poll_loop_recovers_when_commissioning_publication_fails(
-    load_main: Callable[..., SimpleNamespace],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-):
-    """A failed publish while handling commissioning is reported, and polling continues.
-
-    Args:
-        load_main: Boots the firmware.
-        monkeypatch: Counts polls and stops the loop.
-        capsys: Captures the error line.
-    """
+def test_poll_loop_recovers_when_commissioning_publication_fails(load_main, monkeypatch, capsys):
     module = load_main().module
     native_poll = module.node.poll
     polls = 0
@@ -110,14 +80,7 @@ def test_poll_loop_recovers_when_commissioning_publication_fails(
     assert [line["message"] for line in errors] == ["[Errno 5] injected attributes_publish failure"]
 
 
-def test_unsupported_board_fails_before_hardware_setup(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """An unsupported board raises at import before any pin or pixel is claimed.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_unsupported_board_fails_before_hardware_setup(load_main):
     with pytest.raises(RuntimeError, match="unsupported board: RP2040"):
         load_main(machine_name="RP2040")
 
@@ -125,14 +88,7 @@ def test_unsupported_board_fails_before_hardware_setup(
     assert neopixel.NeoPixel.instances == []
 
 
-def test_commissioned_boot_restores_controller_owned_color(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A commissioned boot restores and shows the color a controller last set.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_commissioned_boot_restores_controller_owned_color(load_main):
     boot = load_main(persisted=_green_state(), fabrics=[_FABRIC])
 
     assert boot.module.endpoint.on is True
@@ -140,14 +96,7 @@ def test_commissioned_boot_restores_controller_owned_color(
     assert boot.module.pixel.writes[-1] == (0, 25, 0)
 
 
-def test_set_color_renders_then_publishes_attributes_and_power(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """set_color() shows the color and publishes its attributes, switching the light on.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_set_color_renders_then_publishes_attributes_and_power(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -164,15 +113,7 @@ def test_set_color_renders_then_publishes_attributes_and_power(
     ) == (85, 254, 25, matter.ColorMode.HUE_SATURATION, matter.ColorMode.HUE_SATURATION, True)
 
 
-def test_set_color_does_not_republish_power_when_already_on(
-    load_main: Callable[..., SimpleNamespace], monkeypatch: pytest.MonkeyPatch
-):
-    """set_color() on a light that is already on publishes no on/off write.
-
-    Args:
-        load_main: Boots the firmware.
-        monkeypatch: Records every published attribute.
-    """
+def test_set_color_does_not_republish_power_when_already_on(load_main, monkeypatch):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     publications = []
     native_publish = matter_native.attributes_publish
@@ -189,12 +130,7 @@ def test_set_color_does_not_republish_power_when_already_on(
     assert module.endpoint.on is True
 
 
-def test_set_color_black_does_not_force_power_on(load_main: Callable[..., SimpleNamespace]):
-    """Setting black on a light that is off leaves it off.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_set_color_black_does_not_force_power_on(load_main):
     module = load_main().module
 
     module.set_color((0, 0, 0))
@@ -203,14 +139,7 @@ def test_set_color_black_does_not_force_power_on(load_main: Callable[..., Simple
     assert module.endpoint.on is False
 
 
-def test_set_color_black_turns_off_an_already_lit_endpoint(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """Setting black on a lit light switches it off.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_set_color_black_turns_off_an_already_lit_endpoint(load_main):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     module.pixel.writes.clear()
 
@@ -220,14 +149,7 @@ def test_set_color_black_turns_off_an_already_lit_endpoint(
     assert module.pixel.writes == [module.OFF_COLOR]
 
 
-def test_render_skips_a_colour_the_pixel_already_shows(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """Rendering the color already shown doesn't rewrite the pixel.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_render_skips_a_colour_the_pixel_already_shows(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -237,14 +159,7 @@ def test_render_skips_a_colour_the_pixel_already_shows(
     assert module.pixel.writes == [(1, 2, 3)]
 
 
-def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A burst of controller writes renders once, with the burst's final color.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -260,23 +175,14 @@ def test_remote_write_burst_skips_renders_the_active_mode_cannot_show(
 
 
 @pytest.mark.parametrize(
-    ("state_code", "expected"),
+    "state_code,expected",
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),
         (4, (25, 12, 0)),
     ],
 )
-def test_commissioning_status_colors_after_start(
-    load_main: Callable[..., SimpleNamespace], state_code: int, expected: tuple[int, int, int]
-):
-    """Each commissioning event after start shows its status color.
-
-    Args:
-        load_main: Boots the firmware.
-        state_code: The native commissioning state injected.
-        expected: The color the pixel shows.
-    """
+def test_commissioning_status_colors_after_start(load_main, state_code, expected):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -286,14 +192,7 @@ def test_commissioning_status_colors_after_start(
     assert module.pixel.writes[-1] == expected
 
 
-def test_window_closing_for_a_commissioner_is_not_the_window_running_out(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A window that closes because a session took it keeps showing the session.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_window_closing_for_a_commissioner_is_not_the_window_running_out(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -304,14 +203,7 @@ def test_window_closing_for_a_commissioner_is_not_the_window_running_out(
     assert module.pixel.writes == [module.SESSION_COLOR]
 
 
-def test_window_running_out_unpaired_is_not_reported_as_ready(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A window that times out with nobody paired shows the stalled color.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_window_running_out_unpaired_is_not_reported_as_ready(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -323,7 +215,7 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(
 
 
 @pytest.mark.parametrize(
-    ("state_code", "expected"),
+    "state_code,expected",
     [
         (0, (0, 25, 25)),
         (3, (25, 0, 25)),
@@ -331,16 +223,7 @@ def test_window_running_out_unpaired_is_not_reported_as_ready(
         (2, (25, 0, 0)),
     ],
 )
-def test_startup_commissioning_events_win_over_boot_state(
-    load_main: Callable[..., SimpleNamespace], state_code: int, expected: tuple[int, int, int]
-):
-    """A commissioning event during start overrides the boot color once polled.
-
-    Args:
-        load_main: Boots the firmware.
-        state_code: The native commissioning state injected during start.
-        expected: The color the pixel shows.
-    """
+def test_startup_commissioning_events_win_over_boot_state(load_main, state_code, expected):
     boot = load_main(commissioning=[state_code])
     boot.module.handle_events(boot.module.node.poll())
 
@@ -348,14 +231,7 @@ def test_startup_commissioning_events_win_over_boot_state(
     assert boot.lines == [{"event": "matter", "state": "ready"}]
 
 
-def test_completion_during_start_is_published_after_node_is_started(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """Commissioning that completes during start is handled once the node has started.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_completion_during_start_is_published_after_node_is_started(load_main):
     boot = load_main(commissioning=[1])
     boot.module.handle_events(boot.module.node.poll())
 
@@ -363,12 +239,7 @@ def test_completion_during_start_is_published_after_node_is_started(
     assert boot.module.pixel.writes[-1] == boot.module.OFF_COLOR
 
 
-def test_a_reopened_window_clears_a_failure(load_main: Callable[..., SimpleNamespace]):
-    """A window reopened after a failed session replaces the failure color.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_a_reopened_window_clears_a_failure(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -379,14 +250,7 @@ def test_a_reopened_window_clears_a_failure(load_main: Callable[..., SimpleNames
     assert module.pixel.writes == [module.FAILED_COLOR, module.WINDOW_COLOR]
 
 
-def test_successful_retry_after_a_failure_commissions_the_node(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A session that completes after a failure leaves the node commissioned.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_successful_retry_after_a_failure_commissions_the_node(load_main):
     module = load_main().module
     module.pixel.writes.clear()
 
@@ -397,14 +261,7 @@ def test_successful_retry_after_a_failure_commissions_the_node(
     assert module.pixel.writes == [module.OFF_COLOR]
 
 
-def test_closed_window_restores_commissioned_controller_state(
-    load_main: Callable[..., SimpleNamespace],
-):
-    """A window opening and closing on a commissioned node leaves its color alone.
-
-    Args:
-        load_main: Boots the firmware.
-    """
+def test_closed_window_restores_commissioned_controller_state(load_main):
     module = load_main(persisted=_green_state(), fabrics=[_FABRIC]).module
     module.pixel.writes.clear()
 
@@ -429,15 +286,8 @@ def _green_state():
     }
 
 
-def _stop_after(count: int) -> Callable[[int], None]:
-    """Return a fake ``time.sleep_ms`` that raises StopLoopError on its ``count``-th call.
-
-    Args:
-        count: The call that raises.
-
-    Returns:
-        The fake sleep.
-    """
+def _stop_after(count):
+    """Return a fake ``time.sleep_ms`` that raises StopLoopError on its ``count``-th call."""
     calls = 0
 
     def sleep_ms(_delay_ms):

@@ -7,26 +7,15 @@ in for serial_monitor's own `serial.Serial` calls can.
 """
 
 import argparse
-import pathlib
 import time
 
-import pytest
 import serial
 import serial_monitor
 
 _WINDOW_S = 0.05
 
 
-def test_capture_retries_a_send_that_drops_mid_write(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    """A send lost when the port drops mid-write is retried on the reopened port.
-
-    Args:
-        tmp_path: Holds the fake device node.
-        monkeypatch: Swaps in the fake serial port.
-        capsys: Captures the reconnect notice.
-    """
+def test_capture_retries_a_send_that_drops_mid_write(tmp_path, monkeypatch, capsys):
     port_path = tmp_path / "ttyFAKE"
     port_path.touch()
     connections: list[_FakePort] = []
@@ -55,15 +44,7 @@ def test_capture_retries_a_send_that_drops_mid_write(
     assert "-- serial link dropped, reopening --" in capsys.readouterr().out
 
 
-def test_capture_does_not_resend_after_a_later_read_drops(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-):
-    """A send that landed isn't repeated when a later read drops the port.
-
-    Args:
-        tmp_path: Holds the fake device node.
-        monkeypatch: Swaps in the fake serial port.
-    """
+def test_capture_does_not_resend_after_a_later_read_drops(tmp_path, monkeypatch):
     port_path = tmp_path / "ttyFAKE"
     port_path.touch()
     connections: list[_FakePort] = []
@@ -89,12 +70,7 @@ def test_capture_does_not_resend_after_a_later_read_drops(
 
 
 class _FakePort:
-    """Minimal serial.Serial stand-in: only the API surface _capture touches.
-
-    Args:
-        fail_write: Whether every write() raises as if the port vanished.
-        fail_read: Whether the first readline() raises as if the port vanished.
-    """
+    """Minimal serial.Serial stand-in: only the API surface _capture touches."""
 
     def __init__(self, *, fail_write: bool, fail_read: bool = False) -> None:
         self._fail_write = fail_write
