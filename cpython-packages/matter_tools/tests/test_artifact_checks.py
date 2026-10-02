@@ -9,9 +9,7 @@ import fcntl
 import multiprocessing
 import os
 import pathlib
-from contextlib import AbstractContextManager
 from contextlib import nullcontext as returns
-from multiprocessing.synchronize import Event
 
 import pytest
 
@@ -31,16 +29,8 @@ _OTHER_PARTITION = pytest.raises(ValueError, match="does not carry the expected 
 _MISSING_QR = pytest.raises(ValueError, match="QR image is missing or empty")
 
 
-def _image(factory: bytes, size: int = _FLASH_SIZE) -> bytes:
-    """Return a miniature flash image of ``size`` bytes carrying ``factory`` at its offset.
-
-    Args:
-        factory: The factory partition's contents.
-        size: The image's length in bytes.
-
-    Returns:
-        The image.
-    """
+def _image(factory, size=_FLASH_SIZE):
+    """Return a miniature flash image of ``size`` bytes carrying ``factory`` at its offset."""
     merged = bytearray(size)
     merged[_FACTORY_OFFSET : _FACTORY_OFFSET + _FACTORY_SIZE] = factory
     return bytes(merged)
@@ -66,22 +56,7 @@ def _image(factory: bytes, size: int = _FLASH_SIZE) -> bytes:
         pytest.param(_image(_FACTORY), _ERASED, _OTHER_PARTITION, id="compiled-with-credentials"),
     ],
 )
-def test_validate_merged_image(
-    tmp_path: pathlib.Path,
-    identity: build.BoardIdentity,
-    merged: bytes,
-    factory: bytes,
-    outcome: AbstractContextManager,
-):
-    """An image passes only at the flash size and carrying exactly the expected partition.
-
-    Args:
-        tmp_path: Holds the merged image.
-        identity: The miniature board identity.
-        merged: The merged image's bytes.
-        factory: The factory partition it should carry.
-        outcome: Passes, or expects the ValueError naming the mismatch.
-    """
+def test_validate_merged_image(tmp_path, identity, merged, factory, outcome):
     path = tmp_path / build.MERGED_NAME
     path.write_bytes(merged)
     with outcome:
@@ -96,16 +71,7 @@ def test_validate_merged_image(
         pytest.param(b"", _MISSING_QR, id="empty"),
     ],
 )
-def test_validate_qr(
-    tmp_path: pathlib.Path, content: bytes | None, outcome: AbstractContextManager
-):
-    """A QR image passes only when the file exists and isn't empty.
-
-    Args:
-        tmp_path: Holds the QR image.
-        content: The QR file's bytes, or None for no file.
-        outcome: Passes, or expects the ValueError for a missing image.
-    """
+def test_validate_qr(tmp_path, content, outcome):
     qr = tmp_path / "qrcode.png"
     if content is not None:
         qr.write_bytes(content)
@@ -113,13 +79,7 @@ def test_validate_qr(
         provision.validate_qr(qr)
 
 
-def test_publish_installs_a_complete_generation_readable(image: "_Image", outputs: pathlib.Path):
-    """Publishing installs the image, QR, and setup codes with the artifact file mode.
-
-    Args:
-        image: The files to publish.
-        outputs: The empty outputs directory.
-    """
+def test_publish_installs_a_complete_generation_readable(image, outputs):
     build.publish(outputs, image.merged, image.qr, _SETUP)
 
     merged = outputs / build.MERGED_NAME
@@ -134,16 +94,7 @@ def test_publish_installs_a_complete_generation_readable(image: "_Image", output
         assert path.stat().st_mode & 0o777 == build._ARTIFACT_MODE
 
 
-def test_publish_staging_failure_preserves_the_current_generation(
-    image: "_Image", outputs: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-):
-    """A failure while staging the new files leaves the published generation untouched.
-
-    Args:
-        image: The files to publish.
-        outputs: The outputs directory, seeded with a current generation.
-        monkeypatch: Makes staging the QR image fail.
-    """
+def test_publish_staging_failure_preserves_the_current_generation(image, outputs, monkeypatch):
     current = _seed_generation(outputs)
     install = build._install
 
@@ -159,16 +110,7 @@ def test_publish_staging_failure_preserves_the_current_generation(
     assert {path.name: path.read_bytes() for path in outputs.iterdir()} == current
 
 
-def test_publish_cutover_failure_never_leaves_stale_pairing_material(
-    image: "_Image", outputs: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-):
-    """A failure mid-cutover removes the old pairing codes rather than leaving them stale.
-
-    Args:
-        image: The files to publish.
-        outputs: The outputs directory, seeded with a current generation.
-        monkeypatch: Makes replacing the QR image fail.
-    """
+def test_publish_cutover_failure_never_leaves_stale_pairing_material(image, outputs, monkeypatch):
     _seed_generation(outputs)
     commit = build._commit_staged
     replacements = 0
@@ -190,13 +132,7 @@ def test_publish_cutover_failure_never_leaves_stale_pairing_material(
     assert {path.name for path in outputs.iterdir()} == {build.MERGED_NAME}
 
 
-def test_publish_recovers_reserved_staging_files(image: "_Image", outputs: pathlib.Path):
-    """Staging files left by an interrupted build are cleared by the next publish.
-
-    Args:
-        image: The files to publish.
-        outputs: The outputs directory, holding leftover staging files.
-    """
+def test_publish_recovers_reserved_staging_files(image, outputs):
     for name in build._STAGING_NAMES:
         (outputs / name).write_bytes(b"interrupted build")
 
@@ -205,13 +141,7 @@ def test_publish_recovers_reserved_staging_files(image: "_Image", outputs: pathl
     assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
 
 
-def test_publish_serializes_live_generations(outputs: pathlib.Path, tmp_path: pathlib.Path):
-    """A second publish waits on the directory lock until the first finishes.
-
-    Args:
-        outputs: The shared outputs directory.
-        tmp_path: Holds each publisher's source files.
-    """
+def test_publish_serializes_live_generations(outputs, tmp_path):
     first_sources = _publish_sources(tmp_path / "first", "first")
     second_sources = _publish_sources(tmp_path / "second", "second")
     context = multiprocessing.get_context("fork")
@@ -263,13 +193,7 @@ def test_publish_serializes_live_generations(outputs: pathlib.Path, tmp_path: pa
     )
 
 
-def test_publish_refuses_to_write_beside_a_stray_file(image: "_Image", outputs: pathlib.Path):
-    """An unexpected file in the outputs directory stops publishing before anything changes.
-
-    Args:
-        image: The files to publish.
-        outputs: The outputs directory, seeded with a current generation.
-    """
+def test_publish_refuses_to_write_beside_a_stray_file(image, outputs):
     current = _seed_generation(outputs)
     (outputs / "leftover.bin").write_bytes(b"")
     with pytest.raises(ValueError, match=r"unexpected output artifacts: leftover\.bin"):
@@ -287,17 +211,7 @@ def test_publish_refuses_to_write_beside_a_stray_file(image: "_Image", outputs: 
         pytest.param({build.MERGED_NAME, build.QR_NAME}, False, id="partial-pairing"),
     ],
 )
-def test_hand_outputs_to_owner(
-    outputs: pathlib.Path, monkeypatch: pytest.MonkeyPatch, names: set[str], handed_over: bool
-):
-    """Only a complete generation is handed over, directory included, to the source owner.
-
-    Args:
-        outputs: The outputs directory.
-        monkeypatch: Records chown calls instead of making them.
-        names: The artifacts present.
-        handed_over: Whether they form a complete generation.
-    """
+def test_hand_outputs_to_owner(outputs, monkeypatch, names, handed_over):
     for name in names:
         (outputs / name).write_bytes(b"artifact")
     owner = outputs.stat()
@@ -312,15 +226,8 @@ def test_hand_outputs_to_owner(
     assert chowned == [(path, owner.st_uid, owner.st_gid) for path in handed]
 
 
-def _seed_generation(outputs: pathlib.Path) -> dict[str, bytes]:
-    """Write and return the public bytes of one complete current generation.
-
-    Args:
-        outputs: The outputs directory.
-
-    Returns:
-        Each artifact's contents, keyed by file name.
-    """
+def _seed_generation(outputs):
+    """Write and return the public bytes of one complete current generation."""
     contents = {
         build.MERGED_NAME: b"current merged image",
         build.QR_NAME: b"current QR image",
@@ -331,16 +238,8 @@ def _seed_generation(outputs: pathlib.Path) -> dict[str, bytes]:
     return contents
 
 
-def _publish_sources(root: pathlib.Path, label: str) -> tuple[pathlib.Path, pathlib.Path, str, str]:
-    """Write one uniquely identifiable publication source generation.
-
-    Args:
-        root: The directory created for the sources.
-        label: Marks every source so its publication can be recognised.
-
-    Returns:
-        The merged image path, QR path, manual code, and setup payload.
-    """
+def _publish_sources(root, label):
+    """Write one uniquely identifiable publication source generation."""
     root.mkdir()
     merged = root / "merged.bin"
     qr = root / "qr.png"
@@ -350,27 +249,16 @@ def _publish_sources(root: pathlib.Path, label: str) -> tuple[pathlib.Path, path
 
 
 def _publish_in_process(
-    outputs: pathlib.Path,
-    merged: pathlib.Path,
-    qr: pathlib.Path,
-    manual: str,
-    payload: str,
-    entered: Event,
-    release: Event | None,
-    started: Event | None,
+    outputs,
+    merged,
+    qr,
+    manual,
+    payload,
+    entered,
+    release,
+    started,
 ):
-    """Publish in a child process, optionally pausing after its first staged file.
-
-    Args:
-        outputs: The shared outputs directory.
-        merged: The merged image to publish.
-        qr: The QR image to publish.
-        manual: The manual pairing code to publish.
-        payload: The QR setup payload to publish.
-        entered: Set once the first file is staged.
-        release: Waited on after the first file is staged, or None not to pause.
-        started: Set just before publishing begins, or None.
-    """
+    """Publish in a child process, optionally pausing after its first staged file."""
     install = build._install
     first_install = True
 
@@ -394,11 +282,7 @@ class _Image:
     """The two files a finished flash hands to publication."""
 
     def __init__(self, root: pathlib.Path) -> None:
-        """Write a provisioned merged image and its QR image.
-
-        Args:
-            root: The directory the two files are written to.
-        """
+        """Write a provisioned merged image and its QR image."""
         self.merged = root / build.MERGED_NAME
         self.qr = root / "device-qrcode.png"
         self.merged.write_bytes(_image(_FACTORY))
@@ -406,12 +290,8 @@ class _Image:
 
 
 @pytest.fixture
-def identity() -> build.BoardIdentity:
-    """A build identity shrunk to the miniature image the fixtures build.
-
-    Returns:
-        The identity.
-    """
+def identity():
+    """A build identity shrunk to the miniature image the fixtures build."""
     return build.BoardIdentity(
         vendor_id=0xFFF1,
         product_id=0x8001,
@@ -423,30 +303,16 @@ def identity() -> build.BoardIdentity:
 
 
 @pytest.fixture
-def image(tmp_path: pathlib.Path) -> _Image:
-    """A consistent merged image and QR file under tmp_path.
-
-    Args:
-        tmp_path: Holds the build directory.
-
-    Returns:
-        The two files.
-    """
+def image(tmp_path):
+    """A consistent merged image and QR file under tmp_path."""
     source = tmp_path / "build"
     source.mkdir()
     return _Image(source)
 
 
 @pytest.fixture
-def outputs(tmp_path: pathlib.Path) -> pathlib.Path:
-    """An empty directory standing in for the /outputs bind mount.
-
-    Args:
-        tmp_path: Holds the directory.
-
-    Returns:
-        The empty directory.
-    """
+def outputs(tmp_path):
+    """An empty directory standing in for the /outputs bind mount."""
     directory = tmp_path / "outputs"
     directory.mkdir()
     return directory
