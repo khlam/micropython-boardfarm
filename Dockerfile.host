@@ -1,6 +1,5 @@
 # Host-Python stages: wheels (internal-package wheel builder), viz (FastAPI
-# dashboard, port 18501), uv-runner (standalone uv to regenerate uv.lock) and
-# firmware-dependencies (locked sources frozen into firmware).
+# dashboard, port 18501) and uv-runner (standalone uv to regenerate uv.lock).
 # viz/uv-runner consume the lockfile that uv-runner produces; viz pins
 # fastapi/uvicorn/pyserial transitively.
 
@@ -60,15 +59,3 @@ COPY --from=uv-bin /uv /usr/local/bin/uv
 COPY --from=wheels /wheels /wheels
 WORKDIR /workspace
 ENTRYPOINT ["uv"]
-
-
-# Locked Python sources for the MicroPython compiler; no host bytecode is shipped.
-FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS firmware-dependencies
-COPY --from=uv-bin /uv /usr/local/bin/uv
-WORKDIR /workspace
-COPY pyproject.toml uv.lock ./
-RUN uv export --frozen --only-group firmware --no-emit-workspace -o /requirements.txt \
- && uv pip install --require-hashes --no-deps --target /installed -r /requirements.txt
-WORKDIR /installed/microdot
-RUN mkdir -p /firmware-dependencies/microdot \
- && cp -p __init__.py microdot.py websocket.py helpers.py /firmware-dependencies/microdot/

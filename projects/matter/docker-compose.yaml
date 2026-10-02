@@ -1,9 +1,4 @@
 services:
-  firmware-dependencies:
-    extends:
-      file: ../../docker-compose.yaml
-      service: firmware-dependencies
-
   wheels:
     extends:
       file: ../../docker-compose.yaml
@@ -15,7 +10,6 @@ services:
       dockerfile: Dockerfile.matter
       target: matter-toolchain
       additional_contexts:
-        firmware-dependencies: service:firmware-dependencies
         wheels: service:wheels
     volumes:
       # manifest.py hardcodes /firmware-packages and /firmware.
@@ -34,7 +28,6 @@ services:
       dockerfile: Dockerfile.matter
       target: matter-monitor
       additional_contexts:
-        firmware-dependencies: service:firmware-dependencies
         wheels: service:wheels
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
@@ -56,7 +49,6 @@ services:
       dockerfile: Dockerfile.matter
       target: matter-flash
       additional_contexts:
-        firmware-dependencies: service:firmware-dependencies
         wheels: service:wheels
     depends_on:
       esp32-compile:

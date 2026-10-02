@@ -147,7 +147,7 @@ bound Python network work; native Wi-Fi/lwIP memory and responsiveness under
 sustained network load are not yet validated on the board alongside Matter.
 
 Microdot 2.6.2 is locked in `uv.lock`. The `firmware-dependencies` stage of
-`Dockerfile.host` copies its Python sources, and `manifest.py`
+`Dockerfile.matter` copies its Python sources, and `manifest.py`
 freezes it into any firmware that imports it.
 
 ## Build, flash, wire

@@ -50,7 +50,7 @@ _packages = {
     if (p / p.name / "__init__.py").is_file()
 }
 
-# Dockerfile.host's firmware-dependencies stage hash-verifies and stages Microdot.
+# Dockerfile.matter's firmware-dependencies stage hash-verifies and stages Microdot.
 # Register it even when that staging is missing, so firmware that imports it
 # fails the check below instead of freezing without it.
 _packages["microdot"] = Path("/firmware-dependencies")

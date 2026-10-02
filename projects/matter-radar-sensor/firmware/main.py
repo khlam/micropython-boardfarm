@@ -175,7 +175,21 @@ class _Application:
         targets = tuple(target for target in targets if outside_dead_zone(target))
         self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
         if self._throttle.due(targets, now_ms):
-            _emit_targets(targets, now_ms)
+            emit(
+                {
+                    "t": now_ms,
+                    "targets": [
+                        {
+                            "slot": target.slot,
+                            "x_mm": target.x_mm,
+                            "y_mm": target.y_mm,
+                            "speed_cm_s": target.speed_cm_s,
+                            "resolution_mm": target.resolution_mm,
+                        }
+                        for target in targets
+                    ],
+                }
+            )
 
     def _apply_radar_report(self, *, occupied: bool, now_ms: int) -> None:
         """Apply one valid radar report, holding occupied while Matter is failing.
@@ -222,25 +236,6 @@ class _Application:
             error("occupancy", str(exception))
             return
         self._published_occupancy = occupied
-
-
-def _emit_targets(targets: tuple, now_ms: int) -> None:
-    """Emit one telemetry line for the filtered targets of a radar report."""
-    emit(
-        {
-            "t": now_ms,
-            "targets": [
-                {
-                    "slot": target.slot,
-                    "x_mm": target.x_mm,
-                    "y_mm": target.y_mm,
-                    "speed_cm_s": target.speed_cm_s,
-                    "resolution_mm": target.resolution_mm,
-                }
-                for target in targets
-            ],
-        }
-    )
 
 
 main()
