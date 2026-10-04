@@ -68,12 +68,13 @@ _FLASH_SIZE_RE = re.compile(r"^CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB$")
 
 @dataclass(frozen=True)
 class BoardIdentity:
-    """What the firmware believes about itself, read from its board configuration.
+    """The device's Matter IDs and flash layout.
 
-    Every field is derived from the files the running device actually consumes --
-    the partition table and sdkconfig -- rather than restated as a literal, so
-    checking an artifact against this instance compares it against the firmware
-    instead of against a second copy of the same constants.
+    The build and provisioning steps use it to size the merged image, place the
+    factory partition, and encode the pairing QR code. board_to_identity reads
+    every field from the board's partitions.csv and sdkconfig.board, except
+    discovery_mode, which those files do not set and which is always
+    _DISCOVERY_MODE.
     """
 
     vendor_id: int

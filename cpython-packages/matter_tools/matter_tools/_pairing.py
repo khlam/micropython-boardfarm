@@ -29,8 +29,9 @@ def generate_pairing(passcode: str | None = None) -> dict:
         ``manual_pairing_code``.
 
     Raises:
-        ValueError: The key is not a string, is too short, or spans too few
-            distinct characters to resist guessing.
+        ValueError: The key is not a string, is too short, spans too few
+            distinct characters to resist guessing, or derives a setup passcode
+            the Matter spec forbids.
     """
     if passcode is None:
         passcode = _random_passcode()
@@ -44,8 +45,8 @@ def generate_pairing(passcode: str | None = None) -> dict:
         )
     digest = hashlib.sha256(passcode.encode()).digest()
     setup_passcode = int.from_bytes(digest[:4], "big") % MAX_PASSCODE + 1
-    while setup_passcode in INVALID_PASSCODES:
-        setup_passcode = setup_passcode % MAX_PASSCODE + 1
+    if setup_passcode in INVALID_PASSCODES:
+        raise ValueError("passcode derives a forbidden Matter setup passcode; choose another key")
     discriminator = int.from_bytes(digest[4:6], "big") & 0xFFF
     return {
         "key": passcode,

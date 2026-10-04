@@ -16,6 +16,7 @@ _ANY_VALID_KEY = "any-valid-key-0123456789"
 _NON_STRING_ERROR = "^passcode must be a string$"
 _SHORT_KEY_ERROR = "^passcode must be at least 24 characters$"
 _UNIFORM_KEY_ERROR = "^passcode must span at least 12 distinct characters$"
+_FORBIDDEN_PASSCODE_ERROR = "^passcode derives a forbidden Matter setup passcode"
 
 # Matter Core Specification, Onboarding Payload, Passcode: these setup passcodes
 # are invalid. connectedhomeip's PayloadContents::IsValidSetupPIN rejects the same
@@ -210,8 +211,8 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
                 _ANY_VALID_KEY,
                 (),
                 (forbidden - 1).to_bytes(4, "big"),
-                returns({"passcode": 1 if forbidden == 99999999 else forbidden + 1}),
-                id=f"skips-forbidden-{forbidden:08d}",
+                pytest.raises(ValueError, match=_FORBIDDEN_PASSCODE_ERROR),
+                id=f"rejects-forbidden-{forbidden:08d}",
             )
             for forbidden in _FORBIDDEN_SETUP_PASSCODES
             # No digest maps to 00000000: the derived range starts at 1.
