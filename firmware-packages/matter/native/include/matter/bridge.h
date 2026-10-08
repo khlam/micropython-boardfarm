@@ -33,8 +33,8 @@ enum matter_snapshot_kind {
     MATTER_SNAPSHOT_NETWORK = 3,
 };
 
-// Pairing transitions reported to Python. Ordered to index the decode table in
-// the `matter` package, which pairs each state with its lifecycle name.
+// Pairing transitions reported to Python. `matter.state` mirrors these codes,
+// so new ones may be appended but existing ones never renumbered.
 enum matter_commissioning_state {
     MATTER_COMMISSIONING_STARTED = 0,
     MATTER_COMMISSIONING_COMPLETE = 1,
