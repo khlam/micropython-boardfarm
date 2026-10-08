@@ -24,10 +24,13 @@ enum matter_endpoint_type {
 };
 
 // Which fields of a snapshot record carry meaning. An attribute record fills
-// the whole path; a commissioning record carries its state in `value` alone.
+// the whole path; every other kind carries its fact in `value` alone: a
+// commissioning state, the number of fabrics, or a network state.
 enum matter_snapshot_kind {
     MATTER_SNAPSHOT_ATTRIBUTE = 0,
     MATTER_SNAPSHOT_COMMISSIONING = 1,
+    MATTER_SNAPSHOT_FABRICS = 2,
+    MATTER_SNAPSHOT_NETWORK = 3,
 };
 
 // Pairing transitions reported to Python. Ordered to index the decode table in
@@ -38,6 +41,13 @@ enum matter_commissioning_state {
     MATTER_COMMISSIONING_FAILED = 2,
     MATTER_COMMISSIONING_WINDOW_OPENED = 3,
     MATTER_COMMISSIONING_WINDOW_CLOSED = 4,
+};
+
+// Whether the Wi-Fi station link is up. Connected means associated with the
+// access point; it says nothing about DHCP or IPv6 reachability.
+enum matter_network_state {
+    MATTER_NETWORK_DISCONNECTED = 0,
+    MATTER_NETWORK_CONNECTED = 1,
 };
 
 // How to read the `uint32_t` an attribute value travels in. The three widths
@@ -60,8 +70,8 @@ struct matter_attribute_update {
 };
 
 // One retained state record crossing the C boundary. Revision is drawn from a
-// node-wide sequence, allowing Python to order attributes and commissioning
-// state coherently after coalescing repeated writes.
+// node-wide sequence, allowing Python to order attributes and device state
+// coherently after coalescing repeated writes.
 struct matter_snapshot_record {
     uint32_t revision;
     uint8_t kind;
@@ -73,12 +83,13 @@ struct matter_snapshot_record {
 };
 
 // Sixteen supported endpoints can each expose at most ten Python-mirrored
-// attributes. Commissioning adds one session and one window record.
+// attributes. Device state adds one record each for the commissioning
+// session, the commissioning window, the fabric count, and the network.
 enum {
     MATTER_MAX_ENDPOINTS = 16,
     MATTER_MAX_ATTRIBUTE_BATCH = 10,
     MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS = MATTER_MAX_ENDPOINTS * MATTER_MAX_ATTRIBUTE_BATCH,
-    MATTER_MAX_SNAPSHOT_RECORDS = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2,
+    MATTER_MAX_SNAPSHOT_RECORDS = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 4,
 };
 
 // The label size is the Matter maximum plus its terminator. The fabric ceiling

@@ -6,6 +6,8 @@ import errno
 
 _EVENT_ATTRIBUTE = 0
 _EVENT_COMMISSIONING = 1
+_EVENT_FABRICS = 2
+_EVENT_NETWORK = 3
 _COMMISSIONING_WINDOW_OPENED = 3
 _IDENTIFY_CLUSTER = 0x0003
 _IDENTIFY_TIME_ATTRIBUTE = 0x0000
@@ -69,6 +71,8 @@ class _State:
         self.snapshot_records: dict[tuple[int, int, int], tuple[int, object]] = {}
         self.commissioning_session: tuple[int, int] | None = None
         self.commissioning_window: tuple[int, int] | None = None
+        self.fabric_count: tuple[int, int] | None = None
+        self.network: tuple[int, int] | None = None
         self.generation = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
@@ -97,6 +101,8 @@ def reset(*, persisted: dict | None = None, generation: int = 0) -> None:
     _state.snapshot_records.clear()
     _state.commissioning_session = None
     _state.commissioning_window = None
+    _state.fabric_count = None
+    _state.network = None
     _state.generation = generation
     _state.failures.clear()
     _state.fabrics.clear()
@@ -205,6 +211,18 @@ def inject_commissioning_event(state_code: int) -> None:
     _record_commissioning(state_code)
 
 
+def inject_fabric_count() -> None:
+    """Report the seeded fabric count, as callbacks.cpp does on kFabricCommitted."""
+    _require_started()
+    _state.fabric_count = (_next_revision(), len(_state.fabrics))
+
+
+def inject_network_event(state_code: int) -> None:
+    """Inject one native Wi-Fi link change (0 disconnected, 1 connected) for host tests."""
+    _require_started()
+    _state.network = (_next_revision(), state_code)
+
+
 def generation() -> int:
     """Return the current coalesced-state generation."""
     return _state.generation
@@ -220,10 +238,15 @@ def snapshot() -> tuple[int, tuple]:
             _state.snapshot_records.items()
         )
     ]
-    for commissioning in (_state.commissioning_session, _state.commissioning_window):
-        if commissioning is not None:
-            revision, state_code = commissioning
-            records.append((revision, _EVENT_COMMISSIONING, 0, 0, 0, state_code))
+    for kind, retained in (
+        (_EVENT_COMMISSIONING, _state.commissioning_session),
+        (_EVENT_COMMISSIONING, _state.commissioning_window),
+        (_EVENT_FABRICS, _state.fabric_count),
+        (_EVENT_NETWORK, _state.network),
+    ):
+        if retained is not None:
+            revision, value = retained
+            records.append((revision, kind, 0, 0, 0, value))
     return (_state.generation, tuple(records))
 
 
@@ -253,8 +276,10 @@ def remove_fabric(index: int) -> None:
     for position, fabric in enumerate(_state.fabrics):
         if fabric[0] == index:
             _state.fabrics.pop(position)
-            # callbacks.cpp answers kFabricRemoved by reopening the window of a
-            # node left with no fabric, and that opening is reported like any other.
+            # callbacks.cpp answers kFabricRemoved by recording the new count,
+            # then reopening the window of a node left with no fabric, and that
+            # opening is reported like any other.
+            _state.fabric_count = (_next_revision(), len(_state.fabrics))
             if not _state.fabrics:
                 _record_commissioning(_COMMISSIONING_WINDOW_OPENED)
             return

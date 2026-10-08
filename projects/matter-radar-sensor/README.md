@@ -33,13 +33,14 @@ Product policy stays in the project; reusable packages own mechanisms.
 | --- | --- |
 | `main.py` | Board wiring, task flow, radar recovery, Matter publication, target telemetry. |
 | `reports.py` | Occupancy hold, dead zone, and telemetry pacing, decided from explicit report times. |
-| `status.py` | Commissioning state, LED color priority, suppression of repeated pixel writes. |
+| `status.py` | Product colour for radar and Matter health and for occupancy. |
 | `radar` | Probe order, UART ownership, framing, newest decoded targets. |
-| `matter` | Validation, mirrors, bounded task crossing, retained events. |
+| `matter` | Validation, mirrors, fabric and network state, bounded task crossing, retained events. |
+| `matter_status_led` | Matter state colour and blink, failure flash, pixel writes. |
 | ESP-Matter | Sessions, commissioning, fabrics, persistence, subscriptions. |
 
-`main.py` runs two asyncio tasks: Matter polling every 50 ms, and radar reading
-with 1 s recovery retries.
+`main.py` runs two asyncio tasks: Matter polling every 50 ms, which also steps
+the pixel's blink, and radar reading with 1 s recovery retries.
 
 ## Key flows
 
@@ -81,9 +82,14 @@ retries without restarting the radar. Radar and Matter diagnostics are
 `no_device`, `init_err`, `read_err`, `report_timeout`, `radar_ok`,
 `matter_poll_err`, and `matter_ok`; Matter publication failures use error events.
 
-Pixel priority is red failed pairing, purple open window, cyan active pairing,
-amber unpaired/closed or dim white startup, yellow unhealthy radar/Matter,
-then blue vacant or green occupied.
+The pixel shows the Matter state first, using the shared
+[matter_status_led](../../firmware-packages/matter_status_led/README.md)
+patterns: three red flashes for a failed pairing attempt, dim white before the
+first poll, fast cyan blink while pairing, slow purple blink while a window is
+open, solid amber when unpaired with no window, and slow amber blink when
+paired but off Wi-Fi. Once paired and connected, it shows the product: solid
+yellow for unhealthy radar or Matter polling, then blue vacant or green
+occupied.
 
 VID/PID and test DACs are development settings; replace them for production.
 

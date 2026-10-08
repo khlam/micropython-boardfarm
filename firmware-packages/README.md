@@ -19,6 +19,7 @@ Shared MCU packages. At firmware compile time, each `<pkg>/` is frozen into `por
 | [boot_status_led](boot_status_led/) | Boot/runtime indicator LED state machine. |
 | [i2c_bus](i2c_bus/) | `soft_i2c(sda, scl)` / `hard_i2c(bus_id, sda, scl)` bus factories plus `DeviceNotFoundError`; consumed only by drivers, never by projects. |
 | [matter](matter/) | Reusable MicroPython endpoint API over native ESP-Matter. |
+| [matter_status_led](matter_status_led/) | Status pixel colour and blink for the Matter device state. |
 | [mpu6050](mpu6050/) | Driver for the InvenSense MPU family IMU (MPU6050 / MPU6500 / MPU9250)|
 | [qmc5883p](qmc5883p/) | Driver for the QST QMC5883P 3-axis magnetometer. |
 | [radar](radar/) | UART drivers for the HLK-LD2450 and HLK-LD2420 presence radars, selected by model or detected on the wire. |

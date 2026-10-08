@@ -1,4 +1,8 @@
-"""The Matter node: one per device, owning every application endpoint."""
+"""The Matter node: one per device, owning its state and every endpoint.
+
+The node follows the Matter device model. Its fabric and network state
+machines live in :mod:`matter.state`; its endpoints hold application state.
+"""
 
 import time
 from collections import namedtuple
@@ -10,20 +14,18 @@ from matter.emit import event as emit_event
 from matter.endpoint import Endpoint
 from matter.schema import (
     SCHEMAS,
-    Commissioning,
     Paths,
     bounded_integer,
     default_state,
     requested_state,
 )
+from matter.state import DeviceState, StateEvent, initial_state, transition
 
-__all__ = ["CommissioningEvent", "Fabric", "Node"]
+__all__ = ["Fabric", "Node"]
 
-CommissioningEvent = namedtuple("CommissioningEvent", ("name", "state"))
 Fabric = namedtuple("Fabric", ("index", "fabric_id", "node_id", "vendor_id", "label"))
 
-_EVENT_ATTRIBUTE = const(0)
-_EVENT_COMMISSIONING = const(1)
+_RECORD_ATTRIBUTE = const(0)
 
 # ESP-Matter's task is still bringing up Wi-Fi, BLE, and the fabric table when
 # start() returns, and every attribute read is a bounded request onto that same
@@ -34,17 +36,6 @@ _RESTORE_PAUSE_S = 0.25
 
 _REVISION_MASK = const(0xFFFFFFFF)
 _HALF_REVISION_RANGE = const(0x80000000)
-
-# Indexed by the native commissioning state code. Built from the public
-# constants so the decode table and the names subscribers compare against
-# cannot drift, and pre-built so no event costs an allocation.
-_COMMISSIONING_STATES = (
-    CommissioningEvent(Commissioning.SESSION, Commissioning.STARTED),
-    CommissioningEvent(Commissioning.SESSION, Commissioning.COMPLETE),
-    CommissioningEvent(Commissioning.SESSION, Commissioning.FAILED),
-    CommissioningEvent(Commissioning.WINDOW, Commissioning.OPENED),
-    CommissioningEvent(Commissioning.WINDOW, Commissioning.CLOSED),
-)
 
 # A list cell rather than a bare module global so `Node.__init__` can assign
 # into it without a `global` statement, while still enforcing at most one
@@ -63,12 +54,24 @@ class Node:
         self._endpoints = {}
         self._started = False
         self._generation = matter_native.generation()
+        self._fabric_count = 0
+        self._state = None
         _active_node[0] = self
 
     @property
     def started(self) -> bool:
         """Return whether the native stack completed startup."""
         return self._started
+
+    @property
+    def state(self) -> DeviceState:
+        """Return the current :class:`matter.DeviceState`.
+
+        Seeded by :meth:`start` from the fabrics restored from flash, then
+        advanced by every :meth:`poll`. Raises ``OSError`` before :meth:`start`.
+        """
+        _require_started(self._started)
+        return self._state
 
     def create_endpoint(self, endpoint_type: int, initial: dict | None = None) -> Endpoint:
         """Create a supported endpoint before the Matter stack starts.
@@ -121,24 +124,32 @@ class Node:
         return endpoint
 
     def start(self) -> None:
-        """Start ESP-Matter and restore persisted endpoint state."""
+        """Start ESP-Matter, restore persisted endpoints, and seed the state.
+
+        The node starts disconnected with no window open; the first poll
+        delivers whatever the stack reported while it came up.
+        """
         if self._started:
             raise OSError(114, "Matter node is already started")
         matter_native.start()
-        self._restore_endpoints()
+        self._fabric_count = self._restore()
+        self._state = initial_state(self._fabric_count)
         self._started = True
         emit_event("matter", "ready")
+        emit_event("fabric", self._state.fabric)
 
     def poll(self) -> tuple:
         """Synchronize native state and return ordered immutable events.
 
         Applications call this cooperatively. A native failure leaves the
         committed generation unchanged, so the same work remains visible to a
-        later poll. Every endpoint mirror is updated before this method returns.
+        later poll. Every endpoint mirror and :attr:`state` are updated before
+        this method returns.
 
         Returns:
-            Controller writes and commissioning transitions ordered by their
-            shared native revision, or an empty tuple when nothing changed.
+            :class:`matter.WriteEvent` for controller writes and
+            :class:`matter.StateEvent` for device-state changes, ordered by
+            their shared native revision, or an empty tuple when nothing changed.
         """
         _require_started(self._started)
         if matter_native.generation() == self._generation:
@@ -183,43 +194,71 @@ class Node:
         _require_started(self._started)
         matter_native.factory_reset()
 
-    def _restore_endpoints(self) -> None:
-        """Hydrate every endpoint once the freshly started stack answers reads.
+    def _restore(self) -> int:
+        """Hydrate every endpoint and count fabrics once the stack answers reads.
 
         A read that expires while the stack is still starting says nothing about
         the endpoint, so it is retried rather than allowed to lose the whole
         boot. The sleep yields while the stack settles; retained changes are
         synchronized by a later explicit poll.
 
+        Returns:
+            How many fabrics the node restored from flash.
+
         Raises:
             OSError: The stack never answered within the restore budget.
         """
-        for attempt in range(_RESTORE_ATTEMPTS):
+        attempt = 1
+        while True:
             try:
                 for endpoint in self._endpoints.values():
                     endpoint._restore()  # noqa: SLF001 - Node owns its Endpoint instances
+                return len(matter_native.fabrics())
             except OSError:
-                if attempt == _RESTORE_ATTEMPTS - 1:
+                if attempt == _RESTORE_ATTEMPTS:
                     raise
+                attempt += 1
                 time.sleep(_RESTORE_PAUSE_S)
-            else:
-                return
 
     def _handle(self, record: tuple) -> object | None:
         """Apply one retained record and return its public event."""
         _revision, kind, endpoint_id, cluster, attribute, value = record
-        if kind == _EVENT_ATTRIBUTE:
+        if kind == _RECORD_ATTRIBUTE:
             endpoint = self._endpoints.get(endpoint_id)
             if endpoint is None:
                 return None
             return endpoint._accept_remote(  # noqa: SLF001 - Node owns its Endpoint instances
                 cluster, attribute, value
             )
-        if kind == _EVENT_COMMISSIONING and 0 <= value < len(_COMMISSIONING_STATES):
-            event = _COMMISSIONING_STATES[value]
-            emit_event(*event)
-            return event
-        return None
+        return self._advance_state(kind, value)
+
+    def _advance_state(self, kind: int, value: int) -> StateEvent | None:
+        """Run one device-state record through the state machines.
+
+        Reports each changed field as its own JSON line, and the failure of a
+        commissioning attempt as one more.
+
+        Args:
+            kind: Native snapshot record kind.
+            value: The record's value.
+
+        Returns:
+            The event for a change or a failed attempt, otherwise None.
+        """
+        previous = self._state
+        state, self._fabric_count, failed = transition(previous, self._fabric_count, kind, value)
+        if state == previous and not failed:
+            return None
+        self._state = state
+        if failed:
+            emit_event("commissioning", "failed")
+        if state.fabric != previous.fabric:
+            emit_event("fabric", state.fabric)
+        if state.network != previous.network:
+            emit_event("network", state.network)
+        if state.window_open != previous.window_open:
+            emit_event("commissioning_window", "opened" if state.window_open else "closed")
+        return StateEvent(state, failed)
 
 
 def _require_started(started: object) -> None:

@@ -9,8 +9,8 @@ connection.
 
 This module wires the hardware and runs Matter polling and radar reading,
 applying each report to occupancy before its telemetry. The reports module
-decides occupancy and telemetry pacing; StatusPixel owns commissioning state and
-LED priority.
+decides occupancy and telemetry pacing; the status module picks the product
+colour, which StatusLed shows whenever the Matter state calls for none.
 
 The board sends its JSON lines over USB serial.
 """
@@ -24,10 +24,11 @@ import machine
 import neopixel
 from micropython import const
 from reports import Occupancy, ReportThrottle, hold_ms, outside_dead_zone
-from status import StatusPixel
+from status import STATUS_LEVEL, product_color
 
 import matter
 from matter.emit import emit, error
+from matter_status_led import StatusLed
 from radar import NoRadarError, ReportStream, detect
 
 # Pin map for this board, shared by every supported radar. ``tx`` connects to
@@ -61,7 +62,8 @@ class _Application:
         self._published_occupancy = None
 
         pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
-        self._status = StatusPixel(pixel)
+        # Dim white until the first poll reports the Matter state.
+        self._status = StatusLed(pixel, STATUS_LEVEL)
 
         self._node = matter.Node()
         # Endpoint IDs persist, so always create the occupancy endpoint first.
@@ -71,7 +73,7 @@ class _Application:
 
         # The product contract requires occupied during startup and radar recovery.
         self._publish_occupancy()
-        self._status.set_commissioned(value=bool(self._node.fabrics()))
+        self._update_status()
 
     async def run(self) -> None:
         """Run Matter polling and radar tasks."""
@@ -94,6 +96,7 @@ class _Application:
                     self._matter_healthy = True
                     self._update_status()
                 self._handle_matter_events(events)
+            self._status.tick()
             await asyncio.sleep_ms(_MATTER_POLL_MS)
 
     async def _run_radar(self) -> None:
@@ -135,10 +138,11 @@ class _Application:
             await asyncio.sleep_ms(_RADAR_RETRY_MS)
 
     def _handle_matter_events(self, events: tuple) -> None:
-        """Send commissioning transitions to the status pixel."""
+        """Send the Matter device state and any failed pairing to the status pixel."""
         for event in events:
-            if isinstance(event, matter.CommissioningEvent):
-                self._status.on_commissioning(event)
+            if isinstance(event, matter.StateEvent) and event.failed:
+                self._status.fail()
+        self._status.set_state(self._node.state)
 
     def _handle_radar_failure(self, radar: ReportStream | None, report: dict) -> None:
         """Force occupied, report the failure once, and close the radar.
@@ -206,10 +210,12 @@ class _Application:
         self._publish_occupancy()
 
     def _update_status(self) -> None:
-        """Send the current occupancy and combined health to the status pixel."""
-        self._status.update_product(
-            occupied=self._occupancy_policy.occupied,
-            healthy=self._matter_healthy and self._radar_healthy,
+        """Send the colour for current occupancy and combined health to the status pixel."""
+        self._status.set_application(
+            product_color(
+                healthy=self._matter_healthy and self._radar_healthy,
+                occupied=self._occupancy_policy.occupied,
+            )
         )
 
     def _publish_occupancy(self) -> None:

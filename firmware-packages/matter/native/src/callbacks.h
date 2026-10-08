@@ -34,10 +34,11 @@ esp_err_t identify_callback(esp_matter::identification::callback_type_t type, ui
                             uint8_t effect_id, uint8_t effect_variant, void *private_data);
 
 // CHIP calls this for important device-wide Matter events. Translates
-// commissioning events into retained states that MicroPython can understand, and
-// reopens pairing on an unpaired node whenever the stack would otherwise stop
-// advertising: when the discovery window times out, after commissioning gives
-// up, and after the last fabric is lost.
+// commissioning, fabric-membership, and Wi-Fi link events into retained state
+// that MicroPython turns into the device state machine, and reopens pairing on
+// an unpaired node whenever the stack would otherwise stop advertising: when
+// the discovery window times out, after commissioning gives up, and after the
+// last fabric is lost.
 void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intptr_t argument);
 
 // Bracket an attribute update this bridge makes itself. ESP-Matter reports our

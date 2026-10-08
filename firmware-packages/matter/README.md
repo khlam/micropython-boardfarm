@@ -5,7 +5,7 @@ MicroPython applications that own endpoint state, hardware, and product policy.
 ESP-Matter owns secure sessions, commissioning, fabrics, persistence, protocol
 reads, and subscriptions. Applications
 [publish local decisions synchronously](native/src/request.cpp#L139-L156)
-and [pull controller changes cooperatively](matter/node.py#L132-L162), keeping
+and [pull controller changes cooperatively](matter/node.py#L144-L176), keeping
 hardware actions on the VM task while protocol callbacks retain bounded native
 state. The package claims no GPIO and imports no board, pixel, timer, or async
 runtime; it is neither a hardware driver nor a second Matter implementation.
@@ -41,11 +41,12 @@ device; see [matter_tools](../../cpython-packages/matter_tools/README.md#pairing
 
 | Unit | Responsibility |
 | --- | --- |
-| `Node` | Owns endpoint lifecycle, restored mirrors, events, and fabrics. |
+| `Node` | Owns endpoint lifecycle, restored mirrors, events, fabrics, and the device state. |
+| `matter.state` | Runs the fabric and network state machines as one pure function. |
 | `Endpoint` | Validates complete decisions and exposes read-only properties. |
 | `matter_native` | Converts Python values across the plain-C primitives. |
 | Native requests | Schedule CHIP operations with timeout-safe owned storage. |
-| Retained state | Coalesces attributes and separate session/window state. |
+| Retained state | Coalesces attributes, plus one record each for session, window, fabric count, and Wi-Fi link. |
 | ESP-Matter | Owns protocol state, persistence, commissioning, and reporting. |
 
 `matter_module.c` builds in MicroPython's main component for QSTR scanning;
@@ -68,34 +69,73 @@ flowchart LR
 ```
 
 **Polling** checks atomic `generation()` before requesting a coherent snapshot.
-It updates every mirror and returns an immutable ordered tuple of `WriteEvent`
-and `CommissioningEvent`, running no application code. Repeated writes coalesce;
-a failed poll stays retryable because generation commits only after processing.
-Successful local publication clears older retained remote state without echoes.
-`WriteEvent(endpoint, cluster, attribute, value)` identifies each changed path;
-shared wrapping revisions order attributes and commissioning together.
+It updates every mirror and `Node.state`, and returns an immutable ordered tuple
+of `WriteEvent` and `StateEvent`, running no application code. Repeated writes
+coalesce; a failed poll stays retryable because generation commits only after
+processing. Successful local publication clears older retained remote state
+without echoes. `WriteEvent(endpoint, cluster, attribute, value)` identifies
+each changed path; shared wrapping revisions order attributes and device state
+together.
 
-**Commissioning** transitions arrive as `CommissioningEvent(name, state)` and as
-structured JSON; names are `Commissioning.SESSION`/`Commissioning.WINDOW`.
-`FAILED` describes one attempt, not the end of pairing.
+**Device state** follows the Matter device model. Fabric and network state
+belong to the node; application state belongs to its endpoints.
+
+```mermaid
+flowchart TB
+    device["Matter device"]
+    device --> fabric["Fabric: uncommissioned · commissioning · operational"]
+    device --> network["Network: disconnected · connected"]
+    device --> app["Application: endpoints and their clusters"]
+    fabric -.-> state["Node.state · StateEvent"]
+    network -.-> state
+    app -.-> write["Endpoint properties · WriteEvent"]
+```
+
+`Node.state` is `DeviceState(fabric, network, window_open)`, holding
+`FabricState` and `NetworkState` strings. `start()` seeds it from the fabrics
+restored from flash: operational or uncommissioned, disconnected, no window.
+The native bridge retains four raw facts — the commissioning session, the
+commissioning window, the fabric count, and the Wi-Fi link — and
+`matter.state.transition()` turns each into the next state.
 
 ```mermaid
 stateDiagram-v2
-    state "SESSION" as session {
-        state "STARTED" as started
-        state "COMPLETE" as complete
-        state "FAILED" as failed
-        started --> complete
-        started --> failed
-    }
-    state "WINDOW" as window {
-        state "OPENED" as opened
-        state "CLOSED" as closed
-        opened --> closed
-        closed --> opened: "unpaired node would stop advertising"
-        note right of opened: "BLE + DNS-SD; DNS-SD only if paired since boot"
-    }
+    state "UNCOMMISSIONED" as uncommissioned
+    state "COMMISSIONING" as commissioning
+    state "OPERATIONAL" as operational
+    [*] --> uncommissioned: "no fabric restored"
+    [*] --> operational: "fabric restored"
+    uncommissioned --> commissioning: "session started"
+    operational --> commissioning: "another controller pairs"
+    commissioning --> operational: "session complete"
+    commissioning --> uncommissioned: "attempt failed, no fabric"
+    commissioning --> operational: "attempt failed, fabric held"
+    operational --> uncommissioned: "last fabric removed"
 ```
+
+```mermaid
+stateDiagram-v2
+    state "DISCONNECTED" as disconnected
+    state "CONNECTED" as connected
+    [*] --> disconnected
+    disconnected --> connected: "Wi-Fi link up"
+    connected --> disconnected: "Wi-Fi link lost"
+```
+
+Connected means the station is associated with the access point; it says
+nothing about DHCP or IPv6 reachability. `window_open` says whether a
+commissioning window advertises the node. An uncommissioned node with no window
+is unreachable, so the bridge reopens one whenever the stack would otherwise stop
+advertising: over BLE and DNS-SD, or DNS-SD alone once the node has been paired
+since boot. On an operational node, an open window lets another controller pair.
+
+Each change arrives as `StateEvent(state, failed)`. `failed` is true only on the
+change that ends a failed commissioning attempt; it describes one attempt, not
+the end of pairing. Each changed field also prints one JSON line:
+`{"event":"fabric","state":…}`, `{"event":"network","state":…}`, or
+`{"event":"commissioning_window","state":"opened"|"closed"}`, plus
+`{"event":"commissioning","state":"failed"}` for a failed attempt. `start()`
+prints the seeded fabric state after `{"event":"matter","state":"ready"}`.
 
 ## Contracts and limits
 
@@ -116,7 +156,7 @@ Pre-start calls execute directly; live mutations/reads/snapshots use ≤250 ms
 requests. Timeouts do not cancel CHIP work.
 
 Limits are 16 endpoints, 10 attributes/batch, 160 attribute slots plus
-2 commissioning slots, and 16 fabrics. Fewer than half the wrapping
+4 device-state slots, and 16 fabrics. Fewer than half the wrapping
 `uint32` revision space may pass between successful polls. Callbacks never
 block, allocate snapshot records, or touch hardware; recovery stays native.
 
@@ -135,14 +175,20 @@ node.start()
 update_hardware(light.on)
 while True:
     for event in node.poll():
-        if isinstance(event, matter.WriteEvent) and event.endpoint is light:
+        if isinstance(event, matter.StateEvent):
+            show_state(event.state, failed=event.failed)
+        elif event.endpoint is light:
             update_hardware(light.on)
     time.sleep_ms(50)
 ```
 
+[matter_status_led](../matter_status_led/README.md) turns `Node.state` into a
+status pixel's colour and blink.
+
 Administration uses `open_commissioning_window()`, `fabrics()`,
 `remove_fabric()`, and `factory_reset()`; fabric records contain only non-secret
-metadata.
+metadata. Removing the last fabric, from here or from a controller, returns the
+node to uncommissioned.
 The host [micropython_stubs](../../cpython-packages/micropython_stubs/) fake
 exercises the same primitive boundary.
 

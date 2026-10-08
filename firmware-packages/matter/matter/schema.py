@@ -12,7 +12,6 @@ __all__ = [
     "Attributes",
     "Clusters",
     "ColorMode",
-    "Commissioning",
     "EndpointType",
     "Paths",
     "attribute_path",
@@ -72,23 +71,6 @@ class ColorMode:
     XY = 1
     COLOR_TEMPERATURE = 2
     ENHANCED_HUE_SATURATION = 3
-
-
-class Commissioning:
-    """Names and states carried by commissioning events.
-
-    The five states are mutually distinct, so a subscriber can decide on
-    ``state`` alone; ``name`` says which lifecycle the state belongs to.
-    """
-
-    SESSION = "commissioning"
-    WINDOW = "commissioning_window"
-
-    STARTED = "started"
-    COMPLETE = "complete"
-    FAILED = "failed"
-    OPENED = "opened"
-    CLOSED = "closed"
 
 
 class Paths:

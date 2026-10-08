@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matter_status_led"
+version = "0.1.0"
+description = "Status pixel colour and blink patterns for the Matter device state."
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["matter_status_led"]
