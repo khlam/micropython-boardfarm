@@ -7,6 +7,13 @@ description: Use when writing or reviewing code under projects/*/firmware/ or fi
 
 Firmware code must remain compatible with the actual MicroPython runtime.
 
+## Loops and states
+
+`main.py` is where a reader audits the firmware. Top to bottom it shows the board
+pins, the hardware it creates, every loop it starts, and each loop's states. Trace
+any output (Matter attribute, pixel colour, JSON line) to the loop and state that
+chose it by reading `main.py`.
+
 MicroPython has no package manager and no 3rd-party packages to install; all dependencies must be vendored or frozen into firmware via `manifest.py`. Do not use `mip`. Do not assume CPython-only modules or `pip`.
 
 Do not claim pins or initialize peripherals at import time.

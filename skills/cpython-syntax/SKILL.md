@@ -33,6 +33,7 @@ The `testing` skill's three kinds map to:
 | Kind | Name | Marker |
 | --- | --- | --- |
 | Unit | `test_<behavior>` | none |
+| Scenario | `test_scenario_<contract>` | none |
 | Behavioral fuzz | `test_fuzz_<invariant>` | `@pytest.mark.fuzz` |
 | Smoke | `test_smoke_<result>` | `@pytest.mark.smoke`; the docstring cites the source of the expected result |
 
