@@ -668,15 +668,6 @@ wheels = [
 ]
 
 [[package]]
-name = "microdot"
-version = "2.6.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8d/fb/bd10145088c6da0abd8ea67d4255056354e8c7a7b976f5a0db3b707a33a3/microdot-2.6.2.tar.gz", hash = "sha256:7bb9a69fa97a47d8fe07e61d9dd405804744132ca52d26705cf1173431ff7f4b", size = 89402, upload-time = "2026-05-12T19:27:11.59Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/35/af2148cc9408b29b1e3bc44e4d64c56ed9565b2a8520cab864aff1cad1f4/microdot-2.6.2-py3-none-any.whl", hash = "sha256:206c52870e3b1d5e6d387802e2ed0afae8c4598c80542a21e3efe377efc128c8", size = 53247, upload-time = "2026-05-12T19:27:10.41Z" },
-]
-
-[[package]]
 name = "micropython-boardfarm"
 version = "0.23.0"
 source = { editable = "." }
@@ -697,9 +688,6 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-firmware = [
-    { name = "microdot" },
-]
 lint = [
     { name = "pydoclint" },
     { name = "ruff" },
@@ -715,7 +703,6 @@ test = [
     { name = "i2c-bus" },
     { name = "matter" },
     { name = "matter-tools" },
-    { name = "microdot" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
     { name = "pytest" },
@@ -753,7 +740,6 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-firmware = [{ name = "microdot", specifier = "==2.6.2" }]
 lint = [
     { name = "pydoclint", specifier = ">=0.8.4" },
     { name = "ruff", specifier = ">=0.15.15" },
@@ -769,7 +755,6 @@ test = [
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
     { name = "matter-tools", index = "file:///wheels" },
-    { name = "microdot", specifier = "==2.6.2" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },
     { name = "pytest", specifier = ">=9.0.3" },

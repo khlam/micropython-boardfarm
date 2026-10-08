@@ -7,12 +7,12 @@ occupancy stays on after the first empty report, from zero to ten minutes. A
 missing report or UART error forces occupancy on and restarts the radar
 connection.
 
-This module wires the hardware and runs Matter polling, the dashboard, and radar
-reading, applying each report to occupancy before its telemetry. The reports
-module decides occupancy and telemetry pacing; WebServer serves the dashboard;
-StatusPixel owns commissioning state and LED priority.
+This module wires the hardware and runs Matter polling and radar reading,
+applying each report to occupancy before its telemetry. The reports module
+decides occupancy and telemetry pacing; StatusPixel owns commissioning state and
+LED priority.
 
-The board sends the same JSON lines over USB serial and its dashboard WebSocket.
+The board sends its JSON lines over USB serial.
 """
 
 import asyncio
@@ -25,10 +25,9 @@ import neopixel
 from micropython import const
 from reports import Occupancy, ReportThrottle, hold_ms, outside_dead_zone
 from status import StatusPixel
-from webserver import WebServer
 
 import matter
-from matter.emit import add_sink, emit, error
+from matter.emit import emit, error
 from radar import NoRadarError, ReportStream, detect
 
 # Pin map for this board, shared by every supported radar. ``tx`` connects to
@@ -63,8 +62,6 @@ class _Application:
 
         pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
         self._status = StatusPixel(pixel)
-        self._webserver = WebServer(port_name=f"radar uart{BOARD.uart_id}")
-        add_sink(self._webserver.queue_report)
 
         self._node = matter.Node()
         # Endpoint IDs persist, so always create the occupancy endpoint first.
@@ -77,12 +74,8 @@ class _Application:
         self._status.set_commissioned(value=bool(self._node.fabrics()))
 
     async def run(self) -> None:
-        """Run Matter polling, dashboard, and radar tasks."""
-        await asyncio.gather(
-            self._run_matter(),
-            self._webserver.run(self._node.network_address),
-            self._run_radar(),
-        )
+        """Run Matter polling and radar tasks."""
+        await asyncio.gather(self._run_matter(), self._run_radar())
 
     async def _run_matter(self) -> None:
         """Poll Matter and hold fail-safe occupied through failure periods."""

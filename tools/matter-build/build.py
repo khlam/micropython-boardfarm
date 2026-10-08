@@ -22,7 +22,6 @@ from matter_tools.build import (
     hand_outputs_to_owner,
     merge_image,
     publish,
-    stage_dashboard,
     validate_merged_image,
 )
 
@@ -36,10 +35,6 @@ _BUILD_CACHE = Path("/build-cache")
 _MANIFEST = Path("/manifest.py")
 _MATTER_NATIVE = Path("/firmware-packages/matter/native")
 _MICROPYTHON_PORT = Path("/opt/micropython/ports/esp32")
-
-# The project's own dashboard, served by the board once it is on the network.
-# Optional: a project without a viz/ mount simply builds without one.
-_DASHBOARD_SOURCE = Path("/viz/static/index.html")
 
 
 def main() -> int:
@@ -57,7 +52,6 @@ def main() -> int:
         _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
         build_firmware(
             _BUILD_CACHE,
-            stage_dashboard(_DASHBOARD_SOURCE, staging_root),
             port_dir=_MICROPYTHON_PORT,
             board_dir=BOARD_DIR,
             manifest=_MANIFEST,

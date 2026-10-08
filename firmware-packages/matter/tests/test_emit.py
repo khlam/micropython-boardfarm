@@ -1,11 +1,8 @@
 """Tests for the Matter facade's single JSON stdout boundary."""
 
-from collections.abc import Callable
-from functools import partial
-
 import pytest
 
-from matter.emit import add_sink, emit, error, event
+from matter.emit import emit, error, event
 from micropython_stubs.testing import json_lines
 
 
@@ -87,52 +84,3 @@ def test_error_writes_recoverable_fault(
     error(component, message)
 
     assert json_lines(capsys.readouterr().out) == [expected]
-
-
-@pytest.mark.parametrize(
-    ("write", "sink_names"),
-    [
-        pytest.param(partial(emit, {"diag": "matter_ok"}), ("dashboard",), id="one_sink"),
-        pytest.param(
-            partial(emit, {"diag": "matter_ok"}),
-            ("first", "second"),
-            id="two_sinks_in_registration_order",
-        ),
-        pytest.param(partial(event, "matter", "ready"), ("dashboard",), id="event_line"),
-        pytest.param(
-            partial(error, "occupancy", "radar timed out"), ("dashboard",), id="error_line"
-        ),
-    ],
-)
-def test_add_sink_receives_each_stdout_line(
-    capsys: pytest.CaptureFixture[str], write: Callable[[], None], sink_names: tuple[str, ...]
-):
-    """Every sink receives each written line, without its newline, in registration order.
-
-    Args:
-        capsys: Captures stdout.
-        write: Writes one line through the facade.
-        sink_names: One sink is registered per name, in order.
-    """
-    delivered = []
-    for sink_name in sink_names:
-        add_sink(_recording_sink(delivered, sink_name))
-
-    write()
-
-    out = capsys.readouterr().out
-    assert len(json_lines(out)) == 1
-    assert delivered == [(sink_name, out.removesuffix("\n")) for sink_name in sink_names]
-
-
-def _recording_sink(delivered: list, sink_name: str) -> Callable[[str], None]:
-    """Build a sink that tags each line with its name, so delivery order across sinks shows.
-
-    Args:
-        delivered: Shared list collecting ``(sink_name, line)`` from every sink.
-        sink_name: Tag identifying this sink in ``delivered``.
-
-    Returns:
-        A sink that appends ``(sink_name, line)`` to ``delivered``.
-    """
-    return lambda line: delivered.append((sink_name, line))

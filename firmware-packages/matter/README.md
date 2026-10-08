@@ -114,7 +114,6 @@ generic attribute store while preserving snapshot invalidation.
 
 Pre-start calls execute directly; live mutations/reads/snapshots use ≤250 ms
 requests. Timeouts do not cancel CHIP work.
-`network_address()` delegates its platform read to ESP-IDF/lwIP.
 
 Limits are 16 endpoints, 10 attributes/batch, 160 attribute slots plus
 2 commissioning slots, and 16 fabrics. Fewer than half the wrapping

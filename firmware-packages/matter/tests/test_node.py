@@ -564,39 +564,6 @@ def test_open_commissioning_window(
 @pytest.mark.parametrize(
     ("before", "expected"),
     [
-        pytest.param([_START], None, id="off-network"),
-        pytest.param(
-            [_START, ("set_network_address", "192.0.2.10")], "192.0.2.10", id="on-network"
-        ),
-        pytest.param(
-            [_START, ("fail_next", "network_address")],
-            pytest.raises(OSError, match="injected network_address failure"),
-            id="native-failure",
-        ),
-        pytest.param(
-            [("set_network_address", "192.0.2.10")],
-            pytest.raises(OSError, match="Matter node is not started"),
-            id="not-started",
-        ),
-    ],
-)
-def test_network_address(before: list[tuple], expected: str | AbstractContextManager | None):
-    """network_address() returns the device's IPv4 address, or None off the network.
-
-    Args:
-        before: Steps run on the fresh node first (see _run).
-        expected: The address returned, or the raise.
-    """
-    node = Node()
-    _run(node, None, before)
-
-    with _outcome(expected):
-        assert node.network_address() == expected
-
-
-@pytest.mark.parametrize(
-    ("before", "expected"),
-    [
         pytest.param([_START], (), id="no-fabrics"),
         pytest.param(
             [("seed_fabrics", [_HOME, _LAB]), _START],

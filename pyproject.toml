@@ -74,7 +74,6 @@ matter = { index = "internal" }
 matter_tools = { index = "internal" }
 
 [dependency-groups]
-firmware = ["microdot==2.6.2"]
 viz = [
     "serial_over_web",
 ]
@@ -90,7 +89,6 @@ lint = [
     "uv-secure>=0.17.2",
 ]
 test = [
-    {include-group = "firmware"},
     {include-group = "viz"},
     {include-group = "typecheck"},
     "micropython_stubs",

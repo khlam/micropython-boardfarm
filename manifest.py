@@ -8,7 +8,6 @@ container runtime from `repo_root/firmware-packages` and
 `projects/<project>/firmware`.
 """
 
-import os
 import re
 from contextlib import suppress
 from pathlib import Path
@@ -50,11 +49,6 @@ _packages = {
     if (p / p.name / "__init__.py").is_file()
 }
 
-# Dockerfile.matter's firmware-dependencies stage hash-verifies and stages Microdot.
-# Register it even when that staging is missing, so firmware that imports it
-# fails the check below instead of freezing without it.
-_packages["microdot"] = Path("/firmware-dependencies")
-
 # Freeze only the packages this project's firmware actually imports. The
 # manifest is shared across every project, so freezing all of them would
 # sweep large unused blobs (e.g. vl53l5cx's ~400 KB config) into firmware
@@ -70,17 +64,8 @@ while _frontier:
     _frontier |= (_imported_names(_packages[_name] / _name) & _packages.keys()) - _needed
 
 for _name in sorted(_needed):
-    if not (_packages[_name] / _name / "__init__.py").is_file():
-        raise RuntimeError("Missing firmware dependency: " + _name)
     package(_name, base_path=str(_packages[_name]))
 
 # Project-level firmware: every .py at /firmware becomes a top-level
 # frozen module. main.py is the boot entry point.
 freeze("/firmware")
-
-# Modules the build generated rather than a person writing them — the caller
-# stages them into a writable directory and names it here, because /firmware is
-# bind-mounted read-only. Unset for builds that generate nothing.
-_staged = os.environ.get("FROZEN_STAGING_DIR")
-if _staged:
-    freeze(_staged)

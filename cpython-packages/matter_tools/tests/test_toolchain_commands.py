@@ -52,7 +52,6 @@ def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
     native_dir = pathlib.Path("/native")
     build.build_firmware(
         tmp_path,
-        None,
         port_dir=port_dir,
         board_dir=board_dir,
         manifest=manifest,

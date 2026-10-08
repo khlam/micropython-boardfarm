@@ -72,7 +72,6 @@ class _State:
         self.generation = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
-        self.network_address: str | None = None
 
 
 _state = _State()
@@ -101,7 +100,6 @@ def reset(*, persisted: dict | None = None, generation: int = 0) -> None:
     _state.generation = generation
     _state.failures.clear()
     _state.fabrics.clear()
-    _state.network_address = None
 
 
 def fail_next(operation: str, error: int = errno.EIO) -> None:
@@ -261,17 +259,6 @@ def remove_fabric(index: int) -> None:
                 _record_commissioning(_COMMISSIONING_WINDOW_OPENED)
             return
     raise OSError(errno.ENOENT, "fabric does not exist")
-
-
-def network_address() -> str | None:
-    """Return the fake station address, or ``None`` while off the network."""
-    _raise_failure("network_address")
-    return _state.network_address
-
-
-def set_network_address(address: str | None) -> None:
-    """Put the fake device on or off the network for host tests."""
-    _state.network_address = address
 
 
 def factory_reset() -> None:

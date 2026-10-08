@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import csv
 import fcntl
-import gzip
 import os
 import re
 import shutil
@@ -37,7 +36,6 @@ __all__ = [
     "merge_image",
     "publish",
     "run",
-    "stage_dashboard",
     "validate_merged_image",
 ]
 
@@ -114,37 +112,8 @@ def run(command: Sequence[str], cwd: Path | None = None, env: dict[str, str] | N
     subprocess.run([executable, *command[1:]], check=True, cwd=cwd, env=environment)  # noqa: S603
 
 
-def stage_dashboard(source: Path, staging_root: Path) -> Path | None:
-    """Turn the project's dashboard page into a module, and return its directory.
-
-    Freeze the authored HTML as gzip bytes because the board has no filesystem
-    partition. The server sends those bytes without expanding them. Stage them
-    outside the read-only /firmware mount for manifest.py's FROZEN_STAGING_DIR.
-
-    Args:
-        source: The project's dashboard page, which may not exist.
-        staging_root: Scratch directory this build owns for the whole run.
-
-    Returns:
-        The directory to freeze, or None when the project has no dashboard.
-    """
-    if not source.is_file():
-        return None
-    # mtime=0 so the same page keeps producing the same firmware image.
-    body = gzip.compress(source.read_bytes(), compresslevel=9, mtime=0)
-    staged = staging_root / "frozen"
-    staged.mkdir(parents=True, exist_ok=True)
-    (staged / "dashboard_page.py").write_text(
-        '"""The project dashboard, generated from its viz/static/index.html."""\n\n'
-        'ENCODING = "gzip"\n'
-        f"PAGE = {body!r}\n"
-    )
-    return staged
-
-
 def build_firmware(
     build_root: Path,
-    staged: Path | None,
     *,
     port_dir: Path,
     board_dir: Path,
@@ -159,8 +128,6 @@ def build_firmware(
 
     Args:
         build_root: Directory the IDF build tree lives in.
-        staged: Directory of build-generated modules to freeze, or None when the
-            build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
         port_dir: MicroPython's ESP32 port directory.
         board_dir: The project's board definition directory.
         manifest: The frozen-module manifest.
@@ -184,11 +151,7 @@ def build_firmware(
             f"USER_C_MODULES={native_dir / 'micropython' / 'micropython.cmake'}",
             "build",
         ],
-        env=dict(
-            os.environ,
-            MATTER_NATIVE_PATH=str(native_dir),
-            FROZEN_STAGING_DIR=str(staged or ""),
-        ),
+        env=dict(os.environ, MATTER_NATIVE_PATH=str(native_dir)),
     )
 
 

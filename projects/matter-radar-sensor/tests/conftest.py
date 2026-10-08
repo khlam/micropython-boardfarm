@@ -1,6 +1,5 @@
 """Shared deterministic runtime for the matter-radar-sensor firmware tests."""
 
-import gc
 import importlib
 import os
 import pathlib
@@ -12,9 +11,7 @@ import machine
 import matter_native
 import neopixel
 import pytest
-from microdot import microdot
 
-import matter.emit as matter_emit
 import matter.node as matter_node
 from micropython_stubs import asyncio_extras
 from micropython_stubs.testing import load_firmware_module
@@ -76,13 +73,12 @@ def reset_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Reset process-wide MCU and Matter fakes around every test.
 
     Args:
-        monkeypatch: Installs MicroPython asyncio names and restores the microdot hook.
+        monkeypatch: Installs MicroPython asyncio names.
 
     Yields:
         None: Control to the test between the two resets.
     """
     asyncio_extras.install(monkeypatch)
-    monkeypatch.setattr(microdot, "print_exception", microdot.print_exception)
     _reset_state()
     yield
     _reset_state()
@@ -115,7 +111,7 @@ def load_firmware(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamesp
     """Return a loader for the complete firmware module without its infinite entry call.
 
     Args:
-        monkeypatch: Fakes the board name, clock, free memory, and import path.
+        monkeypatch: Fakes the board name, clock, and import path.
 
     Returns:
         The loader, returning the module and its fake clock.
@@ -132,7 +128,6 @@ def load_firmware(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamesp
         _install_firmware_path(monkeypatch)
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
         monkeypatch.setitem(sys.modules, "time", clock)
-        monkeypatch.setattr(gc, "mem_free", lambda: 128 * 1024, raising=False)
 
         module = load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
         return SimpleNamespace(module=module, time=clock)
@@ -160,7 +155,6 @@ def load_application(
             module=firmware.module,
             application=application,
             time=firmware.time,
-            webserver_module=sys.modules["webserver"],
             status_module=sys.modules["status"],
         )
 
@@ -178,20 +172,14 @@ def _reset_state(*, commissioned: bool = False) -> None:
     matter_native.reset()
     matter_native.seed_fabrics([_FABRIC] if commissioned else [])
     matter_node._active_node[0] = None
-    matter_emit._sinks.clear()
-    for name in (_MODULE_NAME, "webserver", "status", "reports"):
+    for name in (_MODULE_NAME, "status", "reports"):
         sys.modules.pop(name, None)
 
 
 def _install_firmware_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the firmware directory and its generated dashboard page importable.
+    """Make the firmware directory importable.
 
     Args:
-        monkeypatch: Undoes the path and module entries after the test.
+        monkeypatch: Undoes the path entry after the test.
     """
     monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
-    monkeypatch.setitem(
-        sys.modules,
-        "dashboard_page",
-        SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
-    )
