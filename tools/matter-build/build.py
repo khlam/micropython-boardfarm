@@ -6,8 +6,8 @@ rather than running it directly: each `export.sh` mutates PATH and several dozen
 other variables in the calling shell, and there is no way to source one from
 inside a Python process.
 
-The paths below are the Matter stages' bind mounts. provision.py and
-pairing_code.py read the ones they share from here.
+The paths below are fixed by the Matter stages' mounts and image. provision.py
+and pairing_code.py read the ones they share from here.
 """
 
 from __future__ import annotations
