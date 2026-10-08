@@ -136,7 +136,7 @@ class Endpoint:
         """Overwrite the Python copy with whatever native currently holds.
 
         Called once, right after the node starts (see
-        :meth:`matter.node.Node._restore_endpoints`). ESP-Matter persists
+        :meth:`matter.node.Node._restore`). ESP-Matter persists
         attribute values across reboots in native storage, so a freshly built
         Python copy starts out empty of that history; this pulls it in before
         :meth:`matter.node.Node.start` returns to the application.

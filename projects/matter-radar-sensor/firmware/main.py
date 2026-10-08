@@ -144,6 +144,45 @@ class _Application:
                 self._status.fail()
         self._status.set_state(self._node.state)
 
+    def _publish_occupancy(self) -> None:
+        """Publish the current occupancy state and retry failures later.
+
+        A failed publish leaves the Python endpoint holding the requested value
+        while ESP-Matter holds the previous one, so it clears the record of what
+        was published and the next call republishes whatever the state is then.
+        """
+        occupied = self._occupancy_policy.occupied
+        if self._published_occupancy == occupied:
+            return
+        try:
+            self._occupancy.set(occupancy=1 if occupied else 0)
+        except OSError as exception:
+            self._published_occupancy = None
+            error("occupancy", str(exception))
+            return
+        self._published_occupancy = occupied
+
+    def _apply_radar_report(self, *, occupied: bool, now_ms: int) -> None:
+        """Apply one valid radar report, holding occupied while Matter is failing.
+
+        Args:
+            occupied: Whether the report has a target outside the dead zone.
+            now_ms: Monotonic time when the report was received.
+        """
+        self._occupancy_policy.report(
+            occupied=occupied or not self._matter_healthy,
+            now_ms=now_ms,
+            hold_ms=hold_ms(on=self._hold_control.on, level=self._hold_control.level),
+        )
+        self._update_status()
+        self._publish_occupancy()
+
+    def _set_occupied(self) -> None:
+        """Set occupied and cancel the current occupancy hold."""
+        self._occupancy_policy.force_occupied()
+        self._update_status()
+        self._publish_occupancy()
+
     def _handle_radar_failure(self, radar: ReportStream | None, report: dict) -> None:
         """Force occupied, report the failure once, and close the radar.
 
@@ -188,27 +227,6 @@ class _Application:
                 }
             )
 
-    def _apply_radar_report(self, *, occupied: bool, now_ms: int) -> None:
-        """Apply one valid radar report, holding occupied while Matter is failing.
-
-        Args:
-            occupied: Whether the report has a target outside the dead zone.
-            now_ms: Monotonic time when the report was received.
-        """
-        self._occupancy_policy.report(
-            occupied=occupied or not self._matter_healthy,
-            now_ms=now_ms,
-            hold_ms=hold_ms(on=self._hold_control.on, level=self._hold_control.level),
-        )
-        self._update_status()
-        self._publish_occupancy()
-
-    def _set_occupied(self) -> None:
-        """Set occupied and cancel the current occupancy hold."""
-        self._occupancy_policy.force_occupied()
-        self._update_status()
-        self._publish_occupancy()
-
     def _update_status(self) -> None:
         """Send the colour for current occupancy and combined health to the status pixel."""
         self._status.set_application(
@@ -217,24 +235,6 @@ class _Application:
                 occupied=self._occupancy_policy.occupied,
             )
         )
-
-    def _publish_occupancy(self) -> None:
-        """Publish the current occupancy state and retry failures later.
-
-        A failed publish leaves the Python endpoint holding the requested value
-        while ESP-Matter holds the previous one, so it clears the record of what
-        was published and the next call republishes whatever the state is then.
-        """
-        occupied = self._occupancy_policy.occupied
-        if self._published_occupancy == occupied:
-            return
-        try:
-            self._occupancy.set(occupancy=1 if occupied else 0)
-        except OSError as exception:
-            self._published_occupancy = None
-            error("occupancy", str(exception))
-            return
-        self._published_occupancy = occupied
 
 
 main()
