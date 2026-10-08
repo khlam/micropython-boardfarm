@@ -1,10 +1,11 @@
 """One native Matter endpoint and the Python copy tracking it.
 
-A Matter *endpoint* is one addressable feature of a device (for example,
-"the light's on/off switch"), identified by a ``(cluster, attribute)`` pair.
-ESP-Matter (native, C++) is the authoritative protocol store for those values;
-this module keeps a plain Python dict synchronized with it. Application writes
-are explicit calls to :meth:`Endpoint.set`. Controller writes arrive
+A Matter *endpoint* is one addressable feature of a device (for example, a
+light), and each of its values is an attribute identified by a
+``(cluster, attribute)`` pair. ESP-Matter (native, C++) is the authoritative
+protocol store for those values; this module keeps a plain Python dict
+synchronized with it. Application writes are explicit calls to
+:meth:`Endpoint.set`. Controller writes arrive
 through :meth:`Endpoint._accept_remote` while
 ``Node.poll()`` constructs the immutable events returned to the application.
 """
@@ -137,8 +138,8 @@ class Endpoint:
         Called once, right after the node starts (see
         :meth:`matter.node.Node._restore_endpoints`). ESP-Matter persists
         attribute values across reboots in native storage, so a freshly built
-        Python copy starts out empty of that history; this pulls it in before the
-        node is exposed to controllers.
+        Python copy starts out empty of that history; this pulls it in before
+        :meth:`matter.node.Node.start` returns to the application.
         """
         state = self._state
         for path in state:
