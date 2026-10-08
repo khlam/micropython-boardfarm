@@ -43,7 +43,7 @@ device; see [matter_tools](../../cpython-packages/matter_tools/README.md#pairing
 | --- | --- |
 | `Node` | Owns endpoint lifecycle, restored mirrors, events, and fabrics. |
 | `Endpoint` | Validates complete decisions and exposes read-only properties. |
-| `matter_native` | Converts Python values across 13 plain-C primitives. |
+| `matter_native` | Converts Python values across the plain-C primitives. |
 | Native requests | Schedule CHIP operations with timeout-safe owned storage. |
 | Retained state | Coalesces attributes and separate session/window state. |
 | ESP-Matter | Owns protocol state, persistence, commissioning, and reporting. |
