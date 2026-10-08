@@ -5,7 +5,6 @@
 // endpoint state, event routing, and every application decision.
 #include "matter/bridge.h"
 
-#include <errno.h>
 #include <string.h>
 
 #include "py/obj.h"
