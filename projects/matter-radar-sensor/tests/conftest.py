@@ -4,8 +4,7 @@ import importlib
 import os
 import pathlib
 import sys
-from collections.abc import Callable, Iterator
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import machine
 import matter_native
@@ -34,38 +33,30 @@ class FakeTime:
         self.script = []
 
     def ticks_ms(self) -> int:
-        """Return the next scripted tick or the current tick.
-
-        Returns:
-            The tick in milliseconds.
-        """
+        """Return the next scripted tick or the current tick."""
         if self.script:
             self.ticks = self.script.pop(0)
         return self.ticks
 
     def ticks_diff(self, newer: int, older: int) -> int:
-        """Return MicroPython's signed wrap-safe tick difference.
-
-        Args:
-            newer: The later tick.
-            older: The earlier tick.
-
-        Returns:
-            ``newer - older`` in milliseconds, correct across one wrap.
-        """
+        """Return MicroPython's signed wrap-safe tick difference."""
         return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
 
 
+def _reset_state(*, commissioned: bool = False) -> None:
+    """Reset every process-wide fake used by the firmware module."""
+    machine.reset()
+    neopixel.reset()
+    matter_native.reset()
+    matter_native.seed_fabrics([_FABRIC] if commissioned else [])
+    matter_node._active_node[0] = None
+    for name in (_MODULE_NAME, "status", "reports"):
+        sys.modules.pop(name, None)
+
+
 @pytest.fixture(autouse=True)
-def reset_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Reset process-wide MCU and Matter fakes around every test.
-
-    Args:
-        monkeypatch: Installs MicroPython asyncio names.
-
-    Yields:
-        None: Control to the test between the two resets.
-    """
+def reset_runtime(monkeypatch):
+    """Reset process-wide MCU and Matter fakes around every test."""
     asyncio_extras.install(monkeypatch)
     _reset_state()
     yield
@@ -73,19 +64,12 @@ def reset_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.fixture
-def firmware_module(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], ModuleType]:
-    """Return an importer for one firmware module running on the wrap-safe fake clock.
-
-    Args:
-        monkeypatch: Puts the firmware directory on the path and swaps in the clock.
-
-    Returns:
-        The importer.
-    """
+def firmware_module(monkeypatch):
+    """Return an importer for one firmware module running on the wrap-safe fake clock."""
     clock = FakeTime()
 
-    def load(name: str) -> ModuleType:
-        _install_firmware_path(monkeypatch)
+    def load(name):
+        monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
         module = importlib.import_module(name)
         if hasattr(module, "time"):
             monkeypatch.setattr(module, "time", clock)
@@ -95,15 +79,8 @@ def firmware_module(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], ModuleTy
 
 
 @pytest.fixture
-def load_firmware(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamespace]:
-    """Return a loader for the complete firmware module without its infinite entry call.
-
-    Args:
-        monkeypatch: Fakes the board name, clock, and import path.
-
-    Returns:
-        The loader, returning the module and its fake clock.
-    """
+def load_firmware(monkeypatch):
+    """Return a loader for the complete firmware module without its infinite entry call."""
 
     def load(
         *,
@@ -113,7 +90,7 @@ def load_firmware(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamesp
         _reset_state(commissioned=commissioned)
 
         clock = FakeTime()
-        _install_firmware_path(monkeypatch)
+        monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
         monkeypatch.setitem(sys.modules, "time", clock)
 
@@ -124,17 +101,8 @@ def load_firmware(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SimpleNamesp
 
 
 @pytest.fixture
-def load_application(
-    load_firmware: Callable[..., SimpleNamespace],
-) -> Callable[..., SimpleNamespace]:
-    """Return a loader that also constructs the firmware application.
-
-    Args:
-        load_firmware: Loads the firmware module the application comes from.
-
-    Returns:
-        The loader, returning the application, its modules, and the fake clock.
-    """
+def load_application(load_firmware):
+    """Return a loader that also constructs the firmware application."""
 
     def load(**kwargs) -> SimpleNamespace:
         firmware = load_firmware(**kwargs)
@@ -147,27 +115,3 @@ def load_application(
         )
 
     return load
-
-
-def _reset_state(*, commissioned: bool = False) -> None:
-    """Reset every process-wide fake used by the firmware module.
-
-    Args:
-        commissioned: Seed flash with one fabric, as a paired device boots.
-    """
-    machine.reset()
-    neopixel.reset()
-    matter_native.reset()
-    matter_native.seed_fabrics([_FABRIC] if commissioned else [])
-    matter_node._active_node[0] = None
-    for name in (_MODULE_NAME, "status", "reports"):
-        sys.modules.pop(name, None)
-
-
-def _install_firmware_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the firmware directory importable.
-
-    Args:
-        monkeypatch: Undoes the path entry after the test.
-    """
-    monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
