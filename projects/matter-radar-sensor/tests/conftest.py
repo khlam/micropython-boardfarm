@@ -55,18 +55,6 @@ class FakeTime:
         """
         return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
 
-    def ticks_add(self, ticks: int, delta: int) -> int:
-        """Add milliseconds with the device's tick wrap.
-
-        Args:
-            ticks: The starting tick.
-            delta: Milliseconds to add; may be negative.
-
-        Returns:
-            The wrapped sum.
-        """
-        return (ticks + delta) % self._PERIOD
-
 
 @pytest.fixture(autouse=True)
 def reset_runtime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
