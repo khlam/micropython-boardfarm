@@ -6,8 +6,8 @@ build-backend = "hatchling.build"
 name = "matter_tools"
 version = "0.1.0"
 description = "Host-side Matter firmware building and board provisioning for ESP-Matter."
-# Installs into ESP-IDF's own Python in Dockerfile.matter, not the repo's 3.12+
-# venvs; datetime.UTC and tomllib set the floor.
+# Also installs into ESP-IDF's own Python in Dockerfile.matter, so it does not
+# assume the repo's 3.12 floor; datetime.UTC and tomllib set this one.
 requires-python = ">=3.11"
 
 dependencies = [

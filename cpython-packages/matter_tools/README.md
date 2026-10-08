@@ -71,7 +71,7 @@ reach the stages on the next `--build`.
 From the repo root:
 
 ```console
-docker compose up pytest --build --exit-code-from pytest -- /cpython-packages/matter_tools/tests
+docker compose run --rm --build pytest /cpython-packages/matter_tools/tests
 ```
 
 The callers' own tests live in `tools/matter-build/tests/`.
