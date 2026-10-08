@@ -111,7 +111,6 @@ def load_application(load_firmware):
             module=firmware.module,
             application=application,
             time=firmware.time,
-            status_module=sys.modules["status"],
         )
 
     return load

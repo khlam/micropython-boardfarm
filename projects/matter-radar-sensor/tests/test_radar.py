@@ -98,7 +98,7 @@ class FakeDetect:
 
 
 @pytest.mark.parametrize(
-    ("detections", "ticks", "lines", "closes", "product"),
+    ("detections", "ticks", "lines", "closes", "occupancy"),
     [
         pytest.param(
             # 499 ms is inside the interval; 500 ms clears it but repeats the targets.
@@ -106,7 +106,7 @@ class FakeDetect:
             [0, 499, 500, 1000],
             [_READY, {"t": 0, "targets": [_FAR_FIELDS]}, {"t": 1000, "targets": [_MOVED_FIELDS]}],
             [0],
-            (1, "_OCCUPIED_COLOR"),
+            1,
             id="filters-the-dead-zone-and-paces-telemetry",
         ),
         pytest.param(
@@ -116,7 +116,7 @@ class FakeDetect:
             [0, 600, 700],
             [_READY, {"t": 0, "targets": [_FAR_FIELDS]}],
             [0],
-            (0, "_VACANT_COLOR"),
+            0,
             id="occupancy-uses-reports-telemetry-skips",
         ),
         pytest.param(
@@ -126,7 +126,7 @@ class FakeDetect:
             [],
             [{"diag": "no_device", "err": "absent"}, _READY],
             [0],
-            (1, "_OCCUPIED_COLOR"),
+            1,
             id="repeated-detection-failures-reported-once-until-recovery",
         ),
         pytest.param(
@@ -144,7 +144,7 @@ class FakeDetect:
                 _READY,
             ],
             [1, 1, 0],
-            (1, "_OCCUPIED_COLOR"),
+            1,
             id="read-error-and-timeout-each-recreate-the-radar",
         ),
         pytest.param(
@@ -155,7 +155,7 @@ class FakeDetect:
             [],
             [_READY, {"diag": "read_err", "err": "read failed"}],
             [1],
-            (1, "_RADAR_FAILED_COLOR"),
+            1,
             id="failure-forces-occupied-and-ignores-close-errors",
         ),
     ],
@@ -168,7 +168,7 @@ def test_run_radar(
     ticks: list[int],
     lines: list[dict[str, object]],
     closes: list[int],
-    product: tuple[int, str],
+    occupancy: int,
 ):
     """Drive the radar task of a vacant, commissioned sensor through scripted detections.
 
@@ -183,7 +183,7 @@ def test_run_radar(
         ticks: Scripted clock readings, one per report.
         lines: Every JSON line the task emits, in order.
         closes: How often each detected radar was closed.
-        product: The published occupancy and the status color constant afterwards.
+        occupancy: The published occupancy afterwards.
     """
     boot = load_application(commissioned=True)
     module = boot.module
@@ -211,6 +211,4 @@ def test_run_radar(
     assert [radar.close_calls for radar in radars] == closes
     assert detect.calls == [{"bus_id": 1, "tx": 5, "rx": 6}] * len(detections)
     assert sleeps == [module._RADAR_RETRY_MS] * (len(detections) - 1)
-    occupancy, color = product
     assert application._occupancy.occupancy == occupancy
-    assert application._status._pixel.writes[-1] == getattr(boot.status_module, color)

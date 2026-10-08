@@ -22,18 +22,15 @@ def test_hold_control_endpoint_sets_the_hold(load_application: Callable[..., Sim
     Args:
         load_application: Boots the firmware application.
     """
-    boot = load_application(commissioned=True)
-    application = boot.application
+    application = load_application(commissioned=True).application
     application._hold_control.set(on=True, level=127)
 
     application._apply_radar_report(occupied=False, now_ms=100)
     application._apply_radar_report(occupied=False, now_ms=300_099)
     assert application._occupancy.occupancy == 1
-    assert application._status._pixel.writes[-1] == boot.status_module._OCCUPIED_COLOR
 
     application._apply_radar_report(occupied=False, now_ms=300_100)
     assert application._occupancy.occupancy == 0
-    assert application._status._pixel.writes[-1] == boot.status_module._VACANT_COLOR
 
 
 @pytest.mark.parametrize(

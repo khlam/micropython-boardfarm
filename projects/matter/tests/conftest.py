@@ -58,7 +58,6 @@ def load_main(monkeypatch):
         machine_name="Generic ESP32S3 module with ESP32S3",
         persisted=None,
         fabrics=(),
-        commissioning=(),
     ):
         _reset_state(persisted=persisted, fabrics=fabrics)
 
@@ -66,16 +65,6 @@ def load_main(monkeypatch):
         monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
         monkeypatch.setitem(sys.modules, "time", fake_time)
         monkeypatch.syspath_prepend(str(_FIRMWARE))
-
-        if commissioning:
-            native_start = matter_native.start
-
-            def start_with_events():
-                native_start()
-                for state_code in commissioning:
-                    matter_native.inject_commissioning_event(state_code)
-
-            monkeypatch.setattr(matter_native, "start", start_with_events)
 
         output = io.StringIO()
         with redirect_stdout(output):

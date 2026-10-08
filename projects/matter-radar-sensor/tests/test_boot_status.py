@@ -1,4 +1,4 @@
-"""Boot guards, stable Matter endpoints, and the boot status."""
+"""Boot guards and stable Matter endpoints."""
 
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -47,21 +47,3 @@ def test_boot_creates_persistent_endpoints_in_order_and_publishes_occupied(
     )
     assert application._occupancy.occupancy == 1
     assert matter_native.attribute_get(application._occupancy.id, *Paths.OCCUPANCY) == 1
-
-
-@pytest.mark.parametrize(
-    ("commissioned", "color"), [(False, "_BOOT_COLOR"), (True, "_OCCUPIED_COLOR")]
-)
-def test_boot_status_reflects_restored_pairing(
-    load_application: Callable[..., SimpleNamespace], commissioned: bool, color: str
-):
-    """An unpaired boot shows the boot color; a paired one shows occupancy.
-
-    Args:
-        load_application: Boots the firmware application.
-        commissioned: Whether flash holds a fabric at boot.
-        color: Name of the status module constant the pixel shows last.
-    """
-    boot = load_application(commissioned=commissioned)
-
-    assert boot.application._status._pixel.writes[-1] == getattr(boot.status_module, color)

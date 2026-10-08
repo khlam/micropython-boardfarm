@@ -12,8 +12,6 @@ import pytest
 from matter import (
     Attributes,
     Clusters,
-    Commissioning,
-    CommissioningEvent,
     Endpoint,
     EndpointType,
     Fabric,
@@ -35,15 +33,8 @@ _REMOTE_VALUE_REJECTED = {
     "message": "remote value rejected by schema",
 }
 
-_SESSION_STARTED = CommissioningEvent(Commissioning.SESSION, Commissioning.STARTED)
-_SESSION_COMPLETE = CommissioningEvent(Commissioning.SESSION, Commissioning.COMPLETE)
-_SESSION_FAILED = CommissioningEvent(Commissioning.SESSION, Commissioning.FAILED)
-_WINDOW_OPENED = CommissioningEvent(Commissioning.WINDOW, Commissioning.OPENED)
-_WINDOW_CLOSED = CommissioningEvent(Commissioning.WINDOW, Commissioning.CLOSED)
-
 _HOME = (1, 101, 201, 301, "home")
 _LAB = (2, 102, 202, 302, "lab")
-_OFFICE = (254, 103, 203, 303, "office")
 
 # Native gives a node's first endpoint ID 1, so flash contents and controller
 # writes in these tables address it by that ID.
@@ -393,62 +384,6 @@ def test_start(
         ),
         pytest.param(
             _PollNode(EndpointType.ON_OFF_LIGHT),
-            [("inject_commissioning_event", 0), ("poll", [_SESSION_STARTED])],
-            [{"event": "commissioning", "state": "started"}],
-            id="session-started",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [("inject_commissioning_event", 1), ("poll", [_SESSION_COMPLETE])],
-            [{"event": "commissioning", "state": "complete"}],
-            id="session-complete",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [("inject_commissioning_event", 2), ("poll", [_SESSION_FAILED])],
-            [{"event": "commissioning", "state": "failed"}],
-            id="session-failed",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [("inject_commissioning_event", 3), ("poll", [_WINDOW_OPENED])],
-            [{"event": "commissioning_window", "state": "opened"}],
-            id="window-opened",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [("inject_commissioning_event", 4), ("poll", [_WINDOW_CLOSED])],
-            [{"event": "commissioning_window", "state": "closed"}],
-            id="window-closed",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [
-                ("inject_commissioning_event", 3),
-                ("inject_commissioning_event", 2),
-                ("poll", [_WINDOW_OPENED, _SESSION_FAILED]),
-            ],
-            [
-                {"event": "commissioning_window", "state": "opened"},
-                {"event": "commissioning", "state": "failed"},
-            ],
-            id="window-and-session-in-revision-order",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
-            [
-                ("inject_remote_write", 1, *Paths.ON_OFF, True),
-                ("inject_commissioning_event", 1),
-                ("poll", [(*Paths.ON_OFF, True), _SESSION_COMPLETE]),
-                ("set", {"on": False}),
-                ("poll", []),
-                ("mirror", *Paths.ON_OFF, False),
-            ],
-            [{"event": "commissioning", "state": "complete"}],
-            id="write-and-commissioning-in-revision-order-then-local-set-stands",
-        ),
-        pytest.param(
-            _PollNode(EndpointType.ON_OFF_LIGHT),
             [
                 ("inject_remote_write", 1, *Paths.ON_OFF, True),
                 ("fail_next", "snapshot"),
@@ -491,9 +426,9 @@ def test_poll(
 
     Args:
         setup: The endpoint, starting revision, and whether the node starts.
-        steps: Run in order (see _run). A ``poll`` step lists the events it
-            expects as CommissioningEvents or ``(cluster, attribute, value)``
-            writes to the node's endpoint.
+        steps: Run in order (see _run). A ``poll`` step lists the
+            ``(cluster, attribute, value)`` writes it expects to the node's
+            endpoint.
         stdout: Every JSON line written after start().
         capsys: Captures stdout.
     """
@@ -512,9 +447,6 @@ def test_poll(
 @pytest.mark.parametrize(
     ("before", "args", "expected"),
     [
-        pytest.param([_START], (), (_WINDOW_OPENED,), id="default-timeout"),
-        pytest.param([_START], (1,), (_WINDOW_OPENED,), id="minimum-timeout"),
-        pytest.param([_START], (65535,), (_WINDOW_OPENED,), id="maximum-timeout"),
         pytest.param(
             [_START],
             (True,),
@@ -544,21 +476,20 @@ def test_poll(
 def test_open_commissioning_window(
     before: list[tuple],
     args: tuple,
-    expected: tuple[CommissioningEvent, ...] | AbstractContextManager,
+    expected: AbstractContextManager,
 ):
-    """open_commissioning_window() opens a window the next poll() reports.
+    """open_commissioning_window() refuses an out-of-range timeout or an unstarted node.
 
     Args:
         before: Steps run on the fresh node first (see _run).
         args: Positional arguments to open_commissioning_window().
-        expected: What the next poll() returns, or the raise.
+        expected: The raise.
     """
     node = Node()
     _run(node, None, before)
 
-    with _outcome(expected):
+    with expected:
         node.open_commissioning_window(*args)
-        assert node.poll() == expected
 
 
 @pytest.mark.parametrize(
@@ -603,12 +534,6 @@ def test_fabrics(before: list[tuple], expected: tuple[Fabric, ...] | AbstractCon
             id="minimum-index-one-of-two",
         ),
         pytest.param(
-            [("seed_fabrics", [_OFFICE]), _START],
-            254,
-            ((), (_WINDOW_OPENED,)),
-            id="maximum-index-last-fabric-reopens-window",
-        ),
-        pytest.param(
             [("seed_fabrics", [_HOME]), _START],
             2,
             pytest.raises(OSError, match="fabric does not exist"),
@@ -643,9 +568,9 @@ def test_fabrics(before: list[tuple], expected: tuple[Fabric, ...] | AbstractCon
 def test_remove_fabric(
     before: list[tuple],
     index: int,
-    expected: tuple[tuple[Fabric, ...], tuple[CommissioningEvent, ...]] | AbstractContextManager,
+    expected: tuple[tuple[Fabric, ...], tuple] | AbstractContextManager,
 ):
-    """remove_fabric() drops one fabric; losing the last one reopens commissioning.
+    """remove_fabric() drops one fabric.
 
     Args:
         before: Steps run on the fresh node first (see _run).
@@ -776,19 +701,17 @@ def _assert_poll(node: Node, endpoint: Endpoint | None, expected: Any):
                     event.value = None
 
 
-def _event(
-    endpoint: Endpoint | None, spec: CommissioningEvent | tuple
-) -> CommissioningEvent | WriteEvent:
-    """Build a row's expected event, binding a write spec to the row's endpoint.
+def _event(endpoint: Endpoint | None, spec: tuple) -> WriteEvent:
+    """Build a row's expected write event, bound to the row's endpoint.
 
     Args:
-        endpoint: The endpoint a write spec refers to.
-        spec: A CommissioningEvent, or a ``(cluster, attribute, value)`` write.
+        endpoint: The endpoint the write spec refers to.
+        spec: A ``(cluster, attribute, value)`` write.
 
     Returns:
         The event poll() should return for the spec.
     """
-    return spec if isinstance(spec, CommissioningEvent) else WriteEvent(endpoint, *spec)
+    return WriteEvent(endpoint, *spec)
 
 
 def _stimulate(monkeypatch: pytest.MonkeyPatch, node: Node, stimulus: tuple | None) -> None:
