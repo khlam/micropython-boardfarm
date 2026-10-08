@@ -1,4 +1,4 @@
-"""Board provisioning, offline QR generation, and firmware/host agreement."""
+"""Board provisioning, compilation, and offline QR generation."""
 
 import argparse
 import csv
@@ -29,10 +29,10 @@ _BOARD = Path("/cpython-packages/matter_tools/tests/fixtures")
 _Pipeline = tuple[BoardIdentity, argparse.Namespace, Path, list[tuple[list[str], bytes]]]
 
 
-def test_offline_qr_matches_firmware(
+def test_offline_qr_matches_flashed_codes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
-    """The offline pairing tool derives the same codes from a key as the firmware does.
+    """The offline pairing tool derives the same codes from a key as flashing does.
 
     Args:
         monkeypatch: Sets the tool's command line and board location.
