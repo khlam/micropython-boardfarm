@@ -28,7 +28,7 @@ from status import STATUS_LEVEL, product_color
 
 import matter
 from matter.emit import emit, error
-from matter_status_led import StatusLed
+from matter.status_led import StatusLed
 from radar import NoRadarError, ReportStream, detect
 
 # Pin map for this board, shared by every supported radar. ``tx`` connects to

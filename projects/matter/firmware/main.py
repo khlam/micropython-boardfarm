@@ -27,7 +27,7 @@ from color import matter_to_triple, publish_triple
 
 import matter
 from matter.emit import error
-from matter_status_led import StatusLed
+from matter.status_led import StatusLed
 
 # Pin map for this board. led_pin drives the onboard WS2812. Only ESP32-S3 is
 # supported, so any other chip is a build error, not a fallback case.

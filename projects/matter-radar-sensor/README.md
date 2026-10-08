@@ -36,7 +36,7 @@ Product policy stays in the project; reusable packages own mechanisms.
 | `status.py` | Product colour for radar and Matter health and for occupancy. |
 | `radar` | Probe order, UART ownership, framing, newest decoded targets. |
 | `matter` | Validation, mirrors, fabric and network state, bounded task crossing, retained events. |
-| `matter_status_led` | Matter state colour and blink, failure flash, pixel writes. |
+| `matter.status_led` | Matter state colour and blink, failure flash, pixel writes. |
 | ESP-Matter | Sessions, commissioning, fabrics, persistence, subscriptions. |
 
 `main.py` runs two asyncio tasks: Matter polling every 50 ms, which also steps
@@ -83,7 +83,7 @@ retries without restarting the radar. Radar and Matter diagnostics are
 `matter_poll_err`, and `matter_ok`; Matter publication failures use error events.
 
 The pixel shows the Matter state first, using the shared
-[matter_status_led](../../firmware-packages/matter_status_led/README.md)
+[matter.status_led](../../firmware-packages/matter/README.md#status-pixel)
 patterns: three red flashes for a failed pairing attempt, dim white before the
 first poll, fast cyan blink while pairing, slow purple blink while a window is
 open, solid amber when unpaired with no window, and slow amber blink when

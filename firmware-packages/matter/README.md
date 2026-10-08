@@ -7,8 +7,10 @@ reads, and subscriptions. Applications
 [publish local decisions synchronously](native/src/request.cpp#L139-L156)
 and [pull controller changes cooperatively](matter/node.py#L144-L176), keeping
 hardware actions on the VM task while protocol callbacks retain bounded native
-state. The package claims no GPIO and imports no board, pixel, timer, or async
-runtime; it is neither a hardware driver nor a second Matter implementation.
+state. The package claims no GPIO, and `import matter` loads no board, pixel,
+timer, or async runtime; it is neither a hardware driver nor a second Matter
+implementation. The opt-in [`matter.status_led`](#status-pixel) drives a pixel
+the caller passes in.
 
 ## Architecture
 
@@ -44,6 +46,7 @@ device; see [matter_tools](../../cpython-packages/matter_tools/README.md#pairing
 | `Node` | Owns endpoint lifecycle, restored mirrors, events, fabrics, and the device state. |
 | `matter.state` | Runs the fabric and network state machines as one pure function. |
 | `Endpoint` | Validates complete decisions and exposes read-only properties. |
+| `matter.status_led` | Shows the device state on a status pixel the caller passes in. |
 | `matter_native` | Converts Python values across the plain-C primitives. |
 | Native requests | Schedule CHIP operations with timeout-safe owned storage. |
 | Retained state | Coalesces attributes, plus one record each for session, window, fabric count, and Wi-Fi link. |
@@ -182,8 +185,8 @@ while True:
     time.sleep_ms(50)
 ```
 
-[matter_status_led](../matter_status_led/README.md) turns `Node.state` into a
-status pixel's colour and blink.
+[`matter.status_led`](#status-pixel) turns `Node.state` into a status pixel's
+colour and blink.
 
 Administration uses `open_commissioning_window()`, `fabrics()`,
 `remove_fabric()`, and `factory_reset()`; fabric records contain only non-secret
@@ -194,3 +197,42 @@ exercises the same primitive boundary.
 
 See the [radar project](../../projects/matter-radar-sensor/README.md) for a full
 integration.
+
+## Status pixel
+
+`matter.status_led` shows the device state on one status pixel, with colour and
+blink, so every Matter project tells you the same thing the same way. The
+project passes in its own NeoPixel; the module claims no pin. `import matter`
+does not load it.
+
+Colour says which state the device is in. Blink says whether it is waiting
+(slow, 1 Hz), working (fast, 5 Hz), or stuck (solid). Highest priority first:
+
+| Matter state | Pixel |
+| --- | --- |
+| A commissioning attempt just failed | Red, three quick flashes, then the row below that applies |
+| Before the first poll | Dim white, solid |
+| Commissioning: a controller is pairing | Cyan, fast blink |
+| Uncommissioned, window open | Purple, slow blink |
+| Uncommissioned, no window | Amber, solid — nobody can reach the device |
+| Operational, Wi-Fi down | Amber, slow blink |
+| Operational, window open for another controller | Purple, slow blink |
+| Operational and connected | The application's colour, solid |
+
+The fabric state outranks the network, which outranks an open window.
+
+```python
+from matter.status_led import StatusLed
+
+status = StatusLed(pixel, level=25)    # dim white until the first set_state()
+status.set_state(node.state)           # after every Node.poll()
+status.set_application((0, 25, 0))     # shown once Matter calls for nothing
+status.fail()                          # on a StateEvent whose failed is True
+status.tick()                          # from the loop, at least every 50 ms
+```
+
+`level` caps every status colour's brightest channel, so `level=25` keeps
+status at ten percent of full scale. Application colours show as given. Only
+`tick()` writes the pixel, and only when its colour changes.
+`matter.status_pattern` holds the state-to-pattern table, brightness scaling,
+and blink timing as pure data and functions.

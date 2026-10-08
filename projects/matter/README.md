@@ -43,7 +43,7 @@ Once paired and on Wi-Fi, the pixel shows the light's own state, so it always
 agrees with Home: a light that is off in Home is dark on the board. A board
 that reboots after pairing blinks amber until Wi-Fi joins, then shows the last
 controller-owned colour. Opening a window for another controller blinks purple
-until the window closes. [matter_status_led](../../firmware-packages/matter_status_led/README.md)
+until the window closes. [matter.status_led](../../firmware-packages/matter/README.md#status-pixel)
 holds the full priority table.
 
 ## Build and flash
@@ -197,7 +197,7 @@ is the state where that did not happen.
 
 The path is five files. `native/src/callbacks.cpp` translates CHIP's events and
 owns the recovery; `matter/state.py` turns each into the next Matter state
-during the 50 ms application poll; `matter_status_led` turns the state into a
+during the 50 ms application poll; `matter/status_led.py` turns the state into a
 pattern; `firmware/main.py` wires them together; and
 `firmware/color/convert.py` gives the colour once a controller owns the light.
 The [package README](../../firmware-packages/matter/README.md) diagrams the

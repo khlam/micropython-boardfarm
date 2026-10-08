@@ -1,7 +1,7 @@
 """Choose the status pixel colour the occupancy product shows when Matter is settled.
 
 The Matter state (pairing, unpaired, off Wi-Fi) outranks these colours on the
-pixel; `matter_status_led` decides that. What is left is product health and
+pixel; `matter.status_led` decides that. What is left is product health and
 occupancy.
 """
 

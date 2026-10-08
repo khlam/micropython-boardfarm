@@ -11,7 +11,7 @@ from collections import namedtuple
 
 from micropython import const
 
-from matter import DeviceState, FabricState, NetworkState
+from matter.state import DeviceState, FabricState, NetworkState
 
 __all__ = [
     "BOOT",

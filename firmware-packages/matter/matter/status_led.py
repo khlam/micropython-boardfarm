@@ -1,10 +1,16 @@
-"""Show the Matter device state on one status pixel."""
+"""Show the Matter device state on one status pixel.
+
+``StatusLed(pixel, level)`` takes the project's NeoPixel and status brightness.
+Feed it ``Node.state`` after each poll, the application's colour when it
+changes, and ``fail()`` on a failed commissioning attempt; call ``tick()`` from
+the loop. :mod:`matter.status_pattern` holds the state-to-pattern table.
+"""
 
 import utime
 from neopixel import NeoPixel
 
-from matter import DeviceState
-from matter_status_led.pattern import (
+from matter.state import DeviceState
+from matter.status_pattern import (
     BOOT,
     FAILURE,
     FAILURE_MS,

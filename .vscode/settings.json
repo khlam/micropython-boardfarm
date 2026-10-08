@@ -5,7 +5,6 @@
     "./firmware-packages/atgm336h",
     "./firmware-packages/boot_status_led",
     "./firmware-packages/i2c_bus",
-    "./firmware-packages/matter_status_led",
     "./firmware-packages/mpu6050",
     "./firmware-packages/qmc5883p",
     "./firmware-packages/radar",

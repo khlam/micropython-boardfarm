@@ -19,7 +19,6 @@ dependencies = [
     "serial_over_web>=0.1.0",
     "micropython_stubs>=0.10.0",
     "matter>=0.4.0",
-    "matter_status_led>=0.1.0",
     "matter_tools>=0.1.0",
 ]
 
@@ -72,7 +71,6 @@ smoothing = { index = "internal" }
 vl53l0x = { index = "internal" }
 vl53l5cx = { index = "internal" }
 matter = { index = "internal" }
-matter_status_led = { index = "internal" }
 matter_tools = { index = "internal" }
 
 [dependency-groups]
@@ -104,7 +102,6 @@ test = [
     "vl53l0x",
     "vl53l5cx",
     "matter",
-    "matter_status_led",
     "matter_tools",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
@@ -138,7 +135,6 @@ source_pkgs = [
   "vl53l0x",
   "vl53l5cx",
   "matter",
-  "matter_status_led",
   "matter_tools",
   "serial_over_web",
 ]
@@ -328,7 +324,6 @@ known-first-party = [
   "serial_over_web",
   "micropython_stubs",
   "matter",
-  "matter_status_led",
   "matter_tools",
 ]
 

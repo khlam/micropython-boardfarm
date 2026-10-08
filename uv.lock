@@ -645,15 +645,6 @@ dependencies = [
 requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
-name = "matter-status-led"
-version = "0.1.0"
-source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter_status_led-0.1.0.tar.gz" }
-wheels = [
-    { path = "/wheels/matter_status_led-0.1.0-py3-none-any.whl" },
-]
-
-[[package]]
 name = "matter-tools"
 version = "0.1.0"
 source = { registry = "/wheels" }
@@ -685,7 +676,6 @@ dependencies = [
     { name = "boot-status-led" },
     { name = "i2c-bus" },
     { name = "matter" },
-    { name = "matter-status-led" },
     { name = "matter-tools" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
@@ -712,7 +702,6 @@ test = [
     { name = "httpx" },
     { name = "i2c-bus" },
     { name = "matter" },
-    { name = "matter-status-led" },
     { name = "matter-tools" },
     { name = "micropython-stubs" },
     { name = "mpu6050" },
@@ -739,7 +728,6 @@ requires-dist = [
     { name = "boot-status-led", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "i2c-bus", specifier = ">=0.2.0", index = "file:///wheels" },
     { name = "matter", specifier = ">=0.4.0", index = "file:///wheels" },
-    { name = "matter-status-led", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "matter-tools", specifier = ">=0.1.0", index = "file:///wheels" },
     { name = "micropython-stubs", specifier = ">=0.10.0", index = "file:///wheels" },
     { name = "mpu6050", specifier = ">=0.1.0", index = "file:///wheels" },
@@ -766,7 +754,6 @@ test = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "i2c-bus", index = "file:///wheels" },
     { name = "matter", index = "file:///wheels" },
-    { name = "matter-status-led", index = "file:///wheels" },
     { name = "matter-tools", index = "file:///wheels" },
     { name = "micropython-stubs", index = "file:///wheels" },
     { name = "mpu6050", index = "file:///wheels" },

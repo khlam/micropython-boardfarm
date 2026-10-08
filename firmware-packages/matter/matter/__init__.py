@@ -10,6 +10,9 @@ network state (:class:`NetworkState`); endpoints hold application state.
 ``Node.poll()`` reports changes to the first as :class:`StateEvent` and to the
 second as :class:`WriteEvent`.
 
+:mod:`matter.status_led` shows ``Node.state`` on a status pixel. It is not
+imported here, so ``import matter`` loads no pixel driver.
+
 This split keeps CHIP's C++ stack, task model, and threading rules fully
 contained behind the native bridge, so application code never touches a CHIP
 task or interrupt directly and can't violate its concurrency assumptions.
