@@ -21,4 +21,4 @@ Never install anything on the host machine. Docker is the only required host too
 - No AI attribution.
 
 ### Testing policy
-Going forward, do not write tests until after the user confirms a feature is final.
+Test first: confirm the intended behavior, write a failing test, then the code. See the `testing` skill.
