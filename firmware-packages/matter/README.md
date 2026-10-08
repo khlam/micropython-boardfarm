@@ -93,7 +93,7 @@ stateDiagram-v2
         state "CLOSED" as closed
         opened --> closed
         closed --> opened: "unpaired node would stop advertising"
-        note right of opened: "BLE + DNS-SD, else DNS-SD"
+        note right of opened: "BLE + DNS-SD; DNS-SD only if paired since boot"
     }
 ```
 

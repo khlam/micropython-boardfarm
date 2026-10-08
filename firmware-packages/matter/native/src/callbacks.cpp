@@ -55,9 +55,12 @@ void reopen_commissioning_window(void)
 
     // A node that has never been commissioned holds no network credentials, so a
     // DNS-SD-only window would advertise on a network it cannot join and BLE is
-    // its only way back. Once a commissioning has succeeded, ESP-Matter reclaims
-    // the BLE host (CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING) and asking for it fails
-    // outright -- but that node is on the network, so DNS-SD alone reaches it.
+    // its only way back. Once the node has held a fabric since boot, ESP-Matter
+    // has shut BLE down and released its memory until the next reboot
+    // (CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING). CHIP still accepts the BLE request
+    // then but advertises over DNS-SD alone, which reaches that node because it is
+    // on the network. The only failure BLE adds is CHIP being unable to queue its
+    // BLE work, so retry without BLE rather than leave the node silent.
     if (manager.OpenBasicCommissioningWindow(timeout, chip::CommissioningWindowAdvertisement::kAllSupported) ==
         CHIP_NO_ERROR) {
         return;
