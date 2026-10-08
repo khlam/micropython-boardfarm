@@ -125,7 +125,8 @@ _EXTENDED_COLOR_SCHEMA.update(
         Paths.X: (_TYPE_UINT16, 0, 65535, 20494),
         Paths.Y: (_TYPE_UINT16, 0, 65535, 21561),
         Paths.TEMPERATURE: (_TYPE_UINT16, 153, 500, 250),
-        Paths.COLOR_MODE: (_TYPE_UINT8, 0, 3, 2),
+        # ColorMode stops at COLOR_TEMPERATURE; only EnhancedColorMode adds 3.
+        Paths.COLOR_MODE: (_TYPE_UINT8, 0, 2, 2),
         Paths.ENHANCED_COLOR_MODE: (_TYPE_UINT8, 0, 3, 2),
     }
 )
