@@ -28,7 +28,7 @@ when callers need to act on them.
 
 ## Tests
 
-The `testing` skill's three kinds map to:
+The `testing` skill's four kinds map to:
 
 | Kind | Name | Marker |
 | --- | --- | --- |
