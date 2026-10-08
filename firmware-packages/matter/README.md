@@ -5,7 +5,7 @@ MicroPython applications that own endpoint state, hardware, and product policy.
 ESP-Matter owns secure sessions, commissioning, fabrics, persistence, protocol
 reads, and subscriptions. Applications
 [publish local decisions synchronously](native/src/request.cpp#L139-L156)
-and [pull controller changes cooperatively](matter/node.py#L144-L176), keeping
+and [pull controller changes cooperatively](matter/node.py#L141-L173), keeping
 hardware actions on the VM task while protocol callbacks retain bounded native
 state. The package claims no GPIO, and `import matter` loads no board, pixel,
 timer, or async runtime; it is neither a hardware driver nor a second Matter

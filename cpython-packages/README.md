@@ -71,8 +71,10 @@ Replacement module behavior:
   `matter` package calls. `reset(persisted=...)` seeds values the stack
   restores at `start()`, `reset(generation=...)` starts the revision sequence
   near its wrap, `fail_next(operation)` makes the next call to that
-  operation raise `OSError`, and `inject_remote_write(...)` /
-  `inject_commissioning_event(...)` play the controller. Like the native
+  operation raise `OSError`, and `seed_fabrics(...)` replaces the fabric
+  table. `inject_remote_write(...)`, `inject_commissioning_event(...)`,
+  `inject_fabric_count()`, and `inject_network_event(...)` play the controller
+  and the Wi-Fi link. Like the native
   bridge, it keeps only the newest record per attribute path and orders
   snapshots by a wrapping 32-bit revision.
 - `asyncio_extras.py` supplies `ThreadSafeFlag`, `wait_for_ms`, and `sleep_ms`
