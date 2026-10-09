@@ -18,8 +18,8 @@ from neopixel import NeoPixel
 
 from matter.state import DeviceState, FabricState, NetworkState
 
-# ``off_ms`` of 0 means solid; ``on_ms`` is then unused.
-_Pattern = namedtuple("_Pattern", ("color", "on_ms", "off_ms"))
+# A blink is lit for ``half_ms``, then dark for as long; 0 means solid.
+_Pattern = namedtuple("_Pattern", ("color", "half_ms"))
 
 _OFF = (0, 0, 0)
 
@@ -36,18 +36,18 @@ _RED = (255, 0, 0)
 _AMBER = (255, 128, 0)
 
 # Firmware running, the stack not polled yet.
-_BOOT = _Pattern(_WHITE, 0, 0)
+_BOOT = _Pattern(_WHITE, 0)
 # Uncommissioned with a window open, or operational and adding a controller.
-_PAIRABLE = _Pattern(_PURPLE, _SLOW_MS, _SLOW_MS)
+_PAIRABLE = _Pattern(_PURPLE, _SLOW_MS)
 # A commissioner is working through pairing.
-_COMMISSIONING = _Pattern(_CYAN, _FAST_MS, _FAST_MS)
+_COMMISSIONING = _Pattern(_CYAN, _FAST_MS)
 # Uncommissioned and advertising nothing: nobody can reach the device.
-_UNREACHABLE = _Pattern(_AMBER, 0, 0)
+_UNREACHABLE = _Pattern(_AMBER, 0)
 # Operational, waiting for the Wi-Fi link to come back.
-_OFFLINE = _Pattern(_AMBER, _SLOW_MS, _SLOW_MS)
+_OFFLINE = _Pattern(_AMBER, _SLOW_MS)
 
 # Played once over any pattern when a commissioning attempt fails.
-_FAILURE = _Pattern(_RED, _FLASH_MS, _FLASH_MS)
+_FAILURE = _Pattern(_RED, _FLASH_MS)
 _FAILURE_MS = _FLASH_COUNT * 2 * _FLASH_MS
 
 
@@ -131,7 +131,7 @@ class StatusLed:
             return
         pattern = _matter_pattern(self._state)
         if pattern is None:
-            pattern = _Pattern(self._application, 0, 0)
+            pattern = _Pattern(self._application, 0)
         else:
             pattern = _scaled(pattern, self._level)
         if pattern == self._pattern:
@@ -177,7 +177,7 @@ def _scaled(pattern: _Pattern, level: int) -> _Pattern:
     """
     red, green, blue = pattern.color
     color = (red * level // 255, green * level // 255, blue * level // 255)
-    return _Pattern(color, pattern.on_ms, pattern.off_ms)
+    return _Pattern(color, pattern.half_ms)
 
 
 def _color_at(pattern: _Pattern, elapsed_ms: int) -> tuple:
@@ -192,6 +192,6 @@ def _color_at(pattern: _Pattern, elapsed_ms: int) -> tuple:
     Returns:
         The pattern's colour, or :data:`_OFF` during a blink's dark half.
     """
-    if pattern.off_ms == 0 or elapsed_ms % (pattern.on_ms + pattern.off_ms) < pattern.on_ms:
+    if pattern.half_ms == 0 or elapsed_ms // pattern.half_ms % 2 == 0:
         return pattern.color
     return _OFF
