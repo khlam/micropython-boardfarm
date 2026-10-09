@@ -812,20 +812,18 @@ def _outcome(expected: object) -> AbstractContextManager:
 def _run(node: Node, endpoint: Endpoint | None, steps: list[tuple]):
     """Apply scenario steps in order.
 
-    ``start`` and ``set`` drive the node and its endpoint, while ``poll`` and
-    ``mirror`` assert what the application observes. Any other step calls the
-    fake-native test hook it names with the remaining values.
+    ``start`` starts the node, while ``poll`` and ``mirror`` assert what the
+    application observes. Any other step calls the fake-native test hook it
+    names with the remaining values.
 
     Args:
         node: The node under test.
-        endpoint: Its endpoint, for steps that set or read one.
+        endpoint: Its endpoint, for steps that read one.
         steps: Each a step name followed by its values.
     """
     for name, *args in steps:
         if name == "start":
             node.start()
-        elif name == "set":
-            endpoint.set(**args[0])
         elif name == "poll":
             _assert_poll(node, endpoint, args[0])
         elif name == "mirror":
