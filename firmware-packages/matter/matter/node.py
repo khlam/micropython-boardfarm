@@ -235,7 +235,11 @@ class Node:
                 time.sleep(_RESTORE_PAUSE_S)
 
     def _handle(self, record: tuple) -> WriteEvent | RejectedValue | StateEvent | None:
-        """Apply one retained record and return its public event."""
+        """Apply one retained record and return its public event.
+
+        A device-state record runs through the state machines and yields an
+        event only for a change or a failed attempt.
+        """
         _revision, kind, endpoint_id, cluster, attribute, value = record
         if kind == _RECORD_ATTRIBUTE:
             endpoint = self._endpoints.get(endpoint_id)
@@ -244,18 +248,6 @@ class Node:
             return endpoint._accept_remote(  # noqa: SLF001 - Node owns its Endpoint instances
                 cluster, attribute, value
             )
-        return self._advance_state(kind, value)
-
-    def _advance_state(self, kind: int, value: int) -> StateEvent | None:
-        """Run one device-state record through the state machines.
-
-        Args:
-            kind: Native snapshot record kind.
-            value: The record's value.
-
-        Returns:
-            The event for a change or a failed attempt, otherwise None.
-        """
         previous = self._state
         state, self._fabric_count, failed = transition(previous, self._fabric_count, kind, value)
         if state == previous and not failed:
