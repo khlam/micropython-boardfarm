@@ -1,18 +1,18 @@
-"""Publish radar occupancy and its configurable hold through Matter.
+"""Publish radar occupancy through Matter, with a hold a controller can set.
 
-An HLK-LD2450 or HLK-LD2420 wired to the same UART is detected at startup, and
-the product behaves identically either way. Each valid radar report updates a
-read-only Occupancy Sensor endpoint. A virtual Dimmable Light controls how long
-occupancy stays on after the first empty report, from zero to ten minutes. A
-missing report or UART error forces occupancy on and restarts the radar
-connection.
+An HLK-LD2450 or HLK-LD2420 radar on UART1 and the board's status pixel make a
+Matter Occupancy Sensor. A virtual Dimmable Light on the same node sets how long
+occupancy holds after the room empties. Either radar works the same way.
 
-This module wires the hardware and runs Matter polling and radar reading,
-applying each report to occupancy before its telemetry. The reports module
-decides occupancy and telemetry pacing; the status module picks the product
-colour, which StatusLed shows whenever the Matter state calls for none.
+Read this file top to bottom to audit the firmware: the board's pins, the
+hardware main() creates, the two loops it runs and their states, then the
+Occupancy object both loops update. Every output is chosen here:
 
-The board sends its JSON lines over USB serial.
+- Matter occupancy on endpoint 1, and the pixel's product colour:
+  Occupancy._show(), after every report, fault, and recovery.
+- The pixel's Matter patterns, which outrank the product colour: StatusLed,
+  fed by poll_matter().
+- JSON lines over USB serial: each emit() and error() call below.
 """
 
 import asyncio
@@ -22,9 +22,10 @@ from collections import namedtuple
 
 import machine
 import neopixel
+from hold import Hold, hold_ms
 from micropython import const
-from reports import Occupancy, ReportThrottle, hold_ms, outside_dead_zone
 from status import STATUS_LEVEL, product_color
+from targets import TargetThrottle, outside_dead_zone
 
 import matter
 from matter.emit import emit, error
@@ -40,177 +41,143 @@ if "ESP32S3" not in _machine:
     raise RuntimeError(f"unsupported board: {_machine}")
 BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
 
-_RADAR_RETRY_MS = const(1_000)
 _MATTER_POLL_MS = const(50)
+_RADAR_RETRY_MS = const(1_000)
+
+# The links occupancy depends on. While either fails, the sensor reports
+# occupied and the pixel shows yellow.
+_MATTER = "matter"
+_RADAR = "radar"
 
 
 def main() -> None:
-    """Initialize the product and run its tasks."""
-    application = _Application()
-    asyncio.run(application.run())
+    """Create the hardware, start Matter, and run both loops forever."""
+    pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
+    # Dim white until the first poll reports the Matter state.
+    status_led = StatusLed(pixel, STATUS_LEVEL)
+
+    node = matter.Node()
+    # Endpoint IDs persist, so the occupancy sensor is always created first.
+    sensor = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
+    # A controller sets the hold with this light: off is none, full is ten minutes.
+    hold_light = node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
+    # Commissioning starts before the radar, so a missing radar never blocks pairing.
+    node.start()
+
+    # Occupied from boot until a radar report says otherwise.
+    occupancy = Occupancy(sensor, hold_light, status_led)
+    asyncio.run(_run(node, status_led, occupancy))
 
 
-class _Application:
-    """Wire services and own the radar-to-Matter occupancy policy."""
+async def _run(node: matter.Node, status_led: StatusLed, occupancy: "Occupancy") -> None:
+    """Run the Matter and radar loops together."""
+    await asyncio.gather(poll_matter(node, status_led, occupancy), read_radar(occupancy))
 
-    def __init__(self) -> None:
-        """Initialize hardware and start Matter before the async services."""
-        self._matter_healthy = True
-        self._radar_healthy = True
-        self._occupancy_policy = Occupancy()
-        self._throttle = ReportThrottle()
-        self._published_occupancy = None
 
-        pixel = neopixel.NeoPixel(machine.Pin(BOARD.led_pin, machine.Pin.OUT), 1)
-        # Dim white until the first poll reports the Matter state.
-        self._status = StatusLed(pixel, STATUS_LEVEL)
+async def poll_matter(node: matter.Node, status_led: StatusLed, occupancy: "Occupancy") -> None:
+    """Poll Matter every 50 ms, stepping the pixel's blink on each pass.
 
-        self._node = matter.Node()
-        # Endpoint IDs persist, so always create the occupancy endpoint first.
-        self._occupancy = self._node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
-        self._hold_control = self._node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
-        self._node.start()
+    States:
+        polling: each poll's device state goes to the pixel, and a failed
+            pairing attempt flashes it red.
+        failing: occupancy holds occupied. The first failed poll is reported
+            as ``matter_poll_err``, and the next good one as ``matter_ok``.
 
-        # The product contract requires occupied during startup and radar recovery.
-        self._publish_occupancy()
-        self._update_status()
-
-    async def run(self) -> None:
-        """Run Matter polling and radar tasks."""
-        await asyncio.gather(self._run_matter(), self._run_radar())
-
-    async def _run_matter(self) -> None:
-        """Poll Matter and hold fail-safe occupied through failure periods."""
-        while True:
-            try:
-                events = self._node.poll()
-            except OSError as exception:
-                first_failure = self._matter_healthy
-                self._matter_healthy = False
-                self._set_occupied()
-                if first_failure:
-                    emit({"diag": "matter_poll_err", "err": str(exception)})
-            else:
-                if not self._matter_healthy:
-                    emit({"diag": "matter_ok"})
-                    self._matter_healthy = True
-                    self._update_status()
-                self._handle_matter_events(events)
-            self._status.tick()
-            await asyncio.sleep_ms(_MATTER_POLL_MS)
-
-    async def _run_radar(self) -> None:
-        """Read radar reports and re-detect the radar after a failure."""
-        radar = None
-
-        while True:
-            if radar is None:
-                try:
-                    model, radar = await detect(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
-                except (NoRadarError, OSError) as exception:
-                    diagnostic = "no_device" if isinstance(exception, NoRadarError) else "init_err"
-                    # detect() released every probe it opened, so there is
-                    # nothing left here to close.
-                    self._handle_radar_failure(
-                        None,
-                        {"diag": diagnostic, "err": str(exception)},
-                    )
-                    await asyncio.sleep_ms(_RADAR_RETRY_MS)
-                    continue
-
-                self._radar_healthy = True
-                self._set_occupied()
-                emit({"diag": "radar_ok", "model": model})
-
-            try:
-                targets = await radar.read_latest()
-            except OSError as exception:
-                report = {"diag": "read_err", "err": str(exception)}
-            else:
-                now_ms = time.ticks_ms()
-                if targets is not None:
-                    self._handle_targets(targets, now_ms)
-                    continue
-                report = {"diag": "report_timeout", "t": now_ms}
-
-            self._handle_radar_failure(radar, report)
-            radar = None
-            await asyncio.sleep_ms(_RADAR_RETRY_MS)
-
-    def _handle_matter_events(self, events: tuple) -> None:
-        """Send the Matter device state and any failed pairing to the status pixel."""
-        for event in events:
-            if isinstance(event, matter.StateEvent) and event.failed:
-                self._status.fail()
-        self._status.set_state(self._node.state)
-
-    def _publish_occupancy(self) -> None:
-        """Publish the current occupancy state and retry failures later.
-
-        A failed publish leaves the Python endpoint holding the requested value
-        while ESP-Matter holds the previous one, so it clears the record of what
-        was published and the next call republishes whatever the state is then.
-        """
-        occupied = self._occupancy_policy.occupied
-        if self._published_occupancy == occupied:
-            return
+    Args:
+        node: The started Matter node.
+        status_led: The status pixel.
+        occupancy: The room's occupancy, held occupied while polls fail.
+    """
+    failing = False
+    while True:
         try:
-            self._occupancy.set(occupancy=1 if occupied else 0)
+            events = node.poll()
         except OSError as exception:
-            self._published_occupancy = None
-            error("occupancy", str(exception))
-            return
-        self._published_occupancy = occupied
+            occupancy.fault(_MATTER)
+            if not failing:
+                emit({"diag": "matter_poll_err", "err": str(exception)})
+            failing = True
+        else:
+            if failing:
+                emit({"diag": "matter_ok"})
+                occupancy.recover(_MATTER)
+            failing = False
+            if any(isinstance(event, matter.StateEvent) and event.failed for event in events):
+                status_led.fail()
+            status_led.set_state(node.state)
+        status_led.tick()
+        await asyncio.sleep_ms(_MATTER_POLL_MS)
 
-    def _apply_radar_report(self, *, occupied: bool, now_ms: int) -> None:
-        """Apply one valid radar report, holding occupied while Matter is failing.
 
-        Args:
-            occupied: Whether the report has a target outside the dead zone.
-            now_ms: Monotonic time when the report was received.
-        """
-        self._occupancy_policy.report(
-            occupied=occupied or not self._matter_healthy,
-            now_ms=now_ms,
-            hold_ms=hold_ms(on=self._hold_control.on, level=self._hold_control.level),
-        )
-        self._update_status()
-        self._publish_occupancy()
+async def read_radar(occupancy: "Occupancy") -> None:
+    """Find the radar, read its reports, and find it again after any failure.
 
-    def _set_occupied(self) -> None:
-        """Set occupied and cancel the current occupancy hold."""
-        self._occupancy_policy.force_occupied()
-        self._update_status()
-        self._publish_occupancy()
+    States:
+        finding: probe UART1 for an LD2450, then an LD2420. Success is
+            reported as ``radar_ok``.
+        reading: each report sets occupancy, then its targets go out as
+            telemetry when due.
+        failed: occupancy holds occupied, the first failure of a run is
+            reported (``no_device``, ``init_err``, ``read_err``, or
+            ``report_timeout``), the radar is closed, and finding starts again
+            after a second.
 
-    def _handle_radar_failure(self, radar: ReportStream | None, report: dict) -> None:
-        """Force occupied, report the failure once, and close the radar.
+    Args:
+        occupancy: The room's occupancy, set by each report.
+    """
+    throttle = TargetThrottle()
+    failing = False
+    while True:
+        radar = None
+        try:
+            model, radar = await detect(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
+        except NoRadarError as exception:
+            failure = {"diag": "no_device", "err": str(exception)}
+        except OSError as exception:
+            # detect() released every probe it opened.
+            failure = {"diag": "init_err", "err": str(exception)}
+        else:
+            occupancy.recover(_RADAR)
+            emit({"diag": "radar_ok", "model": model})
+            failing = False
+            failure = await _read_until_failure(radar, occupancy, throttle)
 
-        Args:
-            radar: Current radar, if it was created.
-            report: JSON diagnostic describing this failure.
-        """
-        first_failure = self._radar_healthy
-        self._radar_healthy = False
-        self._set_occupied()
-        if first_failure:
-            emit(report)
+        occupancy.fault(_RADAR)
+        if not failing:
+            emit(failure)
+        failing = True
         if radar is not None:
-            try:  # noqa: SIM105 - contextlib is not available on MicroPython
-                radar.close()
-            except OSError:
-                pass
+            _close(radar)
+        await asyncio.sleep_ms(_RADAR_RETRY_MS)
 
-    def _handle_targets(self, targets: tuple, now_ms: int) -> None:
-        """Apply one valid report to occupancy, then send its telemetry when due.
 
-        Args:
-            targets: Targets from the report, including any in the dead zone.
-            now_ms: Monotonic time when the report was received.
-        """
+async def _read_until_failure(
+    radar: ReportStream, occupancy: "Occupancy", throttle: TargetThrottle
+) -> dict:
+    """Apply each report to occupancy, then send its targets when due.
+
+    Targets in the dead zone around the sensor count for neither.
+
+    Args:
+        radar: The detected radar.
+        occupancy: The room's occupancy, set by each report.
+        throttle: Paces telemetry across every radar this loop finds.
+
+    Returns:
+        The diagnostic line for the failure that ended reading.
+    """
+    while True:
+        try:
+            targets = await radar.read_latest()
+        except OSError as exception:
+            return {"diag": "read_err", "err": str(exception)}
+        now_ms = time.ticks_ms()
+        if targets is None:
+            return {"diag": "report_timeout", "t": now_ms}
+
         targets = tuple(target for target in targets if outside_dead_zone(target))
-        self._apply_radar_report(occupied=bool(targets), now_ms=now_ms)
-        if self._throttle.due(targets, now_ms):
+        occupancy.report(occupied=bool(targets), now_ms=now_ms)
+        if throttle.due(targets, now_ms):
             emit(
                 {
                     "t": now_ms,
@@ -227,14 +194,85 @@ class _Application:
                 }
             )
 
-    def _update_status(self) -> None:
-        """Send the colour for current occupancy and combined health to the status pixel."""
-        self._status.set_application(
-            product_color(
-                healthy=self._matter_healthy and self._radar_healthy,
-                occupied=self._occupancy_policy.occupied,
-            )
+
+def _close(radar: ReportStream) -> None:
+    """Release the radar's UART; a failure to close changes nothing."""
+    try:  # noqa: SIM105 - contextlib is not available on MicroPython
+        radar.close()
+    except OSError:
+        pass
+
+
+class Occupancy:
+    """Whether the room is occupied, and the two outputs that show it.
+
+    Holds the hold state machine, the links that are failing, the occupancy
+    sensor endpoint, the hold light whose level sets the hold, and the status
+    pixel. Every change ends in :meth:`_show`.
+    """
+
+    def __init__(
+        self, sensor: matter.Endpoint, hold_light: matter.Endpoint, status_led: StatusLed
+    ) -> None:
+        """Start occupied and show it, as the product requires during startup.
+
+        Args:
+            sensor: The Occupancy Sensor endpoint controllers read.
+            hold_light: The Dimmable Light endpoint that sets the hold.
+            status_led: The status pixel.
+        """
+        self._sensor = sensor
+        self._hold_light = hold_light
+        self._status_led = status_led
+        self._hold = Hold()
+        self._failing = set()
+        self._published = None
+        self._show()
+
+    def report(self, *, occupied: bool, now_ms: int) -> None:
+        """Apply one valid radar report; while a link fails, it counts as occupied.
+
+        Args:
+            occupied: Whether the report has a target outside the dead zone.
+            now_ms: Monotonic time when the report was received.
+        """
+        self._hold.report(
+            occupied=occupied or bool(self._failing),
+            now_ms=now_ms,
+            hold_ms=hold_ms(on=self._hold_light.on, level=self._hold_light.level),
         )
+        self._show()
+
+    def fault(self, link: str) -> None:
+        """Hold occupied and discard any hold timer while ``link`` fails."""
+        self._failing.add(link)
+        self._hold.force_occupied()
+        self._show()
+
+    def recover(self, link: str) -> None:
+        """Count ``link`` healthy again; the next report decides occupancy."""
+        self._failing.discard(link)
+        self._show()
+
+    def _show(self) -> None:
+        """Set the pixel's product colour, then publish occupancy if it changed.
+
+        A failed publish leaves the Python endpoint holding the requested value
+        while ESP-Matter holds the previous one, so this forgets what was
+        published and the next call publishes whatever the state is then.
+        """
+        occupied = self._hold.occupied
+        healthy = not self._failing
+        self._status_led.set_application(product_color(healthy=healthy, occupied=occupied))
+        if occupied == self._published:
+            return
+        try:
+            self._sensor.set(occupancy=1 if occupied else 0)
+        except OSError as exception:
+            self._published = None
+            error("occupancy", str(exception))
+            return
+        self._published = occupied
 
 
 main()

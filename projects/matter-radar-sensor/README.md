@@ -11,10 +11,10 @@ flowchart LR
     radar["Radar module"]
     controller["Matter controller"]
     subgraph board["ESP32-S3 (everything runs here)"]
-        driver["Radar driver"] --> policy["Occupancy policy"]
+        driver["Radar driver"] --> policy["Occupancy"]
         policy --> matter["Matter API"] --> native["Native bridge"]
         native --> stack["ESP-Matter"]
-        matter -.->|"hold control"| policy
+        matter -.->|"hold light"| policy
         policy --> serial["USB JSON"]
         policy --> pixel["Status pixel"]
     end
@@ -31,16 +31,37 @@ Product policy stays in the project; reusable packages own mechanisms.
 
 | Unit | Responsibility |
 | --- | --- |
-| `main.py` | Board wiring, task flow, radar recovery, Matter publication, target telemetry. |
-| `reports.py` | Occupancy hold, dead zone, and telemetry pacing, decided from explicit report times. |
+| `main.py` | Pins, hardware, both loops and their states, and `Occupancy`, which shows occupancy on Matter and the pixel. Read it to audit every output. |
+| `hold.py` | Occupancy hold state machine, and the hold light's level in milliseconds. |
+| `targets.py` | Dead zone and telemetry pacing, decided from explicit report times. |
 | `status.py` | Product colour for radar and Matter health and for occupancy. |
 | `radar` | Probe order, UART ownership, framing, newest decoded targets. |
 | `matter` | Validation, mirrors, fabric and network state, bounded task crossing, retained events. |
 | `matter.status_led` | Matter state colour and blink, failure flash, pixel writes. |
 | ESP-Matter | Sessions, commissioning, fabrics, persistence, subscriptions. |
 
-`main.py` runs two asyncio tasks: Matter polling every 50 ms, which also steps
-the pixel's blink, and radar reading with 1 s recovery retries.
+## Loops
+
+`main.py` runs two asyncio loops. Both update one `Occupancy`, and each change
+sets the pixel's product colour and publishes occupancy if it changed.
+
+**Matter** polls every 50 ms and steps the pixel's blink each pass. While polls
+fail, occupancy holds occupied; the first failure reports `matter_poll_err` and
+the next good poll `matter_ok`.
+
+**Radar** finds the radar, reads it, and finds it again after any failure:
+
+```mermaid
+stateDiagram-v2
+    [*] --> finding
+    finding --> reading: "radar_ok"
+    finding --> failed: "no_device · init_err"
+    reading --> failed: "read_err · report_timeout"
+    failed --> finding: "after 1 s"
+```
+
+In `failed`, occupancy holds occupied, only the first failure of a run is
+reported, and the radar's UART is closed.
 
 ## Key flows
 
@@ -92,6 +113,18 @@ yellow for unhealthy radar or Matter polling, then blue vacant or green
 occupied.
 
 VID/PID and test DACs are development settings; replace them for production.
+
+## Tests
+
+From the repository root:
+
+```console
+docker compose run --rm --build pytest /projects/matter-radar-sensor/tests
+```
+
+`tests/test_scenarios.py` has one row per line of this contract. Each row runs
+the real `main()` on [a virtual bench](tests/radar_sensor_bench.py) that fakes
+only the clock, the radar on UART1, and the Matter controller.
 
 ## Build, flash, wire
 
