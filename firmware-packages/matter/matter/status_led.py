@@ -111,17 +111,15 @@ class StatusLed:
     def tick(self) -> None:
         """Write the colour the patterns call for now, if it changed."""
         now_ms = utime.ticks_ms()
-        color = None
+        pattern, since_ms = self._pattern, self._pattern_since_ms
         if self._failure_since_ms is not None:
-            elapsed_ms = utime.ticks_diff(now_ms, self._failure_since_ms)
-            if elapsed_ms < _FAILURE_MS:
-                color = _color_at(self._failure, elapsed_ms)
+            if utime.ticks_diff(now_ms, self._failure_since_ms) < _FAILURE_MS:
+                pattern, since_ms = self._failure, self._failure_since_ms
             else:
                 self._failure_since_ms = None
-        if color is None:
-            # ticks_diff wraps after about six days; a long blink only shifts
-            # phase when it does.
-            color = _color_at(self._pattern, utime.ticks_diff(now_ms, self._pattern_since_ms))
+        # ticks_diff wraps after about six days; a long blink only shifts phase
+        # when it does.
+        color = _color_at(pattern, utime.ticks_diff(now_ms, since_ms))
         if self._pixel[0] == color:
             return
         self._pixel[0] = color
