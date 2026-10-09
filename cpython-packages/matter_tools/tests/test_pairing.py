@@ -185,6 +185,17 @@ _FUZZ_SEEDS = [_RNG.getrandbits(32) for _ in range(100)]
             returns({"key": bytes(range(32)).hex()}),
             id="redraws-11-distinct-hex-digits",
         ),
+        # This draw's key derives the forbidden setup passcode 55555555.
+        pytest.param(
+            None,
+            (
+                bytes.fromhex("61f9eb116f1c6a90544bac44a4bfee708a08f43400aeb5b354eac841e07624e0"),
+                bytes(range(32)),
+            ),
+            None,
+            returns({"key": bytes(range(32)).hex()}),
+            id="redraws-a-key-deriving-a-forbidden-passcode",
+        ),
         # Forced digests: bytes 0-3 map to the setup passcode as `word % 99999999 + 1`
         # and bytes 4-5 carry the discriminator in their low 12 bits.
         #

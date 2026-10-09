@@ -79,7 +79,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _provision_board(staging_root: Path, identity: BoardIdentity, args: argparse.Namespace) -> None:
     """Provision the connected board, flash a validated image, then publish its codes."""
-    pairing = _generate_pairing(args.passcode)
+    pairing = generate_pairing(args.passcode or None)
     factory, qr, payload = mint_credentials(
         staging_root,
         identity,
@@ -107,18 +107,6 @@ def _provision_board(staging_root: Path, identity: BoardIdentity, args: argparse
             "passcode": pairing["key"],
         },
     )
-
-
-def _generate_pairing(passcode: str) -> dict:
-    """Derive pairing data from ``passcode``, or from random keys until one is allowed."""
-    if passcode:
-        return generate_pairing(passcode)
-    while True:
-        try:
-            return generate_pairing()
-        except ValueError:
-            # A random key can derive a forbidden setup passcode; draw another.
-            continue
 
 
 if __name__ == "__main__":

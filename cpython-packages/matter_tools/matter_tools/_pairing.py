@@ -21,7 +21,7 @@ def generate_pairing(passcode: str | None = None) -> dict:
     Args:
         passcode: Secret key, at least ``_MIN_PASSCODE_LEN`` characters long and
             spanning at least ``_MIN_PASSCODE_DISTINCT`` distinct characters, or
-            ``None`` to draw a fresh random one.
+            ``None`` to draw random keys until one is accepted.
 
     Returns:
         A dictionary with the resolved ``key`` string, the integer ``passcode`` and
@@ -29,17 +29,17 @@ def generate_pairing(passcode: str | None = None) -> dict:
         ``manual_pairing_code``.
 
     Raises:
-        ValueError: The key is not a string, is too short, spans too few
+        ValueError: The given key is not a string, is too short, spans too few
             distinct characters to resist guessing, or derives a setup passcode
             the Matter spec forbids.
     """
     if passcode is None:
-        passcode = _random_passcode()
-    elif type(passcode) is not str:
+        return _random_pairing()
+    if type(passcode) is not str:
         raise ValueError("passcode must be a string")
-    elif len(passcode) < _MIN_PASSCODE_LEN:
+    if len(passcode) < _MIN_PASSCODE_LEN:
         raise ValueError(f"passcode must be at least {_MIN_PASSCODE_LEN} characters")
-    elif len(set(passcode)) < _MIN_PASSCODE_DISTINCT:
+    if len(set(passcode)) < _MIN_PASSCODE_DISTINCT:
         raise ValueError(
             f"passcode must span at least {_MIN_PASSCODE_DISTINCT} distinct characters"
         )
@@ -56,11 +56,12 @@ def generate_pairing(passcode: str | None = None) -> dict:
     }
 
 
-def _random_passcode() -> str:
-    """Draw a random 256-bit key as 64 hexadecimal characters."""
+def _random_pairing() -> dict:
+    """Derive pairing data from random 256-bit keys, drawn as 64 hex characters."""
     while True:
-        passcode = os.urandom(_KEY_BYTES).hex()
-        # Hex has only sixteen symbols, so a rare draw can span too few distinct
-        # characters for generate_pairing to accept it.
-        if len(set(passcode)) >= _MIN_PASSCODE_DISTINCT:
-            return passcode
+        try:
+            return generate_pairing(os.urandom(_KEY_BYTES).hex())
+        except ValueError:
+            # Hex has only sixteen symbols, so a rare draw spans too few distinct
+            # characters, and a rarer one derives a forbidden setup passcode.
+            continue

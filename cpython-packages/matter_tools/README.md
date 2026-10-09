@@ -37,9 +37,8 @@ calling.
 
 The algorithm hashes `passcode.encode()` with SHA-256.
 The first four digest bytes, read big-endian, map to `1..99999999`; a key that
-lands on a forbidden Matter passcode raises `ValueError`, a random one included,
-so `tools/matter-build/provision.py` draws again when no key was given. The low
-12 bits of the next two bytes form the discriminator.
+lands on a forbidden Matter passcode raises `ValueError`, and a random one is
+drawn again. The low 12 bits of the next two bytes form the discriminator.
 
 To flash with a chosen key instead of a random one, set `PASSCODE`:
 

@@ -119,7 +119,7 @@ def test_explicit_passcode_reproduces_pairing_codes(
     def unexpected():
         pytest.fail("an explicit passcode drew a random one")
 
-    monkeypatch.setattr(_pairing, "_random_passcode", unexpected)
+    monkeypatch.setattr(_pairing, "_random_pairing", unexpected)
     flashes = []
     for index in range(2):
         provision._provision_board(tmp_path / str(index), identity, args)
@@ -147,14 +147,14 @@ def test_blank_passcode_produces_random_pairing_codes(
         monkeypatch: Counts the random passcode draws.
     """
     identity, args, outputs, _calls = pipeline
-    draw_passcode = _pairing._random_passcode
+    draw_pairing = _pairing._random_pairing
     draws = []
 
     def counted_draw():
-        draws.append(draw_passcode())
+        draws.append(draw_pairing())
         return draws[-1]
 
-    monkeypatch.setattr(_pairing, "_random_passcode", counted_draw)
+    monkeypatch.setattr(_pairing, "_random_pairing", counted_draw)
     setups = []
     for index in range(2):
         provision._provision_board(tmp_path / str(index), identity, args)
