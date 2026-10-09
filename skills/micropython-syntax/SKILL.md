@@ -7,9 +7,7 @@ description: Use when writing or reviewing code under projects/*/firmware/ or fi
 
 Firmware code must remain compatible with the actual MicroPython runtime.
 
-## Loops and states
-
-`main.py` is where a reader audits the firmware. Top to bottom it shows the board
+`main.py` is the composite's entry point. Top to bottom it shows the board
 pins, the hardware it creates, every loop it starts, and each loop's states. Trace
 any output (Matter attribute, pixel colour, JSON line) to the loop and state that
 chose it by reading `main.py`.
