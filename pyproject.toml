@@ -35,6 +35,7 @@ pythonpath = [
     "/firmware-packages/smoothing/tests",
     "/firmware-packages/vl53l0x/tests",
     "/firmware-packages/vl53l5cx/tests",
+    "/projects/matter/tests",
     "/projects/matter-radar-sensor/tests",
 ]
 addopts = "--strict-markers"

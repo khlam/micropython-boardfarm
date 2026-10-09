@@ -12,7 +12,7 @@ Occupancy object both loops update. Every output is chosen here:
   Occupancy._show(), after every report, fault, and recovery.
 - The pixel's Matter patterns, which outrank the product colour: StatusLed,
   fed by poll_matter().
-- JSON lines over USB serial: each emit() and error() call below.
+- JSON lines over USB serial: each emit(), emit_state(), and error() call below.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ from status import STATUS_LEVEL, product_color
 from targets import TargetThrottle, outside_dead_zone
 
 import matter
-from matter.emit import emit, error
+from matter.emit import emit, emit_state, error
 from matter.status_led import StatusLed
 from radar import NoRadarError, ReportStream, detect
 
@@ -61,8 +61,14 @@ def main() -> None:
     sensor = node.create_endpoint(matter.EndpointType.OCCUPANCY_SENSOR)
     # A controller sets the hold with this light: off is none, full is ten minutes.
     hold_light = node.create_endpoint(matter.EndpointType.DIMMABLE_LIGHT)
-    # Commissioning starts before the radar, so a missing radar never blocks pairing.
-    node.start()
+    # Commissioning starts before the radar, so a missing radar never blocks
+    # pairing. Blocks while ESP-Matter comes up, retrying its first reads every
+    # 250 ms up to 40 times. A value in flash an endpoint's schema refuses
+    # leaves that attribute at its default.
+    for _rejected in node.start():
+        error("python_validation", "restored value rejected by schema")
+    emit({"event": "matter", "state": "ready"})
+    emit({"event": "fabric", "state": node.state.fabric})
 
     # Occupied from boot until a radar report says otherwise.
     occupancy = Occupancy(sensor, hold_light, status_led)
@@ -78,8 +84,9 @@ async def poll_matter(node: matter.Node, status_led: StatusLed, occupancy: "Occu
     """Poll Matter every 50 ms, stepping the pixel's blink on each pass.
 
     States:
-        polling: each poll's device state goes to the pixel, and a failed
-            pairing attempt flashes it red.
+        polling: each poll's device state goes to the pixel, each change of
+            it goes out as JSON lines, and a failed pairing attempt flashes
+            the pixel red.
         failing: occupancy holds occupied. The first failed poll is reported
             as ``matter_poll_err``, and the next good one as ``matter_ok``.
 
@@ -98,15 +105,34 @@ async def poll_matter(node: matter.Node, status_led: StatusLed, occupancy: "Occu
                 emit({"diag": "matter_poll_err", "err": str(exception)})
             failing = True
         else:
+            for event in events:
+                _report(event, status_led)
             if failing:
                 emit({"diag": "matter_ok"})
                 occupancy.recover(_MATTER)
             failing = False
-            if any(isinstance(event, matter.StateEvent) and event.failed for event in events):
-                status_led.fail()
             status_led.set_state(node.state)
         status_led.tick()
         await asyncio.sleep_ms(_MATTER_POLL_MS)
+
+
+def _report(event: object, status_led: StatusLed) -> None:
+    """Report one polled Matter event, flashing the pixel red on a failed pairing.
+
+    The hold light's writes need nothing here: Occupancy reads its level at
+    each report.
+
+    Args:
+        event: A change of Matter state, a controller write, or a controller
+            value an endpoint's schema refused.
+        status_led: The status pixel.
+    """
+    if isinstance(event, matter.StateEvent):
+        emit_state(event)
+        if event.failed:
+            status_led.fail()
+    elif isinstance(event, matter.RejectedValue):
+        error("python_validation", "remote value rejected by schema")
 
 
 async def read_radar(occupancy: "Occupancy") -> None:

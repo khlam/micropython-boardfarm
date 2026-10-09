@@ -2,8 +2,8 @@
 
 Each row boots the firmware with a start state, delivers inputs at virtual
 times, stops it at ``until_ms``, and lists everything that left it: the
-occupancy values ESP-Matter accepted for endpoint 1 with their times, the
-project's JSON lines, and every colour written to the pixel.
+occupancy values ESP-Matter accepted for endpoint 1 with their times, every
+JSON line, and every colour written to the pixel.
 
 The radar reports on every 100 ms mark; Matter is polled on every 50 ms mark.
 At one instant, inputs and the radar's report arrive before the firmware runs.
@@ -50,6 +50,27 @@ PUBLISH_ERROR = {
     "message": "[Errno 5] injected attributes_publish failure",
 }
 
+RESTORED_REJECTED = {
+    "event": "error",
+    "component": "python_validation",
+    "message": "restored value rejected by schema",
+}
+REMOTE_REJECTED = {
+    "event": "error",
+    "component": "python_validation",
+    "message": "remote value rejected by schema",
+}
+
+# Matter state lines.
+READY = {"event": "matter", "state": "ready"}
+UNCOMMISSIONED = {"event": "fabric", "state": "uncommissioned"}
+OPERATIONAL = {"event": "fabric", "state": "operational"}
+CONNECTED = {"event": "network", "state": "connected"}
+WINDOW_OPENED = {"event": "commissioning_window", "state": "opened"}
+PAIRING_FAILED = {"event": "commissioning", "state": "failed"}
+# A paired board on Wi-Fi: ready, the restored fabric, then the link at the first poll.
+PAIRED_ONLINE_BOOT = (READY, OPERATIONAL, CONNECTED)
+
 # Pixel colours at the status brightness of 8.
 BOOT_WHITE = (8, 8, 8)
 OCCUPIED_GREEN = (0, 8, 0)
@@ -94,7 +115,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(Scene(at_ms=0, targets=(PERSON,)),),
             until_ms=150,
             published=((0, 1),),
-            lines=(RADAR_OK, {"t": 100, "targets": [PERSON_IN_SLOT_1]}),
+            lines=(*PAIRED_ONLINE_BOOT, RADAR_OK, {"t": 100, "targets": [PERSON_IN_SLOT_1]}),
             pixel=(BOOT_WHITE, OCCUPIED_GREEN),
         ),
         Case(
@@ -106,7 +127,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(Scene(at_ms=0, targets=()),),
             until_ms=150,
             published=((0, 1), (100, 0)),
-            lines=(RADAR_OK, {"t": 100, "targets": []}),
+            lines=(*PAIRED_ONLINE_BOOT, RADAR_OK, {"t": 100, "targets": []}),
             pixel=(BOOT_WHITE, OCCUPIED_GREEN, VACANT_BLUE),
         ),
         Case(
@@ -119,6 +140,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=1150,
             published=((0, 1), (100, 0), (1100, 1)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": []},
                 {"t": 1100, "targets": [PERSON_IN_SLOT_1]},
@@ -134,7 +156,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(Scene(at_ms=0, targets=(NEAR,)),),
             until_ms=150,
             published=((0, 1), (100, 0)),
-            lines=(RADAR_OK, {"t": 100, "targets": []}),
+            lines=(*PAIRED_ONLINE_BOOT, RADAR_OK, {"t": 100, "targets": []}),
             pixel=(BOOT_WHITE, OCCUPIED_GREEN, VACANT_BLUE),
         ),
         Case(
@@ -152,6 +174,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=3450,
             published=((0, 1), (3400, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_1]},
                 {"t": 1100, "targets": []},
@@ -168,6 +191,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=3450,
             published=((0, 1), (3400, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_1]},
                 {"t": 1100, "targets": []},
@@ -190,6 +214,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=3450,
             published=((0, 1), (3400, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_1]},
                 {"t": 1100, "targets": []},
@@ -212,6 +237,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=5550,
             published=((0, 1), (5500, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_1]},
                 {"t": 1100, "targets": []},
@@ -236,6 +262,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=6150,
             published=((0, 1), (100, 0), (1500, 1), (6100, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": []},
                 {"diag": "report_timeout", "t": 1500},
@@ -253,7 +280,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(),
             until_ms=6050,
             published=((0, 1),),
-            lines=(NO_DEVICE,),
+            lines=(*PAIRED_ONLINE_BOOT, NO_DEVICE),
             pixel=(BOOT_WHITE, OCCUPIED_GREEN, UNHEALTHY_YELLOW),
         ),
         Case(
@@ -269,6 +296,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=1150,
             published=((0, 1),),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 {"diag": "init_err", "err": "uart init"},
                 RADAR_OK,
                 {"t": 1100, "targets": [PERSON_IN_SLOT_1]},
@@ -290,7 +318,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             ),
             until_ms=1250,
             published=((0, 1), (100, 0), (1050, 1), (1200, 0)),
-            lines=(RADAR_OK, {"t": 100, "targets": []}, POLL_ERROR, MATTER_OK),
+            lines=(*PAIRED_ONLINE_BOOT, RADAR_OK, {"t": 100, "targets": []}, POLL_ERROR, MATTER_OK),
             pixel=(
                 BOOT_WHITE,
                 OCCUPIED_GREEN,
@@ -314,6 +342,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=1150,
             published=((0, 1), (1100, 0)),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_1]},
                 PUBLISH_ERROR,
@@ -335,7 +364,12 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             ),
             until_ms=1150,
             published=((0, 1), (1100, 1)),
-            lines=(RADAR_OK, {"t": 100, "targets": [PERSON_IN_SLOT_1]}, PUBLISH_ERROR),
+            lines=(
+                *PAIRED_ONLINE_BOOT,
+                RADAR_OK,
+                {"t": 100, "targets": [PERSON_IN_SLOT_1]},
+                PUBLISH_ERROR,
+            ),
             pixel=(BOOT_WHITE, OCCUPIED_GREEN, VACANT_BLUE, OCCUPIED_GREEN),
         ),
         Case(
@@ -352,6 +386,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=1150,
             published=((0, 1),),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 RADAR_OK,
                 {"t": 100, "targets": [PERSON_IN_SLOT_2]},
                 {"t": 600, "targets": [MOVED_IN_SLOT_2]},
@@ -369,6 +404,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             until_ms=2150,
             published=((0, 1),),
             lines=(
+                *PAIRED_ONLINE_BOOT,
                 {"diag": "radar_ok", "model": "LD2420"},
                 {"t": 2100, "targets": [RANGE_IN_SLOT_1]},
             ),
@@ -383,7 +419,7 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(Scene(at_ms=0, targets=()),),
             until_ms=150,
             published=((0, 1), (100, 0)),
-            lines=(RADAR_OK, {"t": 100, "targets": []}),
+            lines=(READY, UNCOMMISSIONED, RADAR_OK, {"t": 100, "targets": []}),
             pixel=(BOOT_WHITE, UNREACHABLE_AMBER),
         ),
         Case(
@@ -396,7 +432,12 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(Scene(at_ms=0, targets=(PERSON,)), PairingFails(at_ms=1010)),
             until_ms=2300,
             published=((0, 1),),
-            lines=(RADAR_OK, {"t": 100, "targets": [PERSON_IN_SLOT_1]}),
+            lines=(
+                *PAIRED_ONLINE_BOOT,
+                RADAR_OK,
+                {"t": 100, "targets": [PERSON_IN_SLOT_1]},
+                PAIRING_FAILED,
+            ),
             pixel=(
                 BOOT_WHITE,
                 OCCUPIED_GREEN,
@@ -419,8 +460,45 @@ Board = namedtuple("Board", ("id", "machine", "error"))
             inputs=(WindowOpens(at_ms=0),),
             until_ms=2600,
             published=((0, 1),),
-            lines=(NO_DEVICE,),
+            lines=(READY, UNCOMMISSIONED, WINDOW_OPENED, NO_DEVICE),
             pixel=(BOOT_WHITE, PAIRABLE_PURPLE, OFF, PAIRABLE_PURPLE, OFF, PAIRABLE_PURPLE, OFF),
+        ),
+        Case(
+            id="stored-hold-level-outside-the-schema-is-reported-before-ready",
+            paired=True,
+            online=True,
+            radar="LD2450",
+            stored_hold_light=StoredHoldLight(on=True, level=255),
+            inputs=(Scene(at_ms=0, targets=(PERSON,)),),
+            until_ms=150,
+            published=((0, 1),),
+            lines=(
+                RESTORED_REJECTED,
+                *PAIRED_ONLINE_BOOT,
+                RADAR_OK,
+                {"t": 100, "targets": [PERSON_IN_SLOT_1]},
+            ),
+            pixel=(BOOT_WHITE, OCCUPIED_GREEN),
+        ),
+        Case(
+            id="occupied-controller-hold-level-outside-the-schema-is-reported-and-ignored",
+            paired=True,
+            online=True,
+            radar="LD2450",
+            stored_hold_light=None,
+            inputs=(
+                Scene(at_ms=0, targets=(PERSON,)),
+                HoldLight(at_ms=1000, on=True, level=255),
+            ),
+            until_ms=1050,
+            published=((0, 1),),
+            lines=(
+                *PAIRED_ONLINE_BOOT,
+                RADAR_OK,
+                {"t": 100, "targets": [PERSON_IN_SLOT_1]},
+                REMOTE_REJECTED,
+            ),
+            pixel=(BOOT_WHITE, OCCUPIED_GREEN),
         ),
     ],
     ids=lambda case: case.id,

@@ -12,26 +12,18 @@ import pytest
 from matter import (
     Attributes,
     Clusters,
+    DeviceState,
     Endpoint,
     EndpointType,
     Fabric,
+    FabricState,
+    NetworkState,
     Node,
+    RejectedValue,
+    StateEvent,
     WriteEvent,
 )
 from matter.schema import Paths
-from micropython_stubs.testing import json_lines
-
-_READY = {"event": "matter", "state": "ready"}
-_RESTORED_VALUE_REJECTED = {
-    "event": "error",
-    "component": "python_validation",
-    "message": "restored value rejected by schema",
-}
-_REMOTE_VALUE_REJECTED = {
-    "event": "error",
-    "component": "python_validation",
-    "message": "remote value rejected by schema",
-}
 
 _HOME = (1, 101, 201, 301, "home")
 _LAB = (2, 102, 202, 302, "lab")
@@ -48,9 +40,47 @@ _START = ("start",)
 # before start() (see _stimulate).
 _Boot = namedtuple("_Boot", ("persisted", "initial", "stimulus"), defaults=(None, None, None))
 
+# What a successful start() leaves: the light's properties, the values start()
+# returned as rejected, and the controller writes the first poll() returns. Each
+# rejected value and write is a (cluster, attribute, value) triple.
+_Started = namedtuple("_Started", ("mirror", "rejected", "polled"), defaults=((), ()))
+
 # A poll() row runs on a node with one endpoint of `endpoint_type`, its native
 # revision sequence starting at `generation`, started unless `started` is False.
 _PollNode = namedtuple("_PollNode", ("endpoint_type", "generation", "started"), defaults=(0, True))
+
+# A value poll() should return as rejected for the row's endpoint.
+_Rejected = namedtuple("_Rejected", ("cluster", "attribute", "value"))
+
+# Native device-state records, as callbacks.cpp retains them from CHIP events.
+_SessionStarted = namedtuple("_SessionStarted", ())
+_SessionComplete = namedtuple("_SessionComplete", ())
+_SessionFailed = namedtuple("_SessionFailed", ())
+_WindowOpened = namedtuple("_WindowOpened", ())
+_WindowClosed = namedtuple("_WindowClosed", ())
+_LinkUp = namedtuple("_LinkUp", ())
+_LinkDown = namedtuple("_LinkDown", ())
+# The node now belongs to `count` fabrics.
+_FabricCount = namedtuple("_FabricCount", ("count",))
+
+# matter_native record values (native/include/matter/bridge.h).
+_COMMISSIONING_CODES = {
+    _SessionStarted: 0,
+    _SessionComplete: 1,
+    _SessionFailed: 2,
+    _WindowOpened: 3,
+    _WindowClosed: 4,
+}
+_LINK_CODES = {_LinkDown: 0, _LinkUp: 1}
+
+# Device states, named fabric-network-window.
+_UNCOMMISSIONED_OFFLINE = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.DISCONNECTED, False)
+_UNCOMMISSIONED_ONLINE = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.CONNECTED, False)
+_UNCOMMISSIONED_PAIRABLE = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.DISCONNECTED, True)
+_COMMISSIONING_OFFLINE = DeviceState(FabricState.COMMISSIONING, NetworkState.DISCONNECTED, False)
+_OPERATIONAL_OFFLINE = DeviceState(FabricState.OPERATIONAL, NetworkState.DISCONNECTED, False)
+
+_DeviceCase = namedtuple("_DeviceCase", ("id", "fabrics", "records", "events", "state"))
 
 
 @pytest.mark.parametrize(
@@ -229,42 +259,42 @@ def test_create_endpoint(
 
 
 @pytest.mark.parametrize(
-    ("boot", "expected", "stdout"),
+    ("boot", "expected"),
     [
         pytest.param(
             _Boot(),
-            ({"identify_time": 0, "on": False, "level": 254}, []),
-            [_READY],
+            _Started({"identify_time": 0, "on": False, "level": 254}),
             id="restores-constructor-defaults",
         ),
         pytest.param(
             _Boot(persisted={_LIGHT_ON_OFF: True}),
-            ({"on": True}, []),
-            [_READY],
+            _Started({"on": True}),
             id="restores-persisted-value-without-event",
         ),
         pytest.param(
             _Boot(persisted={_LIGHT_LEVEL: 255}),
-            ({"level": 254}, []),
-            [_RESTORED_VALUE_REJECTED, _READY],
-            id="out-of-schema-persisted-value-keeps-default",
+            _Started({"level": 254}, rejected=((*Paths.LEVEL, 255),)),
+            id="out-of-schema-persisted-value-keeps-default-and-is-returned",
+        ),
+        pytest.param(
+            # The first attempt rejects the level, then times out counting fabrics.
+            _Boot(persisted={_LIGHT_LEVEL: 255}, stimulus=("fail_next", "fabrics")),
+            _Started({"level": 254}, rejected=((*Paths.LEVEL, 255),)),
+            id="rejection-seen-before-a-retried-read-is-returned-once",
         ),
         pytest.param(
             _Boot(persisted={_LIGHT_ON_OFF: False}, initial={Paths.ON_OFF: True}),
-            ({"on": True}, []),
-            [_READY],
+            _Started({"on": True}),
             id="initial-value-overrides-persisted",
         ),
         pytest.param(
             _Boot(initial={Paths.IDENTIFY: 45}),
-            ({"identify_time": 0}, []),
-            [_READY],
+            _Started({"identify_time": 0}),
             id="identify-initial-left-to-native-constructor",
         ),
         pytest.param(
             _Boot(persisted={_LIGHT_ON_OFF: True}, stimulus=("fail_next", "attribute_get")),
-            ({"on": True}, []),
-            [_READY],
+            _Started({"on": True}),
             id="transient-restore-failure-retried",
         ),
         pytest.param(
@@ -272,44 +302,39 @@ def test_create_endpoint(
                 persisted={_LIGHT_ON_OFF: True},
                 stimulus=("write_during_start", *Paths.ON_OFF, False),
             ),
-            ({"on": False}, [(*Paths.ON_OFF, False)]),
-            [_READY],
+            _Started({"on": False}, polled=((*Paths.ON_OFF, False),)),
             id="write-during-start-restored-then-polled",
         ),
         pytest.param(
             _Boot(stimulus=("fail_always", "attribute_get")),
             pytest.raises(OSError, match="persistent native failure"),
-            [],
             id="restore-budget-exhausted",
         ),
         pytest.param(
             _Boot(stimulus=("fail_next", "start")),
             pytest.raises(OSError, match="injected start failure"),
-            [],
             id="native-start-failure",
         ),
         pytest.param(
             _Boot(stimulus=_START),
             pytest.raises(OSError, match="Matter node is already started"),
-            [_READY],
             id="already-started",
         ),
     ],
 )
 def test_start(
     boot: _Boot,
-    expected: tuple[dict[str, object], list[tuple]] | AbstractContextManager,
-    stdout: list[dict[str, str]],
+    expected: _Started | AbstractContextManager,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ):
-    """start() restores every mirror before reporting ready; a failed start changes nothing.
+    """start() restores every mirror and returns what it rejected; it prints nothing.
+
+    A failed start changes nothing.
 
     Args:
         boot: What flash holds, what the application pins, and the stimulus.
-        expected: The light's properties after start() with the writes the first
-            poll() returns, or the raise.
-        stdout: Every JSON line written.
+        expected: What a successful start() leaves, or the raise.
         monkeypatch: Removes the pause between restore retries, and applies
             the stimulus.
         capsys: Captures stdout.
@@ -320,56 +345,52 @@ def test_start(
     light = node.create_endpoint(EndpointType.DIMMABLE_LIGHT, boot.initial)
     _stimulate(monkeypatch, node, boot.stimulus)
     was_started = node.started
+    capsys.readouterr()
 
     if isinstance(expected, AbstractContextManager):
         with expected:
             node.start()
         assert node.started is was_started
     else:
-        mirror, polled = expected
-        node.start()
+        rejected = node.start()
         assert node.started is True
-        assert {name: getattr(light, name) for name in mirror} == mirror
-        assert node.poll() == tuple(_event(light, spec) for spec in polled)
-    assert json_lines(capsys.readouterr().out) == stdout
+        assert rejected == tuple(RejectedValue(light, *spec) for spec in expected.rejected)
+        assert {name: getattr(light, name) for name in expected.mirror} == expected.mirror
+        assert node.poll() == tuple(_event(light, spec) for spec in expected.polled)
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize(
-    ("setup", "steps", "stdout"),
+    ("setup", "steps"),
     [
         pytest.param(
             _PollNode(EndpointType.ON_OFF_LIGHT, started=False),
             [("poll", pytest.raises(OSError, match="Matter node is not started"))],
-            [],
             id="not-started",
         ),
         pytest.param(
             _PollNode(EndpointType.ON_OFF_LIGHT),
             [("fail_next", "snapshot"), ("poll", [])],
-            [],
             id="unchanged-generation-skips-snapshot",
         ),
         pytest.param(
             _PollNode(EndpointType.ON_OFF_LIGHT),
             [("inject_remote_write", 1, *Paths.ON_OFF, True), ("poll", [(*Paths.ON_OFF, True)])],
-            [],
             id="remote-write",
         ),
         pytest.param(
             _PollNode(EndpointType.OCCUPANCY_SENSOR),
             [("inject_remote_write", 1, *Paths.OCCUPANCY, 1), ("poll", [(*Paths.OCCUPANCY, 1)])],
-            [],
             id="remote-occupancy-write",
         ),
         pytest.param(
             _PollNode(EndpointType.DIMMABLE_LIGHT),
             [
                 ("inject_remote_write", 1, *Paths.LEVEL, 255),
-                ("poll", []),
+                ("poll", [_Rejected(*Paths.LEVEL, 255)]),
                 ("mirror", *Paths.LEVEL, 254),
             ],
-            [_REMOTE_VALUE_REJECTED],
-            id="write-outside-schema-reported-and-omitted",
+            id="write-outside-schema-returned-as-rejected-and-omitted",
         ),
         pytest.param(
             _PollNode(EndpointType.DIMMABLE_LIGHT),
@@ -379,7 +400,6 @@ def test_start(
                 ("inject_remote_write", 1, *Paths.LEVEL, 10),
                 ("poll", [(*Paths.ON_OFF, False), (*Paths.LEVEL, 10)]),
             ],
-            [],
             id="repeated-writes-coalesce-per-path",
         ),
         pytest.param(
@@ -390,7 +410,6 @@ def test_start(
                 ("poll", pytest.raises(OSError, match="injected snapshot failure")),
                 ("poll", [(*Paths.ON_OFF, True)]),
             ],
-            [],
             id="snapshot-failure-then-retry-delivers",
         ),
         pytest.param(
@@ -401,7 +420,6 @@ def test_start(
                 ("inject_remote_write", 1, *Paths.LEVEL, 10),
                 ("poll", [(*Paths.LEVEL, 10)]),
             ],
-            [],
             id="delivered-write-not-redelivered",
         ),
         pytest.param(
@@ -411,25 +429,20 @@ def test_start(
                 ("inject_remote_write", 1, *Paths.LEVEL, 9),
                 ("poll", [(*Paths.ON_OFF, True), (*Paths.LEVEL, 9)]),
             ],
-            [],
             id="revisions-wrapping-past-uint32-keep-order",
         ),
     ],
 )
-def test_poll(
-    setup: _PollNode,
-    steps: list[tuple],
-    stdout: list[dict[str, str]],
-    capsys: pytest.CaptureFixture[str],
-):
+def test_poll(setup: _PollNode, steps: list[tuple], capsys: pytest.CaptureFixture[str]):
     """poll() delivers each retained change once, in revision order, as immutable events.
+
+    It prints nothing.
 
     Args:
         setup: The endpoint, starting revision, and whether the node starts.
-        steps: Run in order (see _run). A ``poll`` step lists the
-            ``(cluster, attribute, value)`` writes it expects to the node's
-            endpoint.
-        stdout: Every JSON line written after start().
+        steps: Run in order (see _run). A ``poll`` step lists the events it
+            expects for the node's endpoint: a ``(cluster, attribute, value)``
+            write, or a ``_Rejected`` value.
         capsys: Captures stdout.
     """
     matter_native.reset(generation=setup.generation)
@@ -441,7 +454,146 @@ def test_poll(
 
     _run(node, endpoint, steps)
 
-    assert json_lines(capsys.readouterr().out) == stdout
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        _DeviceCase(
+            id="no-fabric-restored-starts-uncommissioned",
+            fabrics=0,
+            records=(),
+            events=(),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+        _DeviceCase(
+            id="fabric-restored-starts-operational",
+            fabrics=1,
+            records=(),
+            events=(),
+            state=_OPERATIONAL_OFFLINE,
+        ),
+        _DeviceCase(
+            id="uncommissioned-session-started-is-commissioning",
+            fabrics=0,
+            records=(_SessionStarted(),),
+            events=(StateEvent(_UNCOMMISSIONED_OFFLINE, _COMMISSIONING_OFFLINE, False),),
+            state=_COMMISSIONING_OFFLINE,
+        ),
+        _DeviceCase(
+            id="operational-another-controller-pairs-is-commissioning",
+            fabrics=1,
+            records=(_SessionStarted(),),
+            events=(StateEvent(_OPERATIONAL_OFFLINE, _COMMISSIONING_OFFLINE, False),),
+            state=_COMMISSIONING_OFFLINE,
+        ),
+        _DeviceCase(
+            # The fabric count arrives first and changes nothing: the session decides.
+            id="commissioning-session-complete-is-operational",
+            fabrics=0,
+            records=(_SessionStarted(), _FabricCount(1), _SessionComplete()),
+            events=(
+                StateEvent(_UNCOMMISSIONED_OFFLINE, _COMMISSIONING_OFFLINE, False),
+                StateEvent(_COMMISSIONING_OFFLINE, _OPERATIONAL_OFFLINE, False),
+            ),
+            state=_OPERATIONAL_OFFLINE,
+        ),
+        _DeviceCase(
+            id="commissioning-attempt-failed-with-no-fabric-is-uncommissioned",
+            fabrics=0,
+            records=(_SessionStarted(), _SessionFailed()),
+            events=(
+                StateEvent(_UNCOMMISSIONED_OFFLINE, _COMMISSIONING_OFFLINE, False),
+                StateEvent(_COMMISSIONING_OFFLINE, _UNCOMMISSIONED_OFFLINE, True),
+            ),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+        _DeviceCase(
+            id="commissioning-attempt-failed-with-a-fabric-held-is-operational",
+            fabrics=1,
+            records=(_SessionStarted(), _SessionFailed()),
+            events=(
+                StateEvent(_OPERATIONAL_OFFLINE, _COMMISSIONING_OFFLINE, False),
+                StateEvent(_COMMISSIONING_OFFLINE, _OPERATIONAL_OFFLINE, True),
+            ),
+            state=_OPERATIONAL_OFFLINE,
+        ),
+        _DeviceCase(
+            # Not an edge: the attempt fails, but the state it rests in is unchanged.
+            id="uncommissioned-attempt-failed-reports-the-failure-alone",
+            fabrics=0,
+            records=(_SessionFailed(),),
+            events=(StateEvent(_UNCOMMISSIONED_OFFLINE, _UNCOMMISSIONED_OFFLINE, True),),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+        _DeviceCase(
+            id="operational-last-fabric-removed-is-uncommissioned",
+            fabrics=1,
+            records=(_FabricCount(0),),
+            events=(StateEvent(_OPERATIONAL_OFFLINE, _UNCOMMISSIONED_OFFLINE, False),),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+        _DeviceCase(
+            id="operational-second-fabric-added-stays-operational",
+            fabrics=1,
+            records=(_FabricCount(2),),
+            events=(),
+            state=_OPERATIONAL_OFFLINE,
+        ),
+        _DeviceCase(
+            id="disconnected-link-up-is-connected-and-a-restated-link-changes-nothing",
+            fabrics=0,
+            records=(_LinkUp(), _LinkUp()),
+            events=(StateEvent(_UNCOMMISSIONED_OFFLINE, _UNCOMMISSIONED_ONLINE, False),),
+            state=_UNCOMMISSIONED_ONLINE,
+        ),
+        _DeviceCase(
+            id="connected-link-lost-is-disconnected",
+            fabrics=0,
+            records=(_LinkUp(), _LinkDown()),
+            events=(
+                StateEvent(_UNCOMMISSIONED_OFFLINE, _UNCOMMISSIONED_ONLINE, False),
+                StateEvent(_UNCOMMISSIONED_ONLINE, _UNCOMMISSIONED_OFFLINE, False),
+            ),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+        _DeviceCase(
+            id="window-opened-then-closed",
+            fabrics=0,
+            records=(_WindowOpened(), _WindowClosed()),
+            events=(
+                StateEvent(_UNCOMMISSIONED_OFFLINE, _UNCOMMISSIONED_PAIRABLE, False),
+                StateEvent(_UNCOMMISSIONED_PAIRABLE, _UNCOMMISSIONED_OFFLINE, False),
+            ),
+            state=_UNCOMMISSIONED_OFFLINE,
+        ),
+    ],
+    ids=lambda case: case.id,
+)
+def test_poll_device_state(case: _DeviceCase, capsys: pytest.CaptureFixture[str]):
+    """poll() follows the README's fabric and network diagrams, one StateEvent per change.
+
+    Each record reaches native, then the node polls. It prints nothing.
+
+    Args:
+        case: Fabrics restored at start, the records in order, every event the
+            polls return, and the device state after the last poll.
+        capsys: Captures stdout.
+    """
+    matter_native.seed_fabrics([_HOME, _LAB][: case.fabrics])
+    node = Node()
+    node.start()
+    capsys.readouterr()
+
+    events = []
+    for record in case.records:
+        _send_record(record)
+        events.extend(node.poll())
+
+    assert tuple(events) == case.events
+    assert node.state == case.state
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize(
@@ -701,17 +853,35 @@ def _assert_poll(node: Node, endpoint: Endpoint | None, expected: Any):
                     event.value = None
 
 
-def _event(endpoint: Endpoint | None, spec: tuple) -> WriteEvent:
-    """Build a row's expected write event, bound to the row's endpoint.
+def _event(endpoint: Endpoint | None, spec: tuple) -> WriteEvent | RejectedValue:
+    """Build a row's expected endpoint event, bound to the row's endpoint.
 
     Args:
-        endpoint: The endpoint the write spec refers to.
-        spec: A ``(cluster, attribute, value)`` write.
+        endpoint: The endpoint the spec refers to.
+        spec: A ``(cluster, attribute, value)`` write, or a ``_Rejected`` value.
 
     Returns:
         The event poll() should return for the spec.
     """
+    if isinstance(spec, _Rejected):
+        return RejectedValue(endpoint, *spec)
     return WriteEvent(endpoint, *spec)
+
+
+def _send_record(record: tuple) -> None:
+    """Retain one device-state record in native, as callbacks.cpp does.
+
+    Args:
+        record: A commissioning, link, or fabric-count record.
+    """
+    kind = type(record)
+    if kind in _COMMISSIONING_CODES:
+        matter_native.inject_commissioning_event(_COMMISSIONING_CODES[kind])
+    elif kind in _LINK_CODES:
+        matter_native.inject_network_event(_LINK_CODES[kind])
+    else:
+        matter_native.seed_fabrics([_HOME, _LAB][: record.count])
+        matter_native.inject_fabric_count()
 
 
 def _stimulate(monkeypatch: pytest.MonkeyPatch, node: Node, stimulus: tuple | None) -> None:

@@ -3,14 +3,19 @@
 `matter` exposes [ESP-Matter](https://github.com/espressif/esp-matter) to
 MicroPython applications that own endpoint state, hardware, and product policy.
 ESP-Matter owns secure sessions, commissioning, fabrics, persistence, protocol
-reads, and subscriptions. Applications
-[publish local decisions synchronously](native/src/request.cpp#L139-L156)
-and [pull controller changes cooperatively](matter/node.py#L141-L173), keeping
-hardware actions on the VM task while protocol callbacks retain bounded native
-state. The package claims no GPIO, and `import matter` loads no board, pixel,
-timer, or async runtime; it is neither a hardware driver nor a second Matter
-implementation. The opt-in [`matter.status_led`](#status-pixel) drives a pixel
-the caller passes in.
+reads, and subscriptions. Applications publish local decisions synchronously
+(`Endpoint.set()`, which lands in `matter_attributes_publish` in
+[request.cpp](native/src/request.cpp)) and pull controller changes
+cooperatively (`Node.poll()` in [node.py](matter/node.py)), keeping hardware
+actions on the VM task while protocol callbacks retain bounded native state.
+The package claims no GPIO, and `import matter` loads no board, pixel, timer,
+or async runtime; it is neither a hardware driver nor a second Matter
+implementation.
+
+The package prints nothing. Everything it might report comes back from
+`Node.start()` and `Node.poll()`, so the application's `main.py` chooses every
+output: [`matter.emit`](#json-lines) writes the JSON lines, and the opt-in
+[`matter.status_led`](#status-pixel) drives a pixel the caller passes in.
 
 ## Architecture
 
@@ -46,6 +51,7 @@ device; see [matter_tools](../../cpython-packages/matter_tools/README.md#pairing
 | `Node` | Owns endpoint lifecycle, restored mirrors, events, fabrics, and the device state. |
 | `matter.state` | Runs the fabric and network state machines as one pure function. |
 | `Endpoint` | Validates complete decisions and exposes read-only properties. |
+| `matter.emit` | Writes the JSON lines the application chooses to print. |
 | `matter.status_led` | Shows the device state on a status pixel the caller passes in. |
 | `matter_native` | Converts Python values across the plain-C primitives. |
 | Native requests | Schedule CHIP operations with timeout-safe owned storage. |
@@ -73,12 +79,14 @@ flowchart LR
 
 **Polling** checks atomic `generation()` before requesting a coherent snapshot.
 It updates every mirror and `Node.state`, and returns an immutable ordered tuple
-of `WriteEvent` and `StateEvent`, running no application code. Repeated writes
-coalesce; a failed poll stays retryable because generation commits only after
-processing. Successful local publication clears older retained remote state
-without echoes. `WriteEvent(endpoint, cluster, attribute, value)` identifies
-each changed path; shared wrapping revisions order attributes and device state
-together.
+of `WriteEvent`, `RejectedValue`, and `StateEvent`, running no application code
+and printing nothing. Repeated writes coalesce; a failed poll stays retryable
+because generation commits only after processing. Successful local publication
+clears older retained remote state without echoes.
+`WriteEvent(endpoint, cluster, attribute, value)` identifies each changed path.
+`RejectedValue` has the same fields, for a controller value the endpoint's
+schema refused; the endpoint keeps its previous value. Shared wrapping
+revisions order attributes and device state together.
 
 **Device state** follows the Matter device model. Fabric and network state
 belong to the node; application state belongs to its endpoints.
@@ -132,21 +140,37 @@ is unreachable, so the bridge reopens one whenever the stack would otherwise sto
 advertising: over BLE and DNS-SD, or DNS-SD alone once the node has been paired
 since boot. On an operational node, an open window lets another controller pair.
 
-Each change arrives as `StateEvent(state, failed)`. `failed` is true only on the
-change that ends a failed commissioning attempt; it describes one attempt, not
-the end of pairing. Each changed field also prints one JSON line:
-`{"event":"fabric","state":…}`, `{"event":"network","state":…}`, or
-`{"event":"commissioning_window","state":"opened"|"closed"}`, plus
-`{"event":"commissioning","state":"failed"}` for a failed attempt. `start()`
-prints the seeded fabric state after `{"event":"matter","state":"ready"}`.
+Each change arrives as `StateEvent(previous, state, failed)`. `failed` is true
+only on the change that ends a failed commissioning attempt; it describes one
+attempt, not the end of pairing.
+
+### JSON lines
+
+`matter.emit` holds the writers an application calls at the place it chooses
+each line:
+
+- `emit(obj)` writes one compact JSON object.
+- `error(component, message)` writes `{"event":"error","component":…,"message":…}`.
+- `emit_state(event)` writes the lines for one `StateEvent`:
+  `{"event":"commissioning","state":"failed"}` for a failed attempt, then one
+  line per changed field, in this order: `{"event":"fabric","state":…}`,
+  `{"event":"network","state":…}`, and
+  `{"event":"commissioning_window","state":"opened"|"closed"}`.
+
+The projects print `{"event":"matter","state":"ready"}` and the restored fabric
+state once `start()` returns, an `emit_state()` for each `StateEvent`, and a
+`python_validation` error for each `RejectedValue`.
 
 ## Contracts and limits
 
 Create endpoints before `start()`: `ON_OFF_LIGHT`, `DIMMABLE_LIGHT`,
 `EXTENDED_COLOR_LIGHT`, and `OCCUPANCY_SENSOR`; multiple instances may coexist.
 `initial={(cluster, attribute): value}` pins named persistent values every boot;
-omit controller-owned values. Startup restores mirrors without events; explicit
-polling delivers retained startup events.
+omit controller-owned values. `start()` blocks while the stack comes up,
+retrying its first reads every 250 ms up to 40 times, and restores mirrors
+without events. It returns a `RejectedValue` for each restored value the schema
+refused; that attribute keeps its schema default. Explicit polling delivers
+retained startup events.
 
 Occupancy declares PIR and uses bitmap integers `0`/`1`; it is not persisted,
 cannot use `initial`, and must be published after `start()` on every reboot.
@@ -165,21 +189,29 @@ block, allocate snapshot records, or touch hardware; recovery stays native.
 
 ## Use
 
-Consume events after `poll()` returns; hardware functions belong to the project.
+Consume events after `poll()` returns; hardware functions and every output
+belong to the project.
 
 ```python
 import time
 
 import matter
+from matter.emit import emit, emit_state, error
 
 node = matter.Node()
 light = node.create_endpoint(matter.EndpointType.ON_OFF_LIGHT)
-node.start()
+for _rejected in node.start():
+    error("python_validation", "restored value rejected by schema")
+emit({"event": "matter", "state": "ready"})
+emit({"event": "fabric", "state": node.state.fabric})
 update_hardware(light.on)
 while True:
     for event in node.poll():
         if isinstance(event, matter.StateEvent):
+            emit_state(event)
             show_state(event.state, failed=event.failed)
+        elif isinstance(event, matter.RejectedValue):
+            error("python_validation", "remote value rejected by schema")
         elif event.endpoint is light:
             update_hardware(light.on)
     time.sleep_ms(50)

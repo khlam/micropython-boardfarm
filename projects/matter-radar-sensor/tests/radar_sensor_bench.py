@@ -283,22 +283,6 @@ def stored_attributes(hold_light: StoredHoldLight | None) -> dict:
     }
 
 
-def project_lines(lines: list[dict]) -> list[dict]:
-    """Keep the lines this project writes: diagnostics, telemetry, and errors.
-
-    Args:
-        lines: Every JSON line the firmware wrote, in order.
-
-    Returns:
-        The lines with a ``diag`` or ``targets`` key, or an ``error`` event.
-    """
-    return [
-        line
-        for line in lines
-        if "diag" in line or "targets" in line or line.get("event") == "error"
-    ]
-
-
 class _VirtualSelector(selectors.SelectSelector):
     """Never block; hand the wait to the bench instead."""
 

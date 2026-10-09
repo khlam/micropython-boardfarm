@@ -14,7 +14,7 @@ import matter_native
 import neopixel
 import pytest
 import utime
-from radar_sensor_bench import Bench, project_lines, stored_attributes
+from radar_sensor_bench import Bench, stored_attributes
 
 import matter.node as matter_node
 from micropython_stubs import asyncio_extras
@@ -27,7 +27,7 @@ _ESP32S3 = "Generic ESP32S3 module with ESP32S3"
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
 # What leaves the firmware during a scenario: each occupancy value ESP-Matter
-# accepted for endpoint 1 with its time, the project's JSON lines, and every
+# accepted for endpoint 1 with its time, every JSON line, and every
 # colour written to the pixel.
 Outcome = namedtuple("Outcome", ("published", "lines", "pixel"))
 
@@ -92,7 +92,7 @@ def run_scenario(monkeypatch, capsys):
 
         return Outcome(
             published=tuple(bench.published),
-            lines=tuple(project_lines(json_lines(capsys.readouterr().out))),
+            lines=tuple(json_lines(capsys.readouterr().out)),
             pixel=tuple(neopixel.NeoPixel.instances[0].writes),
         )
 

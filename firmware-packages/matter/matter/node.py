@@ -2,6 +2,8 @@
 
 The node follows the Matter device model. Its fabric and network state
 machines live in :mod:`matter.state`; its endpoints hold application state.
+It prints nothing: :meth:`Node.start` and :meth:`Node.poll` return everything
+the application might report.
 """
 
 import time
@@ -10,8 +12,7 @@ from collections import namedtuple
 import matter_native
 from micropython import const
 
-from matter.emit import event as emit_event
-from matter.endpoint import Endpoint
+from matter.endpoint import Endpoint, RejectedValue, WriteEvent
 from matter.schema import (
     SCHEMAS,
     Paths,
@@ -123,20 +124,29 @@ class Node:
             matter_native.attribute_set_initial(endpoint_id, cluster, attribute, value)
         return endpoint
 
-    def start(self) -> None:
+    def start(self) -> tuple:
         """Start ESP-Matter, restore persisted endpoints, and seed the state.
 
-        The node starts disconnected with no window open; the first poll
-        delivers whatever the stack reported while it came up.
+        Blocks while the stack comes up, retrying its first reads (see
+        :meth:`_restore`). The node starts disconnected with no window open,
+        operational if it restored a fabric and uncommissioned otherwise; the
+        first poll delivers whatever the stack reported while it came up.
+
+        Returns:
+            A :class:`matter.RejectedValue` for each value restored from flash
+            that its endpoint's schema refused; that attribute keeps its
+            schema default.
+
+        Raises:
+            OSError: The node already started, or the stack never answered.
         """
         if self._started:
             raise OSError(114, "Matter node is already started")
         matter_native.start()
-        self._fabric_count = self._restore()
+        self._fabric_count, rejected = self._restore()
         self._state = initial_state(self._fabric_count)
         self._started = True
-        emit_event("matter", "ready")
-        emit_event("fabric", self._state.fabric)
+        return rejected
 
     def poll(self) -> tuple:
         """Synchronize native state and return ordered immutable events.
@@ -147,9 +157,11 @@ class Node:
         this method returns.
 
         Returns:
-            :class:`matter.WriteEvent` for controller writes and
-            :class:`matter.StateEvent` for device-state changes, ordered by
-            their shared native revision, or an empty tuple when nothing changed.
+            :class:`matter.WriteEvent` for controller writes,
+            :class:`matter.RejectedValue` for controller values the schema
+            refused, and :class:`matter.StateEvent` for device-state changes,
+            ordered by their shared native revision, or an empty tuple when
+            nothing changed.
         """
         _require_started(self._started)
         if matter_native.generation() == self._generation:
@@ -194,16 +206,17 @@ class Node:
         _require_started(self._started)
         matter_native.factory_reset()
 
-    def _restore(self) -> int:
+    def _restore(self) -> tuple:
         """Hydrate every endpoint and count fabrics once the stack answers reads.
 
         A read that expires while the stack is still starting says nothing about
-        the endpoint, so it is retried rather than allowed to lose the whole
-        boot. The sleep yields while the stack settles; retained changes are
-        synchronized by a later explicit poll.
+        the endpoint, so the whole restore is retried rather than allowed to
+        lose the boot. The sleep yields while the stack settles; retained
+        changes are synchronized by a later explicit poll.
 
         Returns:
-            How many fabrics the node restored from flash.
+            How many fabrics the node restored from flash, and the values the
+            attempt that succeeded rejected.
 
         Raises:
             OSError: The stack never answered within the restore budget.
@@ -211,16 +224,17 @@ class Node:
         attempt = 1
         while True:
             try:
+                rejected = ()
                 for endpoint in self._endpoints.values():
-                    endpoint._restore()  # noqa: SLF001 - Node owns its Endpoint instances
-                return len(matter_native.fabrics())
+                    rejected += endpoint._restore()  # noqa: SLF001 - Node owns its Endpoints
+                return len(matter_native.fabrics()), rejected
             except OSError:
                 if attempt == _RESTORE_ATTEMPTS:
                     raise
                 attempt += 1
                 time.sleep(_RESTORE_PAUSE_S)
 
-    def _handle(self, record: tuple) -> object | None:
+    def _handle(self, record: tuple) -> WriteEvent | RejectedValue | StateEvent | None:
         """Apply one retained record and return its public event."""
         _revision, kind, endpoint_id, cluster, attribute, value = record
         if kind == _RECORD_ATTRIBUTE:
@@ -235,9 +249,6 @@ class Node:
     def _advance_state(self, kind: int, value: int) -> StateEvent | None:
         """Run one device-state record through the state machines.
 
-        Reports each changed field as its own JSON line, and the failure of a
-        commissioning attempt as one more.
-
         Args:
             kind: Native snapshot record kind.
             value: The record's value.
@@ -250,15 +261,7 @@ class Node:
         if state == previous and not failed:
             return None
         self._state = state
-        if failed:
-            emit_event("commissioning", "failed")
-        if state.fabric != previous.fabric:
-            emit_event("fabric", state.fabric)
-        if state.network != previous.network:
-            emit_event("network", state.network)
-        if state.window_open != previous.window_open:
-            emit_event("commissioning_window", "opened" if state.window_open else "closed")
-        return StateEvent(state, failed)
+        return StateEvent(previous, state, failed)
 
 
 def _require_started(started: object) -> None:

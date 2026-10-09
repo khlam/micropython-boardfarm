@@ -46,9 +46,10 @@ class NetworkState:
 # for pairing. Uncommissioned with no window is a fault: nobody can reach it.
 DeviceState = namedtuple("DeviceState", ("fabric", "network", "window_open"))
 
-# ``failed`` is True only on the transition that ends a failed commissioning
-# attempt, so a subscriber can react to the failure once.
-StateEvent = namedtuple("StateEvent", ("state", "failed"))
+# One change of device state, from ``previous`` to ``state``. ``failed`` is True
+# only on the transition that ends a failed commissioning attempt, so a
+# subscriber can react to the failure once.
+StateEvent = namedtuple("StateEvent", ("previous", "state", "failed"))
 
 # Native record kinds and values. Mirrors bridge.h, which may append codes but
 # never renumber them.

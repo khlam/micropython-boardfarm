@@ -1,9 +1,21 @@
 """Tests for the Matter facade's single JSON stdout boundary."""
 
+from collections import namedtuple
+
 import pytest
 
-from matter.emit import emit, error, event
+from matter import DeviceState, FabricState, NetworkState, StateEvent
+from matter.emit import emit, emit_state, error
 from micropython_stubs.testing import json_lines
+
+# Device states, named fabric-network-window.
+_UNCOMMISSIONED = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.DISCONNECTED, False)
+_UNCOMMISSIONED_ONLINE = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.CONNECTED, False)
+_UNCOMMISSIONED_PAIRABLE = DeviceState(FabricState.UNCOMMISSIONED, NetworkState.DISCONNECTED, True)
+_COMMISSIONING = DeviceState(FabricState.COMMISSIONING, NetworkState.DISCONNECTED, False)
+_OPERATIONAL_ONLINE_PAIRABLE = DeviceState(FabricState.OPERATIONAL, NetworkState.CONNECTED, True)
+
+_StateCase = namedtuple("_StateCase", ("id", "event", "lines"))
 
 
 @pytest.mark.parametrize(
@@ -37,23 +49,56 @@ def test_emit_writes_one_json_line(capsys: pytest.CaptureFixture[str], obj: dict
 
 
 @pytest.mark.parametrize(
-    ("name", "state", "expected"),
-    [("matter", "ready", {"event": "matter", "state": "ready"})],
+    "case",
+    [
+        _StateCase(
+            id="fabric-changed",
+            event=StateEvent(_UNCOMMISSIONED, _COMMISSIONING, False),
+            lines=[{"event": "fabric", "state": "commissioning"}],
+        ),
+        _StateCase(
+            id="network-changed",
+            event=StateEvent(_UNCOMMISSIONED, _UNCOMMISSIONED_ONLINE, False),
+            lines=[{"event": "network", "state": "connected"}],
+        ),
+        _StateCase(
+            id="window-opened",
+            event=StateEvent(_UNCOMMISSIONED, _UNCOMMISSIONED_PAIRABLE, False),
+            lines=[{"event": "commissioning_window", "state": "opened"}],
+        ),
+        _StateCase(
+            id="window-closed",
+            event=StateEvent(_UNCOMMISSIONED_PAIRABLE, _UNCOMMISSIONED, False),
+            lines=[{"event": "commissioning_window", "state": "closed"}],
+        ),
+        _StateCase(
+            id="failed-attempt-that-changes-no-field",
+            event=StateEvent(_UNCOMMISSIONED, _UNCOMMISSIONED, True),
+            lines=[{"event": "commissioning", "state": "failed"}],
+        ),
+        _StateCase(
+            id="failed-attempt-and-every-field-changed-in-that-order",
+            event=StateEvent(_COMMISSIONING, _OPERATIONAL_ONLINE_PAIRABLE, True),
+            lines=[
+                {"event": "commissioning", "state": "failed"},
+                {"event": "fabric", "state": "operational"},
+                {"event": "network", "state": "connected"},
+                {"event": "commissioning_window", "state": "opened"},
+            ],
+        ),
+    ],
+    ids=lambda case: case.id,
 )
-def test_event_writes_named_transition(
-    capsys: pytest.CaptureFixture[str], name: str, state: str, expected: dict[str, str]
-):
-    """event() writes one line naming the component and its new state.
+def test_emit_state(capsys: pytest.CaptureFixture[str], case: _StateCase):
+    """emit_state() writes the failure, then one line per field the event changed.
 
     Args:
         capsys: Captures stdout.
-        name: The component whose state changed.
-        state: Its new state.
-        expected: The line written.
+        case: The state event and the lines written for it.
     """
-    event(name, state)
+    emit_state(case.event)
 
-    assert json_lines(capsys.readouterr().out) == [expected]
+    assert json_lines(capsys.readouterr().out) == case.lines
 
 
 @pytest.mark.parametrize(

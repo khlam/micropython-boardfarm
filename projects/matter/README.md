@@ -10,7 +10,10 @@ set_color((0, 25, 0))   # green at ten percent, on the strip and in the home
 ```
 
 `main.py` is the only file in the project that imports `matter`, because that is
-where the service is set up.
+where the service is set up. Read it top to bottom to audit the firmware: the
+board's pins, the hardware `boot()` creates, the Matter loop and its states,
+then `set_color()` for the REPL. Every pixel colour, Matter attribute, and JSON
+line the board produces is chosen there.
 
 ## What the pixel is telling you
 
@@ -198,8 +201,9 @@ is the state where that did not happen.
 The path is five files. `native/src/callbacks.cpp` translates CHIP's events and
 owns the recovery; `matter/state.py` turns each into the next Matter state
 during the 50 ms application poll; `matter/status_led.py` turns the state into a
-pattern; `firmware/main.py` wires them together; and
-`firmware/color/convert.py` gives the colour once a controller owns the light.
+pattern; `firmware/main.py` hands each state to the pixel and prints its JSON
+lines; and `firmware/color/convert.py` gives the colour once a controller owns
+the light.
 The [package README](../../firmware-packages/matter/README.md) diagrams the
 native boundary.
 
@@ -208,8 +212,8 @@ shows. Both directions are plain functions in `firmware/main.py` that hand the
 colour to `status.set_application()`; only `StatusLed` writes the pixel:
 
 - A color, brightness or power change from a controller is returned by
-  `Node.poll()`; `handle_events()` reads the synchronized colour from the
-  endpoint once for the complete batch.
+  `Node.poll()`; `_show()` reads the synchronized colour from the endpoint once
+  the whole batch is applied.
 - `set_color(rgb)` shows the colour and then publishes it back, turning the
   light on. A local write shows exactly the bytes written, while the endpoint
   holds the nearest color its hue, saturation and level can represent.
@@ -217,9 +221,26 @@ colour to `status.set_application()`; only `StatusLed` writes the pixel:
 While the board is pairing, unpaired, or off Wi-Fi, the Matter state outranks
 both, and the light's colour returns once the board is connected again.
 
-`main.py` runs a cooperative 50 ms Matter polling loop after boot. Interrupt it
-to reach the REPL; `set_color`, `node`, `endpoint`, `status`, and `pixel` remain
-in scope. The pixel stops blinking while the loop is stopped:
+## The loop
+
+After boot, `main.py` runs one loop, `poll_matter()`, which polls Matter every
+50 ms and steps the pixel's blink on each pass:
+
+```mermaid
+stateDiagram-v2
+    [*] --> polling
+    polling --> failing: "poll raises OSError · matter_poll error"
+    failing --> polling: "next good poll"
+```
+
+In `polling`, each controller write shows the light's colour, each change of
+Matter state goes to the pixel and out as JSON lines, and a failed pairing
+attempt flashes red. In `failing`, the pixel keeps its pattern, and only the
+first failure of a run is reported.
+
+Interrupt the loop to reach the REPL; `set_color`, `node`, `endpoint`,
+`status`, and `pixel` remain in scope. The pixel stops blinking while the loop
+is stopped:
 
 ```console
 MONITOR_INTERRUPT=1 MONITOR_SEND='set_color((0, 25, 0))' docker compose run --rm esp32-monitor

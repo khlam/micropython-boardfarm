@@ -45,9 +45,10 @@ Product policy stays in the project; reusable packages own mechanisms.
 `main.py` runs two asyncio loops. Both update one `Occupancy`, and each change
 sets the pixel's product colour and publishes occupancy if it changed.
 
-**Matter** polls every 50 ms and steps the pixel's blink each pass. While polls
-fail, occupancy holds occupied; the first failure reports `matter_poll_err` and
-the next good poll `matter_ok`.
+**Matter** polls every 50 ms and steps the pixel's blink each pass. Each change
+of Matter state goes to the pixel and out as JSON lines. While polls fail,
+occupancy holds occupied; the first failure reports `matter_poll_err` and the
+next good poll `matter_ok`.
 
 **Radar** finds the radar, reads it, and finds it again after any failure:
 
