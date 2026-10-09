@@ -162,15 +162,8 @@ class Bench:
         matter_native.inject_network_event(_NETWORK_DISCONNECTED)
 
     def _apply_light_set(self, write: LightSet) -> None:
-        for name, value in (
-            ("on", write.on),
-            ("level", write.level),
-            ("hue", write.hue),
-            ("saturation", write.saturation),
-            ("color_mode", _HUE_SATURATION_MODE),
-            ("enhanced_color_mode", _HUE_SATURATION_MODE),
-        ):
-            matter_native.inject_remote_write(LIGHT_ENDPOINT, *_PATHS[name], value)
+        for (endpoint, cluster, attribute), value in stored_attributes(write).items():
+            matter_native.inject_remote_write(endpoint, cluster, attribute, value)
 
     def _apply_level_write(self, write: LevelWrite) -> None:
         matter_native.inject_remote_write(LIGHT_ENDPOINT, *_PATHS["level"], write.level)
@@ -203,14 +196,16 @@ _APPLY = {
 }
 
 
-def stored_attributes(light: StoredLight | None) -> dict:
-    """Return what ESP-Matter holds in flash for the light before boot.
+def stored_attributes(light: StoredLight | LightSet | None) -> dict:
+    """Return what ESP-Matter holds for a light set in hue and saturation mode.
 
     Args:
-        light: The stored colour, or None for a light never set.
+        light: The colour flash holds at boot, or one a controller writes;
+            None for a light never set.
 
     Returns:
-        ``(endpoint, cluster, attribute)`` to value, as ``matter_native.reset()`` takes.
+        ``(endpoint, cluster, attribute)`` to value, as ``matter_native.reset()``
+        takes and ``matter_native.inject_remote_write()`` writes.
     """
     if light is None:
         return {}
