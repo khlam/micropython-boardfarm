@@ -1,97 +1,47 @@
 """Shared deterministic runtime for the matter-radar-sensor firmware tests."""
 
+import asyncio
+import functools
+import importlib
 import os
 import pathlib
 import sys
+from collections import namedtuple
 from types import SimpleNamespace
-from typing import ClassVar
 
-import _matter
 import machine
+import matter_native
 import neopixel
 import pytest
+import utime
+from radar_sensor_bench import Bench, stored_attributes
 
-import matter.emit as matter_emit
 import matter.node as matter_node
 from micropython_stubs import asyncio_extras
-from micropython_stubs.testing import load_firmware_module
+from micropython_stubs.testing import StopLoopError, json_lines, load_firmware_module
 
 _FIRMWARE = pathlib.Path(__file__).parent.parent / "firmware" / "main.py"
 _MODULE_NAME = "matter_radar_sensor_main"
+_ESP32S3 = "Generic ESP32S3 module with ESP32S3"
 # The one fabric a commissioned boot restores: index, fabric, node, vendor, label.
 _FABRIC = (1, 0x1234, 0x5678, 0xFFF1, "controller")
 
-
-class FakeTime:
-    """Wrap-safe monotonic time controlled directly by each test."""
-
-    _PERIOD = 1 << 30
-    _HALF_PERIOD = 1 << 29
-
-    def __init__(self) -> None:
-        """Start at tick zero with no scripted readings."""
-        self.ticks = 0
-        self.script = []
-        self.diff_calls = []
-
-    def ticks_ms(self) -> int:
-        """Return the next scripted tick or the current tick."""
-        if self.script:
-            self.ticks = self.script.pop(0)
-        return self.ticks
-
-    def ticks_diff(self, newer: int, older: int) -> int:
-        """Return MicroPython's signed wrap-safe tick difference."""
-        self.diff_calls.append((newer, older))
-        return (newer - older + self._HALF_PERIOD) % self._PERIOD - self._HALF_PERIOD
+# What leaves the firmware during a scenario: each occupancy value ESP-Matter
+# accepted for endpoint 1 with its time, every JSON line, and every
+# colour written to the pixel.
+Outcome = namedtuple("Outcome", ("published", "lines", "pixel"))
 
 
-class FakeServer:
-    """Record routes and provide scripted dashboard startup."""
-
-    instances: ClassVar[list] = []
-
-    def __init__(self, port: int = 80) -> None:
-        """Create a stopped server on ``port``."""
-        self.port = port
-        self.pages = []
-        self.streams = []
-        self.broadcast = None
-        self.running = False
-        self.start_calls = 0
-        self.start_errors = []
-        type(self).instances.append(self)
-
-    def page(self, path: str, body: bytes, *, encoding: str) -> None:
-        """Record one fixed-page route."""
-        self.pages.append((path, body, encoding))
-
-    def stream(self, path: str, *, greeting: str) -> object:
-        """Record one WebSocket route and return its broadcaster."""
-        self.broadcast = SimpleNamespace(greeting=greeting, send=lambda _line: None)
-        self.streams.append((path, self.broadcast))
-        return self.broadcast
-
-    async def start(self) -> None:
-        """Raise the next scripted error or mark the server running."""
-        if self.running:
-            return
-        self.start_calls += 1
-        if self.start_errors:
-            raise self.start_errors.pop(0)
-        self.running = True
-
-
-def _reset_state(*, commissioned: bool = False) -> None:
+def _reset_state(*, commissioned: bool = False, persisted: dict | None = None) -> None:
     """Reset every process-wide fake used by the firmware module."""
     machine.reset()
     neopixel.reset()
-    _matter.reset()
-    _matter.seed_fabrics([_FABRIC] if commissioned else [])
+    matter_native.reset(persisted=persisted)
+    matter_native.seed_fabrics([_FABRIC] if commissioned else [])
     matter_node._active_node[0] = None
-    matter_emit._sinks.clear()
-    FakeServer.instances.clear()
     sys.modules.pop(_MODULE_NAME, None)
+    for path in _FIRMWARE.parent.glob("*.py"):
+        sys.modules.pop(path.stem, None)
 
 
 @pytest.fixture(autouse=True)
@@ -104,44 +54,69 @@ def reset_runtime(monkeypatch):
 
 
 @pytest.fixture
-def load_firmware(monkeypatch):
-    """Return a loader for the complete firmware module without its infinite entry call."""
+def run_scenario(monkeypatch, capsys):
+    """Return a runner that boots the real firmware on the bench and stops it at ``until_ms``."""
 
-    def load(
+    def run(
         *,
-        machine_name: str = "Generic ESP32S3 module with ESP32S3",
-        commissioned: bool = False,
-    ) -> SimpleNamespace:
-        _reset_state(commissioned=commissioned)
-
-        clock = FakeTime()
-        monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
-        monkeypatch.setitem(sys.modules, "time", clock)
-        monkeypatch.setitem(
-            sys.modules,
-            "dashboard_page",
-            SimpleNamespace(PAGE=b"dashboard", ENCODING="gzip"),
+        paired: bool,
+        online: bool,
+        radar: str | None,
+        stored_hold_light: tuple | None,
+        inputs: tuple,
+        until_ms: int,
+    ) -> Outcome:
+        _reset_state(commissioned=paired, persisted=stored_attributes(stored_hold_light))
+        bench = Bench(radar=radar, online=online, inputs=inputs, until_ms=until_ms)
+        real_run = asyncio.run
+        # On the board, time is utime.
+        monkeypatch.setitem(sys.modules, "time", utime)
+        monkeypatch.setattr(utime, "ticks_ms", bench.ticks_ms)
+        monkeypatch.setattr(asyncio, "sleep_ms", bench.sleep_ms)
+        monkeypatch.setattr(
+            asyncio, "run", lambda main: real_run(main, loop_factory=bench.new_loop)
         )
-        monkeypatch.setitem(sys.modules, "httpd", SimpleNamespace(Server=FakeServer))
+        monkeypatch.setattr(
+            matter_native,
+            "attributes_publish",
+            functools.partial(bench.attributes_publish, matter_native.attributes_publish),
+        )
+        monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=_ESP32S3))
+        monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
+        capsys.readouterr()
 
         module = load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
-        return SimpleNamespace(module=module, time=clock)
+        with pytest.raises(StopLoopError):
+            module.main()
+
+        return Outcome(
+            published=tuple(bench.published),
+            lines=tuple(json_lines(capsys.readouterr().out)),
+            pixel=tuple(neopixel.NeoPixel.instances[0].writes),
+        )
+
+    return run
+
+
+@pytest.fixture
+def firmware_module(monkeypatch):
+    """Return an importer for one firmware module, whose time is utime as on the board."""
+
+    def load(name):
+        monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
+        monkeypatch.setitem(sys.modules, "time", utime)
+        return importlib.import_module(name)
 
     return load
 
 
 @pytest.fixture
-def load_application(load_firmware):
-    """Return a loader that also constructs the firmware application."""
+def load_firmware(monkeypatch):
+    """Return a loader that imports main.py on the named board, without its entry call."""
 
-    def load(**kwargs) -> SimpleNamespace:
-        firmware = load_firmware(**kwargs)
-        application = firmware.module._Application()
-        return SimpleNamespace(
-            module=firmware.module,
-            application=application,
-            time=firmware.time,
-            server=FakeServer.instances[-1],
-        )
+    def load(*, machine_name: str) -> None:
+        monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
+        monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine_name))
+        load_firmware_module(_FIRMWARE, _MODULE_NAME, "main")
 
     return load

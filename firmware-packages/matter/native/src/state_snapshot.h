@@ -1,7 +1,7 @@
 // Copyright 2026 micropython-boardfarm contributors
 // SPDX-License-Identifier: MIT
 //
-// Coalesced controller and commissioning state retained on the CHIP task.
+// Coalesced controller writes and device state retained on the CHIP task.
 #pragma once
 
 #include <cstddef>
@@ -27,6 +27,12 @@ bool clear_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t 
 
 // Retain the latest state for the commissioning session or window lifecycle.
 void record_commissioning_state(matter_commissioning_state state);
+
+// Retain how many fabrics the node belongs to after one was added or removed.
+void record_fabric_count(uint8_t count);
+
+// Retain whether the Wi-Fi station link is up.
+void record_network_state(matter_network_state state);
 
 // Copy all retained records and the coherent generation. Called on the CHIP
 // task, which is the sole writer of record contents.

@@ -56,7 +56,7 @@ def test_no_radar_answering_raises_and_releases_every_probe():
 
 
 def test_detection_oserror_propagates_instead_of_reading_as_absence():
-    """`_run_radar()` reports init_err, not no_device, only if this stays an OSError."""
+    """matter-radar-sensor's `read_radar()` reports init_err, not no_device, only for an OSError."""
     machine.fail_uart_reads(OSError("bus fault"))
 
     with pytest.raises(OSError, match="bus fault"):

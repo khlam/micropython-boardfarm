@@ -14,8 +14,14 @@ struct SnapshotSlot {
     matter_snapshot_record record{};
 };
 
-// The final two slots are reserved for the session and window lifecycles, so
-// attribute traffic cannot evict either commissioning record.
+// The final four slots are reserved for device state, so attribute traffic
+// cannot evict any of them. Each holds only the latest fact of its kind.
+constexpr size_t SESSION_SLOT = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS;
+constexpr size_t WINDOW_SLOT = SESSION_SLOT + 1U;
+constexpr size_t FABRICS_SLOT = SESSION_SLOT + 2U;
+constexpr size_t NETWORK_SLOT = SESSION_SLOT + 3U;
+static_assert(NETWORK_SLOT + 1U == MATTER_MAX_SNAPSHOT_RECORDS, "every device-state slot is reserved");
+
 std::array<SnapshotSlot, MATTER_MAX_SNAPSHOT_RECORDS> slots{};
 std::atomic<uint32_t> generation{0U};
 
@@ -42,6 +48,17 @@ SnapshotSlot *find_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t
         }
     }
     return empty;
+}
+
+// Replace the fact one reserved device-state slot holds.
+void record_device_state(size_t index, matter_snapshot_kind kind, uint32_t value)
+{
+    SnapshotSlot &slot = slots[index];
+    slot.present = true;
+    slot.record.revision = next_revision();
+    slot.record.kind = kind;
+    slot.record.value = value;
+    slot.record.value_type = MATTER_VALUE_UINT8;
 }
 
 } // namespace
@@ -90,14 +107,18 @@ bool clear_remote_attribute(uint16_t endpoint_id, uint32_t cluster_id, uint32_t 
 
 void record_commissioning_state(matter_commissioning_state state)
 {
-    const size_t index = MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS +
-                         (state > MATTER_COMMISSIONING_FAILED ? 1U : 0U);
-    SnapshotSlot &slot = slots[index];
-    slot.present = true;
-    slot.record.revision = next_revision();
-    slot.record.kind = MATTER_SNAPSHOT_COMMISSIONING;
-    slot.record.value = static_cast<uint32_t>(state);
-    slot.record.value_type = MATTER_VALUE_UINT8;
+    const size_t index = state > MATTER_COMMISSIONING_FAILED ? WINDOW_SLOT : SESSION_SLOT;
+    record_device_state(index, MATTER_SNAPSHOT_COMMISSIONING, static_cast<uint32_t>(state));
+}
+
+void record_fabric_count(uint8_t count)
+{
+    record_device_state(FABRICS_SLOT, MATTER_SNAPSHOT_FABRICS, count);
+}
+
+void record_network_state(matter_network_state state)
+{
+    record_device_state(NETWORK_SLOT, MATTER_SNAPSHOT_NETWORK, static_cast<uint32_t>(state));
 }
 
 int copy_state_snapshot(matter_snapshot_record *records, size_t capacity, size_t *count,

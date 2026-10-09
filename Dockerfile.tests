@@ -50,7 +50,7 @@ ENV PATH=/work/.venv/bin:${PATH}
 # Full-suite runs enforce coverage; targeted runs do not.
 # TODO: Simplify/make readable
 ENTRYPOINT ["sh", "-c", \
-  "if [ \"$*\" = '/firmware-packages /projects /cpython-packages/serial_over_web/tests /tools/matter-build/tests' ]; \
+  "if [ \"$*\" = '/firmware-packages /projects /cpython-packages/serial_over_web/tests /cpython-packages/matter_tools/tests /tools/matter-build/tests' ]; \
      then COV_GATE='--cov-fail-under=90'; \
      else COV_GATE='--cov-fail-under=0'; \
    fi && \
@@ -59,7 +59,7 @@ ENTRYPOINT ["sh", "-c", \
                 --cov-config=/work/pyproject.toml $COV_GATE \"$@\"", \
   "--"]
 CMD ["/firmware-packages", "/projects", "/cpython-packages/serial_over_web/tests", \
-     "/tools/matter-build/tests"]
+     "/cpython-packages/matter_tools/tests", "/tools/matter-build/tests"]
 
 
 # ty over the workspace.
