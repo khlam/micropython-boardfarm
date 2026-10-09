@@ -266,5 +266,3 @@ status.tick()                          # from the loop, at least every 50 ms
 `level` caps every status colour's brightest channel, so `level=25` keeps
 status at ten percent of full scale. Application colours show as given. Only
 `tick()` writes the pixel, and only when its colour changes.
-`matter.status_pattern` holds the state-to-pattern table, brightness scaling,
-and blink timing as pure data and functions.
