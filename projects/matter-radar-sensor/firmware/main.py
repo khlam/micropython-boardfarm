@@ -143,9 +143,9 @@ async def read_radar(occupancy: "Occupancy") -> None:
             reported as ``radar_ok``.
         reading: each report sets occupancy, then its targets go out as
             telemetry when due.
-        failed: occupancy holds occupied, the first failure of a run is
-            reported (``no_device``, ``init_err``, ``read_err``, or
-            ``report_timeout``), the radar is closed, and finding starts again
+        failed: the radar is closed, occupancy holds occupied, the first
+            failure of a run is reported (``no_device``, ``init_err``,
+            ``read_err``, or ``report_timeout``), and finding starts again
             after a second.
 
     Args:
@@ -154,7 +154,6 @@ async def read_radar(occupancy: "Occupancy") -> None:
     throttle = TargetThrottle()
     failing = False
     while True:
-        radar = None
         try:
             model, radar = await detect(bus_id=BOARD.uart_id, tx=BOARD.tx, rx=BOARD.rx)
         except NoRadarError as exception:
@@ -167,13 +166,12 @@ async def read_radar(occupancy: "Occupancy") -> None:
             emit({"diag": "radar_ok", "model": model})
             failing = False
             failure = await _read_until_failure(radar, occupancy, throttle)
+            _close(radar)
 
         occupancy.fault(_RADAR)
         if not failing:
             emit(failure)
         failing = True
-        if radar is not None:
-            _close(radar)
         await asyncio.sleep_ms(_RADAR_RETRY_MS)
 
 
