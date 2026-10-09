@@ -78,12 +78,10 @@ def run_light(monkeypatch, capsys):
     ) -> Outcome:
         _reset_state(paired=paired, persisted=stored_attributes(stored_light))
         bench = Bench(online=online, inputs=inputs, until_ms=until_ms)
-        clock = SimpleNamespace(
-            ticks_ms=bench.ticks_ms, ticks_diff=bench.ticks_diff, sleep_ms=bench.sleep_ms
-        )
-        monkeypatch.setitem(sys.modules, "time", clock)
+        # On the board, time is utime.
+        monkeypatch.setitem(sys.modules, "time", utime)
         monkeypatch.setattr(utime, "ticks_ms", bench.ticks_ms)
-        monkeypatch.setattr(utime, "ticks_diff", bench.ticks_diff)
+        monkeypatch.setattr(utime, "sleep_ms", bench.sleep_ms)
         monkeypatch.setattr(
             matter_native, "start", functools.partial(bench.start, matter_native.start)
         )

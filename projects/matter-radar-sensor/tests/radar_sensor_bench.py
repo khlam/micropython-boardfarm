@@ -64,8 +64,6 @@ _NETWORK_CONNECTED = 1
 _NETWORK_DISCONNECTED = 0
 
 _REPORT_INTERVAL_MS = 100
-_TICKS_PERIOD = 1 << 30
-_HALF_TICKS_PERIOD = 1 << 29
 
 # HLK-LD2450 serial protocol V1.03 sections 1.1 and 2.3.
 _LD2450_BAUD = 256_000
@@ -109,11 +107,6 @@ class Bench:
     def ticks_ms(self) -> int:
         """Return the virtual time, as ``time.ticks_ms()`` does on the board."""
         return self.now_ms
-
-    @staticmethod
-    def ticks_diff(newer: int, older: int) -> int:
-        """Return MicroPython's signed, wrap-safe tick difference."""
-        return (newer - older + _HALF_TICKS_PERIOD) % _TICKS_PERIOD - _HALF_TICKS_PERIOD
 
     @staticmethod
     async def sleep_ms(delay_ms: int) -> None:

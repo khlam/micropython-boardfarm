@@ -64,8 +64,8 @@ Replacement module behavior:
   color to `writes` on each `write()`.
 - `ujson.py` and `ustruct.py` re-export CPython's `json` and `struct`
   APIs used by firmware tests.
-- `utime.py` makes `sleep_ms()` a no-op and implements `ticks_ms()` /
-  `ticks_diff()` with host time.
+- `utime.py` makes `sleep_ms()` a no-op, implements `ticks_ms()` with host
+  time, and wraps `ticks_diff()` at 2**30 ms as MicroPython does.
 - `micropython.py` exposes `const(x)` as an identity function.
 - `matter_native.py` stands in for the compiled ESP-Matter bridge that the
   `matter` package calls. `reset(persisted=...)` seeds values the stack

@@ -68,11 +68,10 @@ def run_scenario(monkeypatch, capsys):
     ) -> Outcome:
         _reset_state(commissioned=paired, persisted=stored_attributes(stored_hold_light))
         bench = Bench(radar=radar, online=online, inputs=inputs, until_ms=until_ms)
-        clock = SimpleNamespace(ticks_ms=bench.ticks_ms, ticks_diff=bench.ticks_diff)
         real_run = asyncio.run
-        monkeypatch.setitem(sys.modules, "time", clock)
+        # On the board, time is utime.
+        monkeypatch.setitem(sys.modules, "time", utime)
         monkeypatch.setattr(utime, "ticks_ms", bench.ticks_ms)
-        monkeypatch.setattr(utime, "ticks_diff", bench.ticks_diff)
         monkeypatch.setattr(asyncio, "sleep_ms", bench.sleep_ms)
         monkeypatch.setattr(
             asyncio, "run", lambda main: real_run(main, loop_factory=bench.new_loop)
@@ -101,15 +100,12 @@ def run_scenario(monkeypatch, capsys):
 
 @pytest.fixture
 def firmware_module(monkeypatch):
-    """Return an importer for one firmware module on MicroPython's wrap-safe tick clock."""
-    clock = SimpleNamespace(ticks_diff=Bench.ticks_diff)
+    """Return an importer for one firmware module, whose time is utime as on the board."""
 
     def load(name):
         monkeypatch.syspath_prepend(str(_FIRMWARE.parent))
-        module = importlib.import_module(name)
-        if hasattr(module, "time"):
-            monkeypatch.setattr(module, "time", clock)
-        return module
+        monkeypatch.setitem(sys.modules, "time", utime)
+        return importlib.import_module(name)
 
     return load
 

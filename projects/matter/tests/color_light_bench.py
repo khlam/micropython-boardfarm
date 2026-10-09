@@ -70,9 +70,6 @@ _WINDOW_CLOSED = 4
 _NETWORK_DISCONNECTED = 0
 _NETWORK_CONNECTED = 1
 
-_TICKS_PERIOD = 1 << 30
-_HALF_TICKS_PERIOD = 1 << 29
-
 
 class Bench:
     """The clock and the Matter controller around one firmware run."""
@@ -95,11 +92,6 @@ class Bench:
     def ticks_ms(self) -> int:
         """Return the virtual time, as ``time.ticks_ms()`` does on the board."""
         return self.now_ms
-
-    @staticmethod
-    def ticks_diff(newer: int, older: int) -> int:
-        """Return MicroPython's signed, wrap-safe tick difference."""
-        return (newer - older + _HALF_TICKS_PERIOD) % _TICKS_PERIOD - _HALF_TICKS_PERIOD
 
     def sleep_ms(self, delay_ms: int) -> None:
         """Move the clock forward and deliver the inputs due by then.
