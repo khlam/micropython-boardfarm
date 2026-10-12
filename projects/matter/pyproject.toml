@@ -5,7 +5,7 @@ description = "MicroPython-owned Matter application over a native ESP-Matter bac
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "micropython-boardfarm>=0.24.0",
+    "micropython-boardfarm>=0.21.0",
 ]
 
 [tool.uv]
