@@ -3,8 +3,9 @@
 //
 // Host tests for the retained state snapshot: one case table per entry point of
 // state_snapshot.h, then a model-based fuzz. The header promises no output order
-// (Python sorts by revision), so every check finds a record by its path or its
-// commissioning state, never by its index.
+// (Python sorts by revision), so every check finds a record by its path, its
+// commissioning state, or, for a kind with one reserved slot, its kind alone,
+// never by its index.
 #include <array>
 #include <cerrno>
 #include <cstddef>
@@ -100,14 +101,23 @@ struct Snapshot {
     uint32_t generation = 0;
 };
 
-enum class Op { RESET, POSITION_GENERATION, FILL_ATTRIBUTE_TABLE, RECORD, CLEAR, COMMISSION };
+enum class Op {
+    RESET,
+    POSITION_GENERATION,
+    FILL_ATTRIBUTE_TABLE,
+    RECORD,
+    CLEAR,
+    COMMISSION,
+    REPORT_FABRICS,
+    REPORT_NETWORK
+};
 
 // One call a scripted case makes. `accepted` is the result expected from
 // record_remote_attribute or clear_remote_attribute.
 struct Step {
     Op op;
     Path path;
-    uint32_t value; // RECORD's value, POSITION_GENERATION's target, or COMMISSION's state
+    uint32_t value; // RECORD's value, POSITION_GENERATION's target, or the device state reported
     uint8_t value_type;
     bool accepted;
 };
@@ -152,9 +162,20 @@ Step commission(matter_commissioning_state state)
     return {Op::COMMISSION, {}, static_cast<uint32_t>(state), 0, true};
 }
 
+Step report_fabrics(uint8_t count)
+{
+    return {Op::REPORT_FABRICS, {}, count, 0, true};
+}
+
+Step report_network(matter_network_state state)
+{
+    return {Op::REPORT_NETWORK, {}, static_cast<uint32_t>(state), 0, true};
+}
+
 // A record the copied snapshot must hold exactly once. Attributes are found by
 // path; a commissioning record carries nothing but its state, so it is found by
-// that.
+// that; the fabric count and network state each own one slot, so they are found
+// by kind.
 struct Expected {
     uint8_t kind;
     Path path;
@@ -171,6 +192,16 @@ Expected attribute(Path path, uint32_t value, uint8_t value_type, uint32_t revis
 Expected commissioning(matter_commissioning_state state, uint32_t revision)
 {
     return {MATTER_SNAPSHOT_COMMISSIONING, {}, static_cast<uint32_t>(state), 0, revision};
+}
+
+Expected fabrics(uint8_t count, uint32_t revision)
+{
+    return {MATTER_SNAPSHOT_FABRICS, {}, count, 0, revision};
+}
+
+Expected network(matter_network_state state, uint32_t revision)
+{
+    return {MATTER_SNAPSHOT_NETWORK, {}, static_cast<uint32_t>(state), 0, revision};
 }
 
 struct ScriptCase {
@@ -277,6 +308,45 @@ const std::vector<ScriptCase> COMMISSIONING_CASES = {
      {commissioning(MATTER_COMMISSIONING_STARTED, 1),
       commissioning(MATTER_COMMISSIONING_WINDOW_OPENED,
                     MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2)},
+     MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 2},
+};
+
+const std::vector<ScriptCase> FABRIC_COUNT_CASES = {
+    {"a later count replaces only the fabric record",
+     {commission(MATTER_COMMISSIONING_COMPLETE), commission(MATTER_COMMISSIONING_WINDOW_CLOSED),
+      report_network(MATTER_NETWORK_CONNECTED), report_fabrics(1), report_fabrics(0)},
+     {commissioning(MATTER_COMMISSIONING_COMPLETE, 1),
+      commissioning(MATTER_COMMISSIONING_WINDOW_CLOSED, 2), network(MATTER_NETWORK_CONNECTED, 3),
+      fabrics(0, 5)},
+     4},
+    {"the fabric ceiling lands beside a full attribute table",
+     {fill_attribute_table(), report_fabrics(MATTER_MAX_FABRICS)},
+     {fabrics(MATTER_MAX_FABRICS, MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 1)},
+     MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 1},
+};
+
+// One row per state, then the fullest snapshot: every reserved slot held beside
+// a full attribute table.
+const std::vector<ScriptCase> NETWORK_CASES = {
+    {"CONNECTED replaces only the network record",
+     {commission(MATTER_COMMISSIONING_STARTED), commission(MATTER_COMMISSIONING_WINDOW_OPENED),
+      report_fabrics(0), report_network(MATTER_NETWORK_DISCONNECTED),
+      report_network(MATTER_NETWORK_CONNECTED)},
+     {commissioning(MATTER_COMMISSIONING_STARTED, 1),
+      commissioning(MATTER_COMMISSIONING_WINDOW_OPENED, 2), fabrics(0, 3),
+      network(MATTER_NETWORK_CONNECTED, 5)},
+     4},
+    {"DISCONNECTED replaces only the network record",
+     {report_network(MATTER_NETWORK_CONNECTED), report_fabrics(1),
+      report_network(MATTER_NETWORK_DISCONNECTED)},
+     {fabrics(1, 2), network(MATTER_NETWORK_DISCONNECTED, 3)},
+     2},
+    {"the last reserved slot fills the snapshot beside every other record",
+     {commission(MATTER_COMMISSIONING_STARTED), commission(MATTER_COMMISSIONING_WINDOW_OPENED),
+      report_fabrics(1), fill_attribute_table(), report_network(MATTER_NETWORK_CONNECTED)},
+     {commissioning(MATTER_COMMISSIONING_STARTED, 1),
+      commissioning(MATTER_COMMISSIONING_WINDOW_OPENED, 2), fabrics(1, 3),
+      network(MATTER_NETWORK_CONNECTED, MATTER_MAX_ATTRIBUTE_SNAPSHOT_RECORDS + 4)},
      MATTER_MAX_SNAPSHOT_RECORDS},
 };
 
@@ -342,6 +412,12 @@ uint32_t apply_step(const Step &step, uint32_t generation, const std::string &ca
     case Op::COMMISSION:
         record_commissioning_state(static_cast<matter_commissioning_state>(step.value));
         break;
+    case Op::REPORT_FABRICS:
+        record_fabric_count(static_cast<uint8_t>(step.value));
+        break;
+    case Op::REPORT_NETWORK:
+        record_network_state(static_cast<matter_network_state>(step.value));
+        break;
     }
     return generation + (step.accepted ? 1U : 0U);
 }
@@ -350,6 +426,12 @@ std::string describe(const Expected &expected)
 {
     if (expected.kind == MATTER_SNAPSHOT_COMMISSIONING) {
         return "commissioning state " + std::to_string(expected.value);
+    }
+    if (expected.kind == MATTER_SNAPSHOT_FABRICS) {
+        return "fabric count record";
+    }
+    if (expected.kind == MATTER_SNAPSHOT_NETWORK) {
+        return "network record";
     }
     return describe(expected.path);
 }
@@ -362,7 +444,10 @@ bool identifies(const Expected &expected, const matter_snapshot_record &copied)
     if (expected.kind == MATTER_SNAPSHOT_COMMISSIONING) {
         return copied.value == expected.value;
     }
-    return path_of(copied) == expected.path;
+    if (expected.kind == MATTER_SNAPSHOT_ATTRIBUTE) {
+        return path_of(copied) == expected.path;
+    }
+    return true;
 }
 
 void check_expected_record(const Snapshot &snapshot, const Expected &expected,
@@ -382,8 +467,11 @@ void check_expected_record(const Snapshot &snapshot, const Expected &expected,
         return;
     }
     check_equal(found->revision, expected.revision, case_name, what + " revision");
-    if (expected.kind == MATTER_SNAPSHOT_ATTRIBUTE) {
+    // A commissioning record was already found by its value.
+    if (expected.kind != MATTER_SNAPSHOT_COMMISSIONING) {
         check_equal(found->value, expected.value, case_name, what + " value");
+    }
+    if (expected.kind == MATTER_SNAPSHOT_ATTRIBUTE) {
         check_equal(found->value_type, expected.value_type, case_name, what + " value_type");
     }
 }
@@ -449,24 +537,36 @@ void run_copy_case(const CopyCase &test_case)
 }
 
 // The contract restated independently of the implementation: the newest value
-// per path within a fixed attribute capacity, one record per commissioning
-// lifecycle, and one generation step per successful mutation.
+// per path within a fixed attribute capacity, one record per reserved
+// device-state slot, and one generation step per successful mutation.
 struct ModelAttribute {
     uint32_t value;
     uint8_t value_type;
     uint32_t revision;
 };
 
-struct ModelLifecycle {
+struct ModelDeviceRecord {
     bool present;
-    uint32_t state;
+    uint32_t value;
     uint32_t revision;
 };
 
+// The reserved slots: one per commissioning lifecycle, the fabric count, and
+// the network state.
+enum DeviceRecord : size_t {
+    SESSION_RECORD,
+    WINDOW_RECORD,
+    FABRICS_RECORD,
+    NETWORK_RECORD,
+    DEVICE_RECORD_COUNT
+};
+
+constexpr std::array<const char *, DEVICE_RECORD_COUNT> DEVICE_RECORD_NAMES = {
+    "session record", "window record", "fabric count record", "network record"};
+
 struct Model {
     std::map<Path, ModelAttribute> attributes;
-    ModelLifecycle session{};
-    ModelLifecycle window{};
+    std::array<ModelDeviceRecord, DEVICE_RECORD_COUNT> device{};
     uint32_t generation = 0;
 };
 
@@ -492,6 +592,18 @@ bool is_window_state(uint32_t state)
 {
     return state == MATTER_COMMISSIONING_WINDOW_OPENED ||
            state == MATTER_COMMISSIONING_WINDOW_CLOSED;
+}
+
+// The reserved slot a copied device-state record must have come from.
+DeviceRecord device_record_of(const matter_snapshot_record &copied)
+{
+    if (copied.kind == MATTER_SNAPSHOT_FABRICS) {
+        return FABRICS_RECORD;
+    }
+    if (copied.kind == MATTER_SNAPSHOT_NETWORK) {
+        return NETWORK_RECORD;
+    }
+    return is_window_state(copied.value) ? WINDOW_RECORD : SESSION_RECORD;
 }
 
 // std::mt19937's output is fixed by the standard but the distributions' is not,
@@ -554,8 +666,26 @@ void fuzz_commission(std::mt19937 &generator, Model &model)
     const matter_commissioning_state state = STATES[draw(generator, STATES.size())];
     record_commissioning_state(state);
     model.generation += 1U;
-    ModelLifecycle &lifecycle = is_window_state(state) ? model.window : model.session;
-    lifecycle = {true, static_cast<uint32_t>(state), model.generation};
+    const DeviceRecord slot = is_window_state(state) ? WINDOW_RECORD : SESSION_RECORD;
+    model.device[slot] = {true, static_cast<uint32_t>(state), model.generation};
+}
+
+void fuzz_fabrics(std::mt19937 &generator, Model &model)
+{
+    const uint8_t count = static_cast<uint8_t>(draw(generator, MATTER_MAX_FABRICS + 1));
+    record_fabric_count(count);
+    model.generation += 1U;
+    model.device[FABRICS_RECORD] = {true, count, model.generation};
+}
+
+void fuzz_network(std::mt19937 &generator, Model &model)
+{
+    static constexpr std::array<matter_network_state, 2> STATES = {MATTER_NETWORK_DISCONNECTED,
+                                                                   MATTER_NETWORK_CONNECTED};
+    const matter_network_state state = STATES[draw(generator, STATES.size())];
+    record_network_state(state);
+    model.generation += 1U;
+    model.device[NETWORK_RECORD] = {true, static_cast<uint32_t>(state), model.generation};
 }
 
 std::string describe_fields(uint32_t value, uint8_t value_type, uint32_t revision)
@@ -586,22 +716,23 @@ void check_model_attribute(const Model &model, const matter_snapshot_record &cop
     }
 }
 
-void check_model_lifecycle(const Model &model, const matter_snapshot_record &copied,
-                           std::array<bool, 2> &seen, const std::string &case_name)
+void check_model_device_record(const Model &model, const matter_snapshot_record &copied,
+                               std::array<bool, DEVICE_RECORD_COUNT> &seen,
+                               const std::string &case_name)
 {
-    const bool window = is_window_state(copied.value);
-    const std::string what = window ? "window record" : "session record";
-    if (seen[window ? 1 : 0]) {
+    const DeviceRecord slot = device_record_of(copied);
+    const std::string what = DEVICE_RECORD_NAMES[slot];
+    if (seen[slot]) {
         fail(case_name, what + " appears more than once");
     }
-    seen[window ? 1 : 0] = true;
-    const ModelLifecycle &lifecycle = window ? model.window : model.session;
-    if (!lifecycle.present) {
+    seen[slot] = true;
+    const ModelDeviceRecord &want = model.device[slot];
+    if (!want.present) {
         fail(case_name, what + " is copied but not retained by the model");
         return;
     }
-    check_equal(copied.value, lifecycle.state, case_name, what + " state");
-    check_equal(copied.revision, lifecycle.revision, case_name, what + " revision");
+    check_equal(copied.value, want.value, case_name, what + " value");
+    check_equal(copied.revision, want.revision, case_name, what + " revision");
 }
 
 void check_against_model(const Model &model, const std::string &case_name)
@@ -617,14 +748,18 @@ void check_against_model(const Model &model, const std::string &case_name)
         fail(case_name, "record count exceeds MATTER_MAX_SNAPSHOT_RECORDS");
         return;
     }
-    const size_t lifecycles = (model.session.present ? 1U : 0U) + (model.window.present ? 1U : 0U);
-    check_equal(snapshot.count, model.attributes.size() + lifecycles, case_name, "record count");
+    size_t device_records = 0;
+    for (const ModelDeviceRecord &record : model.device) {
+        device_records += record.present ? 1U : 0U;
+    }
+    check_equal(snapshot.count, model.attributes.size() + device_records, case_name,
+                "record count");
     check_equal(snapshot.generation, model.generation, case_name, "copied generation");
     check_equal(state_generation(), model.generation, case_name, "state_generation()");
 
     std::set<uint32_t> revisions;
     std::set<Path> paths;
-    std::array<bool, 2> lifecycles_seen{};
+    std::array<bool, DEVICE_RECORD_COUNT> device_records_seen{};
     for (size_t index = 0; index < snapshot.count; ++index) {
         const matter_snapshot_record &copied = snapshot.records[index];
         if (!revisions.insert(copied.revision).second) {
@@ -632,8 +767,10 @@ void check_against_model(const Model &model, const std::string &case_name)
         }
         if (copied.kind == MATTER_SNAPSHOT_ATTRIBUTE) {
             check_model_attribute(model, copied, paths, case_name);
-        } else if (copied.kind == MATTER_SNAPSHOT_COMMISSIONING) {
-            check_model_lifecycle(model, copied, lifecycles_seen, case_name);
+        } else if (copied.kind == MATTER_SNAPSHOT_COMMISSIONING ||
+                   copied.kind == MATTER_SNAPSHOT_FABRICS ||
+                   copied.kind == MATTER_SNAPSHOT_NETWORK) {
+            check_model_device_record(model, copied, device_records_seen, case_name);
         } else {
             fail(case_name, "unknown record kind " + std::to_string(copied.kind));
         }
@@ -661,8 +798,12 @@ void fuzz_against_model()
             fuzz_record(generator, model, tally, case_name);
         } else if (roll < 85) {
             fuzz_clear(generator, model, tally, case_name);
-        } else {
+        } else if (roll < 94) {
             fuzz_commission(generator, model);
+        } else if (roll < 97) {
+            fuzz_fabrics(generator, model);
+        } else {
+            fuzz_network(generator, model);
         }
         check_against_model(model, case_name);
         if (failure_count != failures_before) {
@@ -698,6 +839,8 @@ int main()
     run_script_table("record_remote_attribute", RECORD_CASES);
     run_script_table("clear_remote_attribute", CLEAR_CASES);
     run_script_table("record_commissioning_state", COMMISSIONING_CASES);
+    run_script_table("record_fabric_count", FABRIC_COUNT_CASES);
+    run_script_table("record_network_state", NETWORK_CASES);
     for (const CopyCase &test_case : COPY_CASES) {
         run_copy_case(test_case);
     }
