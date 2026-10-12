@@ -84,7 +84,6 @@ class Bench:
         """
         self.now_ms = 0
         self.published = []
-        self._online = online
         self._until_ms = until_ms
         boot = (WifiUp(0),) if online else ()
         self._inputs = sorted((*boot, *inputs), key=lambda item: item.at_ms)
@@ -154,11 +153,9 @@ class Bench:
         matter_native.inject_commissioning_event(_SESSION_FAILED)
 
     def _apply_wifi_up(self, _link: WifiUp) -> None:
-        self._online = True
         matter_native.inject_network_event(_NETWORK_CONNECTED)
 
     def _apply_wifi_down(self, _link: WifiDown) -> None:
-        self._online = False
         matter_native.inject_network_event(_NETWORK_DISCONNECTED)
 
     def _apply_light_set(self, write: LightSet) -> None:
@@ -175,10 +172,9 @@ class Bench:
 
     def _apply_poll_fault(self, _fault: PollFault) -> None:
         # A poll fetches a snapshot only after something changed, so restate
-        # the network link to give it something to fetch.
+        # the fabric count to give it something to fetch.
         matter_native.fail_next("snapshot")
-        link = _NETWORK_CONNECTED if self._online else _NETWORK_DISCONNECTED
-        matter_native.inject_network_event(link)
+        matter_native.inject_fabric_count()
 
 
 _APPLY = {

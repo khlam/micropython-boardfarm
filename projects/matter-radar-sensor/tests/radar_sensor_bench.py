@@ -61,7 +61,6 @@ LEVEL = (0x0008, 0x0000)  # Level Control cluster, CurrentLevel attribute
 _SESSION_FAILED = 2
 _WINDOW_OPENED = 3
 _NETWORK_CONNECTED = 1
-_NETWORK_DISCONNECTED = 0
 
 _REPORT_INTERVAL_MS = 100
 
@@ -96,7 +95,6 @@ class Bench:
         self.now_ms = 0
         self.published = []
         self._radar = radar
-        self._online = online
         self._until_ms = until_ms
         self._scene = None
         self._next_report_ms = 0
@@ -228,10 +226,9 @@ class Bench:
 
     def _apply_poll_fault(self, _fault: PollFault) -> None:
         # A poll fetches a snapshot only after something changed, so restate
-        # the network link to give it something to fetch.
+        # the fabric count to give it something to fetch.
         matter_native.fail_next("snapshot")
-        link = _NETWORK_CONNECTED if self._online else _NETWORK_DISCONNECTED
-        matter_native.inject_network_event(link)
+        matter_native.inject_fabric_count()
 
     def _apply_publish_fault(self, _fault: PublishFault) -> None:
         matter_native.fail_next("attributes_publish")
