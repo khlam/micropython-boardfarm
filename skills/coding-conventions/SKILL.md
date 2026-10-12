@@ -69,6 +69,7 @@ Tests should cover relevant success and failure cases, including:
 * public APIs make units, side effects, ownership, and failures clear;
 * project wiring stays separate from reusable behavior;
 * every new callable has a caller outside the tests;
+* each bumped version is one step past `main`;
 * expected failures are handled specifically;
 * unexpected bugs are not swallowed;
 * new behavior has deterministic tests;
