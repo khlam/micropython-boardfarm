@@ -57,7 +57,7 @@ OCCUPANCY = (0x0406, 0x0000)  # Occupancy Sensing cluster, Occupancy attribute
 ON_OFF = (0x0006, 0x0000)  # On/Off cluster, OnOff attribute
 LEVEL = (0x0008, 0x0000)  # Level Control cluster, CurrentLevel attribute
 
-# matter_native record values (firmware-packages/matter/native/include/bridge.h).
+# matter_native record values (firmware-packages/matter/native/include/matter/bridge.h).
 _SESSION_FAILED = 2
 _WINDOW_OPENED = 3
 _NETWORK_CONNECTED = 1
