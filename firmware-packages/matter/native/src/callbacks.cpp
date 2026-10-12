@@ -55,14 +55,25 @@ void reopen_commissioning_window(void)
 
     // A node that has never been commissioned holds no network credentials, so a
     // DNS-SD-only window would advertise on a network it cannot join and BLE is
-    // its only way back. Once a commissioning has succeeded, ESP-Matter reclaims
-    // the BLE host (CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING) and asking for it fails
-    // outright -- but that node is on the network, so DNS-SD alone reaches it.
+    // its only way back. Once the node has held a fabric since boot, ESP-Matter
+    // has shut BLE down and released its memory until the next reboot
+    // (CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING). CHIP still accepts the BLE request
+    // then but advertises over DNS-SD alone, which reaches that node because it is
+    // on the network. The only failure BLE adds is CHIP being unable to queue its
+    // BLE work, so retry without BLE rather than leave the node silent.
     if (manager.OpenBasicCommissioningWindow(timeout, chip::CommissioningWindowAdvertisement::kAllSupported) ==
         CHIP_NO_ERROR) {
         return;
     }
     manager.OpenBasicCommissioningWindow(timeout, chip::CommissioningWindowAdvertisement::kDnssdOnly);
+}
+
+// Retain how many fabrics the node belongs to, which is what tells MicroPython
+// whether it is operational. ESP-Matter posts the fabric events after the table
+// changed, so the count already includes the change.
+void record_current_fabric_count(void)
+{
+    record_fabric_count(chip::Server::GetInstance().GetFabricTable().FabricCount());
 }
 
 } // namespace
@@ -93,8 +104,9 @@ esp_err_t identify_callback(esp_matter::identification::callback_type_t type, ui
     return ESP_OK;
 }
 
-// Translate the device-wide events that describe pairing, and keep an unpaired
-// node reachable across the two transitions that would otherwise silence it.
+// Translate the device-wide events that describe pairing, fabric membership,
+// and the network link, and keep an unpaired node reachable across the
+// transitions that would otherwise silence it.
 void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intptr_t)
 {
     switch (event->Type) {
@@ -139,9 +151,24 @@ void device_event_callback(const chip::DeviceLayer::ChipDeviceEvent *event, intp
             reopen_commissioning_window();
         }
         break;
+    case chip::DeviceLayer::DeviceEventType::kFabricCommitted:
+        record_current_fabric_count();
+        break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
+        // Recorded before the window reopens, so the revision order tells
+        // MicroPython the node lost its last fabric and then became pairable.
+        record_current_fabric_count();
         // Losing the last fabric leaves nobody owning the device.
         reopen_commissioning_window();
+        break;
+    case chip::DeviceLayer::DeviceEventType::kWiFiConnectivityChange:
+        // Association with the access point, not DHCP or IPv6 reachability.
+        // CHIP reconnects a lost station by itself, so this only reports.
+        if (event->WiFiConnectivityChange.Result == chip::DeviceLayer::kConnectivity_Established) {
+            record_network_state(MATTER_NETWORK_CONNECTED);
+        } else if (event->WiFiConnectivityChange.Result == chip::DeviceLayer::kConnectivity_Lost) {
+            record_network_state(MATTER_NETWORK_DISCONNECTED);
+        }
         break;
     default:
         break;

@@ -1,29 +1,53 @@
 ---
 name: testing
-description: Use when writing tests. Prefer table-driven tests.
+description: Use when writing or changing tests, and before changing firmware behavior. Test-first, table-driven tests that a reader understands without opening the code.
 ---
 
 # Writing tests
 
-Write tests only after the user confirms the feature is final.
+## Test first
 
-Every test is table-driven, even with a single row. Design towards extending an existing
-case table or generator before adding a new test.
+1. Confirm the intended behavior with the user.
+2. Add or extend a test that states it, or that reproduces the bug. Run it and show
+   that it fails for the expected reason.
+3. Write the least code that makes it pass, then run the full suite.
 
-Test observable behavior through the public interface. Every test is one of three kinds:
+## Readable tests
 
-- **Unit.** One test per public entry point, one row per input class: typical, each boundary, each error path.
-- **Behavioral fuzz.** Asserts an invariant (round-trip, bounds, no undocumented errors) across generated inputs.
-- **Smoke.** At most 3 per project or package. Runs caller path end-to-end mocking only the hardware or network boundary, and asserts a result known independently of the code (spec test vector, datasheet example), naming its source.
+A reader understands each case without opening a helper or the code under test.
 
+- Every test is a case table, even with one row. Extend an existing table before
+  adding a new test.
+- Each row is a `namedtuple` with named fields, never a bare positional tuple. Its
+  `id` reads as given-when-then: `vacant-empty-report-stays-vacant`.
+- A row gives the starting state, the inputs in order, and the expected outputs.
+  Inputs are values the firmware receives (targets, Matter writes, clock ticks),
+  never callables, step names, or a mini-language.
+- Fake only the hardware and network boundary: UART, `matter_native`, the pixel,
+  the clock. Never patch firmware code.
+- Assert only on what leaves the code: return values, Matter attributes, pixel
+  colour, JSON lines. Never read a private attribute.
+
+## Kinds
+
+- **Unit.** One test per public entry point, one row per input class: typical, each
+  boundary, each error path. For a state machine, one row per edge in its README
+  diagram plus one per input that keeps the state.
+- **Scenario.** Runs the project's real `main()` loops through the boundary fakes,
+  one row per line of the README's contract. These catch wiring regressions that
+  unit tests miss.
+- **Behavioral fuzz.** Asserts an invariant (round-trip, bounds, no undocumented
+  errors) across generated inputs.
+- **Smoke.** At most 3 per project or package. Asserts a result known independently
+  of the code (spec test vector, datasheet example), naming its source.
 
 Don't write tests that:
 
-- assert on private internals or on test doubles;
-- repeat another case's input class and outcome;
+- repeat another row's input class and outcome;
 - exist only for coverage or exercise dead code;
-- depend on timing, test order, or shared state.
+- depend on wall time, test order, or shared state.
 
-Run the smallest relevant set, then the full suite (AGENTS.md § Run tests). When a test
-fails, decide whether it is a real bug, a wrong assumption, or a brittle test; never
-weaken an assertion before confirming the intended behavior with the user.
+## Run
+
+Run the smallest relevant set, then the full suite. When a test fails, decide whether it is a real bug, a wrong assumption, or a brittle test;
+never weaken an assertion before confirming the intended behavior with the user.

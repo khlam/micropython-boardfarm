@@ -1,11 +1,10 @@
 // Copyright 2026 micropython-boardfarm contributors
 // SPDX-License-Identifier: MIT
 //
-// `_matter` exposes protocol primitives only. The frozen `matter` package owns
+// `matter_native` exposes protocol primitives only. The frozen `matter` package owns
 // endpoint state, event routing, and every application decision.
 #include "matter/bridge.h"
 
-#include <errno.h>
 #include <string.h>
 
 #include "py/obj.h"
@@ -250,27 +249,10 @@ static mp_obj_t factory_reset(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(factory_reset_obj, factory_reset);
 
-// Report the station address, or None while the device is not on the network.
-//
-// Not being on the network yet is an ordinary state on the way up, not a
-// failure, so ENOTCONN becomes None rather than an OSError a caller would have
-// to catch on every poll. Every other errno still raises.
-static mp_obj_t network_address(void)
-{
-    char address[MATTER_ADDRESS_SIZE];
-    const int error = matter_network_address(address, sizeof(address));
-    if (error == ENOTCONN) {
-        return mp_const_none;
-    }
-    check(error);
-    return mp_obj_new_str(address, strlen(address));
-}
-static MP_DEFINE_CONST_FUN_OBJ_0(network_address_obj, network_address);
-
-// The whole `_matter` surface. Anything not named here is unreachable from
+// The whole `matter_native` surface. Anything not named here is unreachable from
 // Python, which is what keeps the frozen package the only public API.
 static const mp_rom_map_elem_t native_module_globals_table[] = {
-    {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR__matter)},
+    {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_matter_native)},
     {MP_ROM_QSTR(MP_QSTR_node_create), MP_ROM_PTR(&node_create_obj)},
     {MP_ROM_QSTR(MP_QSTR_endpoint_create), MP_ROM_PTR(&endpoint_create_obj)},
     {MP_ROM_QSTR(MP_QSTR_attribute_set_initial), MP_ROM_PTR(&attribute_set_initial_obj)},
@@ -283,7 +265,6 @@ static const mp_rom_map_elem_t native_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_fabrics), MP_ROM_PTR(&fabrics_obj)},
     {MP_ROM_QSTR(MP_QSTR_remove_fabric), MP_ROM_PTR(&remove_fabric_obj)},
     {MP_ROM_QSTR(MP_QSTR_factory_reset), MP_ROM_PTR(&factory_reset_obj)},
-    {MP_ROM_QSTR(MP_QSTR_network_address), MP_ROM_PTR(&network_address_obj)},
 };
 static MP_DEFINE_CONST_DICT(native_module_globals, native_module_globals_table);
 
@@ -292,4 +273,4 @@ const mp_obj_module_t native_module = {
     .globals = (mp_obj_dict_t *)&native_module_globals,
 };
 
-MP_REGISTER_MODULE(MP_QSTR__matter, native_module);
+MP_REGISTER_MODULE(MP_QSTR_matter_native, native_module);

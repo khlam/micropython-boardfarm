@@ -4,7 +4,7 @@
 websocket_endpoint  # noqa: F821
 
 # REPL surface. projects/matter/firmware/main.py drops to an interactive prompt
-# with `pixel`, `node`, and `endpoint` in scope, and its module docstring
+# with `pixel`, `status`, `node`, and `endpoint` in scope, and its module docstring
 # documents driving the light from a serial session. Called by a person, not
 # by code.
 set_color  # noqa: F821

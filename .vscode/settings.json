@@ -12,6 +12,7 @@
     "./firmware-packages/vl53l0x",
     "./firmware-packages/vl53l5cx",
     "./cpython-packages/serial_over_web",
+    "./cpython-packages/matter_tools",
     "./cpython-packages/micropython_stubs/micropython_stubs"
   ]
 }

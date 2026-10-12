@@ -22,7 +22,8 @@ exactly as on-device firmware does.
 | Package | What it does |
 |---|---|
 | [serial_over_web](serial_over_web/) | Shared FastAPI dashboard server. Tails `/dev/ttyACM0`, validates JSON lines, fans out over `/ws` WebSocket. Per-project static dashboards mount on top. |
-| [micropython_stubs](micropython_stubs/) | Test replacements for the MicroPython modules firmware code imports (`machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`). Lets host CPython pytest run MicroPython code on CPython by providing test versions of MicroPython-only modules. This enables testing firmware logic separately from firmware-and-hardware performance testing. |
+| [matter_tools](matter_tools/) | Compiles Matter firmware and provisions one board's pairing credentials inside the `Dockerfile.matter` stages. Its callers live in [`tools/matter-build/`](../tools/matter-build/). |
+| [micropython_stubs](micropython_stubs/) | Test replacements for the MicroPython modules firmware code imports (`machine`, `neopixel`, `ujson`, `ustruct`, `utime`, `micropython`, `matter_native`). Lets host CPython pytest run MicroPython code on CPython by providing test versions of MicroPython-only modules. This enables testing firmware logic separately from firmware-and-hardware performance testing. |
 
 
 ## micropython_stubs
@@ -42,6 +43,7 @@ micropython_stubs/
     ustruct.py            CPython struct exported as ustruct
     utime.py              no-op sleep_ms plus monotonic ticks
     micropython.py        const(x) returns x
+    matter_native.py      stateful fake of the ESP-Matter native bridge
     asyncio_extras.py     MicroPython-only asyncio names, installed onto stdlib
     testing.py            shared fakes and firmware main.py AST helpers
 ```
@@ -62,9 +64,19 @@ Replacement module behavior:
   color to `writes` on each `write()`.
 - `ujson.py` and `ustruct.py` re-export CPython's `json` and `struct`
   APIs used by firmware tests.
-- `utime.py` makes `sleep_ms()` a no-op and implements `ticks_ms()` /
-  `ticks_diff()` with host time.
+- `utime.py` makes `sleep_ms()` a no-op, implements `ticks_ms()` with host
+  time, and wraps `ticks_diff()` at 2**30 ms as MicroPython does.
 - `micropython.py` exposes `const(x)` as an identity function.
+- `matter_native.py` stands in for the compiled ESP-Matter bridge that the
+  `matter` package calls. `reset(persisted=...)` seeds values the stack
+  restores at `start()`, `reset(generation=...)` starts the revision sequence
+  near its wrap, `fail_next(operation)` makes the next call to that
+  operation raise `OSError`, and `seed_fabrics(...)` replaces the fabric
+  table. `inject_remote_write(...)`, `inject_commissioning_event(...)`,
+  `inject_fabric_count()`, and `inject_network_event(...)` play the controller
+  and the Wi-Fi link. Like the native
+  bridge, it keeps only the newest record per attribute path and orders
+  snapshots by a wrapping 32-bit revision.
 - `asyncio_extras.py` supplies `ThreadSafeFlag`, `wait_for_ms`, and `sleep_ms`
   — the names MicroPython adds to `asyncio` — and `install(monkeypatch)` puts
   them on the stdlib module for the duration of a test.
@@ -72,9 +84,9 @@ Replacement module behavior:
   selected assignments/functions from a firmware `main.py` into a test
   namespace.
 
-Reset mutable test-module state in autouse fixtures with `machine.reset()` and
-`neopixel.reset()`. Add new top-level replacements by creating the module under
-`micropython_stubs/micropython_stubs/` and adding it to
+Reset mutable test-module state in autouse fixtures with `machine.reset()`,
+`neopixel.reset()`, and `matter_native.reset()`. Add new top-level replacements
+by creating the module under `micropython_stubs/micropython_stubs/` and adding it to
 `tool.hatch.build.targets.wheel.force-include` in
 [`micropython_stubs/pyproject.toml`](micropython_stubs/pyproject.toml). A name
 the stdlib already owns — `asyncio` — cannot be replaced that way, because the

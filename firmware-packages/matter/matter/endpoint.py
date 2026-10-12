@@ -1,25 +1,30 @@
 """One native Matter endpoint and the Python copy tracking it.
 
-A Matter *endpoint* is one addressable feature of a device (for example,
-"the light's on/off switch"), identified by a ``(cluster, attribute)`` pair.
-ESP-Matter (native, C++) is the authoritative protocol store for those values;
-this module keeps a plain Python dict synchronized with it. Application writes
-are explicit calls to :meth:`Endpoint.set`. Controller writes arrive
+A Matter *endpoint* is one addressable feature of a device (for example, a
+light), and each of its values is an attribute identified by a
+``(cluster, attribute)`` pair. ESP-Matter (native, C++) is the authoritative
+protocol store for those values; this module keeps a plain Python dict
+synchronized with it. Application writes are explicit calls to
+:meth:`Endpoint.set`. Controller writes arrive
 through :meth:`Endpoint._accept_remote` while
 ``Node.poll()`` constructs the immutable events returned to the application.
 """
 
 from collections import namedtuple
 
-import _matter
+import matter_native
 
-from matter.emit import error as emit_error
 from matter.schema import SCHEMAS, Paths, attribute_path, validate_value
 
-__all__ = ["Endpoint", "WriteEvent"]
+__all__ = ["Endpoint", "RejectedValue", "WriteEvent"]
 
+# A controller write the endpoint applied.
 WriteEvent = namedtuple("WriteEvent", ("endpoint", "cluster", "attribute", "value"))
+# A value ESP-Matter held that the endpoint's schema refuses. The endpoint keeps
+# the value it had.
+RejectedValue = namedtuple("RejectedValue", ("endpoint", "cluster", "attribute", "value"))
 
+# The names set() accepts, one per property below.
 _NAMED_PATHS = {
     "identify_time": Paths.IDENTIFY,
     "on": Paths.ON_OFF,
@@ -35,24 +40,13 @@ _NAMED_PATHS = {
 }
 
 
-def _attribute_property(path: tuple) -> property:
-    """Build a read-only property for one constant attribute path."""
-
-    def read(self: "Endpoint") -> object:
-        """Return this property's attribute from the Python copy."""
-        return self.get(*path)
-
-    return property(read)
-
-
 class Endpoint:
     """Local Python copy of one native Matter endpoint's attributes.
 
-    Every attribute an endpoint's schema tracks is also reachable by name
-    (``endpoint.on``, ``endpoint.hue``, …) via a property installed for each
-    ``_NAMED_PATHS`` entry after this class body. Properties are reads only;
-    application writes go through :meth:`set`. A name the schema does not
-    expose raises ``ValueError``.
+    Every attribute an endpoint's schema tracks is a read-only property
+    (``endpoint.on``, ``endpoint.hue``, …); application writes go through
+    :meth:`set`. Reading a property the endpoint's schema does not track raises
+    ``ValueError``.
     """
 
     def __init__(self, node: object, endpoint_id: int, endpoint_type: int, state: dict) -> None:
@@ -71,6 +65,61 @@ class Endpoint:
         self._node = node
         self._state = state
         self._schema = SCHEMAS[endpoint_type]
+
+    @property
+    def identify_time(self) -> int:
+        """Seconds left identifying itself; every endpoint has it."""
+        return self.get(*Paths.IDENTIFY)
+
+    @property
+    def on(self) -> bool:
+        """Whether the light is on; every light has it."""
+        return self.get(*Paths.ON_OFF)
+
+    @property
+    def level(self) -> int:
+        """Brightness, 0-254; dimmable and colour lights have it."""
+        return self.get(*Paths.LEVEL)
+
+    @property
+    def hue(self) -> int:
+        """Hue, 0-254 around the colour wheel; colour lights have it."""
+        return self.get(*Paths.HUE)
+
+    @property
+    def saturation(self) -> int:
+        """Saturation, 0-254; colour lights have it."""
+        return self.get(*Paths.SATURATION)
+
+    @property
+    def x(self) -> int:
+        """CIE x chromaticity, 0-65535 for 0-1; colour lights have it."""
+        return self.get(*Paths.X)
+
+    @property
+    def y(self) -> int:
+        """CIE y chromaticity, 0-65535 for 0-1; colour lights have it."""
+        return self.get(*Paths.Y)
+
+    @property
+    def temperature(self) -> int:
+        """Colour temperature in mireds, 153-500; colour lights have it."""
+        return self.get(*Paths.TEMPERATURE)
+
+    @property
+    def color_mode(self) -> int:
+        """The ColorMode the light shows, 0-2; colour lights have it."""
+        return self.get(*Paths.COLOR_MODE)
+
+    @property
+    def enhanced_color_mode(self) -> int:
+        """The ColorMode the light shows, 0-3 with enhanced hue; colour lights have it."""
+        return self.get(*Paths.ENHANCED_COLOR_MODE)
+
+    @property
+    def occupancy(self) -> int:
+        """1 while occupied, otherwise 0; occupancy sensors have it."""
+        return self.get(*Paths.OCCUPANCY)
 
     def get(self, cluster: int, attribute: int) -> object:
         """Return an attribute from the Python copy, addressed by cluster and attribute ID.
@@ -129,26 +178,33 @@ class Endpoint:
             raise OSError(22, "Matter node is not started")
         for cluster, attribute, value in updates:
             self._state[(cluster, attribute)] = value
-        _matter.attributes_publish(self.id, tuple(updates))
+        matter_native.attributes_publish(self.id, tuple(updates))
 
-    def _restore(self) -> None:
+    def _restore(self) -> tuple:
         """Overwrite the Python copy with whatever native currently holds.
 
-        Called once, right after the node starts (see
-        :meth:`matter.node.Node._restore_endpoints`). ESP-Matter persists
+        Called right after the node starts (see
+        :meth:`matter.node.Node._restore`). ESP-Matter persists
         attribute values across reboots in native storage, so a freshly built
-        Python copy starts out empty of that history; this pulls it in before the
-        node is exposed to controllers.
+        Python copy starts out empty of that history; this pulls it in before
+        :meth:`matter.node.Node.start` returns to the application.
+
+        Returns:
+            A :class:`RejectedValue` for each restored value the schema refused.
         """
         state = self._state
+        rejected = []
         for path in state:
-            value = _matter.attribute_get(self.id, path[0], path[1])
+            value = matter_native.attribute_get(self.id, path[0], path[1])
             try:
                 state[path] = validate_value(self._schema, path, value)
             except (TypeError, ValueError):
-                emit_error("python_validation", "restored value rejected by schema")
+                rejected.append(RejectedValue(self, path[0], path[1], value))
+        return tuple(rejected)
 
-    def _accept_remote(self, cluster: int, attribute: int, value: object) -> WriteEvent | None:
+    def _accept_remote(
+        self, cluster: int, attribute: int, value: object
+    ) -> WriteEvent | RejectedValue | None:
         """Apply one controller write and return its application event.
 
         Native has already accepted this value by the time it reaches here,
@@ -162,8 +218,9 @@ class Endpoint:
             value: Controller-supplied value to validate and synchronize.
 
         Returns:
-            The immutable write event, or ``None`` when the path or value is
-            outside this endpoint's schema.
+            The immutable write event, a :class:`RejectedValue` when the schema
+            refuses the value, or ``None`` when the path is outside this
+            endpoint's schema.
         """
         path = (cluster, attribute)
         if path not in self._state:
@@ -171,11 +228,6 @@ class Endpoint:
         try:
             value = validate_value(self._schema, path, value)
         except (TypeError, ValueError):
-            emit_error("python_validation", "remote value rejected by schema")
-            return None
+            return RejectedValue(self, cluster, attribute, value)
         self._state[path] = value
         return WriteEvent(self, cluster, attribute, value)
-
-
-for _name, _path in _NAMED_PATHS.items():
-    setattr(Endpoint, _name, _attribute_property(_path))

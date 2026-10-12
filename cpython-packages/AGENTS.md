@@ -3,7 +3,7 @@
 ## Shared host-test stubs †
 
 - All MicroPython stubs live in `cpython-packages/micropython_stubs/micropython_stubs/`
-- Reset `machine` and `neopixel` state with `machine.reset()` / `neopixel.reset()` in an autouse fixture.
+- Reset `machine`, `neopixel`, and `matter_native` state with `machine.reset()` / `neopixel.reset()` / `matter_native.reset()` in an autouse fixture.
 - To extend a stub, edit the file there and add it to `force-include` in `pyproject.toml`.
 
 Firmware packages should be testable under CPython using the shared MicroPython stubs and deterministic fake devices where practical.

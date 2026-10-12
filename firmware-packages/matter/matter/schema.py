@@ -1,6 +1,6 @@
 """Attribute vocabulary and validation rules for the supported endpoints.
 
-Pure data and pure checks. Nothing here imports ``_matter`` or touches a running
+Pure data and pure checks. Nothing here imports ``matter_native`` or touches a running
 stack, so what an endpoint accepts is decided — and can be exercised — without
 one.
 """
@@ -12,7 +12,6 @@ __all__ = [
     "Attributes",
     "Clusters",
     "ColorMode",
-    "Commissioning",
     "EndpointType",
     "Paths",
     "attribute_path",
@@ -74,23 +73,6 @@ class ColorMode:
     ENHANCED_HUE_SATURATION = 3
 
 
-class Commissioning:
-    """Names and states carried by commissioning events.
-
-    The five states are mutually distinct, so a subscriber can decide on
-    ``state`` alone; ``name`` says which lifecycle the state belongs to.
-    """
-
-    SESSION = "commissioning"
-    WINDOW = "commissioning_window"
-
-    STARTED = "started"
-    COMPLETE = "complete"
-    FAILED = "failed"
-    OPENED = "opened"
-    CLOSED = "closed"
-
-
 class Paths:
     """The ``(cluster, attribute)`` pair naming every mirrored attribute.
 
@@ -125,7 +107,8 @@ _EXTENDED_COLOR_SCHEMA.update(
         Paths.X: (_TYPE_UINT16, 0, 65535, 20494),
         Paths.Y: (_TYPE_UINT16, 0, 65535, 21561),
         Paths.TEMPERATURE: (_TYPE_UINT16, 153, 500, 250),
-        Paths.COLOR_MODE: (_TYPE_UINT8, 0, 3, 2),
+        # ColorMode stops at COLOR_TEMPERATURE; only EnhancedColorMode adds 3.
+        Paths.COLOR_MODE: (_TYPE_UINT8, 0, 2, 2),
         Paths.ENHANCED_COLOR_MODE: (_TYPE_UINT8, 0, 3, 2),
     }
 )

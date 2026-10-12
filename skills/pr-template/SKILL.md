@@ -7,20 +7,31 @@ description: Use when the user asks for a PR description. Fill the repo's PR des
 
 Fill the PR description template from the current branch and return the finished description as plain text in the reply.
 
+## Audience
+
+Write for a reviewer who has never seen the code. Describe what the device, tool, or workflow now does differently, not which functions moved. Follow the `talking-to-a-user` skill.
+
 ## The template
 
 ```markdown
 ## Overview
-- maximum 3 sentences describing the PR
+- maximum 3 sentences describing the PR in terms of behaviour and process
 
 ## What’s New
-- List what has been newly added to the codebase in this PR. If nothing, leave blank. Maximum 3 sentences each bulletpoint.
+- List what has been newly added to the codebase in this PR. If nothing, leave blank. Maximum 3 sentences each bulletpoint. Lead each bullet with a bold plain-English summary. Use a table when a feature maps states to outcomes.
 
 ## What Has Changed
-- List what functionality or formatting has changed (this is distinct from fixes). If nothing, leave blank. Maximum 3 sentences each bulletpoint.
+- Use a Before/Now table for changed functionality or formatting (this is distinct from fixes). If nothing, leave blank.
+
+| Area | Before | Now |
+
+- Add a Mermaid diagram when a multi-step process changes, showing Before and Now side by side.
+- Use bullets for changes that have no clear Before, such as docs or skills.
 
 ## What’s Fixed
-- List bugs that have been fixed in this PR. If nothing, leave blank. Maximum 3 sentences each bulletpoint.
+- Use a Before/Now table for bugs fixed in this PR. If nothing, leave blank.
+
+| Bug | Before | Now |
 
 ## Testing
 - Create a concise table-driven test summary with columns:
@@ -34,5 +45,10 @@ Requirements:
 - Define all variables after the table.
 
 ## Additional Information
-*List any other additional information*
+*List any other additional information: breaking API changes, removed or moved files, version bumps, and how to run the tests.*
 ```
+
+## Rules
+
+- Keep each table cell to one or two short sentences.
+- Never use the words "After" or "Previously"; use "Before" and "Now".

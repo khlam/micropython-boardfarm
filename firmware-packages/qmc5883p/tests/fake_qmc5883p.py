@@ -42,7 +42,7 @@ class FakeQMC5883P:
         for i, b in enumerate(block):
             self.regs[DATA_REG + i] = b
 
-    def set_overflow(self, ovl: bool) -> None:  # noqa: FBT001
+    def set_overflow(self, ovl: bool) -> None:
         """Set whether STATUS reports the OVL (field-saturation) bit."""
         self._ovl = ovl
 
