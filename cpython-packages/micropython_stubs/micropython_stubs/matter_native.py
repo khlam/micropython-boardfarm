@@ -69,10 +69,9 @@ class _State:
         self.attributes: dict[tuple[int, int, int], object] = {}
         self.persisted: dict[tuple[int, int, int], object] = {}
         self.snapshot_records: dict[tuple[int, int, int], tuple[int, object]] = {}
-        self.commissioning_session: tuple[int, int] | None = None
-        self.commissioning_window: tuple[int, int] | None = None
-        self.fabric_count: tuple[int, int] | None = None
-        self.network: tuple[int, int] | None = None
+        # (revision, kind, value) per reserved native slot: the commissioning
+        # session and window, the fabric count, and the network.
+        self.device_records: dict[str, tuple[int, int, int]] = {}
         self.generation = 0
         self.failures: dict[str, int] = {}
         self.fabrics: list[tuple] = []
@@ -99,10 +98,7 @@ def reset(*, persisted: dict | None = None, generation: int = 0) -> None:
     if persisted is not None:
         _state.persisted.update(persisted)
     _state.snapshot_records.clear()
-    _state.commissioning_session = None
-    _state.commissioning_window = None
-    _state.fabric_count = None
-    _state.network = None
+    _state.device_records.clear()
     _state.generation = generation
     _state.failures.clear()
     _state.fabrics.clear()
@@ -214,13 +210,13 @@ def inject_commissioning_event(state_code: int) -> None:
 def inject_fabric_count() -> None:
     """Report the seeded fabric count, as callbacks.cpp does on kFabricCommitted."""
     _require_started()
-    _state.fabric_count = (_next_revision(), len(_state.fabrics))
+    _record_device_state("fabrics", _EVENT_FABRICS, len(_state.fabrics))
 
 
 def inject_network_event(state_code: int) -> None:
     """Inject one native Wi-Fi link change (0 disconnected, 1 connected) for host tests."""
     _require_started()
-    _state.network = (_next_revision(), state_code)
+    _record_device_state("network", _EVENT_NETWORK, state_code)
 
 
 def generation() -> int:
@@ -238,15 +234,9 @@ def snapshot() -> tuple[int, tuple]:
             _state.snapshot_records.items()
         )
     ]
-    for kind, retained in (
-        (_EVENT_COMMISSIONING, _state.commissioning_session),
-        (_EVENT_COMMISSIONING, _state.commissioning_window),
-        (_EVENT_FABRICS, _state.fabric_count),
-        (_EVENT_NETWORK, _state.network),
-    ):
-        if retained is not None:
-            revision, value = retained
-            records.append((revision, kind, 0, 0, 0, value))
+    records += [
+        (revision, kind, 0, 0, 0, value) for revision, kind, value in _state.device_records.values()
+    ]
     return (_state.generation, tuple(records))
 
 
@@ -279,7 +269,7 @@ def remove_fabric(index: int) -> None:
             # callbacks.cpp answers kFabricRemoved by recording the new count,
             # then reopening the window of a node left with no fabric, and that
             # opening is reported like any other.
-            _state.fabric_count = (_next_revision(), len(_state.fabrics))
+            _record_device_state("fabrics", _EVENT_FABRICS, len(_state.fabrics))
             if not _state.fabrics:
                 _record_commissioning(_COMMISSIONING_WINDOW_OPENED)
             return
@@ -294,11 +284,13 @@ def factory_reset() -> None:
 
 def _record_commissioning(state_code: int) -> None:
     """Retain a transition in its lifecycle's slot, replacing the older state."""
-    record = (_next_revision(), state_code)
-    if 0 <= state_code <= 2:
-        _state.commissioning_session = record
-    elif 3 <= state_code <= 4:
-        _state.commissioning_window = record
+    slot = "window" if state_code >= _COMMISSIONING_WINDOW_OPENED else "session"
+    _record_device_state(slot, _EVENT_COMMISSIONING, state_code)
+
+
+def _record_device_state(slot: str, kind: int, value: int) -> None:
+    """Replace the fact one reserved slot holds, as state_snapshot.cpp does."""
+    _state.device_records[slot] = (_next_revision(), kind, value)
 
 
 def _next_revision() -> int:
