@@ -1,0 +1,286 @@
+"""Display engine and step coroutines for clock screens and transitions."""
+
+import asyncio
+
+import clock_screens
+import clock_transitions
+
+POLL_SLEEP_MS = 10
+REASSERT_MS = 5_000
+
+# Adaptive animation frame pacing. Transition frames are paced to a wall-clock
+# budget instead of a fixed inter-frame sleep: each frame sleeps only the time
+# left in its budget after rendering, so frames land at an even cadence (less
+# visible jank) and the loop never re-renders faster than the eye resolves
+# (fewer SPI bursts → less switching power). When a render overruns its budget
+# the rate adapts downward — the next frame starts as soon as the scheduler
+# yields back — so animations stay smooth even with the core clock dialed down.
+TARGET_FPS = 18
+FRAME_BUDGET_MS = 1_000 // TARGET_FPS
+# Floor on the per-frame sleep so the cooperative GPS pump is always scheduled,
+# even when a render eats the whole budget.
+MIN_FRAME_YIELD_MS = 2
+
+
+async def play_transition(
+    engine: object,
+    target: int,
+    *,
+    effect: int | None = None,
+    direction: int | None = None,
+) -> None:
+    """Animate the transition into ``target``, one frame per adaptive budget."""
+    engine.begin_transition(target, effect=effect, direction=direction)
+    clock = engine.clock
+    while True:
+        frame_start = clock.ticks_ms()
+        if engine.advance_transition(frame_start):
+            return
+        # Sleep what is left of this frame's budget, measured from before the
+        # render, so frame spacing stays even however long the render took; an
+        # overrunning render collapses to the yield floor rather than
+        # accumulating lag.
+        remaining = FRAME_BUDGET_MS - clock.ticks_diff(clock.ticks_ms(), frame_start)
+        await asyncio.sleep_ms(max(MIN_FRAME_YIELD_MS, remaining))
+
+
+async def play_dissolve_transition(engine: object, target: int) -> None:
+    """Dissolve the current display state into ``target``."""
+    await play_transition(
+        engine,
+        target,
+        effect=clock_transitions.TRANSITION_DISSOLVE,
+        direction=clock_transitions.DIRECTION_LEFT,
+    )
+
+
+async def play_wait_transition(engine: object) -> None:
+    """Scroll the GPS-wait screen back into itself for the looping wait animation.
+
+    The wait screen scrolls into a fresh copy of itself rather than blinking to a
+    blank endpoint, so ``GPS WAIT`` stays continuously on screen — an unsynced
+    display that animates in place instead of going dark every other second.
+    """
+    await play_transition(
+        engine,
+        clock_screens.WAIT_ON,
+        effect=clock_transitions.TRANSITION_SCROLL,
+        direction=clock_transitions.DIRECTION_RIGHT,
+    )
+
+
+async def hold_screen(engine: object, *, stop: object = None) -> None:
+    """Hold the landed screen for its spec'd time, healing live content each frame.
+
+    Args:
+        engine: The :class:`DisplayEngine` whose ``current_screen`` is held.
+        stop: Optional predicate; when it returns true the hold ends early. Used
+            by the GPS-wait blink to break out the moment a fix arrives.
+    """
+    clock = engine.clock
+    started = clock.ticks_ms()
+    hold_ms = clock_screens.screen_spec(engine.current_screen).hold_ms
+    while clock.ticks_diff(clock.ticks_ms(), started) < hold_ms:
+        if stop is not None and stop():
+            return
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
+        engine.reassert(clock.ticks_ms())
+
+
+async def run_frame_rate_test(engine: object) -> None:
+    """Render the startup display frame-rate diagnostic for its screen hold."""
+    clock = engine.clock
+    start = clock.ticks_ms()
+    frame_count = 0
+    hold_ms = clock_screens.screen_spec(clock_screens.SCREEN_FRAME_RATE).hold_ms
+    while True:
+        now = clock.ticks_ms()
+        elapsed_ms = clock.ticks_diff(now, start)
+        if elapsed_ms >= hold_ms:
+            return
+        frame_count += 1
+        engine.show_frame_rate(frame_count, elapsed_ms, now)
+        await asyncio.sleep_ms(POLL_SLEEP_MS)
+
+
+async def play_startup_handoff(engine: object, target: int) -> None:
+    """Scroll the diagnostic away, show the brand, then dissolve into ``target``."""
+    await play_transition(
+        engine,
+        clock_screens.SCREEN_BRAND,
+        effect=clock_transitions.TRANSITION_SCROLL,
+        direction=clock_transitions.DIRECTION_RIGHT,
+    )
+    await hold_screen(engine)
+    await play_dissolve_transition(engine, target)
+
+
+class TransitionRun:
+    """State for one in-progress display transition."""
+
+    def __init__(
+        self,
+        effect: int,
+        direction: int,
+        target_screen: int,
+        source_frame: object,
+        target_frame: object,
+        target_key: tuple,
+    ) -> None:
+        """Store transition endpoints and the frame step walking between them."""
+        self.effect = effect
+        self.direction = direction
+        self.target_screen = target_screen
+        self.source_frame = source_frame
+        self.target_frame = target_frame
+        self.target_key = target_key
+        self.step = 1
+        # An instant cut lands on its single frame; every other effect animates.
+        if effect == clock_transitions.TRANSITION_INSTANT:
+            self.steps = 1
+        else:
+            self.steps = clock_transitions.TRANSITION_STEPS
+
+
+class DisplayEngine:
+    """Render wait screens, regular screens, interstitials, and transitions.
+
+    Exposes synchronous step primitives (`begin_transition`, `advance_transition`,
+    `reassert`) that the module-level coroutines drive in `await`-sleep loops; the
+    screen *order* lives in the caller, not in this engine. It also owns the
+    ``clock`` and ``rng`` the whole display side reads, so pacing and random
+    choices cannot drift onto two different sources.
+    """
+
+    def __init__(
+        self,
+        display: object,
+        rtc: object,
+        *,
+        clock: object,
+        rng: object,
+        sync: object | None = None,
+    ) -> None:
+        """Bind the engine to a display, RTC, clock source, RNG, and sync state.
+
+        ``sync`` is read only for its latched ``boot_time``, which the uptime
+        screen needs and the RTC alone cannot supply; it stays optional so the
+        engine still renders every other screen without a synchronizer.
+        """
+        self._display = display
+        self._rtc = rtc
+        self.clock = clock
+        self.rng = rng
+        self._sync = sync
+        self._frame_cache = {}
+        self.current_screen = None
+        self.last_reassert_ms = None
+        self.shown_key = None
+        self.screen_frame = None
+        self.transition = None
+
+    def begin_transition(
+        self,
+        target_screen: int,
+        *,
+        effect: int | None = None,
+        direction: int | None = None,
+    ) -> None:
+        """Snapshot both endpoints for a transition into ``target_screen``."""
+        if effect is None:
+            effect = clock_transitions.choose_transition(self.rng)
+        if direction is None:
+            direction = clock_transitions.choose_direction(self.rng)
+        # Nothing rendered yet: transition in from the dark wait endpoint.
+        source_frame = self.screen_frame
+        if source_frame is None:
+            source_frame = self._frame_and_key(clock_screens.WAIT_OFF, None)[0]
+        target_frame, target_key = self._frame_and_key(
+            target_screen, self._parts_for_screen(target_screen)
+        )
+        self.transition = TransitionRun(
+            effect, direction, target_screen, source_frame, target_frame, target_key
+        )
+
+    def advance_transition(self, now: int) -> bool:
+        """Render one transition frame; return whether the transition has landed."""
+        transition = self.transition
+        if transition is None:
+            return True
+        frame = clock_transitions.frame_transition_frame(
+            transition.effect,
+            transition.source_frame,
+            transition.target_frame,
+            step=transition.step,
+            steps=transition.steps,
+            direction=transition.direction,
+        )
+        self._display.show(frame)
+        self.last_reassert_ms = now
+        if transition.step < transition.steps:
+            transition.step += 1
+            return False
+        self.current_screen = transition.target_screen
+        self.screen_frame = transition.target_frame
+        self.shown_key = transition.target_key
+        self.transition = None
+        self.reassert(now)
+        return True
+
+    def reassert(self, now: int) -> None:
+        """Refresh live content changes or periodically heal display state.
+
+        Every path that sets ``current_screen`` also stamps ``last_reassert_ms``,
+        so the heal deadline below is always comparable once a screen is up.
+        """
+        if self.current_screen is None:
+            return
+        parts = self._parts_for_screen(self.current_screen)
+        frame, key = self._frame_and_key(self.current_screen, parts)
+        if self.shown_key != key or (
+            self.clock.ticks_diff(now, self.last_reassert_ms) >= REASSERT_MS
+        ):
+            self._show_frame(frame, key, now)
+
+    def show_frame_rate(self, frame_count: int, elapsed_ms: int, now: int) -> None:
+        """Render one diagnostic sample while measuring display throughput."""
+        fps_x10 = frame_count * 10_000 // elapsed_ms if elapsed_ms > 0 else 0
+        parts = (frame_count, fps_x10)
+        frame, key = self._frame_and_key(clock_screens.SCREEN_FRAME_RATE, parts)
+        self.current_screen = clock_screens.SCREEN_FRAME_RATE
+        self.transition = None
+        self._show_frame(frame, key, now)
+
+    def _parts_for_screen(self, screen: int) -> tuple | None:
+        """Return the render inputs a screen depends on.
+
+        Most screens key off the RTC snapshot; wait screens are static; the
+        uptime screen needs a composite of boot time, the RTC, and a scroll
+        phase that no single RTC reading can express.
+        """
+        if clock_screens.is_wait(screen):
+            return None
+        parts = clock_screens.rtc_parts(self._rtc)
+        if screen == clock_screens.SCREEN_UPTIME:
+            boot_time = self._sync.boot_time if self._sync is not None else None
+            return boot_time, parts, self.clock.ticks_ms()
+        return parts
+
+    def _frame_and_key(self, screen: int, parts: tuple | None) -> tuple:
+        """Return a cached frame and its visible-content key."""
+        key = clock_screens.screen_key(screen, parts)
+        cached = self._frame_cache.get(screen)
+        if cached is None or cached[1] != key:
+            frame = clock_screens.render_screen(
+                screen, parts, self._display.width_pixels, self._display.height_pixels
+            )
+            cached = (frame, key)
+            self._frame_cache[screen] = cached
+        return cached
+
+    def _show_frame(self, frame: object, key: tuple, now: int) -> None:
+        """Render ``frame`` and store the visible-content state."""
+        self._display.show(frame)
+        self.screen_frame = frame
+        self.shown_key = key
+        self.last_reassert_ms = now

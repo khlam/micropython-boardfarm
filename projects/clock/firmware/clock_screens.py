@@ -1,0 +1,558 @@
+"""Clock screen specifications and renderers."""
+
+from collections import namedtuple
+
+from clock_transitions import randbelow
+from pixel_frame import Frame, Text
+from tz_offset import days_from_epoch
+
+ScreenSpec = namedtuple("ScreenSpec", ("id", "kind", "hold_ms", "render", "key"))
+
+SCREEN_MAIN = 0
+SCREEN_SEASON = 1
+SCREEN_TIME_SECONDS = 2
+SCREEN_FULL_DATE = 3
+SCREEN_CLOCK_MERIDIEM = 4
+SCREEN_FRAME_RATE = 5
+SCREEN_BRAND = 6
+WAIT_OFF = 7
+WAIT_ON = 8
+SCREEN_UPTIME = 9
+
+KIND_REGULAR = "regular"
+KIND_INTERSTITIAL = "interstitial"
+KIND_DIAGNOSTIC = "diagnostic"
+KIND_WAIT = "wait"
+
+SCREEN_HOLD_MS = 180_000
+INTERSTITIAL_HOLD_MS = 3_000
+FRAME_RATE_TEST_MS = 15_000
+BRAND_HOLD_MS = 1_500
+WAIT_ROTATE_MS = 1_000
+UPTIME_HOLD_MS = 7_000
+
+# Marquee pacing for rows wider than the matrix: one pixel of travel every
+# ``SCROLL_MS_PER_PX`` ms gives a slow, readable left-right sweep. Driven off the
+# monotonic clock rather than a frame counter so the speed is wall-clock stable
+# regardless of how often the hold loop reasserts.
+SCROLL_MS_PER_PX = 100
+
+CLOCK_MERIDIEM_LABEL_GAP_PIXELS = 1
+
+WIDTH_PIXELS = 32
+HEIGHT_PIXELS = 16
+
+# Dedicated meridiem letterforms for the time-only face. The body font renders
+# AM/PM as full-size glyphs with a chunky 5-wide ``M``; these condensed,
+# uniform-width letters read as a tidy badge beside the scaled-up time and free
+# a column for a slightly larger clock.
+_MERIDIEM_GLYPH_WIDTH = 4
+_MERIDIEM_GLYPH_HEIGHT = 7
+_MERIDIEM_GLYPH_GAP = 1
+# AM and PM are both two uniform-width letters stacked, so the badge is a fixed
+# block: one glyph wide, two glyphs plus their gap tall.
+_MERIDIEM_BADGE_HEIGHT = (2 * _MERIDIEM_GLYPH_HEIGHT) + _MERIDIEM_GLYPH_GAP
+_MERIDIEM_GLYPHS = {
+    "A": ("0110", "1001", "1001", "1111", "1001", "1001", "1001"),
+    "P": ("1110", "1001", "1001", "1110", "1000", "1000", "1000"),
+    "M": ("1001", "1111", "1111", "1001", "1001", "1001", "1001"),
+}
+
+MONTH_ABBRS = (
+    "JAN",
+    "FEB",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUG",
+    "SEPT",
+    "OCT",
+    "NOV",
+    "DEC",
+)
+MONTH_NAMES = (
+    "JANUARY",
+    "FEBRUARY",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUGUST",
+    "SEPTEMBER",
+    "OCTOBER",
+    "NOVEMBER",
+    "DECEMBER",
+)
+DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+# Meteorological seasons run in whole-month threes starting at March, so
+# ``month // 3`` names the season and December wraps back onto winter.
+_SEASONS = ("WINTER", "SPRING", "SUMMER", "AUTUMN")
+
+
+def rtc_parts(rtc: object) -> tuple:
+    """Return the RTC datetime without its trailing subsecond field."""
+    return tuple(rtc.datetime())[:7]
+
+
+def format_time_parts(hour: int, minute: int) -> tuple:
+    """Return a 12-hour clock string and meridiem label."""
+    display_hour = hour % 12
+    if display_hour == 0:
+        display_hour = 12
+    meridiem = "AM" if hour < 12 else "PM"
+    return f"{display_hour}:{minute:02d}", meridiem
+
+
+def season_name(month: int) -> str:
+    """Return the meteorological season name for ``month``."""
+    return _SEASONS[(month // 3) % 4]
+
+
+def main_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
+    """Render time with meridiem above day name and day number, both centered.
+
+    The face shows no seconds, so the time colon blinks once per second and a
+    seconds progress bar fills the gap row between the two text rows.
+    """
+    _year, _month, day, weekday, hour, minute, second = parts
+    clock, meridiem = format_time_parts(hour, minute)
+    frame = _two_row_frame(
+        f"{clock} {meridiem}",
+        f"{DAYS[weekday]} {day}",
+        width_pixels,
+        height_pixels,
+        top_hidden_chars=_blink_colon_hidden(second),
+    )
+    _draw_seconds_bar(frame, second, (height_pixels // 2) - 1)
+    return frame
+
+
+def season_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
+    """Render the current meteorological season above the four-digit year."""
+    year, month, _day, _weekday, _hour, _minute, _second = parts
+    return _two_row_frame(season_name(month), f"{year:04d}", width_pixels, height_pixels)
+
+
+def time_seconds_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
+    """Render large 12-hour time with seconds and meridiem."""
+    _year, _month, _day, _weekday, hour, minute, second = parts
+    clock, meridiem = format_time_parts(hour, minute)
+    return _two_row_frame(f"{clock}:{second:02d}", meridiem, width_pixels, height_pixels)
+
+
+def clock_meridiem_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
+    """Render a centered time-only face, scaling the time to fill the frame.
+
+    The meridiem keeps a fixed narrow column on the right, drawn with the
+    condensed clock-style badge font; the time then grows to the largest integer
+    scale that fits the remaining box on each axis independently, so short
+    strings (single-digit hour) render markedly larger than the widest
+    ``12:59``-style times instead of leaving the screen mostly empty. The face
+    shows no seconds, so the colon blinks once per second and a seconds progress
+    bar fills the free bottom row.
+    """
+    _year, _month, _day, _weekday, hour, minute, second = parts
+    clock, meridiem = format_time_parts(hour, minute)
+    frame = Frame(width_pixels, height_pixels)
+    base_width, base_height = Text(clock).measure()
+    time_box_width = width_pixels - CLOCK_MERIDIEM_LABEL_GAP_PIXELS - _MERIDIEM_GLYPH_WIDTH
+    x_scale = max(1, time_box_width // base_width)
+    y_scale = max(1, height_pixels // base_height)
+    time_text = Text(clock, scale=(x_scale, y_scale), hidden_chars=_blink_colon_hidden(second))
+    time_width, time_height = time_text.measure()
+    group_width = time_width + CLOCK_MERIDIEM_LABEL_GAP_PIXELS + _MERIDIEM_GLYPH_WIDTH
+    if group_width > width_pixels or max(time_height, _MERIDIEM_BADGE_HEIGHT) > height_pixels:
+        frame[0:height_pixels, 0:width_pixels] = Text(f"{clock} {meridiem}")
+        return frame
+    x0 = (width_pixels - group_width) // 2
+    time_x1 = x0 + time_width
+    frame[0:height_pixels, x0:time_x1] = time_text
+    _draw_meridiem_badge(
+        frame,
+        meridiem,
+        time_x1 + CLOCK_MERIDIEM_LABEL_GAP_PIXELS,
+        (height_pixels - _MERIDIEM_BADGE_HEIGHT) // 2,
+    )
+    _draw_seconds_bar(frame, second, height_pixels - 1)
+    return frame
+
+
+def full_date_screen_frame(parts: tuple, width_pixels: int, height_pixels: int) -> object:
+    """Render the full month name with day number above the four-digit year."""
+    year, month, day, _weekday, _hour, _minute, _second = parts
+    label = f"{MONTH_NAMES[month - 1]} {day}"
+    if not Text(label).fits(width_pixels, _row_split(height_pixels)):
+        label = f"{MONTH_ABBRS[month - 1]} {day}"
+    return _two_row_frame(label, f"{year:04d}", width_pixels, height_pixels)
+
+
+def frame_rate_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
+    """Render one display frame-rate diagnostic sample."""
+    frame_index, fps_x10 = frame_rate_screen_key(parts)
+    frame = Frame(width_pixels, height_pixels)
+    split = _row_split(height_pixels)
+    _draw_frame_rate_trace(frame, frame_index, width_pixels, split)
+    if split < height_pixels:
+        frame[split:height_pixels, 0:width_pixels] = Text(
+            f"FPS {_frame_rate_label(fps_x10)}",
+            valign="bottom",
+        )
+    return frame
+
+
+def brand_screen_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
+    """Render the startup brand screen."""
+    return _two_row_frame("KINHOLA", "M.COM", width_pixels, height_pixels)
+
+
+def uptime_screen_frame(parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
+    """Render the run uptime over the boot timestamp, scrolling rows that overflow.
+
+    Top row reads ``UP HH:MM:SS`` (elapsed since the first GPS fix); bottom row
+    reads ``BOOT: DD.MM.YY`` (the first fix's local date). Either row is wider
+    than the matrix once labelled, so each scrolls independently as a slow
+    left-right marquee when it does not fit.
+
+    No RTC snapshot can express boot time or a scroll phase, so the engine hands
+    this screen a composite ``(boot_parts, now_parts, scroll_ms)`` triple;
+    ``None`` collapses to a no-fix, zero-phase placeholder.
+    """
+    boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
+    frame = Frame(width_pixels, height_pixels)
+    split = _row_split(height_pixels)
+    top = "UP " + _format_uptime(_uptime_seconds(boot_parts, now_parts))
+    _draw_marquee_row(frame, top, 0, split, scroll_ms, "middle")
+    if split < height_pixels:
+        bottom = "BOOT: " + _format_boot_date(boot_parts)
+        _draw_marquee_row(frame, bottom, split, height_pixels - split, scroll_ms, "bottom")
+    return frame
+
+
+def wait_on_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
+    """Render the visible GPS wait screen endpoint."""
+    return _two_row_frame("GPS", "WAIT", width_pixels, height_pixels)
+
+
+def wait_off_frame(_parts: tuple | None, width_pixels: int, height_pixels: int) -> object:
+    """Render the blank GPS wait screen endpoint."""
+    return Frame(width_pixels, height_pixels, intensity=0)
+
+
+def _two_row_frame(
+    top: str,
+    bottom: str,
+    width_pixels: int,
+    height_pixels: int,
+    *,
+    top_hidden_chars: str = "",
+) -> object:
+    """Render two centered text rows into an exact-size frame.
+
+    ``top_hidden_chars`` are kept in the layout but drawn blank, letting the
+    time colon blink without shifting the rest of the row.
+    """
+    frame = Frame(width_pixels, height_pixels)
+    split = _row_split(height_pixels)
+    frame[0:split, 0:width_pixels] = Text(top, hidden_chars=top_hidden_chars)
+    if split < height_pixels:
+        frame[split:height_pixels, 0:width_pixels] = Text(bottom, valign="bottom")
+    return frame
+
+
+def _row_split(height_pixels: int) -> int:
+    """Return the row where the bottom text band starts.
+
+    Also the top band's height. Never zero, so a panel too short for two bands
+    still gets a whole one and the bottom band collapses instead.
+    """
+    return max(1, height_pixels // 2)
+
+
+def _blink_colon_hidden(second: int) -> str:
+    """Return the chars to blank so the time colon blinks once per second."""
+    return ":" if second % 2 else ""
+
+
+def _draw_seconds_bar(frame: object, second: int, y: int) -> None:
+    """Draw a left-anchored seconds progress bar that fills across the minute.
+
+    The bar grows from empty at ``:00`` to the full width by ``:59``, giving a
+    seconds readout on faces that only show hours and minutes. Drawing is
+    skipped when the target row falls outside the frame.
+    """
+    if y < 0 or y >= frame.height:
+        return
+    for x in range((second * frame.width) // 59):
+        frame.pixel(x, y)
+
+
+def _format_uptime(total_seconds: int) -> str:
+    """Format an elapsed-seconds count as ``HH:MM:SS``, widening hours past 99."""
+    hours = total_seconds // 3_600
+    minutes = (total_seconds % 3_600) // 60
+    seconds = total_seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _format_boot_date(boot_parts: tuple | None) -> str:
+    """Format the first-fix date as ``DD.MM.YY``, or dashes before any fix."""
+    if boot_parts is None:
+        return "--.--.--"
+    year, month, day = boot_parts[:3]
+    return f"{day:02d}.{month:02d}.{year % 100:02d}"
+
+
+def _uptime_seconds(boot_parts: tuple | None, now_parts: tuple | None) -> int:
+    """Return whole seconds between the first fix and now, never negative."""
+    if boot_parts is None or now_parts is None:
+        return 0
+    elapsed = _epoch_seconds(now_parts) - _epoch_seconds(boot_parts)
+    return max(0, elapsed)
+
+
+def _epoch_seconds(parts: tuple) -> int:
+    """Return seconds since 1970-01-01 for an RTC parts tuple.
+
+    Boot and now are both local RTC readings, so the shared epoch base cancels
+    in the difference; the absolute value only needs to be consistent.
+    """
+    year, month, day, _weekday, hour, minute, second = parts
+    return days_from_epoch(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
+
+
+def _scroll_offset(text_width: int, width_pixels: int, scroll_ms: int) -> int:
+    """Return the left crop, in pixels, for a ping-pong marquee at ``scroll_ms``.
+
+    Sweeps 0 -> overflow -> 0 as a triangle wave so the row eases to each edge
+    and reverses instead of jumping back to the start.
+    """
+    overflow = text_width - width_pixels
+    if overflow <= 0:
+        return 0
+    span = 2 * overflow
+    phase = (scroll_ms // SCROLL_MS_PER_PX) % span
+    return phase if phase <= overflow else span - phase
+
+
+def _draw_marquee_row(
+    frame: object,
+    text: str,
+    y0: int,
+    band_height: int,
+    scroll_ms: int,
+    valign: str,
+) -> None:
+    """Draw one text row, centering it if it fits or scrolling it if it overflows.
+
+    Overflowing text is rendered once into a full-width strip and a frame-wide
+    window is blitted at the current scroll offset, since :class:`Text` refuses
+    to draw content wider than its target box.
+    """
+    width = frame.width
+    content = Text(text, valign=valign)
+    text_width, _height = content.measure()
+    if text_width <= width:
+        frame[y0 : y0 + band_height, 0:width] = content
+        return
+    strip = Frame(text_width, band_height)
+    strip[0:band_height, 0:text_width] = content
+    # The offset never exceeds the overflow, so the window always lands inside
+    # the strip and needs no per-column bounds check.
+    offset = _scroll_offset(text_width, width, scroll_ms)
+    for x in range(width):
+        src_x = x + offset
+        for y in range(band_height):
+            if strip.value_at(src_x, y):
+                frame.pixel(x, y0 + y)
+
+
+def _draw_meridiem_badge(frame: object, meridiem: str, x0: int, y0: int) -> None:
+    """Draw the stacked AM/PM letterforms with their top-left corner at ``(x0, y0)``.
+
+    Uses the condensed uniform-width glyphs rather than the body font, whose
+    mixed-width ``M`` would need a column the scaled-up time wants.
+    """
+    y = y0
+    for letter in meridiem:
+        for dy, row in enumerate(_MERIDIEM_GLYPHS[letter]):
+            for dx, bit in enumerate(row):
+                if bit == "1":
+                    frame.pixel(x0 + dx, y + dy)
+        y += _MERIDIEM_GLYPH_HEIGHT + _MERIDIEM_GLYPH_GAP
+
+
+def _frame_rate_label(fps_x10: int) -> str:
+    """Format a fixed-point frames-per-second value for the matrix."""
+    fps_x10 = min(9_999, max(0, fps_x10))
+    return f"{fps_x10 // 10}.{fps_x10 % 10}"
+
+
+def _draw_frame_rate_trace(frame: object, frame_index: int, width: int, height: int) -> None:
+    """Draw a moving diagnostic trace whose jumps reveal uneven frame pacing."""
+    for x in range(width):
+        frame.pixel(x, (x + frame_index) % height)
+    head = frame_index % width
+    trail = min(width, 5)
+    for offset in range(trail):
+        x = (head - offset) % width
+        frame.pixel(x, 0)
+        frame.pixel(x, height - 1)
+        if offset < 2 and height > 2:
+            frame.pixel(x, 1)
+            frame.pixel(x, height - 2)
+
+
+# Every key below covers only the screen's own varying content; ``screen_key``
+# prefixes the screen id, so no screen has to restate it and two screens can
+# never collide in the engine's frame cache.
+
+
+def main_screen_key(parts: tuple) -> tuple:
+    """Return the visible-content key for the compact time/date screen.
+
+    Includes ``second`` so the blinking colon and seconds bar re-render each
+    second even while the hour and minute hold.
+    """
+    _year, _month, day, weekday, hour, minute, second = parts
+    return weekday, day, hour, minute, second
+
+
+def season_screen_key(parts: tuple) -> tuple:
+    """Return the visible-content key for the season interstitial."""
+    year, month, _day, _weekday, _hour, _minute, _second = parts
+    return year, season_name(month)
+
+
+def time_screen_key(parts: tuple) -> tuple:
+    """Return the visible-content key shared by both time-of-day faces.
+
+    Includes ``second`` so the seconds readout — and, on the face that hides
+    them, the blinking colon and seconds bar — re-render each second even while
+    the hour and minute hold.
+    """
+    _year, _month, _day, _weekday, hour, minute, second = parts
+    return hour, minute, second
+
+
+def full_date_screen_key(parts: tuple) -> tuple:
+    """Return the visible-content key for the full-date interstitial."""
+    year, month, day, _weekday, _hour, _minute, _second = parts
+    return year, month, day
+
+
+def frame_rate_screen_key(parts: tuple | None) -> tuple:
+    """Return the visible-content key for one frame-rate diagnostic sample."""
+    if parts is None or len(parts) != 2:
+        return 0, 0
+    return parts
+
+
+def uptime_screen_key(parts: tuple | None) -> tuple:
+    """Return the visible-content key for the uptime screen.
+
+    Keys on both the whole-second uptime and the integer scroll step so the
+    engine re-renders each tick of the clock *and* each pixel of marquee travel.
+    """
+    boot_parts, now_parts, scroll_ms = parts or (None, None, 0)
+    return _uptime_seconds(boot_parts, now_parts), scroll_ms // SCROLL_MS_PER_PX
+
+
+def static_key(_parts: tuple | None) -> tuple:
+    """Return the empty content key shared by screens whose pixels never change."""
+    return ()
+
+
+SCREEN_SPECS = (
+    ScreenSpec(SCREEN_MAIN, KIND_REGULAR, SCREEN_HOLD_MS, main_screen_frame, main_screen_key),
+    ScreenSpec(
+        SCREEN_CLOCK_MERIDIEM,
+        KIND_REGULAR,
+        SCREEN_HOLD_MS,
+        clock_meridiem_screen_frame,
+        time_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_TIME_SECONDS,
+        KIND_REGULAR,
+        SCREEN_HOLD_MS,
+        time_seconds_screen_frame,
+        time_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_SEASON,
+        KIND_INTERSTITIAL,
+        INTERSTITIAL_HOLD_MS,
+        season_screen_frame,
+        season_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_FULL_DATE,
+        KIND_INTERSTITIAL,
+        INTERSTITIAL_HOLD_MS,
+        full_date_screen_frame,
+        full_date_screen_key,
+    ),
+    ScreenSpec(
+        SCREEN_UPTIME, KIND_INTERSTITIAL, UPTIME_HOLD_MS, uptime_screen_frame, uptime_screen_key
+    ),
+    ScreenSpec(
+        SCREEN_FRAME_RATE,
+        KIND_DIAGNOSTIC,
+        FRAME_RATE_TEST_MS,
+        frame_rate_screen_frame,
+        frame_rate_screen_key,
+    ),
+    ScreenSpec(SCREEN_BRAND, KIND_DIAGNOSTIC, BRAND_HOLD_MS, brand_screen_frame, static_key),
+    ScreenSpec(WAIT_OFF, KIND_WAIT, WAIT_ROTATE_MS, wait_off_frame, static_key),
+    ScreenSpec(WAIT_ON, KIND_WAIT, WAIT_ROTATE_MS, wait_on_frame, static_key),
+)
+
+SCREEN_BY_ID = {spec.id: spec for spec in SCREEN_SPECS}
+REGULAR_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_REGULAR)
+INTERSTITIAL_SCREENS = tuple(spec.id for spec in SCREEN_SPECS if spec.kind == KIND_INTERSTITIAL)
+
+
+def screen_spec(screen: int) -> object:
+    """Return the screen specification for ``screen``."""
+    return SCREEN_BY_ID[screen]
+
+
+def render_screen(
+    screen: int,
+    parts: tuple | None,
+    width_pixels: int = WIDTH_PIXELS,
+    height_pixels: int = HEIGHT_PIXELS,
+) -> object:
+    """Render one screen from an RTC parts snapshot."""
+    return screen_spec(screen).render(parts, width_pixels, height_pixels)
+
+
+def screen_key(screen: int, parts: tuple | None) -> tuple:
+    """Return the visible-content key for one screen, prefixed by its id."""
+    # mpy-cross rejects `*`-unpacking in a tuple display ("SyntaxError: *x must
+    # be assignment target"), so this concatenates instead of unpacking.
+    return (screen,) + screen_spec(screen).key(parts)  # noqa: RUF005
+
+
+def is_wait(screen: int) -> bool:
+    """Return whether ``screen`` is a GPS wait endpoint."""
+    return screen_spec(screen).kind == KIND_WAIT
+
+
+def choose_regular(rng: object, exclude: int | None = None) -> int:
+    """Choose one regular clock screen at random, skipping ``exclude``.
+
+    An ``exclude`` that is not itself a regular screen — ``None`` at the first
+    choice, or the brand screen on the way out of startup — excludes nothing.
+    """
+    options = tuple(screen for screen in REGULAR_SCREENS if screen != exclude)
+    return options[randbelow(len(options), rng)]
+
+
+def choose_interstitial(rng: object) -> int:
+    """Choose one interstitial screen at random."""
+    return INTERSTITIAL_SCREENS[randbelow(len(INTERSTITIAL_SCREENS), rng)]

@@ -1,0 +1,47 @@
+---
+services:
+  # Compiles one universal UF2 for RP2040 + RP2350 (each bootloader skips foreign-family blocks).
+  pi-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: pi-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  # Compiles the ESP32-S3 firmware to outputs/app.esp32-s3.bin; no hardware needed.
+  esp32-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs
+
+  # Flashes the compiled .bin to /dev/ttyACM0; runs esp32-compile first, then
+  # fails fast if the board isn't visible.
+  esp32-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: esp32-flash
+    depends_on:
+      esp32-compile:
+        condition: service_completed_successfully
+    volumes:
+      - ./outputs:/outputs:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 166:* rmw  # USB-ACM (TTY) major
+    # Resolve host.docker.internal on Linux too (automatic on Docker Desktop) —
+    # used when SERIAL_PORT is the macOS socket:// bridge.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      # Linux: native device passthrough. macOS: run tools/serial-bridge.sh and
+      # export SERIAL_PORT=socket://host.docker.internal:5555.
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}

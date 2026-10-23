@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import ClassVar
 
 # Mutable test state. Clear it between cases with reset().
 pin_constructions: list[tuple] = []
 uart_constructions: list[UART] = []
 _devices: dict[int, object] = {}
-_uart_lines: list[bytes] = []
-_uart_bytes = bytearray()
+_uart_rx = bytearray()
 _uart_read_exc: Exception | None = None
 _uart_write_exc: Exception | None = None
 _uart_replies: list[bytes] = []
+
+# What an unset RTC reads back on the rp2 port: 2000-01-01, a Saturday (5).
+_RTC_POWER_ON = (2000, 1, 1, 5, 0, 0, 0, 0)
 
 
 def register_device(address: int, device: object) -> None:
@@ -20,21 +23,19 @@ def register_device(address: int, device: object) -> None:
     _devices[address] = device
 
 
-def feed_uart(lines: list[bytes]) -> None:
-    """Queue byte lines for UART.readline() to return in order (FIFO)."""
-    _uart_lines.extend(lines)
-
-
 def feed_uart_bytes(data: bytes, *, notify: bool = True) -> None:
-    """Queue binary UART data for any() and readinto() consumers.
+    """Queue UART data for the any()/read()/readinto() consumers.
+
+    Bytes need not arrive as whole lines: feeding a sentence in fragments models
+    a non-blocking UART that returns only what has been received so far.
 
     Args:
-        data: Bytes appended to the shared binary receive queue.
+        data: Bytes appended to the shared receive buffer.
         notify: Whether to run each UART's receive-idle callback afterwards,
             as hardware does once the line goes quiet. Pass False to leave an
             IRQ-driven reader waiting on its own timeout instead.
     """
-    _uart_bytes.extend(data)
+    _uart_rx.extend(data)
     if notify:
         for uart in uart_constructions:
             uart.trigger_rx_idle()
@@ -67,7 +68,7 @@ def fail_uart_writes(exc: Exception | None) -> None:
 
 
 def queue_uart_replies(replies: list[bytes]) -> None:
-    """Queue one receive-queue reply per `UART.write()` call (FIFO).
+    """Queue one receive-buffer reply per `UART.write()` call (FIFO).
 
     Models a device that answers each command frame, which a driver awaiting an
     acknowledgement inside its own coroutine cannot otherwise be fed. Writes
@@ -80,35 +81,82 @@ def queue_uart_replies(replies: list[bytes]) -> None:
 
 
 def reset() -> None:
-    """Clear recorded constructions, the device registry, and the UART queues."""
+    """Clear recorded constructions, the device registry, and UART/SPI/Timer state."""
     global _uart_read_exc, _uart_write_exc  # noqa: PLW0603
     pin_constructions.clear()
+    Pin.instances.clear()
     uart_constructions.clear()
     _devices.clear()
-    _uart_lines.clear()
-    _uart_bytes.clear()
+    _uart_rx.clear()
     _uart_replies.clear()
     _uart_read_exc = None
     _uart_write_exc = None
+    SPI.instances.clear()
+    Timer.instances.clear()
+
+
+class RTC:
+    """Fake `machine.RTC` holding one datetime tuple in `value`.
+
+    Tests read and seed the clock through `value` rather than round-tripping
+    `datetime()`, so an assertion names the field it cares about directly.
+    """
+
+    def __init__(self, value: tuple = _RTC_POWER_ON) -> None:
+        """Start at the port's power-on default, or at a given instant."""
+        self.value = tuple(value)
+
+    def datetime(self, value: tuple | None = None) -> tuple | None:
+        """Get the stored datetime tuple, or set it when ``value`` is given.
+
+        Args:
+            value: ``(year, month, day, weekday, hour, minute, second, subsecond)``
+                to store, or ``None`` to read the current value.
+
+        Returns:
+            The stored 8-tuple when reading, otherwise ``None``.
+        """
+        if value is None:
+            return self.value
+        self.value = tuple(value)
+        return None
 
 
 class Pin:
-    """Fake `machine.Pin`. Records id + mode, supports value() get/set."""
+    """Fake `machine.Pin`. Records id, mode and pull, supports value() and irq()."""
+
+    instances: ClassVar[list[Pin]] = []
 
     OUT = "OUT"
+    IN = "IN"
+    PULL_UP = "PULL_UP"
+    IRQ_FALLING = "IRQ_FALLING"
 
     def __init__(
         self,
         id: int | str,  # noqa: A002
         mode: str | None = None,
+        pull: str | None = None,
         *_args: object,
+        value: int | None = None,
         **_kwargs: object,
     ) -> None:
-        """Record the pin id and mode for later inspection."""
+        """Record the pin id, mode and pull, honouring an initial `value=`.
+
+        `pull` and `value` are recorded on the instance rather than appended to
+        `pin_constructions`, which stays a list of `(id, mode)` pairs that
+        existing suites compare against exactly. The real Pin drives `value=` on
+        the line at construction — chip-selects rely on idling high — so the stub
+        seeds `_value` from it instead of always starting low.
+        """
         self.id = id
         self.mode = mode
-        self._value = 0
+        self.pull = pull
+        self._value = 0 if value is None else int(bool(value))
+        self._irq_handler = None
+        self._irq_trigger = None
         pin_constructions.append((id, mode))
+        Pin.instances.append(self)
 
     def value(self, v: int | None = None) -> int | None:
         """Get or set the pin value (0/1)."""
@@ -116,6 +164,61 @@ class Pin:
             return self._value
         self._value = int(bool(v))
         return None
+
+    def on(self) -> None:
+        """Set the pin high."""
+        self._value = 1
+
+    def off(self) -> None:
+        """Set the pin low."""
+        self._value = 0
+
+    def irq(
+        self,
+        handler: object = None,
+        trigger: str | None = None,
+        **_kwargs: object,
+    ) -> Pin:
+        """Record an interrupt handler/trigger; return self as the irq object."""
+        self._irq_handler = handler
+        self._irq_trigger = trigger
+        return self
+
+    def trigger_irq(self) -> None:
+        """Test helper: fire the registered IRQ handler as the hardware would."""
+        if self._irq_handler is not None:
+            self._irq_handler(self)
+
+
+class SPI:
+    """Fake `machine.SPI` that records writes."""
+
+    instances: ClassVar[list[SPI]] = []
+
+    def __init__(
+        self,
+        id: int | None = None,  # noqa: A002
+        *_args: object,
+        baudrate: int = 1_000_000,
+        polarity: int = 0,
+        phase: int = 0,
+        sck: object = None,
+        mosi: object = None,
+        **_kwargs: object,
+    ) -> None:
+        """Record SPI configuration and start with no writes."""
+        self.id = id
+        self.baudrate = baudrate
+        self.polarity = polarity
+        self.phase = phase
+        self.sck = sck
+        self.mosi = mosi
+        self.writes: list[bytes] = []
+        SPI.instances.append(self)
+
+    def write(self, buf: bytes) -> None:
+        """Record one SPI write payload."""
+        self.writes.append(bytes(buf))
 
 
 class _I2CBase:
@@ -176,7 +279,7 @@ class SoftI2C(_I2CBase):
 
 
 class UART:
-    """Fake `machine.UART` backed by line and binary receive queues.
+    """Fake `machine.UART` backed by the shared byte receive buffer.
 
     Construction keeps every keyword in `config`, so port-specific settings
     such as `bits`, `parity`, `stop`, `rxbuf`, and `timeout_char` stay
@@ -232,19 +335,37 @@ class UART:
             feed_uart_bytes(_uart_replies.pop(0))
         return len(data)
 
-    def readline(self) -> bytes | None:
-        """Return the next queued byte line, or None when the queue is empty."""
-        return _uart_lines.pop(0) if _uart_lines else None
+    def any(self) -> int:
+        """Return how many bytes are waiting in the receive buffer."""
+        return len(_uart_rx)
+
+    def read(self, nbytes: int | None = None) -> bytes | None:
+        """Return up to nbytes from the receive buffer, or None when empty.
+
+        Models a non-blocking read: it never waits for more bytes to arrive, so
+        a sentence fed in fragments comes back one fragment at a time.
+
+        Args:
+            nbytes: Byte ceiling; defaults to everything buffered.
+
+        Returns:
+            The bytes taken from the buffer, or None when it is empty.
+        """
+        if not _uart_rx:
+            return None
+        data = bytes(_uart_rx[:nbytes])
+        del _uart_rx[:nbytes]
+        return data
 
     def readinto(self, buf: bytearray, nbytes: int | None = None) -> int | None:
-        """Move up to ``nbytes`` queued bytes into ``buf``, or None when empty.
+        """Move up to ``nbytes`` buffered bytes into ``buf``, or None when empty.
 
         Args:
             buf: Caller-owned buffer written in place, as drivers reuse.
             nbytes: Byte ceiling; defaults to however much ``buf`` holds.
 
         Returns:
-            The number of bytes written, or None when nothing was queued.
+            The number of bytes written, or None when nothing was buffered.
 
         Raises:
             exc: Whatever `fail_uart_reads()` last armed, raised once instead
@@ -255,16 +376,12 @@ class UART:
             exc, _uart_read_exc = _uart_read_exc, None
             raise exc
         limit = len(buf) if nbytes is None else min(nbytes, len(buf))
-        count = min(limit, len(_uart_bytes))
+        count = min(limit, len(_uart_rx))
         if not count:
             return None
-        buf[:count] = _uart_bytes[:count]
-        del _uart_bytes[:count]
+        buf[:count] = _uart_rx[:count]
+        del _uart_rx[:count]
         return count
-
-    def any(self) -> int:
-        """Return how many bytes are waiting in the binary receive queue."""
-        return len(_uart_bytes)
 
     def irq(
         self,
@@ -302,3 +419,35 @@ class UART:
         self.irq_handler = None
         self.irq_trigger = 0
         self.deinitialized = True
+
+
+class Timer:
+    """Fake `machine.Timer` recording its periodic callback for tests to fire."""
+
+    PERIODIC = "PERIODIC"
+    instances: ClassVar[list[Timer]] = []
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        """Register the instance with no callback until init() runs."""
+        self.period = None
+        self.mode = None
+        self.callback = None
+        Timer.instances.append(self)
+
+    def init(
+        self,
+        *,
+        period: int = -1,
+        mode: str = PERIODIC,
+        callback: object = None,
+        **_kwargs: object,
+    ) -> None:
+        """Record the timer configuration and periodic callback."""
+        self.period = period
+        self.mode = mode
+        self.callback = callback
+
+    def tick(self) -> None:
+        """Test helper: invoke the periodic callback as the hardware timer would."""
+        if self.callback is not None:
+            self.callback(self)

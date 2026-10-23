@@ -1,4 +1,4 @@
-"""Pure NMEA-0183 sentence parsing helpers for the gps project.
+"""Pure NMEA-0183 sentence parsing helpers, shared across projects.
 
 All functions are stateless and free of I/O — safe to import on both the MCU
 and the CPython host test environment.
@@ -199,7 +199,7 @@ def _parse_rmc_time_and_pos(parts: list) -> dict:
     if lon_dir == "W":
         lon = -lon
     result: dict = {"utc": utc_str, "lat": round(lat, 6), "lon": round(lon, 6)}
-    date_str = parts[9] if len(parts) > 9 else ""
+    date_str = parts[9]  # parse_rmc has already rejected anything shorter
     if date_str:
         date = _parse_rmc_date(date_str)
         if date is not None:
@@ -245,8 +245,6 @@ def parse_sentence(line: str) -> tuple:
         no usable data.
     """
     parts = line.split("*", 1)[0].split(",")
-    if not parts:
-        return {}, set(), {}, {}, {}, {}
     tag = parts[0]
     signals, in_use, total_in_view, dop, position, parsed = {}, set(), {}, {}, {}, {}
     if tag.endswith("GSV"):
