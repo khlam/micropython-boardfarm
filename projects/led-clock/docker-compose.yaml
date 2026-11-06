@@ -1,0 +1,12 @@
+---
+services:
+  # Compiles an RP2040-only UF2 to outputs/app.rp2040.uf2; no hardware needed.
+  rp2040-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.firmware
+      target: rp2040-compile
+    volumes:
+      - ../../firmware-packages:/firmware-packages:ro
+      - ./firmware:/firmware:ro
+      - ./outputs:/outputs

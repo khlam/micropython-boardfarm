@@ -1,0 +1,17 @@
+[project]
+name = "led-clock"
+version = "0.1.0"
+description = "WS2812B seven-segment LED clock — one digit counting 0 to 9 in green on RP2040."
+readme = "README.md"
+requires-python = ">=3.12"
+
+
+dependencies = [
+    "boot_status_led>=0.2.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+boot_status_led = { index = "internal" }

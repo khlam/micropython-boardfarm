@@ -117,6 +117,14 @@ jobs:
             label: ESP32-S3
             pattern: outputs/*.bin
             max_bytes: 2097152  # 2 MiB per .bin
+          # RP2040-only projects sit outside the project × target grid: this
+          # entry matches no combination above, so it adds its own.
+          - project: led-clock
+            target: rp2040
+            service: rp2040-compile
+            label: RP2040
+            pattern: outputs/*.uf2
+            max_bytes: 3145728  # 3 MiB per .uf2
           # Matter build.py pads and validates each complete 4 MiB flash image.
           - project: matter
             target: esp32

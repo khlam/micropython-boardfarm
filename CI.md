@@ -45,7 +45,7 @@ parallel after the guards pass.
 | **version-check** (Repo guards) | Enforces version bumps vs `origin/main` ([.githooks/check_version_bumps.sh](.githooks/check_version_bumps.sh)), locks vendored drivers — a vendored file may only change if the package's `VENDOR.md` changes in the same diff — and checks the skill links and the 600-word `SKILL.md` / `AGENTS.md` cap. All other jobs depend on this. |
 | **lint** | Runs the comprehensive linter sweep via [.githooks/run-linters.sh](.githooks/run-linters.sh) over all `*.py`, `*.yml`/`*.yaml`, and Dockerfiles: `ruff` (format + check), `vulture`, `pydoclint`, `ty`, `hadolint`, `yamllint`. Shares the same linter images as the local hook. |
 | **test** | `docker compose up matter-native-test` — the host C++ unit test for the coalesced Matter state snapshot policy — then `docker compose up pytest` — full suite with a 90% coverage gate (`fail_under = 90` in [pyproject.toml](pyproject.toml)). |
-| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and mint fresh Matter commissioning credentials on every build. |
+| **compile-firmware** | Matrix over each project × target (RP2040+RP2350 via `pi-compile`, ESP32-S3 via `esp32-compile`); verifies each firmware artifact is non-empty and within its [size budget](#firmware-size-budgets). Includes `matter` and `matter-radar-sensor`, which are ESP32-S3-only (excluded from the `rp` target — no `pi-compile` service) and mint fresh Matter commissioning credentials on every build. `led-clock` is RP2040-only: it sits outside the grid as its own `include` entry, built by its `rp2040-compile` service. |
 | **vuln-check** | `uv-secure` scans [uv.lock](uv.lock) (image built via `docker buildx bake scan-uv-secure`); fails only when a vulnerable dependency has a fixed release available. |
 | **cve-scan** | Trivy image scan (HIGH/CRITICAL) of the `scan-viz`, `scan-pytest`, and `scan-uv-secure` bake images (`docker buildx bake`). Report-only — does not fail the build. |
 | **all-checks-pass** | Aggregates the results of the above into a single required status. |
@@ -59,7 +59,7 @@ fails if any single file is empty or over budget:
 
 | Artifact | Glob | Budget |
 |---|---|---|
-| RP2040 + RP2350 UF2 | `outputs/*.uf2` | 3 MiB (3,145,728 B) per file |
+| UF2 (RP2040 + RP2350, or RP2040-only) | `outputs/*.uf2` | 3 MiB (3,145,728 B) per file |
 | ESP32-S3 image | `outputs/*.bin` | 2 MiB (2,097,152 B) per file |
 | ESP32-S3 image (Matter projects) | `outputs/*.bin` | 4 MiB (4,194,304 B) |
 
@@ -69,9 +69,10 @@ above the current largest artifact, so they catch a few-hundred-KB regression
 while leaving real headroom under the chips' flash (RP2040 2 MB, RP2350/ESP32-S3
 4 MB).
 
-The UF2 check is per-file by design: a project emits one universal
-`app.rp2040.rp2350.uf2` today, but may later split into separate per-chip UF2s if
-one grows too large — each is then checked against the same budget independently.
+The UF2 check is per-file by design: most projects emit one universal
+`app.rp2040.rp2350.uf2`, an RP2040-only project emits `app.rp2040.uf2`, and a
+project may later split into separate per-chip UF2s if one grows too large —
+each is checked against the same budget independently.
 Bump `max_bytes` deliberately when a size increase is justified.
 
 A Matter image is deterministically padded to the whole flash on every build

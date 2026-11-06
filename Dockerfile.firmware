@@ -1,6 +1,6 @@
-# Firmware stages: pi-compile (RP2040 + RP2350 cross-compile), esp32-compile
-# (ESP32-S3 build) and esp32-flash (ESP32-S3 flash). Each project's
-# docker-compose.yaml picks one via `target:`.
+# Firmware stages: pi-compile (RP2040 + RP2350 cross-compile), rp2040-compile
+# (RP2040-only build), esp32-compile (ESP32-S3 build) and esp32-flash (ESP32-S3
+# flash). Each project's docker-compose.yaml picks one via `target:`.
 # Host-Python apps live in Dockerfile.host; pytest lives in Dockerfile.tests.
 
 # renovate: datasource=github-tags depName=micropython/micropython
@@ -72,6 +72,31 @@ ENTRYPOINT ["sh","-c", "\
     > /outputs/app.rp2040.rp2350.uf2; \
   chown -R $(stat -c '%u:%g' /firmware 2>/dev/null || echo 0:0) /outputs; \
   echo '/outputs/app.rp2040.rp2350.uf2 ready'"]
+
+
+# -----------------------------------------------------------------------------
+# Stage: rp2040-compile — RP2040-only build to /outputs/app.rp2040.uf2, for
+# projects that support no other Raspberry Pi chip. Drag-and-drop of a
+# single-family UF2 ends when the RP2040 bootrom reboots; the universal file
+# still has its RP2350 half to write at that point, so the host reports a
+# failed copy even though the RP2040 flashed. Shares pi-compile's toolchain
+# and submodules; keep the cmake flags in sync with it.
+# -----------------------------------------------------------------------------
+FROM pi-compile AS rp2040-compile
+
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
+  cmake -S . -B /build/RPI_PICO \
+    -DPICO_SDK_PATH=${PICO_SDK_PATH} \
+    -DUPDATE_SUBMODULES=OFF \
+    -DPICO_BUILD_DOCS=0 \
+    -DMICROPY_BOARD=RPI_PICO \
+    -DMICROPY_BOARD_DIR=$(pwd)/boards/RPI_PICO \
+    -DMICROPY_FROZEN_MANIFEST=/manifest.py; \
+  cmake --build /build/RPI_PICO -- -j$(nproc); \
+  cp /build/RPI_PICO/firmware.uf2 /outputs/app.rp2040.uf2; \
+  chown -R $(stat -c '%u:%g' /firmware 2>/dev/null || echo 0:0) /outputs; \
+  echo '/outputs/app.rp2040.uf2 ready'"]
 
 
 # -----------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [project]
 name = "micropython-boardfarm"
-version = "0.20.0"
+version = "0.21.0"
 description = "Write MicroPython firmware that behaves the same across all supported microcontroller boards"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -117,6 +117,7 @@ source = [
   "/projects/gps/firmware",
   "/projects/gyro-stream/firmware",
   "/projects/ld2450/firmware",
+  "/projects/led-clock/firmware",
   "/projects/multizone-ranging/firmware",
   "/projects/matter/firmware",
   "/projects/matter-radar-sensor/firmware",
