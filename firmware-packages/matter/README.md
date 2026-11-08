@@ -105,8 +105,8 @@ atomic generation and pulls changed state cooperatively, so it never runs on a
 CHIP task or interrupt. Snapshot request failures raise `OSError` and remain
 pending because `Node` commits its generation only after successful processing.
 
-The first backend is the native ESP-Matter ESP32-S3 integration under
-`native/`. The host `_matter` fake in `micropython_stubs` exercises the same
+The first backend is the native ESP-Matter integration under `native/`, built
+for the ESP32-S3 and the classic ESP32 (ESP32-CAM). The host `_matter` fake in `micropython_stubs` exercises the same
 primitive boundary without a device. [ARCHITECTURE.md](ARCHITECTURE.md) diagrams
 how the two native halves are called, which task each one runs on, and how they
 are built.

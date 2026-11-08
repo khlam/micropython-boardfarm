@@ -152,6 +152,7 @@ def factory_values(**overrides):
 def identity():
     """A build identity matching the published CHIP test device."""
     return build._BuildIdentity(
+        idf_target="esp32s3",
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,

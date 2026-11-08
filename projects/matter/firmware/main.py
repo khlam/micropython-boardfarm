@@ -1,4 +1,7 @@
-"""Expose the ESP32-S3-Zero onboard WS2812 through ESP-Matter.
+"""Expose a WS2812 pixel through ESP-Matter.
+
+The pixel is the ESP32-S3-Zero's onboard one, or an external one wired to the
+ESP32-CAM, whose own LEDs cannot show colour.
 
 Definitions first, boot sequence at the bottom. The module polls Matter every
 50 ms after startup. Interrupting that loop leaves `pixel`, `node`, `endpoint`,
@@ -24,13 +27,18 @@ from color import matter_to_triple, publish_triple
 import matter
 from matter.emit import error
 
-# Pin map for this board. led_pin drives the onboard WS2812. Only ESP32-S3 is
-# supported, so any other chip is a build error, not a fallback case.
+# Pin map for each supported board. led_pin drives the WS2812: onboard on the
+# ESP32-S3-Zero, external on the ESP32-CAM. ESP32S3 is checked first because
+# "ESP32" is a substring of it. Any other chip is a build error, not a fallback
+# case.
 Board = namedtuple("Board", ("name", "led_pin", "pixel_count"))
 _machine = os.uname().machine
-if "ESP32S3" not in _machine:
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", led_pin=21, pixel_count=1)
+elif "ESP32" in _machine:
+    BOARD = Board(name="ESP32-CAM", led_pin=13, pixel_count=1)
+else:
     raise RuntimeError(f"unsupported board: {_machine}")
-BOARD = Board(name="ESP32-S3-Zero", led_pin=21, pixel_count=1)
 
 # One colour per state a node can be in before it is paired, because the
 # failures worth catching are the ones where it stops advertising: a node nobody

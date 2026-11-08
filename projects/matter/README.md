@@ -1,7 +1,8 @@
-# ESP32-S3-Zero Matter Color Light
+# Matter Color Light
 
-This project exposes the ESP32-S3-Zero's onboard WS2812 on GPIO21 as a Matter
-Extended Color Light. ESP-Matter handles commissioning and protocol state;
+This project exposes a WS2812 pixel as a Matter Extended Color Light: the
+ESP32-S3-Zero's onboard pixel on GPIO21, or an external pixel on an AI-Thinker
+ESP32-CAM's IO13 ([ESP32-CAM](#esp32-cam)). ESP-Matter handles commissioning and protocol state;
 `firmware/main.py` sets up the node and owns the pixel, and `firmware/color/`
 turns the endpoint into a plain RGB colour, so setting the LED is one call:
 
@@ -81,6 +82,46 @@ Set `SERIAL_PORT` when the board is not `/dev/ttyACM0`:
 SERIAL_PORT=/dev/ttyACM1 docker compose run --rm --build esp32-flash
 ```
 
+### ESP32-CAM
+
+The same firmware builds for the AI-Thinker ESP32-CAM; its camera and microSD
+slot are unused. Its own LEDs are a red on/off LED and the white flash LED, and
+neither can show colour, so wire an external WS2812 pixel by the board's
+silkscreen labels:
+
+| WS2812 | ESP32-CAM |
+| --- | --- |
+| DIN | `IO13` |
+| 5V | `5V` |
+| GND | `GND` |
+
+Leave `IO12`, `IO2`, `IO4` and `IO16` unconnected. `IO12` held high at boot sets
+the wrong flash voltage, and the board does not boot. `IO2` held high stops the
+bootloader from starting. `IO4` drives the flash LED, and `IO16` is the PSRAM
+chip select.
+
+Build without a board:
+
+```console
+docker compose up --build --exit-code-from esp32cam-compile esp32cam-compile
+```
+
+The build writes `app.esp32-cam.bin`, `app.esp32-cam.qr.png`, and
+`app.esp32-cam.setup.txt` to `outputs/`, beside any ESP32-S3 artifacts.
+Commission with the pair built alongside the ESP32-CAM image.
+
+Seat the ESP32-CAM on its ESP32-CAM-MB programmer board, which appears as
+`/dev/ttyUSB0`, then compile and flash:
+
+```console
+docker compose run --rm --build esp32cam-flash
+```
+
+The MB board puts the ESP32 into its bootloader on its own. If flashing fails to
+connect, hold `IO0`, tap `RST`, and run it again. The console runs over that
+USB-serial bridge at 115200 baud, so watch the board with
+`SERIAL_PORT=/dev/ttyUSB0` set for the monitor below.
+
 ## Watch the board
 
 ```console
@@ -98,8 +139,8 @@ time what it is able to say at all, and at the default `NONE` it cannot report
 why a commissioning attempt failed — which is the only thing worth knowing when
 Apple Home refuses to pair. Expect `[chip]` lines interleaved with the JSON;
 `Commissioning failed (attempt N)` and the `CHIP_ERROR` beside it name the stage
-that gave up. Drop the line from
-`native/board/ESP32_S3_MATTER/sdkconfig.board` to go back to a silent build.
+that gave up. Drop the line from the board's
+`native/board/<board>/sdkconfig.board` to go back to a silent build.
 
 `MONITOR_PROBE=1` sends a newline on connect — a `>>>` prompt in the reply means
 no program is running. `MONITOR_SEND='…'` types one line at the REPL, and
@@ -113,7 +154,8 @@ can accept it.
    bridge reopens the window whenever the stack would otherwise stop advertising.
 2. In Apple Home, choose **Add Accessory**.
 3. Scan `outputs/app.esp32-s3.qr.png`, or enter the manual code from
-   `outputs/app.esp32-s3.setup.txt`. The pixel turns cyan when Home engages.
+   `outputs/app.esp32-s3.setup.txt` (`app.esp32-cam.*` for the ESP32-CAM). The
+   pixel turns cyan when Home engages.
 4. Follow Apple Home's prompts to provide the 2.4 GHz Wi-Fi network and assign
    the light to a room. The pixel goes dark on success and the light appears in
    Home switched off — turn it on there to take the pixel over.

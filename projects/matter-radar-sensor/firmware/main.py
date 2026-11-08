@@ -7,7 +7,7 @@ occupancy stays on after the first empty report, from zero to ten minutes. A
 missing report or UART error forces occupancy on and restarts the radar
 connection.
 
-The board sends the same JSON reports over USB serial and its dashboard
+The board sends the same JSON reports over serial and its dashboard
 WebSocket.
 """
 
@@ -27,14 +27,18 @@ import matter
 from matter.emit import add_sink, emit, error
 from radar import NoRadarError, ReportStream, detect
 
-# Pin map for this board, shared by every supported radar. ``tx`` connects to
-# radar RX, ``rx`` to radar TX, and ``led_pin`` drives the onboard WS2812. Only
-# ESP32-S3 is supported.
+# Pin map for each supported board, shared by every supported radar. ``tx``
+# connects to radar RX, ``rx`` to radar TX, and ``led_pin`` drives the status
+# WS2812: onboard on the ESP32-S3-Zero, external on the ESP32-CAM. ESP32S3 is
+# checked first because "ESP32" is a substring of it.
 Board = namedtuple("Board", ("name", "uart_id", "tx", "rx", "led_pin"))
 _machine = os.uname().machine
-if "ESP32S3" not in _machine:
+if "ESP32S3" in _machine:
+    BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
+elif "ESP32" in _machine:
+    BOARD = Board(name="ESP32-CAM", uart_id=1, tx=14, rx=15, led_pin=13)
+else:
     raise RuntimeError(f"unsupported board: {_machine}")
-BOARD = Board(name="ESP32-S3-Zero", uart_id=1, tx=5, rx=6, led_pin=21)
 
 _RADAR_RETRY_MS = const(1_000)
 _MATTER_POLL_MS = const(50)

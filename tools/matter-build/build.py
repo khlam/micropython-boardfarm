@@ -1,4 +1,4 @@
-"""Build the ESP32-S3 Matter firmware and publish its commissioning artifacts.
+"""Build one board's Matter firmware and publish its commissioning artifacts.
 
 Runs inside the `matter-toolchain` stage of Dockerfile.matter. The stage's
 ENTRYPOINT sources the ESP-IDF and ESP-Matter environments before exec'ing this
@@ -45,7 +45,7 @@ import onboarding_codes
 import qr_image
 import spake2p
 
-_BOARD_DIR = Path("/matter-board/ESP32_S3_MATTER")
+_BOARD_ROOT = Path("/matter-board")
 _BUILD_CACHE = Path("/build-cache")
 _MANIFEST = Path("/manifest.py")
 _MATTER_NATIVE = Path("/firmware-packages/matter/native")
@@ -57,21 +57,24 @@ _PROJECT_TOML = Path("/project/pyproject.toml")
 # unless they are handed back to whoever owns the equally bind-mounted source.
 _OWNER_REFERENCE = Path("/firmware")
 
-_BOARD_NAME = "ESP32_S3_MATTER"
-_IDF_TARGET = "esp32s3"
 _ARTIFACT_MODE = 0o644
+
+# Every board this script builds, by its directory under /matter-board, mapped
+# to the prefix its three published artifacts share. The board directory
+# supplies everything else; the prefix only keeps each board's artifacts apart
+# so builds for different chips can share one /outputs.
+_BOARDS = {
+    "ESP32_S3_MATTER": "app.esp32-s3",
+    "ESP32_CAM_MATTER": "app.esp32-cam",
+}
 
 # The project's own dashboard, served by the board once it is on the network.
 # Optional: a project without a viz/ mount simply builds without one.
 _DASHBOARD_SOURCE = Path("/viz/static/index.html")
 
-_MERGED_NAME = "app.esp32-s3.bin"
-_QR_NAME = "app.esp32-s3.qr.png"
-_SETUP_NAME = "app.esp32-s3.setup.txt"
-
-# The complete set of files allowed to exist in /outputs.
-_OUTPUT_NAMES = frozenset({_MERGED_NAME, _QR_NAME, _SETUP_NAME})
-_STAGING_NAMES = frozenset(f".matter-build.{name}.new" for name in _OUTPUT_NAMES)
+# esptool writes the merged image under this name; _publish installs it under
+# the board's public one.
+_MERGED_SCRATCH_NAME = "merged-image.bin"
 
 # Hardware identity with no board-configuration source and no per-build
 # parameter. Discovery mode also reaches the onboarding check, which
@@ -135,12 +138,27 @@ class _BuildIdentity:
     instead of against a second copy of the same constants.
     """
 
+    idf_target: str
     vendor_id: int
     product_id: int
     factory_offset: int
     factory_size: int
     flash_size: int
     discovery_mode: int
+
+
+@dataclass(frozen=True)
+class _ArtifactNames:
+    """The three files one board's build publishes to /outputs."""
+
+    merged: str
+    qr: str
+    setup: str
+
+    @property
+    def names(self) -> tuple[str, str, str]:
+        """Return every name, binary first: the order a cutover replaces them in."""
+        return (self.merged, self.qr, self.setup)
 
 
 def main() -> int:
@@ -157,16 +175,20 @@ def main() -> int:
     manufacturer = args.manufacturer or _DEFAULT_MANUFACTURER
     serial_number = args.serial_number or _default_serial_number()
     model = _pyproject_to_model(_PROJECT_TOML)
-    identity = _board_to_identity(_BOARD_DIR, _DISCOVERY_MODE)
+    artifacts = _board_to_artifacts(args.board)
+    identity = _board_to_identity(_BOARD_ROOT / args.board, _DISCOVERY_MODE)
+    # One IDF build tree per board: a tree configured for one chip cannot be
+    # reused for another.
+    build_root = _BUILD_CACHE / args.board
     with tempfile.TemporaryDirectory(prefix="matter-build.") as scratch:
         staging_root = Path(scratch)
-        _BUILD_CACHE.mkdir(parents=True, exist_ok=True)
-        _build_firmware(_BUILD_CACHE, _stage_dashboard(staging_root))
+        build_root.mkdir(parents=True, exist_ok=True)
+        _build_firmware(build_root, _stage_dashboard(staging_root), args.board)
         factory, qr, manual, payload, discriminator = _mint_credentials(
             staging_root, identity, manufacturer, serial_number, model, passcode
         )
         merged = _merge_image(
-            _BUILD_CACHE,
+            build_root,
             factory,
             identity,
             artifact_root=staging_root,
@@ -177,15 +199,23 @@ def main() -> int:
             discriminator,
             identity,
         )
-        _publish(merged, qr, manual, payload)
-        _hand_outputs_to_owner()
-    sys.stdout.write(f"{_OUTPUT_DIR / _MERGED_NAME} and matching commissioning artifacts ready\n")
+        _publish(artifacts, merged, qr, manual, payload)
+        _hand_outputs_to_owner(artifacts)
+    sys.stdout.write(
+        f"{_OUTPUT_DIR / artifacts.merged} and matching commissioning artifacts ready\n"
+    )
     return 0
 
 
 def _parse_args() -> argparse.Namespace:
     """Parse the build's command line."""
-    parser = argparse.ArgumentParser(description="Build and publish ESP32-S3 Matter firmware.")
+    parser = argparse.ArgumentParser(description="Build and publish one board's Matter firmware.")
+    parser.add_argument(
+        "--board",
+        required=True,
+        choices=sorted(_BOARDS),
+        help="board directory under /matter-board to build; also names the published artifacts",
+    )
     parser.add_argument(
         "--passcode",
         default="",
@@ -205,12 +235,21 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _board_to_artifacts(board: str) -> _ArtifactNames:
+    """Return the public names of the three artifacts one board's build publishes."""
+    prefix = _BOARDS[board]
+    return _ArtifactNames(
+        merged=f"{prefix}.bin", qr=f"{prefix}.qr.png", setup=f"{prefix}.setup.txt"
+    )
+
+
 def _board_to_identity(board_dir: Path, discovery_mode: int) -> _BuildIdentity:
-    """Read the device's identity and flash layout out of its board configuration."""
+    """Read the device's chip, identity and flash layout out of its board configuration."""
     config = _sdkconfig_to_values(board_dir / "sdkconfig.board")
     label = _required(config, "CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL").strip('"')
     offset, size = _partitions_to_factory(board_dir / "partitions.csv", label)
     return _BuildIdentity(
+        idf_target=_required(config, "CONFIG_IDF_TARGET").strip('"'),
         vendor_id=int(_required(config, "CONFIG_DEVICE_VENDOR_ID"), 0),
         product_id=int(_required(config, "CONFIG_DEVICE_PRODUCT_ID"), 0),
         factory_offset=offset,
@@ -324,8 +363,8 @@ def _stage_dashboard(staging_root: Path) -> Path | None:
     return staged
 
 
-def _build_firmware(build_root: Path, staged: Path | None) -> None:
-    """Compile MicroPython with the ESP-Matter native module into build_root.
+def _build_firmware(build_root: Path, staged: Path | None, board: str) -> None:
+    """Compile one board's MicroPython with the ESP-Matter native module into build_root.
 
     Remove cached sdkconfig so idf.py applies the board's SDKCONFIG_DEFAULTS on
     every build. There is no interactive configuration to preserve; identical
@@ -335,6 +374,7 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
         build_root: Directory the IDF build tree lives in.
         staged: Directory of build-generated modules to freeze, or None when the
             build generated none. Reaches the manifest as FROZEN_STAGING_DIR.
+        board: Board directory under /matter-board to build.
     """
     (build_root / "idf" / "sdkconfig").unlink(missing_ok=True)
     _run(
@@ -345,9 +385,9 @@ def _build_firmware(build_root: Path, staged: Path | None) -> None:
             "-B",
             str(build_root / "idf"),
             "-D",
-            f"MICROPY_BOARD={_BOARD_NAME}",
+            f"MICROPY_BOARD={board}",
             "-D",
-            f"MICROPY_BOARD_DIR={_BOARD_DIR}",
+            f"MICROPY_BOARD_DIR={_BOARD_ROOT / board}",
             "-D",
             f"MICROPY_FROZEN_MANIFEST={_MANIFEST}",
             "-D",
@@ -436,16 +476,16 @@ def _merge_image(
     """Combine the IDF build and the factory partition into one flashable image.
 
     Runs from the IDF build directory because @flash_args names the bootloader,
-    partition table and application by paths relative to it. The merged image can
-    be staged outside the persistent compilation tree so per-device artifacts do
-    not become build-cache state.
+    partition table and application by paths relative to it, each at the offset
+    its chip boots from. The merged image can be staged outside the persistent
+    compilation tree so per-device artifacts do not become build-cache state.
     """
-    merged = (artifact_root if artifact_root is not None else build_root) / _MERGED_NAME
+    merged = (artifact_root if artifact_root is not None else build_root) / _MERGED_SCRATCH_NAME
     _run(
         [
             "esptool.py",
             "--chip",
-            _IDF_TARGET,
+            identity.idf_target,
             "merge_bin",
             "--fill-flash-size",
             f"{identity.flash_size // (1024 * 1024)}MB",
@@ -617,41 +657,50 @@ def _validate_factory_identity(values: dict, discriminator: int, identity: _Buil
         raise ValueError("factory data must contain a verifier and no plaintext passcode")
 
 
-def _publish(merged: Path, qr: Path, manual: str, payload: str) -> None:
-    """Publish one matched artifact generation with a fail-closed cutover.
+def _publish(artifacts: _ArtifactNames, merged: Path, qr: Path, manual: str, payload: str) -> None:
+    """Publish one board's matched artifact generation with a fail-closed cutover.
 
     All three files are staged on the output filesystem before the public pairing
     material is removed. During cutover, the binary is replaced before its matching
     QR and setup text, so an interrupted build never exposes stale credentials beside
     a new image. An advisory lock on the output directory serializes live build
     processes without adding a fourth artifact that could itself become stale.
+    Another board's generation in the same directory is left untouched.
     """
     with _publication_lock():
-        unexpected = sorted(
-            path.name
-            for path in _OUTPUT_DIR.iterdir()
-            if path.name not in _OUTPUT_NAMES and path.name not in _STAGING_NAMES
-        )
+        allowed = _publishable_names()
+        unexpected = sorted(path.name for path in _OUTPUT_DIR.iterdir() if path.name not in allowed)
         if unexpected:
             raise ValueError("unexpected output artifacts: " + ", ".join(unexpected))
 
-        destinations = {name: _OUTPUT_DIR / name for name in _OUTPUT_NAMES}
-        staged = {name: _OUTPUT_DIR / f".matter-build.{name}.new" for name in _OUTPUT_NAMES}
+        destinations = {name: _OUTPUT_DIR / name for name in artifacts.names}
+        staged = {name: _OUTPUT_DIR / _staging_name(name) for name in artifacts.names}
         for path in staged.values():
             path.unlink(missing_ok=True)
 
         try:
-            _install(merged, staged[_MERGED_NAME])
-            _install(qr, staged[_QR_NAME])
-            _write_setup(staged[_SETUP_NAME], manual, payload)
+            _install(merged, staged[artifacts.merged])
+            _install(qr, staged[artifacts.qr])
+            _write_setup(staged[artifacts.setup], manual, payload)
 
-            destinations[_SETUP_NAME].unlink(missing_ok=True)
-            destinations[_QR_NAME].unlink(missing_ok=True)
-            for name in (_MERGED_NAME, _QR_NAME, _SETUP_NAME):
+            destinations[artifacts.setup].unlink(missing_ok=True)
+            destinations[artifacts.qr].unlink(missing_ok=True)
+            for name in artifacts.names:
                 _commit_staged(staged[name], destinations[name])
         finally:
             for path in staged.values():
                 path.unlink(missing_ok=True)
+
+
+def _publishable_names() -> frozenset[str]:
+    """Return every name allowed in /outputs: each board's artifacts and staging names."""
+    public = {name for board in _BOARDS for name in _board_to_artifacts(board).names}
+    return frozenset(public | {_staging_name(name) for name in public})
+
+
+def _staging_name(name: str) -> str:
+    """Return the reserved name a public artifact is staged under before cutover."""
+    return f".matter-build.{name}.new"
 
 
 @contextmanager
@@ -685,11 +734,12 @@ def _commit_staged(source: Path, destination: Path) -> None:
     source.replace(destination)
 
 
-def _hand_outputs_to_owner() -> None:
-    """Give the finished artifacts to whoever owns the bind-mounted source tree."""
-    published = sorted(_OUTPUT_DIR.iterdir())
-    if len(published) != len(_OUTPUT_NAMES):
-        raise ValueError(f"expected {len(_OUTPUT_NAMES)} artifacts, found {len(published)}")
+def _hand_outputs_to_owner(artifacts: _ArtifactNames) -> None:
+    """Give one board's finished artifacts to whoever owns the bind-mounted source tree."""
+    published = [_OUTPUT_DIR / name for name in artifacts.names]
+    missing = [path.name for path in published if not path.is_file()]
+    if missing:
+        raise ValueError("published artifacts are missing: " + ", ".join(missing))
     owner = _OWNER_REFERENCE.stat()
     for path in [_OUTPUT_DIR, *published]:
         os.chown(path, owner.st_uid, owner.st_gid)

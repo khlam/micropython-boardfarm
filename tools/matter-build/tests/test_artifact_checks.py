@@ -18,6 +18,7 @@ _FACTORY_OFFSET = 128
 _FACTORY_SIZE = 64
 _MANUAL = "34970112332"
 _PAYLOAD = "MT:-24J0AFN00KA0648G00"
+_ARTIFACTS = build._board_to_artifacts("ESP32_S3_MATTER")
 
 
 def test_accepts_an_image_carrying_its_factory_partition(image, identity):
@@ -66,13 +67,13 @@ def test_rejects_an_empty_qr_image(image, identity):
 
 
 def test_publish_installs_a_complete_generation_readable(image, outputs):
-    build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+    build._publish(_ARTIFACTS, image.merged, image.qr, _MANUAL, _PAYLOAD)
 
-    merged = outputs / build._MERGED_NAME
-    setup = outputs / build._SETUP_NAME
-    assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
+    merged = outputs / _ARTIFACTS.merged
+    setup = outputs / _ARTIFACTS.setup
+    assert {path.name for path in outputs.iterdir()} == set(_ARTIFACTS.names)
     assert merged.read_bytes() == image.merged.read_bytes()
-    assert (outputs / build._QR_NAME).read_bytes() == image.qr.read_bytes()
+    assert (outputs / _ARTIFACTS.qr).read_bytes() == image.qr.read_bytes()
     assert setup.read_text(encoding="utf-8") == (
         f"manual_pairing_code={_MANUAL}\nsetup_payload={_PAYLOAD}\n"
     )
@@ -91,7 +92,7 @@ def test_publish_staging_failure_preserves_the_current_generation(image, outputs
 
     monkeypatch.setattr(build, "_install", fail_while_staging_qr)
     with pytest.raises(OSError, match="simulated staging failure"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(_ARTIFACTS, image.merged, image.qr, _MANUAL, _PAYLOAD)
 
     assert {path.name: path.read_bytes() for path in outputs.iterdir()} == current
 
@@ -110,21 +111,21 @@ def test_publish_cutover_failure_never_leaves_stale_pairing_material(image, outp
 
     monkeypatch.setattr(build, "_commit_staged", fail_while_replacing_qr)
     with pytest.raises(OSError, match="simulated cutover failure"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(_ARTIFACTS, image.merged, image.qr, _MANUAL, _PAYLOAD)
 
-    assert (outputs / build._MERGED_NAME).read_bytes() == image.merged.read_bytes()
-    assert not (outputs / build._QR_NAME).exists()
-    assert not (outputs / build._SETUP_NAME).exists()
-    assert {path.name for path in outputs.iterdir()} == {build._MERGED_NAME}
+    assert (outputs / _ARTIFACTS.merged).read_bytes() == image.merged.read_bytes()
+    assert not (outputs / _ARTIFACTS.qr).exists()
+    assert not (outputs / _ARTIFACTS.setup).exists()
+    assert {path.name for path in outputs.iterdir()} == {_ARTIFACTS.merged}
 
 
 def test_publish_recovers_reserved_staging_files(image, outputs):
-    for name in build._STAGING_NAMES:
-        (outputs / name).write_bytes(b"interrupted build")
+    for name in _ARTIFACTS.names:
+        (outputs / build._staging_name(name)).write_bytes(b"interrupted build")
 
-    build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+    build._publish(_ARTIFACTS, image.merged, image.qr, _MANUAL, _PAYLOAD)
 
-    assert {path.name for path in outputs.iterdir()} == build._OUTPUT_NAMES
+    assert {path.name for path in outputs.iterdir()} == set(_ARTIFACTS.names)
 
 
 def test_publish_serializes_live_generations(outputs, tmp_path):
@@ -172,9 +173,9 @@ def test_publish_serializes_live_generations(outputs, tmp_path):
     assert first.exitcode == 0
     assert second.exitcode == 0
     assert second_entered.is_set()
-    assert (outputs / build._MERGED_NAME).read_bytes() == b"second merged"
-    assert (outputs / build._QR_NAME).read_bytes() == b"second QR"
-    assert (outputs / build._SETUP_NAME).read_text(encoding="utf-8") == (
+    assert (outputs / _ARTIFACTS.merged).read_bytes() == b"second merged"
+    assert (outputs / _ARTIFACTS.qr).read_bytes() == b"second QR"
+    assert (outputs / _ARTIFACTS.setup).read_text(encoding="utf-8") == (
         "manual_pairing_code=second manual\nsetup_payload=second payload\n"
     )
 
@@ -183,14 +184,14 @@ def test_publish_refuses_to_write_beside_a_stray_file(image, outputs):
     current = _seed_generation(outputs)
     (outputs / "leftover.bin").write_bytes(b"")
     with pytest.raises(ValueError, match=r"unexpected output artifacts: leftover\.bin"):
-        build._publish(image.merged, image.qr, _MANUAL, _PAYLOAD)
+        build._publish(_ARTIFACTS, image.merged, image.qr, _MANUAL, _PAYLOAD)
     assert {
         path.name: path.read_bytes() for path in outputs.iterdir() if path.name != "leftover.bin"
     } == current
 
 
 def test_write_setup_names_both_codes(outputs):
-    setup = outputs / build._SETUP_NAME
+    setup = outputs / _ARTIFACTS.setup
     build._write_setup(setup, _MANUAL, _PAYLOAD)
 
     assert setup.read_text(encoding="utf-8") == (
@@ -202,9 +203,9 @@ def test_write_setup_names_both_codes(outputs):
 def _seed_generation(outputs):
     """Write and return the public bytes of one complete current generation."""
     contents = {
-        build._MERGED_NAME: b"current merged image",
-        build._QR_NAME: b"current QR image",
-        build._SETUP_NAME: b"manual_pairing_code=current\n",
+        _ARTIFACTS.merged: b"current merged image",
+        _ARTIFACTS.qr: b"current QR image",
+        _ARTIFACTS.setup: b"manual_pairing_code=current\n",
     }
     for name, content in contents.items():
         (outputs / name).write_bytes(content)
@@ -249,7 +250,7 @@ def _publish_in_process(
     build._install = controlled_install
     if started is not None:
         started.set()
-    build._publish(merged, qr, manual, payload)
+    build._publish(_ARTIFACTS, merged, qr, manual, payload)
 
 
 class _Image:
@@ -261,7 +262,7 @@ class _Image:
         merged = bytearray(b"\x00" * _FLASH_SIZE)
         merged[_FACTORY_OFFSET : _FACTORY_OFFSET + _FACTORY_SIZE] = factory_bytes
 
-        self.merged = root / build._MERGED_NAME
+        self.merged = root / _ARTIFACTS.merged
         self.factory = root / "factory-partition.bin"
         self.qr = root / "device-qrcode.png"
         self.merged.write_bytes(bytes(merged))
@@ -273,6 +274,7 @@ class _Image:
 def identity():
     """A build identity shrunk to the miniature image the fixtures build."""
     return build._BuildIdentity(
+        idf_target="esp32s3",
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=_FACTORY_OFFSET,

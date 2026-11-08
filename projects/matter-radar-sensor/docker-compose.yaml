@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile.matter
       target: matter-toolchain
     environment:
+      - MATTER_BOARD=ESP32_S3_MATTER
       - PASSCODE=${PASSCODE:-}
       - MANUFACTURER=${MANUFACTURER:-}
       - SERIAL_NUMBER=${SERIAL_NUMBER:-}
@@ -21,6 +22,32 @@ services:
       - ./outputs:/outputs
       - matter-build-cache:/build-cache
 
+  # The same build for the AI-Thinker ESP32-CAM. build.py keeps one IDF build
+  # tree per board in the shared cache, and publishes app.esp32-cam.* beside
+  # any app.esp32-s3.* already in outputs/.
+  esp32cam-compile:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.matter
+      target: matter-toolchain
+    environment:
+      - MATTER_BOARD=ESP32_CAM_MATTER
+      - PASSCODE=${PASSCODE:-}
+      - MANUFACTURER=${MANUFACTURER:-}
+      - SERIAL_NUMBER=${SERIAL_NUMBER:-}
+    volumes:
+      # manifest.py hardcodes /firmware-packages and /firmware.
+      - ../../firmware-packages:/firmware-packages:ro
+      - ../../tools/matter-build:/matter-tools:ro
+      - ./firmware:/firmware:ro
+      - ./native/board:/matter-board:ro
+      - ./pyproject.toml:/project/pyproject.toml:ro
+      # build.py freezes this page so the board serves the dashboard itself.
+      - ./viz:/viz:ro
+      - ./outputs:/outputs
+      - matter-build-cache:/build-cache
+
+  # For the ESP32-CAM, set SERIAL_PORT=/dev/ttyUSB0.
   esp32-monitor:
     build:
       context: ../..
@@ -38,7 +65,8 @@ services:
       - ../../tools/matter-build:/matter-tools:ro
       - /dev:/dev
     device_cgroup_rules:
-      - c 166:* rmw
+      - c 166:* rmw  # USB-ACM (ESP32-S3 native USB)
+      - c 188:* rmw  # USB-serial (ESP32-CAM-MB)
 
   esp32-flash:
     build:
@@ -55,6 +83,24 @@ services:
       - /dev:/dev
     device_cgroup_rules:
       - c 166:* rmw
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  esp32cam-flash:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.matter
+      target: matter-cam-flash
+    depends_on:
+      esp32cam-compile:
+        condition: service_completed_successfully
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyUSB0}
+    volumes:
+      - ./outputs:/outputs:ro
+      - /dev:/dev
+    device_cgroup_rules:
+      - c 188:* rmw  # USB-serial (ESP32-CAM-MB)
     extra_hosts:
       - host.docker.internal:host-gateway
 

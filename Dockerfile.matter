@@ -77,6 +77,7 @@ ENTRYPOINT ["bash", "-ceu", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   . /opt/esp-matter/export.sh; \
   exec python3 /matter-tools/build.py \
+    --board \"${MATTER_BOARD:-}\" \
     --passcode \"${PASSCODE:-}\" \
     --manufacturer \"${MANUFACTURER:-}\" \
     --serial-number \"${SERIAL_NUMBER:-}\" \
@@ -88,7 +89,7 @@ FROM matter-toolchain AS matter-monitor
 ENTRYPOINT ["bash", "-ceu", "\
   port=${SERIAL_PORT:-/dev/ttyACM0}; \
   [[ -e $port ]] || { \
-    echo \"ERROR: serial port $port not found. Plug in the ESP32-S3.\" >&2; \
+    echo \"ERROR: serial port $port not found. Plug in the board.\" >&2; \
     exit 1; \
   }; \
   if [[ ${MONITOR_RESET:-1} == 0 ]]; then reset_flag=--no-reset; else reset_flag=; fi; \
@@ -105,7 +106,8 @@ ENTRYPOINT ["bash", "-ceu", "\
 
 # Stage: matter-flash — flashes app.esp32-s3.bin to $SERIAL_PORT.
 #
-# Keep this in sync with Dockerfile.firmware's esp32-flash stage.
+# Keep this in sync with Dockerfile.firmware's esp32-flash stage and with
+# matter-cam-flash below.
 FROM matter-toolchain AS matter-flash
 
 ENTRYPOINT ["sh","-c", "\
@@ -126,3 +128,35 @@ ENTRYPOINT ["sh","-c", "\
   IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
   esptool.py --chip esp32s3 --port $PORT $RESET write_flash -z 0x0 \
     /outputs/app.esp32-s3.bin"]
+
+
+# Stage: matter-cam-flash — flashes app.esp32-cam.bin to $SERIAL_PORT
+# (default /dev/ttyUSB0, the ESP32-CAM-MB's USB-serial bridge).
+#
+# The image is the merged full-flash image, so it is written at 0x0 even though
+# the classic ESP32 boots from 0x1000. The MB board wires DTR/RTS to IO0/EN, so
+# esptool's default reset enters and leaves the bootloader on its own. The
+# macOS bridge carries neither those lines nor a baud change, so socket ports
+# keep the bridge's fixed rate and need the board already in bootloader mode.
+#
+# Keep this in sync with matter-flash above.
+FROM matter-toolchain AS matter-cam-flash
+
+ENTRYPOINT ["sh","-c", "\
+  set -e; \
+  PORT=${SERIAL_PORT:-/dev/ttyUSB0}; \
+  case $PORT in \
+    socket://*|rfc2217://*) \
+      OPTIONS='--before no_reset --after no_reset' ;; \
+    *) \
+      if [ ! -e $PORT ]; then \
+        echo ERROR: serial port $PORT not found. >&2; \
+        echo 'Seat the ESP32-CAM on its ESP32-CAM-MB and plug in USB. If flashing then fails to connect, hold IO0, tap RST, and retry.' >&2; \
+        echo 'On macOS: run tools/serial-bridge.sh and export SERIAL_PORT=socket://host.docker.internal:5555' >&2; \
+        exit 1; \
+      fi; \
+      OPTIONS='--baud 460800' ;; \
+  esac; \
+  IDF_PATH_FORCE=1 . /opt/esp/idf/export.sh; \
+  esptool.py --chip esp32 --port $PORT $OPTIONS write_flash -z 0x0 \
+    /outputs/app.esp32-cam.bin"]

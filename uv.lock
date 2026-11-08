@@ -624,16 +624,16 @@ wheels = [
 
 [[package]]
 name = "matter"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "/wheels" }
-sdist = { path = "/wheels/matter-0.2.0.tar.gz" }
+sdist = { path = "/wheels/matter-0.2.1.tar.gz" }
 wheels = [
-    { path = "/wheels/matter-0.2.0-py3-none-any.whl" },
+    { path = "/wheels/matter-0.2.1-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "matter-example"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "projects/matter" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -644,7 +644,7 @@ requires-dist = [{ name = "micropython-boardfarm", editable = "." }]
 
 [[package]]
 name = "matter-radar-sensor"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "projects/matter-radar-sensor" }
 dependencies = [
     { name = "micropython-boardfarm" },
@@ -664,7 +664,7 @@ wheels = [
 
 [[package]]
 name = "micropython-boardfarm"
-version = "0.20.0"
+version = "0.21.0"
 source = { editable = "." }
 dependencies = [
     { name = "atgm336h" },

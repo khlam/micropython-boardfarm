@@ -1,4 +1,4 @@
-"""Stream an ESP32-S3's serial output as timestamped lines.
+"""Stream an ESP32 board's serial output as timestamped lines.
 
 The firmware writes one JSON object per line, so lines are passed through
 verbatim rather than parsed: a MicroPython traceback or a raw ESP-IDF log is
@@ -40,7 +40,7 @@ def main() -> int:
 
 def _parse_args() -> argparse.Namespace:
     """Parse the monitor's command line."""
-    parser = argparse.ArgumentParser(description="Capture ESP32-S3 serial output.")
+    parser = argparse.ArgumentParser(description="Capture ESP32 serial output.")
     parser.add_argument("--port", required=True, help="serial device to read")
     parser.add_argument("--baud", type=int, default=_DEFAULT_BAUD, help="serial line speed")
     parser.add_argument(

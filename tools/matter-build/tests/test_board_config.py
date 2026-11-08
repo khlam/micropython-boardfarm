@@ -93,6 +93,7 @@ def test_pyproject_rejects_an_invalid_model_name(tmp_path, contents):
 def test_board_to_identity_reads_the_fixture_board():
     identity = build._board_to_identity(_FIXTURES, discovery_mode=2)
     assert identity == build._BuildIdentity(
+        idf_target="esp32s3",
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,
@@ -107,6 +108,7 @@ def test_board_to_identity_matches_the_real_board_config():
     # partition placement or flash size has to be a deliberate edit here too.
     identity = build._board_to_identity(_REAL_BOARD, discovery_mode=build._DISCOVERY_MODE)
     assert identity == build._BuildIdentity(
+        idf_target="esp32s3",
         vendor_id=0xFFF1,
         product_id=0x8001,
         factory_offset=0x3D0000,

@@ -1,10 +1,13 @@
-# ESP32-S3-Zero Matter occupancy sensor
+# Matter occupancy sensor
 
 This project exposes an HLK-LD2450 or HLK-LD2420 mmWave radar as a read-only
 Matter Occupancy Sensor and a virtual Dimmable Light that configures its
 occupancy hold. It is an edge translator: detailed 10 Hz radar reports become a
 low-bandwidth Matter occupancy state, while full target telemetry remains
-available through the board's webpage and the USB serial stream.
+available through the board's webpage and the serial stream.
+
+It runs on the ESP32-S3-Zero or on an AI-Thinker ESP32-CAM; see
+[Wiring](#wiring) for each board's pins.
 
 Both radars wire to the same UART pins and one firmware image serves either.
 The board detects which one is attached at startup, and the product contract
@@ -190,8 +193,8 @@ project acts on is the outcome of a read:
 | `DeviceNotFoundError` | No valid startup report within two seconds |
 | `OSError` | UART initialization or read failure |
 
-On ESP32-S3, MicroPython implements `UART.IRQ_RXIDLE` with `Timer(0)`, which
-this project reserves for the driver.
+On every ESP32 chip, MicroPython implements `UART.IRQ_RXIDLE` with `Timer(0)`,
+which this project reserves for the driver.
 
 ### Occupancy decision and failure handling
 
@@ -247,8 +250,9 @@ to one path may coalesce to the latest value.
 
 ## Commissioning and status pixel
 
-The onboard WS2812 on GPIO21 displays commissioning state first, then radar
-health and occupancy. Brightness is capped at ten percent.
+The status WS2812 displays commissioning state first, then radar health and
+occupancy. It is the ESP32-S3-Zero's onboard pixel on GPIO21, or an external
+pixel on the ESP32-CAM's IO13. Brightness is capped at ten percent.
 
 | Pixel | Meaning |
 | --- | --- |
@@ -288,10 +292,12 @@ radar produced it is reported once per detection:
 {"diag":"radar_ok","model":"LD2420"}
 ```
 
-One `emit()` sink writes each line to both destinations: USB serial and the
+One `emit()` sink writes each line to both destinations: serial and the
 dashboard WebSocket. Read the serial side with
 `docker compose run --rm --build esp32-monitor`, setting
-`SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`.
+`SERIAL_PORT=/dev/ttyACM1` when the board is not `/dev/ttyACM0`. On the
+ESP32-CAM, serial runs through the ESP32-CAM-MB's USB-serial bridge at 115200
+baud; set `SERIAL_PORT=/dev/ttyUSB0`.
 
 ## The board's dashboard
 
@@ -354,11 +360,24 @@ docker compose run --rm --build esp32-flash
 docker compose run --rm --build esp32-monitor
 ```
 
-Each build produces a matched set under `outputs/`:
+For the ESP32-CAM, the same steps use their `esp32cam-` services. Seat the
+board on its ESP32-CAM-MB programmer, which appears as `/dev/ttyUSB0` and puts
+the ESP32 into its bootloader on its own. If flashing fails to connect, hold
+`IO0`, tap `RST`, and run it again:
 
-- `app.esp32-s3.bin`: merged 4 MB flash image
-- `app.esp32-s3.qr.png`: commissioning QR code
-- `app.esp32-s3.setup.txt`: manual code and setup payload
+```console
+docker compose up --build --exit-code-from esp32cam-compile esp32cam-compile
+docker compose run --rm --build esp32cam-flash
+SERIAL_PORT=/dev/ttyUSB0 docker compose run --rm --build esp32-monitor
+```
+
+Each build produces a matched set under `outputs/`, named for its board. An
+ESP32-S3 build and an ESP32-CAM build sit side by side:
+
+- `app.esp32-s3.bin` / `app.esp32-cam.bin`: merged 4 MB flash image
+- `app.esp32-s3.qr.png` / `app.esp32-cam.qr.png`: commissioning QR code
+- `app.esp32-s3.setup.txt` / `app.esp32-cam.setup.txt`: manual code and setup
+  payload
 
 The build normally mints a fresh passcode as well as a fresh discriminator and
 salt. The factory partition stores the SPAKE2+ verifier and salt, not the
@@ -379,8 +398,9 @@ before commissioning the newly flashed image.
 
 In Apple Home, choose **Add Accessory** and scan
 `outputs/app.esp32-s3.qr.png`, or enter the manual code from
-`outputs/app.esp32-s3.setup.txt`. Complete the prompts for 2.4 GHz Wi-Fi and
-room assignment, then compare Home's Occupancy value with the onboard pixel.
+`outputs/app.esp32-s3.setup.txt` (`app.esp32-cam.*` for the ESP32-CAM). Complete
+the prompts for 2.4 GHz Wi-Fi and room assignment, then compare Home's Occupancy
+value with the status pixel.
 
 A commissioned device does not reopen its initial BLE window on every boot.
 Factory-reset it from an interrupted MicroPython REPL with:
@@ -424,6 +444,31 @@ Power the LD2420 from 3V3, not 5V. Its `OT2` presence output is not used.
 | `GPIO5` | UART1 TX | `RX` | MCU commands to radar |
 | `GPIO6` | UART1 RX | `OT1` | Radar reports to MCU |
 | — | — | `OT2` | Not connected |
+
+### ESP32-CAM
+
+The AI-Thinker ESP32-CAM's camera and microSD slot are unused. Its own LEDs are
+a red on/off LED and the white flash LED, so the status pixel is an external
+WS2812. Pins below are the board's silkscreen labels.
+
+| ESP32-CAM | UART role | Connects to | Purpose |
+| --- | --- | --- | --- |
+| `5V` | — | Radar `5V` (LD2450) and WS2812 `5V` | Power |
+| `3V3` | — | Radar `3V3` (LD2420) | Power |
+| `GND` | — | Radar `GND` and WS2812 `GND` | Common ground |
+| `IO14` | UART1 TX | Radar `RX` | MCU commands to radar |
+| `IO15` | UART1 RX | Radar `TX` (LD2450) or `OT1` (LD2420) | Radar reports to MCU |
+| `IO13` | — | WS2812 `DIN` | Status pixel |
+
+Leave `IO12`, `IO2`, `IO4` and `IO16` unconnected. `IO12` held high at boot sets
+the wrong flash voltage, and the board does not boot. `IO2` held high stops the
+bootloader from starting. `IO4` drives the flash LED, and `IO16` is the PSRAM
+chip select.
+
+ESP32-CAM boards are prone to brownout resets on Wi-Fi current peaks, so this
+image keeps the same CPU, Wi-Fi, and BLE power limits as the ESP32-S3-Zero's.
+Power the radar from the same short USB feed as the board, and treat a
+`Brownout detector was triggered` message the same way.
 
 ## Design tradeoffs and production considerations
 

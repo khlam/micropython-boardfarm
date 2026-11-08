@@ -24,6 +24,7 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 | <img src="images/rp2040-zero.jpg" alt="RP2040-Zero" width="60"> | RP2040-Zero | No wireless. Onboard WS2812 RGB LED. 264 KB SRAM, no threads. |
 | <img src="images/rp2350.jpg" alt="RP2350" width="60"> | RP2350 (Pico 2 W) | WiFi + Bluetooth via the onboard CYW43. Status LED on/off only. |
 | <img src="images/esp32-s3.jpg" alt="ESP32-S3-Zero" width="60"> | ESP32-S3-Zero | WiFi + BLE. Onboard WS2812 RGB LED. Native USB-CDC; must be in bootloader mode (BOOT+RESET) before flashing. |
+|   | ESP32-CAM (AI-Thinker) | Matter projects only. Classic ESP32, WiFi + BLE, 4 MB PSRAM; camera and microSD unused. No native USB: flashed and read through an ESP32-CAM-MB programmer (`/dev/ttyUSB0`). Status needs an external WS2812. |
 
 
 |   | Peripheral | Notes |
@@ -42,7 +43,7 @@ Write-once library code runs across different MCUs and shared peripherals. 🦾�
 - [cpython-packages/ 💻](cpython-packages/) contains shared CPython code. CPython runs on a computer, not on the MCU.
 - [firmware-packages/ 🕹️](firmware-packages/) contains shared MicroPython code; the microcontroller's I²C bus, status LED, sensor drivers etc. Stubs enable tests to run with CPython.
 - [projects/ 🚂](projects/) contains runnable example projects that use above packages to make firmware and interfaces.
-- [MicroPython Matter Node](projects/matter/) uses MicroPython for product behavior over a native ESP-Matter ESP32-S3 backend.
+- [MicroPython Matter Node](projects/matter/) uses MicroPython for product behavior over a native ESP-Matter backend on the ESP32-S3 or ESP32-CAM.
 - [Matter Occupancy Sensor](projects/matter-radar-sensor/) builds on that backend to publish an HLK-LD2450 or HLK-LD2420 radar as a Matter occupancy sensor, and serves its own dashboard from the board.
 
 **Makefile**

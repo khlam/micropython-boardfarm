@@ -26,8 +26,8 @@ Run project commands from inside a project directory.
 | [distance-stream](distance-stream/) | VL53L0X ToF | ~50 Hz | Plotly line chart of `distance_mm` |
 | [gyro-stream](gyro-stream/) | MPU6050 IMU (accel + gyro + temp) | ~100 Hz | Plotly multi-trace + 3D orientation view |
 | [ld2450](ld2450/) | HLK-LD2450 radar sensor | 10 Hz | Live X/Y tracks + 60 s analytics |
-| [matter](matter/) | MicroPython-owned Matter endpoint example | Event driven | Apple Home / Matter controllers |
-| [matter-radar-sensor](matter-radar-sensor/) | HLK-LD2450 or HLK-LD2420 radar as a Matter occupancy sensor | 10 Hz | Apple Home / Matter controllers + live X/Y tracks |
+| [matter](matter/) | MicroPython-owned Matter endpoint example (ESP32-S3-Zero or ESP32-CAM) | Event driven | Apple Home / Matter controllers |
+| [matter-radar-sensor](matter-radar-sensor/) | HLK-LD2450 or HLK-LD2420 radar as a Matter occupancy sensor (ESP32-S3-Zero or ESP32-CAM) | 10 Hz | Apple Home / Matter controllers + live X/Y tracks |
 | [multizone-ranging](multizone-ranging/) | VL53L5CX 8×8 ToF | ~15 Hz | Plotly 8×8 3D point cloud + distance stats |
 
 ## Usage
@@ -39,6 +39,8 @@ From `projects/<project>/`:
 | Compile ESP32-S3 firmware (no board needed) | `docker compose up --build esp32-compile` |
 | Compile + flash ESP32-S3 (board must be in bootloader mode) | `docker compose run --rm --build esp32-flash` |
 | Run dashboard at http://localhost:18501 | `docker compose up --build viz` |
+| Compile ESP32-CAM firmware (Matter projects only) | `docker compose up --build esp32cam-compile` |
+| Compile + flash ESP32-CAM through its ESP32-CAM-MB (Matter projects only) | `docker compose run --rm --build esp32cam-flash` |
 
 Per-board flash and bootloader-mode steps: [microcontrollers.md](microcontrollers.md).
 

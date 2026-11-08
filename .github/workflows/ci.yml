@@ -124,6 +124,20 @@ jobs:
           - project: matter-radar-sensor
             target: esp32
             max_bytes: 4194304  # 4 MiB (board flash size)
+          # The Matter projects also build for the AI-Thinker ESP32-CAM. The
+          # esp32cam target is outside the base matrix, so these add jobs only.
+          - project: matter
+            target: esp32cam
+            service: esp32cam-compile
+            label: ESP32-CAM
+            pattern: outputs/*.bin
+            max_bytes: 4194304  # 4 MiB (board flash size)
+          - project: matter-radar-sensor
+            target: esp32cam
+            service: esp32cam-compile
+            label: ESP32-CAM
+            pattern: outputs/*.bin
+            max_bytes: 4194304  # 4 MiB (board flash size)
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6

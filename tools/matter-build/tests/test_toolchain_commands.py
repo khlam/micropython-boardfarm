@@ -12,6 +12,7 @@ import build
 import pytest
 
 _IDENTITY = build._BuildIdentity(
+    idf_target="esp32s3",
     vendor_id=0xFFF1,
     product_id=0x8001,
     factory_offset=0x3D0000,
@@ -44,13 +45,13 @@ def test_run_propagates_a_failing_tool(stub_tool):
 
 
 def test_firmware_build_names_the_board_and_native_module(recorder, tmp_path):
-    build._build_firmware(tmp_path, None)
+    build._build_firmware(tmp_path, None, "ESP32_S3_MATTER")
 
     command, kwargs = recorder[0]
     assert command[0] == "idf.py"
     assert command[-1] == "build"
-    assert f"MICROPY_BOARD={build._BOARD_NAME}" in command
-    assert f"MICROPY_BOARD_DIR={build._BOARD_DIR}" in command
+    assert "MICROPY_BOARD=ESP32_S3_MATTER" in command
+    assert f"MICROPY_BOARD_DIR={build._BOARD_ROOT / 'ESP32_S3_MATTER'}" in command
     assert f"MICROPY_FROZEN_MANIFEST={build._MANIFEST}" in command
     assert command[command.index("-B") + 1] == str(tmp_path / "idf")
     assert kwargs["env"]["MATTER_NATIVE_PATH"] == str(build._MATTER_NATIVE)
